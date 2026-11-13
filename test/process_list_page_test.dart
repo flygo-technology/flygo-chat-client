@@ -41,7 +41,7 @@ void main() {
             proc(1, status: 'Đã tạo nháp, chờ kế toán ký'),
             proc(2, status: 'Chờ ký', tone: 'orange'),
             proc(3, status: 'Không lấy được XML', tone: 'red', state: 'failed'),
-            // Dữ liệu cũ: nhãn lỗi còn sót màu xanh sau khi chạy tiếp (ảnh "Capital · SBSB").
+            // Dữ liệu cũ: nhãn lỗi còn sót màu xanh sau khi chạy tiếp (dữ liệu cũ trước bản sửa).
             proc(4, status: 'Lỗi ở bước Nhận chứng từ'),
             for (var i = 5; i < 12; i++) proc(i),
           ],

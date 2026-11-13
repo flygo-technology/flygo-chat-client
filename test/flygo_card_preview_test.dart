@@ -47,7 +47,7 @@ final _demos = <Map<String, dynamic>>[
     'hero': {'value': '245.000.000 ₫', 'label': 'Còn phải thu', 'tone': 'red'},
     'fields': [
       {'label': 'Khách hàng', 'value': 'CÔNG TY CP ĐẦU TƯ AN PHÁT'},
-      {'label': 'Hợp đồng', 'value': 'HĐ 0123/2026/DND', 'kind': 'copy'},
+      {'label': 'Hợp đồng', 'value': 'HĐ 0123/2026/ABC', 'kind': 'copy'},
       {'label': 'Hạn thanh toán', 'value': '26/10/2026', 'tone': 'red'},
       {'label': 'Phụ trách', 'value': 'Nguyễn Văn Diệp'},
       {'label': 'Điện thoại', 'value': '0912 345 678', 'kind': 'phone'},

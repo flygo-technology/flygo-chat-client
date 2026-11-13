@@ -29,9 +29,9 @@ void main() {
     final calls = <(String, String, String?)>[];
     MagicSignHooks.openSignBrowser = (c, {required token, required url, server}) async => calls.add((token, url, server));
     final ctx = await host(t);
-    final handled = await openFlowSignButton(ctx, {'label': 'Ký', 'url': 'https://minvoice.vn/hd/2154', 'sign': {'token': 'dnd', 'server': 'https://sign.flygo.vn'}});
+    final handled = await openFlowSignButton(ctx, {'label': 'Ký', 'url': 'https://minvoice.vn/hd/2154', 'sign': {'token': 'cty-a', 'server': 'https://sign.flygo.vn'}});
     expect(handled, isTrue);
-    expect(calls, [('dnd', 'https://minvoice.vn/hd/2154', 'https://sign.flygo.vn')]);
+    expect(calls, [('cty-a', 'https://minvoice.vn/hd/2154', 'https://sign.flygo.vn')]);
     // Nút link thường (không sign): để nơi gọi mở như cũ.
     expect(await openFlowSignButton(ctx, {'label': 'Xem', 'url': 'https://x.vn'}), isFalse);
     expect(calls.length, 1);
@@ -40,14 +40,14 @@ void main() {
   testWidgets('chưa cài ký số: báo "Chưa cài ký số trên app này"', (t) async {
     final ctx = await host(t);
     // Không có http/https: không gọi trình duyệt ngoài trong test, chỉ kiểm thông báo.
-    final handled = await openFlowSignButton(ctx, {'label': 'Ký', 'url': 'about:blank', 'sign': {'token': 'dnd'}});
+    final handled = await openFlowSignButton(ctx, {'label': 'Ký', 'url': 'about:blank', 'sign': {'token': 'cty-a'}});
     await t.pump();
     expect(handled, isTrue);
     expect(find.text('Chưa cài ký số trên app này'), findsOneWidget);
   });
 
   testWidgets('trình sửa: bật ký số, chọn token từ hook', (t) async {
-    MagicSignHooks.signTokens = () async => [(id: 'tk1', name: 'Token DND', company: 'Cty DND'), (id: 'tk2', name: 'Token Flygo', company: 'Flygo')];
+    MagicSignHooks.signTokens = () async => [(id: 'tk1', name: 'Token Cty A', company: 'Cty A'), (id: 'tk2', name: 'Token Flygo', company: 'Flygo')];
     final b = <String, dynamic>{'label': 'Ký', 'url': 'https://x.vn'};
     var changed = 0;
     await host(t, SingleChildScrollView(child: FlowSignEditor(button: b, vars: const [], onChanged: () => changed++)));
@@ -86,7 +86,7 @@ void main() {
       'action': {
         'kind': 'buttons', 'prompt': 'Ký hoá đơn 2154',
         'buttons': [
-          {'id': 'mo', 'label': 'Ký trên M-Invoice', 'url': 'https://minvoice.vn/hd/2154', 'sign': {'token': 'dnd'}},
+          {'id': 'mo', 'label': 'Ký trên M-Invoice', 'url': 'https://minvoice.vn/hd/2154', 'sign': {'token': 'cty-a'}},
           {'id': 'xong', 'label': 'Đã ký xong', 'style': 'primary'},
         ],
       },
@@ -95,7 +95,7 @@ void main() {
     expect(find.byIcon(Icons.draw_outlined), findsOneWidget, reason: 'nút ký số có biểu tượng riêng');
     await t.tap(find.text('Ký trên M-Invoice'));
     await t.pumpAndSettle();
-    expect(calls, ['dnd|https://minvoice.vn/hd/2154']);
+    expect(calls, ['cty-a|https://minvoice.vn/hd/2154']);
     expect(sent, isEmpty, reason: 'nút link không rẽ nhánh');
     await t.tap(find.text('Đã ký xong'));
     await t.pumpAndSettle();
