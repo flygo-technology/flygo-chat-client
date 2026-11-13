@@ -1,0 +1,85 @@
+{
+  "id": "canh-bao-ton-kho",
+  "name": "Cảnh báo tồn kho thấp",
+  "icon": "📦",
+  "category": "Mua hàng - Kho",
+  "trigger": {
+    "schedule": {
+      "every": "day",
+      "at": "08:00"
+    }
+  },
+  "form": [
+    {
+      "key": "ma_hang",
+      "label": "Mã hàng",
+      "type": "text",
+      "required": true,
+      "default": "MA-HANG",
+      "hint": "Mã hàng trong ERP"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "kho",
+      "type": "auto",
+      "name": "Tra tồn kho",
+      "action": "mcp",
+      "params": {
+        "server": "erp",
+        "tool": "ton_kho",
+        "args": {
+          "ma_hang": "{{form.ma_hang}}"
+        }
+      },
+      "output_schema": {
+        "so_luong": "number"
+      }
+    },
+    {
+      "id": "it",
+      "type": "condition",
+      "name": "Dưới ngưỡng?",
+      "rules": [
+        {
+          "if": "steps.kho.output.so_luong < 5",
+          "to": "bao"
+        }
+      ],
+      "else": "end"
+    },
+    {
+      "id": "bao",
+      "type": "notify",
+      "name": "Nhắn thủ kho",
+      "to": [
+        {
+          "role": "thu_kho"
+        }
+      ],
+      "text": "Mã {{form.ma_hang}} chỉ còn {{steps.kho.output.so_luong}} trong kho."
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ],
+  "edges": [
+    [
+      "start",
+      "kho"
+    ],
+    [
+      "kho",
+      "it"
+    ],
+    [
+      "bao",
+      "end"
+    ]
+  ]
+}

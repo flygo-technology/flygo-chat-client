@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ký số đa năng – Cài đặt</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="page">
+    <main class="panel">
+      <h1>Ký số đa năng – Ký từ xa</h1>
+      <p class="muted">
+        Extension chuyển yêu cầu ký mà website gửi tới plugin trên máy (localhost) sang máy ký của công ty. Không cần
+        cài phần mềm ký trên máy này.
+      </p>
+      <p class="muted small">
+        Địa chỉ máy ký không nhập ở đây: mở <b>link kết nối</b> quản trị viên gửi (https://ky.flygo.vn/c/…) hoặc trang
+        quản trị của máy chủ ký rồi bấm <b>Kết nối trình duyệt</b>, website sẽ tự cài đặt cho extension. Ở văn phòng,
+        extension cũng tự tìm máy ký trong mạng.
+      </p>
+      <section id="signed-out" hidden>
+        <form id="login">
+          <p id="server" class="muted"></p>
+          <label>Tên máy này <input id="device" placeholder="vd. Máy kế toán 1" /></label>
+          <button id="login-button" class="primary">Đăng nhập</button>
+          <p class="muted small">Trang đăng nhập của máy chủ sẽ mở ra; đăng nhập rồi bấm “Cho phép”.</p>
+        </form>
+      </section>
+      <section id="signed-in" hidden>
+        <p>Đã đăng nhập <strong id="who"></strong> tại <span id="where"></span>.</p>
+        <p class="muted small">Thiết bị: <span id="device-name"></span></p>
+        <span class="row start">
+          <button id="open" class="primary">Mở trang ký</button>
+          <button id="logout">Đăng xuất</button>
+        </span>
+      </section>
+      <p id="message" class="message"></p>
+      <p id="status" class="muted"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

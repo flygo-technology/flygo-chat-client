@@ -1,0 +1,113 @@
+{
+  "id": "vn.flygo.kyso",
+  "name": "Ký số",
+  "version": "0.7.5",
+  "hidden": true,
+  "features": {
+    "spaces": true
+  },
+  "permissions": {
+    "sign": {
+      "name": "Ký số",
+      "level": "sensitive",
+      "per_space": true
+    }
+  },
+  "admin": {
+    "name": "Quản trị Ký số",
+    "url": "/admin"
+  },
+  "api_origins": {
+    "main": {
+      "url": "env:SERVER"
+    }
+  },
+  "host_origins": {
+    "relay": {
+      "url": "wss://remote-sign-relay.flygo.vn"
+    }
+  },
+  "extension": {
+    "background": {
+      "page": "/app/engine.html",
+      "compat": "chrome"
+    },
+    "content_scripts": {
+      "bridge": {
+        "js": "/app/page-bridge.js",
+        "match": [
+          "*://*/*"
+        ],
+        "world": "MAIN",
+        "run_at": "document_start"
+      },
+      "inject": {
+        "js": "/ext/inject.js",
+        "match": [
+          "*://*/*"
+        ],
+        "world": "MAIN",
+        "run_at": "document_start"
+      }
+    },
+    "ports": {
+      "magic-sign": {
+        "to": "background"
+      }
+    },
+    "messages": {
+      "web_status": {
+        "to": "background"
+      },
+      "web_connect": {
+        "to": "background"
+      }
+    },
+    "prompt": {
+      "page": "/app/prompt.html",
+      "script": "/ext/prompt.js"
+    },
+    "space_provider": true,
+    "space_origins": {
+      "thue": {
+        "pattern": "https://*.gdt.gov.vn/*"
+      },
+      "dichvucong": {
+        "pattern": "https://*.dichvucong.gov.vn/*"
+      },
+      "haiquan": {
+        "pattern": "https://*.customs.gov.vn/*"
+      },
+      "bhxh": {
+        "pattern": "https://*.baohiemxahoi.gov.vn/*"
+      },
+      "efy": {
+        "pattern": "https://*.efy.com.vn/*"
+      },
+      "minvoice": {
+        "pattern": "https://*.minvoice.net/*"
+      },
+      "minvoice_vn": {
+        "pattern": "https://*.minvoice.vn/*"
+      },
+      "vnpt_invoice": {
+        "pattern": "https://*.vnpt-invoice.com.vn/*"
+      },
+      "viettel_invoice": {
+        "pattern": "https://*.sinvoice.viettel.vn/*"
+      },
+      "misa": {
+        "pattern": "https://*.meinvoice.vn/*"
+      },
+      "bkav": {
+        "pattern": "https://*.ehoadon.vn/*"
+      },
+      "kyso_dnd": {
+        "pattern": "https://kyso.dnd-global.com/*"
+      },
+      "kyso_flygo": {
+        "pattern": "https://kyso.flygo.vn/*"
+      }
+    }
+  }
+}

@@ -1,0 +1,1946 @@
+import '../i18n/i18n.dart';
+import 'theme.dart';
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'meet_overlay.dart';
+import 'ai_panel.dart';
+import '../calls/meet_room.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:provider/provider.dart';
+
+import '../calls/call_service.dart';
+import '../config.dart';
+import '../data/models.dart' show MmUser;
+import '../remote/rc_call_buttons.dart';
+import '../state/app_state.dart';
+import 'common.dart';
+import 'direct_call_screen.dart';
+import 'poll.dart';
+import 'self_view.dart';
+
+// Bảng màu kiểu Google Meet.
+const _meetBg = Color(0xFF202124);
+const _tileBg = Color(0xFF3C4043);
+const _btnBg = Color(0xFF3C4043);
+const _red = Color(0xFFEA4335);
+const _blue = Color(0xFF8AB4F8);
+const _grey = Color(0xFF9AA0A6);
+
+/// Màn hình cuộc gọi. Lúc đổ chuông / đang gọi / đã kết thúc: kiểu WhatsApp (ảnh lớn, nút tròn).
+/// Khi đã vào cuộc gọi: kiểu Google Meet (lưới ô cho mọi người, ghim, thanh nút ở dưới).
+class CallScreen extends StatefulWidget {
+  const CallScreen({super.key});
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  Timer? _tick;
+  Timer? _hide;
+  bool _popped = false;
+  bool _usersLoaded = false;
+  /// Ô đang ghim (null = không ghim). Chia sẻ màn hình tự ghim trừ khi đã bỏ ghim nó.
+  String? _pinned;
+  String? _dismissedScreen;
+  bool _controls = true;
+  CallPhase? _lastPhase;
+  /// Phòng họp (bình luận, tắt tiếng, web chia sẻ, sân khấu của trợ lý AI…) của cuộc gọi đang mở.
+  MeetRoom? _room;
+  /// Máy tính: cột trợ lý AI đang mở bên phải cuộc họp.
+  bool _aiOpen = false;
+  StreamSubscription<MeetAsk>? _asks;
+
+  void _ensureRoom(AppState app, CallService call) {
+    final ch = call.channelId;
+    if (ch == null || app.me == null || call.phase != CallPhase.active) return;
+    // Chỉ cuộc họp có phòng họp (bình luận, trình chiếu, giơ tay, AI…); gọi 1-1 / gọi nhóm thì không.
+    if (!call.meeting) return;
+    if (_room?.channelId == ch) return;
+    _disposeRoom();
+    final room = MeetRoom(
+      channelId: ch,
+      token: app.token,
+      server: kServerUrl,
+      myId: app.me!.id,
+      onMuteMe: () {
+        if (!call.muted) call.toggleMute();
+      },
+      onLowerHandMe: call.lowerHand,
+      // Luồng bình luận = tin cuộc họp của Calls ("Cuộc họp đang diễn ra / đã kết thúc"); không lấy được thì
+      // tạo tin "Cuộc họp mới" (luồng riêng công khai). Người mở cuộc họp chốt luồng ngay khi vào phòng.
+      starter: call.callerId == app.me!.id && app.channels[ch]?.isDirect != true,
+      // [text] rỗng = chỉ tạo tin gốc.
+      persistComment: (text, root) async {
+        var r = root ?? await call.threadIdOf();
+        if (r == null) {
+          final now = DateTime.now();
+          final head = await app.send(ch, '📅 ${tr('Cuộc họp mới')} · ${hhmm(now)} ${ddmmyyyy(now)}',
+              props: {'flygo_open_thread': true, 'flygo_silent': true, 'flygo_meet_thread': true});
+          r = head?.id;
+          if (r == null) return (null, null);
+        }
+        if (text.isEmpty) return (r, null);
+        final p = await app.send(ch, text, rootId: r, replyKind: 'thread', props: {'flygo_meet_comment': true, 'flygo_silent': true});
+        return (r, p?.id);
+      },
+    );
+    room.addListener(_onRoom);
+    _asks = room.asks.stream.listen((a) => _onAsk(call, a));
+    _room = room;
+    if (call.deafened) room.setSilent(true);
+  }
+
+  void _onRoom() {
+    if (mounted) setState(() {});
+  }
+
+  void _disposeRoom() {
+    _asks?.cancel();
+    _room?.removeListener(_onRoom);
+    _room?.dispose();
+    _room = null;
+  }
+
+  /// Chủ phòng / trợ lý mời mình bật mic hoặc chia sẻ màn hình (hệ điều hành bắt người dùng đồng ý).
+  Future<void> _onAsk(CallService call, MeetAsk a) async {
+    if (!mounted) return;
+    final mic = a.kind == 'unmute_request';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(mic ? tr('{0} mời bạn bật mic', [a.from]) : tr('{0} mời bạn chia sẻ màn hình', [a.from])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Để sau'))),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(mic ? tr('Bật mic') : tr('Chia sẻ'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (mic) {
+      if (call.muted) call.toggleMute();
+    } else if (CallService.canShareScreen && call.localScreen == null) {
+      await _toggleShare(call);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+    _poke();
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _hide?.cancel();
+    _disposeRoom();
+    super.dispose();
+  }
+
+  /// Hiện thanh nút; trên điện thoại tự ẩn sau vài giây.
+  void _poke() {
+    _hide?.cancel();
+    if (!_controls) setState(() => _controls = true);
+    if (isDesktop) return;
+    _hide = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => _controls = false);
+    });
+  }
+
+  void _toggleControls() {
+    if (_controls && !isDesktop) {
+      _hide?.cancel();
+      setState(() => _controls = false);
+    } else {
+      _poke();
+    }
+  }
+
+  /// Nạp tên / ảnh thành viên của cuộc trò chuyện để hiện trên các ô.
+  void _loadUsers(AppState app, String? ch) {
+    if (_usersLoaded || ch == null) return;
+    _usersLoaded = true;
+    app.channelUsers(ch).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  String _duration(DateTime? s) {
+    if (s == null) return '';
+    final d = DateTime.now().difference(s);
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final sec = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$m:$sec' : '$m:$sec';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final call = app.calls;
+    final ch = call.channelId == null ? null : app.channels[call.channelId];
+    final meeting = call.meeting;
+    if (call.phase == CallPhase.idle && !_popped) {
+      _popped = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).maybePop();
+      });
+    }
+    _loadUsers(app, call.channelId);
+    // Gọi 1-1 (tin riêng, không phải cuộc họp): màn hình riêng kiểu WhatsApp.
+    if (call.direct != null) return PopScope(canPop: !call.busy, child: const DirectCallView());
+    _ensureRoom(app, call);
+    // Vào cuộc gọi nhóm / cuộc họp: báo mic và camera đã tắt sẵn.
+    if (call.autoMutedNotice && call.phase == CallPhase.active) {
+      call.autoMutedNotice = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+          content: Row(children: [
+            const Icon(Icons.mic_off, color: Colors.white, size: 20),
+            const SizedBox(width: 6),
+            const Icon(Icons.videocam_off, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(tr('Mic và camera đã được tắt tự động. Bấm nút mic / camera để bật khi cần.'))),
+          ]),
+        ));
+      });
+    }
+    if (call.phase != _lastPhase) {
+      // Vừa vào cuộc gọi: hiện thanh nút rồi mới tự ẩn.
+      if (call.phase == CallPhase.active) WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _poke() : null);
+      _lastPhase = call.phase;
+    }
+    final title = ch == null ? '' : app.channelTitle(ch);
+    final caller = call.callerId == null ? '' : _nameOf(app, call.callerId!);
+    final status = switch (call.phase) {
+      CallPhase.incoming => call.groupRing
+          ? (call.incomingVideo ? tr('{0} đang gọi video nhóm', [caller]) : tr('{0} đang gọi thoại nhóm', [caller]))
+          : (call.incomingVideo ? tr('Cuộc gọi video đến') : tr('Cuộc gọi thoại đến')),
+      CallPhase.outgoing => call.reconnecting ? tr('Đang kết nối lại…') : tr('Đang đổ chuông...'),
+      CallPhase.connecting => tr('Đang kết nối...'),
+      CallPhase.active =>
+        call.remoteUsers.isEmpty && ch?.isDirect == false
+            ? tr('Đang chờ mọi người...')
+            : _duration(call.startedAt),
+      CallPhase.ended => call.endReason ?? (meeting ? tr('Cuộc họp đã kết thúc') : tr('Cuộc gọi đã kết thúc')),
+      CallPhase.idle => '',
+    };
+
+    return PopScope(
+      canPop: !call.busy,
+      child: call.phase == CallPhase.active
+          ? (isDesktop && _aiOpen && call.channelId != null
+              ? Row(children: [
+                  Expanded(child: _meet(app, call, title, status)),
+                  SizedBox(
+                    width: 440,
+                    child: Material(
+                      // Trợ lý của cuộc họp = phiên AI của luồng bình luận cuộc họp (cùng phiên với nút ✨ trong luồng).
+                      child: AiPanel(
+                          groupId: call.channelId!, thread: _room?.threadRoot ?? call.callThreadId, onClose: () => setState(() => _aiOpen = false)),
+                    ),
+                  ),
+                ])
+              : _meet(app, call, title, status))
+          : _ringing(app, call, ch?.otherUserId(app.me?.id ?? ''), title, status, meeting),
+    );
+  }
+
+  // ---------------------------------------------------------------- đổ chuông / đang gọi / kết thúc
+
+  Widget _ringing(AppState app, CallService call, String? otherId, String title, String status, bool meeting) {
+    final local = call.localVideo;
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B141A),
+      body: Stack(
+        children: [
+          if (local != null) Positioned.fill(child: CallVideo(stream: local, mirror: true)),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: local != null
+                    ? [Colors.black38, Colors.transparent, Colors.black54]
+                    : [const Color(0xFF1F2C34), const Color(0xFF0B141A)],
+              ),
+            ),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.lock_outline, size: 14, color: Color(0xFF8696A0)),
+                      const SizedBox(width: 6),
+                      Text(
+                        meeting ? tr('Cuộc họp nội bộ Flygo Chat') : tr('Cuộc gọi nội bộ Flygo Chat'),
+                        style: const TextStyle(color: Color(0xFF8696A0), fontSize: 13),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
+                  Avatar(
+                    userId: otherId,
+                    name: title,
+                    size: 128,
+                    icon: otherId == null ? Icons.groups : null,
+                  ),
+                  const SizedBox(height: 24),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(status, style: const TextStyle(color: Color(0xFFD1D7DB), fontSize: 17)),
+                  const Spacer(),
+                  if (call.phase == CallPhase.incoming)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 56),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _RoundButton(
+                            icon: Icons.call_end,
+                            color: const Color(0xFFF15C6D),
+                            label: tr('Từ chối'),
+                            onTap: call.decline,
+                          ),
+                          _RoundButton(
+                            icon: call.incomingVideo ? Icons.videocam : Icons.call,
+                            color: const Color(0xFF25D366),
+                            label: tr('Nghe máy'),
+                            onTap: call.accept,
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (call.busy)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1F2C34),
+                        borderRadius: BorderRadius.circular(36),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _RoundButton(
+                            icon: call.camera ? Icons.videocam : Icons.videocam_off_outlined,
+                            color: call.camera ? Colors.white : const Color(0xFF3B4A54),
+                            iconColor: call.camera ? Colors.black : Colors.white,
+                            onTap: call.toggleCamera,
+                            size: 58,
+                          ),
+                          if (call.camera && !isDesktop)
+                            _RoundButton(
+                              icon: Icons.cameraswitch_outlined,
+                              color: const Color(0xFF3B4A54),
+                              onTap: call.switchCamera,
+                              size: 58,
+                            ),
+                          if (!isDesktop)
+                            _RoundButton(
+                              icon: call.speaker ? Icons.volume_up : Icons.volume_down_outlined,
+                              color: call.speaker ? Colors.white : const Color(0xFF3B4A54),
+                              iconColor: call.speaker ? Colors.black : Colors.white,
+                              onTap: call.toggleSpeaker,
+                              size: 58,
+                            ),
+                          _RoundButton(
+                            icon: call.muted ? Icons.mic_off : Icons.mic_none,
+                            color: call.muted ? Colors.white : const Color(0xFF3B4A54),
+                            iconColor: call.muted ? Colors.black : Colors.white,
+                            onTap: call.toggleMute,
+                            size: 58,
+                          ),
+                          _RoundButton(
+                            icon: Icons.call_end,
+                            color: const Color(0xFFF15C6D),
+                            onTap: () => call.hangUp(),
+                            size: 58,
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    const SizedBox(height: 120),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------- giao diện kiểu Google Meet
+
+  static final _fetching = <String>{};
+  String _nameOf(AppState app, String userId) {
+    final n = app.users[userId]?.displayName ?? '';
+    if (n.isEmpty && userId.isNotEmpty && _fetching.add(userId)) {
+      // Người trong cuộc gọi chưa có trong danh bạ của app (vd. ngoài nhóm): tải tên về rồi vẽ lại.
+      app.refreshUser(userId).catchError((_) {});
+    }
+    return n.isEmpty ? tr('Người dùng') : n;
+  }
+
+  /// Mọi ô: chia sẻ màn hình trước (của mình trước tiên), rồi người khác, cuối cùng là mình.
+  List<_TileData> _tiles(AppState app, CallService call) {
+    final screens = <_TileData>[
+      if (call.localScreen != null)
+        _TileData(
+          key: 'screen:me',
+          userId: app.me?.id,
+          name: tr('Bạn đang chia sẻ màn hình'),
+          stream: call.localScreen,
+          screen: true,
+        ),
+    ];
+    final people = <_TileData>[];
+    for (final p in call.participants) {
+      // Phiên chưa rõ là ai (chưa có user id) thì không vẽ ô "Người dùng" trống.
+      if (p.userId.isEmpty) continue;
+      // Chính mình vào từ thiết bị khác (hoặc phiên cũ chưa thoát hẳn).
+      final name = p.userId == app.me?.id ? tr('Bạn (thiết bị khác)') : _nameOf(app, p.userId);
+      if (p.hasScreen) {
+        screens.add(_TileData(
+          key: 'screen:${p.sessionId}',
+          userId: p.userId,
+          name: tr('{0} đang trình bày', [name]),
+          stream: p.screenStream,
+          trackId: p.screenTrackId,
+          screen: true,
+        ));
+      }
+      people.add(_TileData(
+        key: p.sessionId,
+        userId: p.userId,
+        name: name,
+        stream: p.hasVideo ? p.videoStream : null,
+        trackId: p.videoTrackId,
+        muted: !p.unmuted,
+        speaking: p.speaking && p.unmuted,
+        raisedHand: p.raisedHand,
+      ));
+    }
+    final me = _TileData(
+      key: 'me',
+      userId: app.me?.id,
+      name: tr('Bạn'),
+      stream: call.localVideo,
+      mirror: true,
+      muted: call.muted,
+      speaking: call.meSpeaking && !call.muted,
+    );
+    return [...screens, ...people, me];
+  }
+
+  void _tapTile(String key, String? spot) {
+    setState(() {
+      if (key == spot) {
+        // Bấm lại ô đang ghim: bỏ ghim (chia sẻ màn hình thì nhớ là đã bỏ ghim).
+        if (_pinned == key) {
+          _pinned = null;
+        } else {
+          _dismissedScreen = key;
+        }
+      } else {
+        _pinned = key;
+      }
+    });
+    _poke();
+  }
+
+  Widget _meet(AppState app, CallService call, String title, String status) {
+    final tiles = _tiles(app, call);
+    final keys = {for (final t in tiles) t.key};
+    if (_pinned != null && !keys.contains(_pinned)) _pinned = null;
+    final star = _room?.star;
+    final spot = _pinned ??
+        (star == null ? null : tiles.where((t) => !t.screen && t.userId == star).firstOrNull?.key) ??
+        tiles.where((t) => t.screen && t.key != _dismissedScreen).firstOrNull?.key;
+    final room = _room;
+    final staged = room != null && (room.stage != null || room.webUrl != null);
+    final show = _controls;
+    return Scaffold(
+      backgroundColor: _meetBg,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControls,
+                child: AnimatedPadding(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.fromLTRB(8, show ? 60 : 8, 8, show ? 88 : 8),
+                  child: staged
+                      ? MeetStage(room: room)
+                      : LayoutBuilder(builder: (context, box) => _stage(tiles, spot, box, call)),
+                ),
+              ),
+            ),
+            // Phụ đề lời trợ lý cả khi không có màn trình chiếu.
+            if (!staged && room?.caption != null)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: show ? 100 : 24,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: .72), borderRadius: BorderRadius.circular(10)),
+                    child: Text(room!.caption!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 17, height: 1.35, fontWeight: FontWeight.w500)),
+                  ),
+                ),
+              ),
+            // Cảm xúc bay lên + bình luận nổi.
+            Positioned.fill(child: ReactionsLayer(reactions: call.reactions.stream)),
+            // Bình luận nổi ở góc trái trên (không đè nhãn ô video ở dưới).
+            if (room != null) Positioned(left: 12, top: show ? 64 : 12, child: CommentsTicker(room: room)),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _fade(show, _topBar(title, status)),
+            ),
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: _fade(show, _controlBar(app, call)),
+            ),
+            if (call.reconnecting)
+              Positioned(
+                top: show ? 64 : 12,
+                left: 0,
+                right: 0,
+                child: const Center(child: ReconnectingChip()),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fade(bool show, Widget child) => IgnorePointer(
+        ignoring: !show,
+        child: AnimatedOpacity(
+          opacity: show ? 1 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: child,
+        ),
+      );
+
+  Widget _topBar(String title, String status) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(status, style: const TextStyle(color: _grey, fontSize: 13)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _tile(_TileData t, String? spot, {bool small = false}) => _Tile(
+        key: ValueKey(t.key),
+        data: t,
+        pinned: t.key == spot,
+        small: small,
+        onTap: () => _tapTile(t.key, spot),
+      );
+
+  Widget _stage(List<_TileData> tiles, String? spot, BoxConstraints box, CallService call, {bool inner = false}) {
+    final wide = box.maxWidth > box.maxHeight;
+    const gap = 8.0;
+    // Gọi nhóm / chỉ hai ô: hình của mình nổi ở góc, kéo đi khắp màn hình; kéo xuống nút xoá ở đáy là tắt camera.
+    final me = tiles.where((t) => t.key == 'me').firstOrNull;
+    if (!inner && me != null && spot != me.key && tiles.length >= 2 && (call.groupCall || tiles.length == 2)) {
+      final rest = [for (final t in tiles) if (t.key != me.key) t];
+      return Stack(children: [
+        Positioned.fill(child: _stage(rest, spot, box, call, inner: true)),
+        DraggablePip(
+          key: const ValueKey('pip'),
+          width: wide ? 240.0 : 108.0,
+          height: wide ? 135.0 : 160.0,
+          onTap: () => _tapTile(me.key, spot),
+          onRemove: call.camera ? () => call.toggleCamera() : null,
+          child: _tile(me, spot, small: true),
+        ),
+      ]);
+    }
+    // Cuộc họp / gọi nhóm chưa có ai: lời nhắn chờ ở giữa, ô của mình nhỏ bên dưới.
+    if (!inner && tiles.length == 1 && call.channelId != null && !call.isDm(call.channelId!)) {
+      final group = call.groupCall;
+      final h = math.min(box.maxHeight * .42, 280.0);
+      return Column(children: [
+        Expanded(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.groups_rounded, size: 56, color: _grey),
+                const SizedBox(height: 12),
+                Text(
+                  group ? tr('Đang gọi mọi người trong nhóm…') : tr('Đang chờ mọi người tham gia…'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  group
+                      ? tr('Cuộc gọi tự kết thúc khi mọi người rời đi.')
+                      : tr('Mọi người trong nhóm có thể tham gia bất cứ lúc nào.'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: _grey, fontSize: 13.5),
+                ),
+              ]),
+            ),
+          ),
+        ),
+        SizedBox(height: h, width: math.min(box.maxWidth, wide ? h * 16 / 9 : h * 3 / 4), child: _tile(tiles.first, spot)),
+      ]);
+    }
+    // Có ô ghim: ô đó lớn, các ô còn lại thành dải bên phải (màn ngang) hoặc ở dưới (màn dọc).
+    if (spot != null) {
+      final main = tiles.firstWhere((t) => t.key == spot);
+      final rest = [for (final t in tiles) if (t.key != spot) t];
+      if (rest.isEmpty) return _tile(main, spot);
+      final strip = ListView.separated(
+        scrollDirection: wide ? Axis.vertical : Axis.horizontal,
+        itemCount: rest.length,
+        separatorBuilder: (_, _) => const SizedBox(width: gap, height: gap),
+        itemBuilder: (_, i) => SizedBox(
+          width: wide ? null : 150,
+          height: wide ? 130 : null,
+          child: _tile(rest[i], spot, small: true),
+        ),
+      );
+      return wide
+          ? Row(children: [
+              Expanded(child: _tile(main, spot)),
+              const SizedBox(width: gap),
+              SizedBox(width: math.min(240, box.maxWidth * .25), child: strip),
+            ])
+          : Column(children: [
+              Expanded(child: _tile(main, spot)),
+              const SizedBox(height: gap),
+              SizedBox(height: 120, child: strip),
+            ]);
+    }
+    final n = tiles.length;
+    final int cols;
+    if (n == 1) {
+      cols = 1;
+    } else if (n == 2) {
+      cols = wide ? 2 : 1;
+    } else if (n <= 4) {
+      cols = 2;
+    } else if (n <= 9) {
+      cols = 3;
+    } else {
+      cols = box.maxWidth > 1100 ? 4 : (wide ? 3 : 2);
+    }
+    // Đông người: cuộn dọc.
+    if (n > 9) {
+      return GridView.builder(
+        itemCount: n,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: cols,
+          mainAxisSpacing: gap,
+          crossAxisSpacing: gap,
+          childAspectRatio: wide ? 16 / 9 : 3 / 4,
+        ),
+        itemBuilder: (_, i) => _tile(tiles[i], spot, small: true),
+      );
+    }
+    // Lưới vừa khít màn hình (2×2, 3×3...), hàng cuối thiếu thì căn giữa như Meet.
+    final rows = (n / cols).ceil();
+    var tw = (box.maxWidth - gap * (cols - 1)) / cols;
+    final th = (box.maxHeight - gap * (rows - 1)) / rows;
+    if (tw > th * 16 / 9) tw = th * 16 / 9;
+    return Center(
+      child: Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        alignment: WrapAlignment.center,
+        runAlignment: WrapAlignment.center,
+        children: [
+          for (final t in tiles) SizedBox(width: tw, height: th, child: _tile(t, spot, small: n > 4)),
+        ],
+      ),
+    );
+  }
+
+  /// Gọi nhóm (kiểu WhatsApp): chỉ mic, camera, đổi camera, loa ngoài, người tham gia và gác máy — không trình chiếu,
+  /// chia sẻ màn hình, giơ tay, bình chọn hay AI (những thứ đó dành cho cuộc họp).
+  Widget _groupBar(AppState app, CallService call) {
+    final count = call.participants.where((p) => p.userId.isNotEmpty).map((p) => p.userId).toSet().length + 1;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            _MeetButton(
+              icon: Icons.people_outline,
+              color: _btnBg,
+              tooltip: tr('Người tham gia'),
+              badge: '$count',
+              onTap: () => _showPeople(app, call),
+            ),
+            _MeetButton(
+              icon: call.camera ? Icons.videocam : Icons.videocam_off,
+              color: call.camera ? _btnBg : _red,
+              tooltip: call.camera ? tr('Tắt camera') : tr('Bật camera'),
+              onTap: () {
+                call.toggleCamera();
+                _poke();
+              },
+            ),
+            if (!isDesktop && call.camera)
+              _MeetButton(
+                icon: Icons.cameraswitch_outlined,
+                color: _btnBg,
+                tooltip: tr('Đổi camera'),
+                onTap: () {
+                  call.switchCamera();
+                  _poke();
+                },
+              ),
+            if (!isDesktop)
+              _MeetButton(
+                icon: call.speaker ? Icons.volume_up : Icons.phone_in_talk,
+                color: call.speaker ? const Color(0xFFD2E3FC) : _btnBg,
+                iconColor: call.speaker ? const Color(0xFF041E49) : Colors.white,
+                tooltip: tr('Loa ngoài'),
+                onTap: () {
+                  call.toggleSpeaker();
+                  _poke();
+                },
+              ),
+            _MeetButton(
+              icon: call.muted ? Icons.mic_off : Icons.mic,
+              color: call.muted ? _red : _btnBg,
+              tooltip: call.muted ? tr('Bật micro') : tr('Tắt micro'),
+              onTap: () {
+                call.toggleMute();
+                _poke();
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Tooltip(
+                message: tr('Rời cuộc gọi'),
+                child: Material(
+                  color: _red,
+                  shape: const StadiumBorder(),
+                  child: InkWell(
+                    customBorder: const StadiumBorder(),
+                    onTap: () => call.hangUp(),
+                    child: const SizedBox(width: 68, height: 52, child: Icon(Icons.call_end, color: Colors.white, size: 26)),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Điện thoại: thanh nút gọn — mic, camera, AI, "⋯" (mở bảng các nút còn lại) và gác máy.
+  Widget _mobileBar(AppState app, CallService call) {
+    final ai = call.channelId != null && app.channels[call.channelId] != null && app.showsAiFor(app.channels[call.channelId]!);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            _MeetButton(
+              icon: call.muted ? Icons.mic_off : Icons.mic,
+              color: call.muted ? _red : _btnBg,
+              tooltip: call.muted ? tr('Bật micro') : tr('Tắt micro'),
+              onTap: () {
+                call.toggleMute();
+                _poke();
+              },
+            ),
+            _MeetButton(
+              icon: call.camera ? Icons.videocam : Icons.videocam_off,
+              color: call.camera ? _btnBg : _red,
+              tooltip: call.camera ? tr('Tắt camera') : tr('Bật camera'),
+              onTap: () {
+                call.toggleCamera();
+                _poke();
+              },
+            ),
+            if (ai)
+              _MeetButton(
+                icon: Icons.auto_awesome,
+                color: _btnBg,
+                tooltip: tr('Trợ lý AI'),
+                badge: app.aiUnreadFor(call.channelId!, thread: _room?.threadRoot ?? call.callThreadId) > 0
+                    ? '${app.aiUnreadFor(call.channelId!, thread: _room?.threadRoot ?? call.callThreadId)}'
+                    : null,
+                onTap: () => openAiPanel(context, call.channelId!, thread: _room?.threadRoot ?? call.callThreadId),
+              ),
+            _MeetButton(
+              icon: Icons.more_horiz_rounded,
+              color: _btnBg,
+              tooltip: tr('Thêm'),
+              badge: call.handRaised ? '✋' : null,
+              onTap: () => _mobileMore(app, call),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Material(
+                color: _red,
+                shape: const StadiumBorder(),
+                child: InkWell(
+                  customBorder: const StadiumBorder(),
+                  onTap: () => _leave(call),
+                  child: const SizedBox(width: 68, height: 52, child: Icon(Icons.call_end, color: Colors.white, size: 26)),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Bảng "⋯" trên điện thoại: hàng cảm xúc + các nút còn lại.
+  Future<void> _mobileMore(AppState app, CallService call) async {
+    _hide?.cancel();
+    final room = _room;
+    final host = _isHost(app, call);
+    final count = call.participants.length + 1;
+    final a = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF2D2E31),
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        Widget tile(String v, IconData icon, String label, {bool on = false, String? badge}) => SizedBox(
+              width: 86,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => Navigator.pop(ctx, v),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Badge(
+                      isLabelVisible: badge != null,
+                      label: Text(badge ?? ''),
+                      child: Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(shape: BoxShape.circle, color: on ? const Color(0xFF8AB4F8) : _btnBg),
+                        child: Icon(icon, color: on ? const Color(0xFF041E49) : Colors.white),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(label, textAlign: TextAlign.center, maxLines: 2, style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+                  ]),
+                ),
+              ),
+            );
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              // Cảm xúc: bấm là thả luôn.
+              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                for (final e in CallService.reactionNames.keys)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () => Navigator.pop(ctx, 'react:$e'),
+                    child: Padding(padding: const EdgeInsets.all(8), child: Text(e, style: const TextStyle(fontSize: 30))),
+                  ),
+              ]),
+              const Divider(color: Colors.white12),
+              Wrap(alignment: WrapAlignment.center, children: [
+                tile('hand', Icons.back_hand_outlined, call.handRaised ? tr('Hạ tay') : tr('Giơ tay'), on: call.handRaised),
+                tile('deafen', call.deafened ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    call.deafened ? tr('Bật tiếng cuộc họp') : tr('Tắt tiếng cuộc họp'), on: call.deafened),
+                tile('speaker', call.speaker ? Icons.volume_up : Icons.phone_in_talk, tr('Loa ngoài'), on: call.speaker),
+                if (call.camera) tile('switch', Icons.cameraswitch_outlined, tr('Đổi camera')),
+                // Điều khiển máy tính (lib/remote/rc_call_buttons.dart).
+                for (final r in rcCallActions(app, call)) tile(r.id, r.icon, r.label, on: r.on),
+                tile('people', Icons.people_outline, tr('Người tham gia'), badge: '$count'),
+                if (room != null)
+                  tile('comments', Icons.chat_bubble_outline_rounded, tr('Bình luận'),
+                      badge: room.comments.isEmpty ? null : '${room.comments.length}'),
+                if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
+                if (room != null && room.webUrl == null) tile('web', Icons.public, tr('Chia sẻ website')),
+                if (room != null && room.webUrl != null) tile('web_close', Icons.public_off, tr('Dừng chia sẻ website')),
+                if (room != null && host) tile('mute_all', Icons.mic_off_outlined, tr('Tắt tiếng tất cả')),
+                if (room != null && host && room.stage != null) tile('clear', Icons.layers_clear_outlined, tr('Tắt màn trình chiếu')),
+                if (room != null && host && room.star != null) tile('unstar', Icons.star_outline, tr('Bỏ ngôi sao')),
+              ]),
+            ]),
+          ),
+        );
+      },
+    );
+    if (a == null || !mounted) return;
+    if (a.startsWith('react:')) return call.react(a.substring(6));
+    switch (a) {
+      case 'hand':
+        call.toggleHand();
+      case 'deafen':
+        _toggleDeafen(call);
+      case 'speaker':
+        await call.toggleSpeaker();
+      case 'switch':
+        await call.switchCamera();
+      case 'people':
+        _showPeople(app, call);
+      case 'comments':
+        if (room != null) await showMeetComments(context, room);
+      case 'poll':
+        await _polls(app, call);
+      case 'rc_request' || 'rc_invite':
+        await runRcCallAction(context, app, call, a);
+      default:
+        await _runMore(a, app, call);
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Tắt / bật tiếng cuộc họp phía mình: tiếng mọi người và cả sân khấu (giọng đọc, nhạc, hiệu ứng của slide).
+  void _toggleDeafen(CallService call) {
+    call.toggleDeafen();
+    _room?.setSilent(call.deafened);
+  }
+
+  Widget _controlBar(AppState app, CallService call) {
+    if (call.groupCall) return _groupBar(app, call);
+    if (!isDesktop) return _mobileBar(app, call);
+    final count = call.participants.length + 1;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MeetButton(
+                icon: call.muted ? Icons.mic_off : Icons.mic,
+                color: call.muted ? _red : _btnBg,
+                tooltip: call.muted ? tr('Bật micro') : tr('Tắt micro'),
+                onTap: () {
+                  call.toggleMute();
+                  _poke();
+                },
+              ),
+              _MeetButton(
+                icon: call.camera ? Icons.videocam : Icons.videocam_off,
+                color: call.camera ? _btnBg : _red,
+                tooltip: call.camera ? tr('Tắt camera') : tr('Bật camera'),
+                onTap: () {
+                  call.toggleCamera();
+                  _poke();
+                },
+              ),
+              // Tắt tiếng cuộc họp phía mình: không nghe ai, kể cả giọng đọc / nhạc của slide.
+              _MeetButton(
+                icon: call.deafened ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                color: call.deafened ? _red : _btnBg,
+                tooltip: call.deafened ? tr('Bật tiếng cuộc họp') : tr('Tắt tiếng cuộc họp'),
+                onTap: () {
+                  _toggleDeafen(call);
+                  _poke();
+                },
+              ),
+              if (!isDesktop && call.camera)
+                _MeetButton(
+                  icon: Icons.cameraswitch_outlined,
+                  color: _btnBg,
+                  tooltip: tr('Đổi camera'),
+                  onTap: () {
+                    call.switchCamera();
+                    _poke();
+                  },
+                ),
+              if (!isDesktop)
+                _MeetButton(
+                  icon: call.speaker ? Icons.volume_up : Icons.phone_in_talk,
+                  color: call.speaker ? const Color(0xFFD2E3FC) : _btnBg,
+                  iconColor: call.speaker ? const Color(0xFF041E49) : Colors.white,
+                  tooltip: tr('Loa ngoài'),
+                  onTap: () {
+                    call.toggleSpeaker();
+                    _poke();
+                  },
+                ),
+              if (CallService.canShareScreen)
+                _MeetButton(
+                  icon: call.localScreen != null ? Icons.stop_screen_share_outlined : Icons.present_to_all,
+                  color: call.localScreen != null ? const Color(0xFF8AB4F8) : _btnBg,
+                  iconColor: call.localScreen != null ? const Color(0xFF041E49) : Colors.white,
+                  tooltip: call.localScreen != null ? tr('Dừng chia sẻ màn hình') : tr('Chia sẻ màn hình'),
+                  onTap: () => _toggleShare(call),
+                ),
+              // Điều khiển máy tính (lib/remote/rc_call_buttons.dart).
+              for (final a in rcCallActions(app, call))
+                _MeetButton(
+                  icon: a.icon,
+                  color: a.on ? const Color(0xFF8AB4F8) : _btnBg,
+                  iconColor: a.on ? const Color(0xFF041E49) : Colors.white,
+                  tooltip: a.label,
+                  onTap: () {
+                    _poke();
+                    runRcCallAction(context, app, call, a.id);
+                  },
+                ),
+              _MeetButton(
+                icon: Icons.people_outline,
+                color: _btnBg,
+                tooltip: tr('Người tham gia'),
+                badge: '$count',
+                onTap: () => _showPeople(app, call),
+              ),
+              // Giơ tay.
+              _MeetButton(
+                icon: Icons.back_hand_outlined,
+                color: call.handRaised ? const Color(0xFFFDD663) : _btnBg,
+                iconColor: call.handRaised ? const Color(0xFF3C2A00) : Colors.white,
+                tooltip: call.handRaised ? tr('Hạ tay') : tr('Giơ tay'),
+                onTap: () {
+                  call.toggleHand();
+                  _poke();
+                },
+              ),
+              // Thả cảm xúc.
+              Builder(
+                builder: (b) => _MeetButton(
+                  icon: Icons.favorite_border_rounded,
+                  color: _btnBg,
+                  tooltip: tr('Thả cảm xúc'),
+                  onTap: () => _pickReaction(b, call),
+                ),
+              ),
+              if (_room != null)
+                _MeetButton(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  color: _btnBg,
+                  tooltip: tr('Bình luận'),
+                  badge: _room!.comments.isEmpty ? null : '${_room!.comments.length}',
+                  onTap: () => showMeetComments(context, _room!),
+                ),
+              // Trợ lý AI của nhóm (cùng phiên với tab AI): theo dõi bình luận, gợi ý trả lời, trình chiếu.
+              if (call.channelId != null && app.channels[call.channelId] != null && app.showsAiFor(app.channels[call.channelId]!))
+                _MeetButton(
+                  icon: Icons.auto_awesome,
+                  color: _btnBg,
+                  tooltip: tr('Trợ lý AI'),
+                  badge: app.aiUnreadFor(call.channelId!) > 0 ? '${app.aiUnreadFor(call.channelId!)}' : null,
+                  // Máy tính: cột phải cạnh cuộc họp (bấm lại để đóng); có nút tách ra cửa sổ riêng.
+                  onTap: () => setState(() => _aiOpen = !_aiOpen),
+                ),
+              if (_room != null)
+                Builder(
+                  builder: (b) => _MeetButton(
+                    icon: Icons.more_horiz_rounded,
+                    color: _btnBg,
+                    tooltip: tr('Thêm'),
+                    onTap: () => _moreMenu(b, app, call),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Tooltip(
+                  message: tr('Rời cuộc gọi'),
+                  child: Material(
+                    color: _red,
+                    shape: const StadiumBorder(),
+                    child: InkWell(
+                      customBorder: const StadiumBorder(),
+                      onTap: () => _leave(call),
+                      child: const SizedBox(
+                        width: 68,
+                        height: 52,
+                        child: Icon(Icons.call_end, color: Colors.white, size: 26),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Gác máy. Người tạo cuộc họp: chọn rời (cuộc họp vẫn tiếp tục) hoặc kết thúc cuộc họp cho mọi người.
+  Future<void> _leave(CallService call) async {
+    if (!call.isMeetingCreator) return call.hangUp();
+    _hide?.cancel();
+    final a = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF2D2E31),
+      showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: 520),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.logout_rounded, color: Colors.white),
+              title: Text(tr('Rời cuộc họp'), style: const TextStyle(color: Colors.white)),
+              subtitle: Text(tr('Cuộc họp vẫn tiếp tục, bạn vào lại được.'), style: const TextStyle(color: _grey)),
+              onTap: () => Navigator.pop(ctx, 'leave'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.call_end_rounded, color: _red),
+              title: Text(tr('Kết thúc cuộc họp'), style: const TextStyle(color: _red, fontWeight: FontWeight.w600)),
+              subtitle: Text(tr('Mọi người rời họp, cuộc họp đóng lại.'), style: const TextStyle(color: _grey)),
+              onTap: () => Navigator.pop(ctx, 'end'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (a == 'leave') return call.hangUp();
+    if (a == 'end') return call.endMeeting();
+    _poke();
+  }
+
+  /// Bình chọn trong cuộc họp: danh sách bình chọn của luồng cuộc họp (bấm chọn ngay tại đây) và nút tạo mới.
+  Future<void> _polls(AppState app, CallService call) async {
+    final ch = call.channelId;
+    if (ch == null) return;
+    _hide?.cancel();
+    final since = call.startedAt?.millisecondsSinceEpoch ?? 0;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: 560),
+      builder: (ctx) => ListenableBuilder(
+        listenable: app,
+        builder: (ctx, _) {
+          final polls = [
+            for (final p in app.postsOf(ch).reversed)
+              if (p.props['flygo_poll'] is Map && p.deleteAt == 0 && p.createAt >= since - 60000) p,
+          ];
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .8),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+                  child: Row(children: [
+                    Expanded(child: Text(tr('Bình chọn'), style: Theme.of(ctx).textTheme.titleLarge)),
+                    FilledButton.icon(
+                      onPressed: () => _newPoll(app, call),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: Text(tr('Tạo bình chọn')),
+                    ),
+                  ]),
+                ),
+                if (polls.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text(tr('Chưa có bình chọn nào trong cuộc họp này.'), textAlign: TextAlign.center),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      itemCount: polls.length,
+                      separatorBuilder: (_, _) => const Divider(height: 24),
+                      itemBuilder: (_, i) => PollCard(app: app, post: polls[i], width: 520),
+                    ),
+                  ),
+              ]),
+            ),
+          );
+        },
+      ),
+    );
+    _poke();
+  }
+
+  Future<void> _newPoll(AppState app, CallService call) async {
+    final ch = call.channelId;
+    if (ch == null) return;
+    final poll = await showCreatePoll(context, app.me?.id ?? '');
+    if (poll == null || !mounted) return;
+    poll.remove('_pin');
+    // Gửi vào chat của nhóm (ai không trong cuộc họp cũng thấy); bình chọn ngay trong bảng của cuộc họp.
+    await app.send(ch, '📊 ${tr('Bình chọn')}: ${poll['question']}', props: {'flygo_poll': poll});
+  }
+
+  bool _isHost(AppState app, CallService call) =>
+      (_room?.host ?? false) || call.callerId == app.me?.id || (call.channelId != null && app.canManage(call.channelId!));
+
+  Future<void> _pickReaction(BuildContext anchor, CallService call) async {
+    _poke();
+    final box = anchor.findRenderObject() as RenderBox;
+    final pos = box.localToGlobal(Offset.zero);
+    final e = await showMenu<String>(
+      context: context,
+      color: const Color(0xFF303134),
+      position: RelativeRect.fromLTRB(pos.dx - 80, pos.dy - 70, pos.dx + 200, pos.dy),
+      items: [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            for (final e in CallService.reactionNames.keys)
+              InkWell(
+                onTap: () => Navigator.pop(context, e),
+                child: Padding(padding: const EdgeInsets.all(6), child: Text(e, style: const TextStyle(fontSize: 28))),
+              ),
+          ]),
+        ),
+      ],
+    );
+    if (e != null) call.react(e);
+  }
+
+  /// "…": chia sẻ website, tắt tiếng tất cả (chủ phòng), dừng web / xoá màn trình chiếu.
+  Future<void> _moreMenu(BuildContext anchor, AppState app, CallService call) async {
+    _poke();
+    final room = _room;
+    if (room == null) return;
+    final host = _isHost(app, call);
+    final box = anchor.findRenderObject() as RenderBox;
+    final pos = box.localToGlobal(Offset.zero);
+    PopupMenuItem<String> item(String v, IconData i, String t) => PopupMenuItem(
+          value: v,
+          child: Row(children: [Icon(i, color: Colors.white, size: 20), const SizedBox(width: 12), Text(t, style: const TextStyle(color: Colors.white))]),
+        );
+    final a = await showMenu<String>(
+      context: context,
+      color: const Color(0xFF303134),
+      position: RelativeRect.fromLTRB(pos.dx - 200, pos.dy - 220, pos.dx + 40, pos.dy),
+      items: [
+        item('poll', Icons.poll_outlined, tr('Bình chọn')),
+        if (room.webUrl == null) item('web', Icons.public, tr('Chia sẻ website')) else item('web_close', Icons.public_off, tr('Dừng chia sẻ website')),
+        if (host) item('mute_all', Icons.mic_off_outlined, tr('Tắt tiếng tất cả')),
+        if (room.stage != null && host) item('clear', Icons.layers_clear_outlined, tr('Tắt màn trình chiếu')),
+        if (room.star != null && host) item('unstar', Icons.star_outline, tr('Bỏ ngôi sao')),
+      ],
+    );
+    await _runMore(a, app, call);
+  }
+
+  Future<void> _runMore(String? a, AppState app, CallService call) async {
+    final room = _room;
+    if (room == null) return;
+    switch (a) {
+      case 'poll':
+        await _polls(app, call);
+      case 'web':
+        if (!mounted) return;
+        final ctl = TextEditingController(text: 'https://');
+        final url = await showDialog<String>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: Text(tr('Chia sẻ website')),
+            content: TextField(controller: ctl, autofocus: true, keyboardType: TextInputType.url, onSubmitted: (v) => Navigator.pop(d, v)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Hủy'))),
+              FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: Text(tr('Chia sẻ'))),
+            ],
+          ),
+        );
+        final u = (url ?? '').trim();
+        if (u.isNotEmpty && u != 'https://') room.openWeb(u.startsWith('http') ? u : 'https://$u');
+      case 'web_close':
+        room.closeWeb();
+      case 'mute_all':
+        room.muteAll();
+        call.hostMuteOthers();
+      case 'clear':
+        room.clearStage();
+      case 'unstar':
+        room.setStar(null);
+    }
+  }
+
+  /// Chia sẻ màn hình (máy tính): chọn màn hình / cửa sổ rồi gửi; bấm lại để dừng.
+  Future<void> _toggleShare(CallService call) async {
+    _poke();
+    if (call.localScreen != null) {
+      await call.stopScreenShare();
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final id = await showDialog<String>(context: context, builder: (_) => const ScreenPicker());
+    if (id == null || !mounted) return;
+    final err = await call.startScreenShare(id);
+    if (err != null) messenger.showSnackBar(toast(Text(err)));
+    // Màn hình của mình tự ghim (bỏ dấu "đã bỏ ghim" cũ).
+    if (mounted) setState(() => _dismissedScreen = null);
+  }
+
+  /// Thành viên nhóm chưa vào cuộc gọi nhóm (nhóm đông thì chỉ hiện 50 người đầu).
+  List<MmUser> _notJoined(AppState app, CallService call) {
+    final ch = call.channelId;
+    if (ch == null) return const [];
+    final inCall = {app.me?.id, for (final p in call.participants) p.userId};
+    return [
+      for (final id in app.knownMemberIds(ch) ?? const <String>[])
+        if (!inCall.contains(id) && app.users[id] != null && app.users[id]!.deleteAt == 0 && !app.users[id]!.isBot) app.users[id]!,
+    ].take(50).toList();
+  }
+
+  /// Danh sách người tham gia (cập nhật trực tiếp).
+  void _showPeople(AppState app, CallService call) {
+    _hide?.cancel();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF2D2E31),
+      isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: 520),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => ListenableBuilder(
+        listenable: call,
+        builder: (ctx, _) {
+          final people = call.participants;
+          final myName = app.me?.displayName ?? '';
+          Widget row({
+            required String? userId,
+            required String name,
+            required bool muted,
+            required bool speaking,
+            required bool video,
+            bool screen = false,
+            bool hand = false,
+          }) =>
+              ListTile(
+                leading: _Face(userId: userId, name: name, size: 40),
+                title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hand) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.back_hand, color: Color(0xFFFDD663), size: 20)),
+                    if (screen) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.present_to_all, color: _blue, size: 20)),
+                    Icon(video ? Icons.videocam : Icons.videocam_off, color: video ? Colors.white : _grey, size: 20),
+                    const SizedBox(width: 10),
+                    Icon(
+                      muted ? Icons.mic_off : (speaking ? Icons.graphic_eq : Icons.mic),
+                      color: muted ? _red : (speaking ? _blue : Colors.white),
+                      size: 20,
+                    ),
+                    // Chủ phòng: thao tác với người này (tắt mic, mời bật mic, ngôi sao, mời chia sẻ màn hình).
+                    if (_room != null && userId != null && userId != app.me?.id && _isHost(app, call))
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
+                        color: const Color(0xFF303134),
+                        onSelected: (a) {
+                          final r = _room!;
+                          switch (a) {
+                            case 'mute':
+                              r.mute(userId);
+                              call.hostMute(userId);
+                            case 'unmute':
+                              r.askUnmute(userId);
+                            case 'star':
+                              r.setStar(r.star == userId ? null : userId);
+                            case 'screen':
+                              r.askScreen(userId);
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(value: 'mute', child: Text(tr('Tắt mic'), style: const TextStyle(color: Colors.white))),
+                          PopupMenuItem(value: 'unmute', child: Text(tr('Mời bật mic'), style: const TextStyle(color: Colors.white))),
+                          PopupMenuItem(
+                              value: 'star',
+                              child: Text(_room!.star == userId ? tr('Bỏ ngôi sao') : tr('Đưa lên ngôi sao'),
+                                  style: const TextStyle(color: Colors.white))),
+                          PopupMenuItem(value: 'screen', child: Text(tr('Mời chia sẻ màn hình'), style: const TextStyle(color: Colors.white))),
+                        ],
+                      ),
+                  ],
+                ),
+              );
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .7),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                    child: Text(
+                      tr('Người tham gia ({0})', [people.length + 1]),
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        row(
+                          userId: app.me?.id,
+                          name: myName.isEmpty ? tr('Bạn') : tr('{0} (Bạn)', [myName]),
+                          muted: call.muted,
+                          speaking: call.meSpeaking && !call.muted,
+                          video: call.camera,
+                        ),
+                        for (final p in people)
+                          row(
+                            userId: p.userId,
+                            name: _nameOf(app, p.userId),
+                            muted: !p.unmuted,
+                            speaking: p.speaking && p.unmuted,
+                            video: p.video,
+                            screen: p.screen,
+                            hand: p.raisedHand,
+                          ),
+                        // Gọi nhóm: thành viên chưa vào (kiểu WhatsApp: "Đang gọi…" / "Chưa tham gia").
+                        if (call.groupCall)
+                          for (final u in _notJoined(app, call))
+                            ListTile(
+                              leading: Opacity(opacity: .55, child: _Face(userId: u.id, name: u.displayName, size: 40)),
+                              title: Text(u.displayName,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70)),
+                              trailing: Text(
+                                call.phase == CallPhase.outgoing ? tr('Đang gọi…') : tr('Chưa tham gia'),
+                                style: const TextStyle(color: _grey, fontSize: 13),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(_poke);
+  }
+}
+
+/// Dữ liệu một ô: một người (camera hoặc ảnh đại diện) hoặc một màn hình đang chia sẻ.
+class _TileData {
+  final String key;
+  final String? userId;
+  final String name;
+  final MediaStream? stream;
+  final String? trackId;
+  final bool mirror;
+  final bool muted;
+  final bool speaking;
+  final bool screen;
+  final bool raisedHand;
+  const _TileData({
+    required this.key,
+    required this.userId,
+    required this.name,
+    this.stream,
+    this.trackId,
+    this.mirror = false,
+    this.muted = false,
+    this.speaking = false,
+    this.screen = false,
+    this.raisedHand = false,
+  });
+}
+
+class _Tile extends StatelessWidget {
+  final _TileData data;
+  final bool pinned;
+  final bool small;
+  final VoidCallback onTap;
+  const _Tile({super.key, required this.data, required this.pinned, required this.small, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = data;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: d.screen ? Colors.black : _tileBg,
+          borderRadius: BorderRadius.circular(12),
+          // Viền xanh khi đang nói.
+          border: Border.all(color: d.speaking ? _blue : Colors.transparent, width: 3),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: LayoutBuilder(
+            builder: (context, box) => Stack(
+              fit: StackFit.expand,
+              children: [
+                if (d.stream != null)
+                  CallVideo(stream: d.stream!, trackId: d.trackId, mirror: d.mirror, contain: d.screen)
+                else
+                  Center(
+                    child: _Face(
+                      userId: d.userId,
+                      name: d.name,
+                      size: (math.min(box.maxWidth, box.maxHeight) * .4).clamp(32.0, 128.0),
+                    ),
+                  ),
+                Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 6,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(6)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (d.muted) ...[
+                                Icon(Icons.mic_off, color: Colors.white, size: small ? 13 : 16),
+                                const SizedBox(width: 4),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  d.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: Colors.white, fontSize: small ? 12 : 14),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (d.speaking)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(color: Color(0xFF1A73E8), shape: BoxShape.circle),
+                      child: const Icon(Icons.graphic_eq, color: Colors.white, size: 14),
+                    ),
+                  ),
+                if (pinned || d.raisedHand)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Row(
+                      children: [
+                        if (pinned) const Icon(Icons.push_pin, color: Colors.white, size: 18),
+                        if (d.raisedHand) const Icon(Icons.back_hand, color: Color(0xFFFDD663), size: 18),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Ảnh đại diện trong ô khi tắt camera: ảnh hồ sơ nếu có, không thì hình tròn màu kèm chữ cái đầu.
+class _Face extends StatelessWidget {
+  final String? userId;
+  final String name;
+  final double size;
+  const _Face({required this.userId, required this.name, required this.size});
+
+  static const _colors = [
+    Color(0xFF1A73E8),
+    Color(0xFFE8710A),
+    Color(0xFF188038),
+    Color(0xFF9334E6),
+    Color(0xFFD93025),
+    Color(0xFF129EAF),
+    Color(0xFFE52592),
+    Color(0xFF795548),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    final uid = userId;
+    if (uid != null && uid.isNotEmpty && (app.users[uid]?.lastPictureUpdate ?? 0) > 0) {
+      return Avatar(userId: uid, name: name, size: size, status: false);
+    }
+    final key = (uid ?? name).codeUnits.fold<int>(0, (a, b) => a + b);
+    final shown = uid != null && app.users[uid] != null ? app.users[uid]!.displayName : name;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: _colors[key % _colors.length]),
+      child: Text(
+        initials(shown).characters.first,
+        style: TextStyle(color: Colors.white, fontSize: size * .45, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+}
+
+/// Khung video của một track (mỗi ô có renderer riêng).
+class CallVideo extends StatefulWidget {
+  final MediaStream stream;
+  final String? trackId;
+  final bool mirror;
+  final bool contain;
+  const CallVideo({super.key, required this.stream, this.trackId, this.mirror = false, this.contain = false});
+  @override
+  State<CallVideo> createState() => _CallVideoState();
+}
+
+class _CallVideoState extends State<CallVideo> {
+  final _r = RTCVideoRenderer();
+  bool _ready = false;
+  bool _disposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _r.initialize().then((_) {
+      if (_disposed) return;
+      _ready = true;
+      _attach();
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _attach() async {
+    try {
+      // Luồng từ SFU gom mọi track của một người: chọn đúng track video (camera / màn hình).
+      await _r.setSrcObject(stream: widget.stream, trackId: widget.trackId);
+    } catch (e) {
+      debugPrint('[calls] renderer: $e');
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant CallVideo old) {
+    super.didUpdateWidget(old);
+    if (_ready && (old.stream != widget.stream || old.trackId != widget.trackId)) _attach();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _r.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) return const SizedBox.expand();
+    return RTCVideoView(
+      _r,
+      mirror: widget.mirror,
+      objectFit: widget.contain
+          ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
+          : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    );
+  }
+}
+
+/// Nút tròn của thanh điều khiển kiểu Meet.
+class _MeetButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+  final String tooltip;
+  final String? badge;
+  final VoidCallback onTap;
+  const _MeetButton({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+    this.iconColor = Colors.white,
+    this.badge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Tooltip(
+        message: tooltip,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Material(
+              color: color,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onTap,
+                child: SizedBox(width: 52, height: 52, child: Icon(icon, color: iconColor, size: 24)),
+              ),
+            ),
+            if (badge != null)
+              Positioned(
+                top: -4,
+                right: -4,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(color: const Color(0xFF1A73E8), borderRadius: BorderRadius.circular(10)),
+                  child: Text(
+                    badge!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RoundButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+  final String? label;
+  final VoidCallback onTap;
+  final double size;
+  const _RoundButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.iconColor = Colors.white,
+    this.label,
+    this.size = 70,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: color,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Icon(icon, color: iconColor, size: size * .45),
+            ),
+          ),
+        ),
+        if (label != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            label!,
+            style: const TextStyle(color: Colors.white, fontSize: 15),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// "Đang kết nối lại…" khi mạng rớt / đổi mạng giữa cuộc gọi.
+class ReconnectingChip extends StatelessWidget {
+  const ReconnectingChip({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(color: const Color(0xE6302F33), borderRadius: BorderRadius.circular(20)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFDD663)),
+        ),
+        const SizedBox(width: 10),
+        Text(tr('Đang kết nối lại…'), style: const TextStyle(color: Colors.white, fontSize: 14)),
+      ]),
+    );
+  }
+}
+
+/// Chọn màn hình hoặc cửa sổ để chia sẻ (flutter_webrtc desktopCapturer, có ảnh xem trước).
+class ScreenPicker extends StatefulWidget {
+  const ScreenPicker({super.key});
+  @override
+  State<ScreenPicker> createState() => _ScreenPickerState();
+}
+
+class _ScreenPickerState extends State<ScreenPicker> {
+  List<DesktopCapturerSource> _sources = [];
+  SourceType _type = SourceType.Screen;
+  String? _sel;
+  String? _error;
+  bool _loading = true;
+  final List<StreamSubscription> _subs = [];
+  Timer? _refresh;
+
+  @override
+  void initState() {
+    super.initState();
+    try {
+      _subs.add(desktopCapturer.onThumbnailChanged.stream.listen((_) => mounted ? setState(() {}) : null));
+      _subs.add(desktopCapturer.onNameChanged.stream.listen((_) => mounted ? setState(() {}) : null));
+    } catch (_) {}
+    _load();
+    _refresh = Timer.periodic(const Duration(seconds: 3), (_) async {
+      try {
+        await desktopCapturer.updateSources(types: [_type]);
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    _refresh?.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final list = await desktopCapturer.getSources(types: [_type], thumbnailSize: ThumbnailSize(320, 180));
+      if (!mounted) return;
+      setState(() {
+        _sources = list;
+        _error = null;
+        _loading = false;
+        _sel = list.length == 1 ? list.first.id : (list.any((s) => s.id == _sel) ? _sel : null);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = tr('Không lấy được danh sách màn hình. Kiểm tra quyền ghi màn hình của ứng dụng.');
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tab(SourceType t, String label) => Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: _type == t,
+            onSelected: (_) {
+              if (_type == t) return;
+              setState(() {
+                _type = t;
+                _sources = [];
+                _sel = null;
+              });
+              _load();
+            },
+          ),
+        );
+    return AlertDialog(
+      title: Text(tr('Chia sẻ màn hình')),
+      content: SizedBox(
+        width: 640,
+        height: 420,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [tab(SourceType.Screen, tr('Toàn màn hình')), tab(SourceType.Window, tr('Cửa sổ'))]),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _loading && _sources.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(child: Text(_error!, textAlign: TextAlign.center))
+                    : _sources.isEmpty
+                        ? Center(child: Text(tr('Không có gì để chia sẻ')))
+                        : GridView.count(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            childAspectRatio: 1.25,
+                            children: [
+                              for (final s in _sources)
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => setState(() => _sel = s.id),
+                                  onDoubleTap: () => Navigator.pop(context, s.id),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: _sel == s.id ? const Color(0xFF1A73E8) : Colors.black12,
+                                        width: _sel == s.id ? 2.5 : 1,
+                                      ),
+                                    ),
+                                    child: Column(children: [
+                                      Expanded(
+                                        child: s.thumbnail == null
+                                            ? const Center(child: Icon(Icons.desktop_windows_outlined, size: 40))
+                                            : Image.memory(s.thumbnail!, fit: BoxFit.contain, gaplessPlayback: true),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                                    ]),
+                                  ),
+                                ),
+                            ],
+                          ),
+          ),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Hủy'))),
+        FilledButton(
+          onPressed: _sel == null ? null : () => Navigator.pop(context, _sel),
+          child: Text(tr('Chia sẻ')),
+        ),
+      ],
+    );
+  }
+}

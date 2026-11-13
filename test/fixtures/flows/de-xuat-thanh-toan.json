@@ -1,0 +1,42 @@
+{
+  "id": "de-xuat-thanh-toan",
+  "name": "Đề xuất thanh toán",
+  "icon": "💸",
+  "category": "Tài chính - Kế toán",
+  "form": [
+    { "key": "loai", "label": "Loại chi", "type": "select", "options": ["Mua vật tư", "Dịch vụ", "Khác"], "required": true },
+    { "key": "so_tien", "label": "Số tiền", "type": "money", "required": true },
+    { "key": "nha_cung_cap", "label": "Nhà cung cấp", "type": "text", "required": true },
+    { "key": "hoa_don", "label": "Hoá đơn / chứng từ", "type": "files", "required": true },
+    { "key": "ghi_chu", "label": "Ghi chú", "type": "textarea" }
+  ],
+  "nodes": [
+    { "id": "start", "type": "start" },
+    { "id": "ai_kiem", "type": "ai", "name": "AI kiểm chứng từ",
+      "runner": { "kind": "bot", "bot": "ketoan-ai" },
+      "prompt": "Đối chiếu hoá đơn đính kèm với số tiền {{form.so_tien}} đ và nhà cung cấp {{form.nha_cung_cap}}. Kiểm MST, hoá đơn trùng.",
+      "input": ["form.so_tien", "form.nha_cung_cap", "form.hoa_don"],
+      "output_schema": { "khop": "bool", "lech": "money", "ghi_chu": "text" },
+      "on_error": "continue" },
+    { "id": "tp", "type": "approval", "name": "Trưởng phòng duyệt",
+      "approver": { "role": "truong_phong" }, "due": "24h",
+      "escalate": { "after": "48h", "to": { "role": "giam_doc" } } },
+    { "id": "chk", "type": "condition", "name": "Trên 20 triệu?",
+      "rules": [ { "if": "form.so_tien > 20000000", "to": "gd" } ], "else": "ktt" },
+    { "id": "gd", "type": "approval", "name": "Giám đốc duyệt", "approver": { "role": "giam_doc" }, "due": "24h" },
+    { "id": "ktt", "type": "approval", "name": "Kế toán trưởng xác nhận", "approver": { "role": "ke_toan_truong" }, "due": "24h" },
+    { "id": "ai_chi", "type": "ai", "name": "AI lập phiếu chi",
+      "runner": { "kind": "bot", "bot": "ketoan-ai" },
+      "prompt": "Lập phiếu chi trên ERP cho đề xuất {{form.so_tien}} đ trả {{form.nha_cung_cap}}.",
+      "write_approval": { "role": "ke_toan_truong" },
+      "output_schema": { "so_phieu": "text" },
+      "on_error": { "assign": { "role": "ke_toan" } } },
+    { "id": "bao", "type": "notify", "name": "Báo kế toán",
+      "to": ["$requester", { "role": "ke_toan" }],
+      "text": "Đề xuất {{form.so_tien}} đ cho {{form.nha_cung_cap}} đã duyệt, phiếu chi {{steps.ai_chi.output.so_phieu}}." },
+    { "id": "end", "type": "end" }
+  ],
+  "edges": [
+    ["start", "ai_kiem"], ["ai_kiem", "tp"], ["tp", "chk"], ["gd", "ktt"], ["ktt", "ai_chi"], ["ai_chi", "bao"], ["bao", "end"]
+  ]
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="top">
+      <img src="icon.png" alt="" width="28" height="28" />
+      <div class="brand">
+        <strong>Ký số đa năng</strong>
+        <span id="version" class="faint"></span>
+      </div>
+      <span id="state" class="pill"></span>
+    </header>
+
+    <label class="switch power card">
+      <span class="power-text">
+        <strong>Ký số qua tiện ích</strong>
+        <span id="enabled-hint" class="sub"></span>
+      </span>
+      <span id="enabled-label" class="power-label"></span>
+      <input type="checkbox" id="enabled" />
+      <span class="track"><span class="thumb"></span></span>
+    </label>
+
+    <p id="alert" class="alert" role="alert" hidden></p>
+
+    <section class="card connection">
+      <div class="label" id="mode-label">Máy chủ ký</div>
+      <div id="title" class="title">Chưa kết nối</div>
+      <p id="who" class="sub"></p>
+      <div class="actions">
+        <button id="primary" class="btn primary"></button>
+        <button id="disconnect" class="btn ghost" hidden>Ngắt agent</button>
+        <button id="lan-connect" class="link" hidden title="Có máy ký trong mạng văn phòng">Kết nối</button>
+        <button id="lan-google" class="btn primary" hidden>Đăng nhập Google</button>
+      </div>
+      <form id="lan-form" class="name-form" hidden>
+        <label for="lan-name" class="label">Tên của bạn</label>
+        <input id="lan-name" maxlength="64" autocomplete="name" placeholder="vd. Nguyễn Văn A – Kế toán" required />
+        <button class="btn primary">Gửi yêu cầu kết nối</button>
+      </form>
+    </section>
+
+    <section class="card tokens">
+      <div class="tokens-head">
+        <div class="label">Token được dùng</div>
+        <button id="reload" class="icon-btn small-btn" title="Tải lại danh sách token" aria-label="Tải lại danh sách token">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>
+        </button>
+      </div>
+      <ul id="tokens" class="token-list"></ul>
+      <p id="tokens-empty" class="sub">Chưa có token nào. Kết nối xong, danh sách hiện ở đây.</p>
+      <p id="tokens-at" class="hint"></p>
+    </section>
+
+    <section class="card device">
+      <div>
+        <div class="label">ID thiết bị</div>
+        <code id="device-id" class="id">đang tạo…</code>
+      </div>
+      <button id="copy-id" class="icon-btn" title="Copy ID thiết bị" aria-label="Copy ID thiết bị">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+      </button>
+    </section>
+
+    <p id="message" class="message"></p>
+
+    <footer class="links">
+      <button id="help" class="link">Hướng dẫn kết nối</button>
+      <button id="options" class="link">Cài đặt</button>
+      <button id="demo" class="link">Thử hộp xác nhận</button>
+    </footer>
+    <script src="popup.js"></script>
+  </body>
+</html>

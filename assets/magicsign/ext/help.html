@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hướng dẫn kết nối – Ký số đa năng</title>
+    <link rel="stylesheet" href="popup.css" />
+    <style>
+      body {
+        width: auto;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+        gap: 16px;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .badge {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      ol,
+      ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+      li + li {
+        margin-top: 4px;
+      }
+      .card {
+        gap: 10px;
+        padding: 16px 18px;
+      }
+      code {
+        font: 600 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <img src="icon.png" alt="" width="36" height="36" />
+      <div class="brand">
+        <h1>Hướng dẫn kết nối</h1>
+        <span class="faint">Tiện ích Ký số đa năng – ký số từ xa bằng USB token đặt ở văn phòng</span>
+      </div>
+    </header>
+
+    <p class="sub">
+      Tiện ích nhận lệnh ký mà website (thuế điện tử, hoá đơn, BHXH…) gửi tới "plugin ký số", rồi chuyển tới máy đang cắm
+      USB token, gọi là <b>agent</b>. Máy của bạn không cần cài phần mềm ký hay cắm token. Có 3 cách kết nối:
+    </p>
+
+    <section class="card">
+      <h2>1. Mở link kết nối <span class="badge">Khuyên dùng</span></h2>
+      <ol>
+        <li>Nhờ quản trị viên gửi <b>link kết nối</b> (dạng <code>https://ky.flygo.vn/c/…</code>) qua Zalo hoặc email.</li>
+        <li>Mở link bằng Chrome đã cài tiện ích này. Link chỉ dùng được một lần và hết hạn sau ít phút: hãy mở ngay.</li>
+        <li>Bấm <b>Kết nối</b>. Trang báo "Đã kết nối" là xong; biểu tượng tiện ích chuyển sang <b>Đã kết nối</b>.</li>
+        <li>Vào website thuế/hoá đơn và ký như khi có token cắm trên máy.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>2. Xin kết nối với agent trong cùng mạng</h2>
+      <ol>
+        <li>Khi máy bạn ở cùng mạng văn phòng với agent, tiện ích tự tìm thấy (chạy ngầm) và hiện chữ <b>Kết nối</b>
+          trong cửa sổ tiện ích.</li>
+        <li>Bấm <b>Kết nối</b>.</li>
+        <li>Báo quản trị viên duyệt máy của bạn (họ thấy tên máy và <b>ID thiết bị</b>). Duyệt xong, mở lại tiện ích sẽ thấy
+          <b>Đã kết nối</b>.</li>
+      </ol>
+      <p class="hint">Lần đầu, Chrome có thể hỏi quyền "tìm thiết bị trong mạng cục bộ": chọn <b>Cho phép</b>.</p>
+    </section>
+
+    <section class="card">
+      <h2>3. Đăng nhập máy chủ ký</h2>
+      <ol>
+        <li>Mở trang quản trị của máy chủ ký (ví dụ <code>https://kyso.flygo.vn</code>), bấm <b>Kết nối trình duyệt</b>; hoặc mở tiện ích, bấm <b>Đăng nhập</b> khi tiện ích đã tự tìm thấy máy chủ trong mạng.</li>
+        <li>Đăng nhập bằng tài khoản Google công ty rồi bấm <b>Cho phép</b>.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Khi ký</h2>
+      <ul>
+        <li>Website hiện hộp xác nhận: kiểm tra đúng <b>tên công ty / MST</b> rồi bấm Ký.</li>
+        <li>Nếu quyền là "chờ duyệt", lệnh ký chờ quản trị viên đồng ý trên trang Ký.</li>
+        <li>Quyền có thời hạn. Hết hạn hoặc bị thu hồi, tiện ích báo <b>Bị từ chối</b>: xin link kết nối mới.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Gặp lỗi?</h2>
+      <ul>
+        <li><b>Chưa kết nối / Agent đang tắt</b>: máy cắm token đang tắt hoặc mất mạng, báo quản trị viên.</li>
+        <li><b>Link đã hết hạn</b>: xin link mới, mở ngay khi nhận.</li>
+        <li><b>Website báo chưa bật plugin</b>: bật công tắc <b>Ký số qua tiện ích</b> (BẬT) ở đầu cửa sổ tiện ích rồi tải lại trang.</li>
+        <li>Khi cần hỗ trợ, gửi <b>ID thiết bị</b> (trong tiện ích, nút copy) cho quản trị viên.</li>
+      </ul>
+    </section>
+
+    <p class="hint">
+      Bảo mật: dữ liệu ký được mã hoá đầu-cuối giữa trình duyệt và agent; máy chủ trung gian (relay) không đọc được.
+      Khoá của tiện ích nằm trong trình duyệt này và không xuất ra được.
+    </p>
+  </body>
+</html>

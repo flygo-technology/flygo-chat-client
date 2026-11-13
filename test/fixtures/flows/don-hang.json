@@ -1,0 +1,28 @@
+{
+  "id": "don-hang",
+  "name": "Đơn đặt hàng",
+  "icon": "🛒",
+  "category": "Mua hàng - Kho",
+  "form": [
+    { "key": "khach_hang", "label": "Khách hàng", "type": "text", "required": true, "hint": "Tên công ty hoặc công trình" },
+    { "key": "san_pham", "label": "Sản phẩm", "type": "table", "required": true, "columns": [
+      { "key": "ten", "label": "Tên sản phẩm", "type": "text", "required": true },
+      { "key": "so_luong", "label": "Số lượng", "type": "number", "required": true, "default": 1 },
+      { "key": "don_gia", "label": "Đơn giá", "type": "money", "required": true },
+      { "key": "thanh_tien", "label": "Thành tiền", "type": "money", "calc": { "a": "so_luong", "op": "mul", "b": "don_gia" } }
+    ] },
+    { "key": "ngay_giao", "label": "Ngày giao", "type": "date", "required": true },
+    { "key": "ghi_chu", "label": "Ghi chú", "type": "textarea" }
+  ],
+  "nodes": [
+    { "id": "start", "type": "start" },
+    { "id": "tp", "type": "approval", "name": "Trưởng phòng kinh doanh duyệt", "approver": { "role": "truong_phong" }, "due": "8h" },
+    { "id": "chk", "type": "condition", "name": "Đơn lớn?",
+      "rules": [ { "if": "form.san_pham__tong.thanh_tien > 50000000 or form.san_pham__so_dong > 10", "to": "gd" } ], "else": "kho" },
+    { "id": "gd", "type": "approval", "name": "Giám đốc duyệt", "approver": { "role": "giam_doc" }, "due": "24h" },
+    { "id": "kho", "type": "notify", "name": "Báo kho chuẩn bị hàng", "to": [{ "role": "ke_toan" }, "$requester"],
+      "text": "Đơn của {{form.khach_hang}}: {{form.san_pham__so_dong}} sản phẩm, tổng {{form.san_pham__tong.thanh_tien}} đ, giao ngày {{form.ngay_giao}}." },
+    { "id": "end", "type": "end" }
+  ],
+  "edges": [ ["start", "tp"], ["tp", "chk"], ["gd", "kho"], ["kho", "end"] ]
+}

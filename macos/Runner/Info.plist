@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconFile</key>
+	<string></string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Flygo Chat cần dùng máy ảnh để chụp ảnh, quay video và gọi video.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>$(PRODUCT_COPYRIGHT)</string>
+	<key>NSMainNibFile</key>
+	<string>MainMenu</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Flygo Chat chuyển giọng nói thành chữ ngay khi bạn bấm ghi âm.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Flygo Chat dùng vị trí khi bạn chọn gửi vị trí hoặc chia sẻ vị trí trực tiếp trong cuộc trò chuyện.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Flygo Chat dùng vị trí khi bạn chọn gửi vị trí hoặc chia sẻ vị trí trực tiếp trong cuộc trò chuyện.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Flygo Chat cần dùng micro để gọi thoại.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Flygo Chat cần quyền lưu ảnh và video bạn tải về.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Flygo Chat cần truy cập thư viện ảnh để gửi ảnh và video.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>vn.flygo.chat.login</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>flygochat</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,203 @@
+{
+  "id": "nghi-phep",
+  "name": "Xin nghỉ phép",
+  "icon": "🌴",
+  "category": "Nhân sự",
+  "form": [
+    {
+      "key": "loai",
+      "label": "Loại nghỉ",
+      "type": "select",
+      "options": [
+        "Nghỉ phép năm",
+        "Nghỉ ốm",
+        "Việc riêng",
+        "Nghỉ không lương"
+      ],
+      "default": "Nghỉ phép năm",
+      "required": true
+    },
+    {
+      "key": "tu_ngay",
+      "label": "Từ ngày",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "den_ngay",
+      "label": "Đến ngày",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "so_ngay",
+      "label": "Số ngày",
+      "type": "number",
+      "required": true,
+      "default": 1
+    },
+    {
+      "key": "ly_do",
+      "label": "Lý do",
+      "type": "textarea",
+      "hint": "Ghi ngắn gọn lý do nghỉ"
+    },
+    {
+      "key": "uy_quyen",
+      "label": "Ủy quyền khi vắng",
+      "type": "delegation",
+      "period": [
+        "tu_ngay",
+        "den_ngay"
+      ],
+      "hint": "Kéo quy trình giữa các dòng; mỗi dòng một người nhận thay"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "ql",
+      "type": "approval",
+      "name": "Quản lý trực tiếp duyệt",
+      "approver": {
+        "manager": "$requester"
+      },
+      "due": "24h",
+      "delegation": {
+        "off": true
+      }
+    },
+    {
+      "id": "dai",
+      "type": "condition",
+      "name": "Nghỉ trên 3 ngày?",
+      "rules": [
+        {
+          "if": "form.so_ngay > 3",
+          "to": "ql2"
+        }
+      ],
+      "else": "ap_dung"
+    },
+    {
+      "id": "ql2",
+      "type": "approval",
+      "name": "Quản lý cấp trên duyệt",
+      "approver": {
+        "manager": "$requester",
+        "level": 2
+      },
+      "due": "24h",
+      "delegation": {
+        "off": true
+      }
+    },
+    {
+      "id": "ap_dung",
+      "type": "delegate_apply",
+      "name": "Áp dụng ủy quyền"
+    },
+    {
+      "id": "bao",
+      "type": "notify",
+      "name": "Báo nhân sự",
+      "to": [
+        {
+          "role": "nhan_su"
+        },
+        "$requester"
+      ],
+      "text": "Đã duyệt nghỉ {{form.loai}} {{form.so_ngay}} ngày, từ {{form.tu_ngay}} đến {{form.den_ngay}}."
+    },
+    {
+      "id": "cho",
+      "type": "wait",
+      "name": "Chờ tới ngày nghỉ",
+      "until": "form.tu_ngay"
+    },
+    {
+      "id": "tt",
+      "type": "auto",
+      "name": "Đổi trạng thái nghỉ phép",
+      "action": "user_status",
+      "params": {
+        "emoji": "palm_tree",
+        "text": "Nghỉ phép đến {{form.den_ngay}}",
+        "until": "{{form.den_ngay}}",
+        "dnd": false
+      }
+    },
+    {
+      "id": "cho_het",
+      "type": "wait",
+      "name": "Chờ hết ngày nghỉ",
+      "until": "form.den_ngay"
+    },
+    {
+      "id": "het",
+      "type": "wait",
+      "name": "Qua ngày cuối",
+      "for": "1d"
+    },
+    {
+      "id": "thu_hoi",
+      "type": "delegate_revoke",
+      "name": "Thu hồi ủy quyền"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ],
+  "edges": [
+    [
+      "start",
+      "ql"
+    ],
+    [
+      "ql",
+      "dai"
+    ],
+    [
+      "ql2",
+      "ap_dung"
+    ],
+    [
+      "ap_dung",
+      "bao"
+    ],
+    [
+      "bao",
+      "cho"
+    ],
+    [
+      "cho",
+      "tt"
+    ],
+    [
+      "tt",
+      "cho_het"
+    ],
+    [
+      "cho_het",
+      "het"
+    ],
+    [
+      "het",
+      "thu_hoi"
+    ],
+    [
+      "thu_hoi",
+      "end"
+    ]
+  ],
+  "starts": [
+    {
+      "id": "manual",
+      "type": "manual"
+    }
+  ]
+}

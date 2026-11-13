@@ -1,0 +1,32 @@
+{
+  "id": "tam-ung",
+  "name": "Tạm ứng",
+  "icon": "💵",
+  "category": "Tài chính - Kế toán",
+  "form": [
+    { "key": "so_tien", "label": "Số tiền tạm ứng", "type": "money", "required": true },
+    { "key": "ly_do", "label": "Lý do", "type": "textarea", "required": true },
+    { "key": "ngay_hoan", "label": "Ngày hoàn ứng dự kiến", "type": "date", "required": true }
+  ],
+  "nodes": [
+    { "id": "start", "type": "start" },
+    { "id": "tp", "type": "approval", "name": "Trưởng phòng duyệt", "approver": { "role": "truong_phong" }, "due": "24h" },
+    { "id": "chk", "type": "condition", "rules": [ { "if": "form.so_tien > 10000000", "to": "song_song" } ], "else": "ktt" },
+    { "id": "song_song", "type": "parallel", "name": "Duyệt song song" },
+    { "id": "ktt_lon", "type": "approval", "name": "Kế toán trưởng duyệt", "approver": { "role": "ke_toan_truong" }, "due": "24h" },
+    { "id": "gd", "type": "approval", "name": "Giám đốc duyệt", "approver": { "role": "giam_doc" }, "due": "24h" },
+    { "id": "gop", "type": "join", "name": "Đủ hai người duyệt" },
+    { "id": "ktt", "type": "approval", "name": "Kế toán trưởng duyệt", "approver": { "role": "ke_toan_truong" }, "due": "24h" },
+    { "id": "chi", "type": "form_task", "name": "Kế toán chi tiền", "assignee": { "role": "ke_toan" },
+      "fields": [ { "key": "so_phieu", "label": "Số phiếu chi", "type": "text", "required": true } ] },
+    { "id": "cho_hoan", "type": "wait", "name": "Chờ tới hạn hoàn ứng", "until": "form.ngay_hoan" },
+    { "id": "nhac", "type": "notify", "name": "Nhắc hoàn ứng", "to": ["$requester", { "role": "ke_toan" }],
+      "text": "Tới hạn hoàn ứng {{form.so_tien}} đ (phiếu {{steps.chi.output.so_phieu}})." },
+    { "id": "end", "type": "end" }
+  ],
+  "edges": [
+    ["start", "tp"], ["tp", "chk"],
+    ["song_song", "ktt_lon"], ["song_song", "gd"], ["ktt_lon", "gop"], ["gd", "gop"], ["gop", "chi"],
+    ["ktt", "chi"], ["chi", "cho_hoan"], ["cho_hoan", "nhac"], ["nhac", "end"]
+  ]
+}

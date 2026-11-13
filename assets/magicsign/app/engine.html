@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>engine</title>
+<!-- Runs the extension's service worker (background.js) unchanged.
+     The host injects shim.js with __msRole = "engine" before this page. -->
+<script>
+  (async () => {
+    await window.__msReady;
+    for (const file of ["e2e.js", "relay.js", "background.js"]) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = chrome.runtime.getURL(file);
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(file));
+        document.head.append(script);
+      });
+    }
+    window.flutter_inappwebview.callHandler("ms", { op: "engine.ready" });
+  })();
+</script>

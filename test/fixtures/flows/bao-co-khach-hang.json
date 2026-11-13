@@ -1,0 +1,139 @@
+{
+  "id": "bao-co-khach-hang",
+  "name": "Báo có – xác nhận khách hàng",
+  "icon": "🏦",
+  "category": "Tài chính - Kế toán",
+  "trigger": {
+    "webhook": {
+      "mapping": {
+        "so_tien": "amount",
+        "noi_dung": "description",
+        "ngan_hang": "bank",
+        "ma_gd": "transaction_id",
+        "ngay": "date"
+      },
+      "dedupe": "transaction_id",
+      "title": "Báo có {{form.so_tien}} đ – {{form.noi_dung}}"
+    }
+  },
+  "form": [
+    {
+      "key": "so_tien",
+      "label": "Số tiền",
+      "type": "money",
+      "required": true
+    },
+    {
+      "key": "noi_dung",
+      "label": "Nội dung chuyển khoản",
+      "type": "text"
+    },
+    {
+      "key": "ngan_hang",
+      "label": "Ngân hàng",
+      "type": "text"
+    },
+    {
+      "key": "ma_gd",
+      "label": "Mã giao dịch",
+      "type": "text"
+    },
+    {
+      "key": "ngay",
+      "label": "Ngày",
+      "type": "text"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "nhom",
+      "type": "notify",
+      "name": "Báo vào nhóm Báo nợ báo có",
+      "channels": [
+        "<id nhóm Báo nợ báo có>"
+      ],
+      "text": "💰 Tiền về {{form.so_tien}} đ ({{form.ngan_hang}}): {{form.noi_dung}}. Kinh doanh phụ trách khách này bấm Mở luồng để tiếp nhận."
+    },
+    {
+      "id": "nhan",
+      "type": "claim",
+      "name": "Kinh doanh tiếp nhận",
+      "assignee": {
+        "department": "kinh_doanh"
+      },
+      "due": "24h"
+    },
+    {
+      "id": "chon_kh",
+      "type": "form_task",
+      "name": "Chọn khách hàng",
+      "assignee": {
+        "field": "steps.nhan.output.by"
+      },
+      "due": "24h",
+      "fields": [
+        {
+          "key": "khach_hang",
+          "label": "Khách hàng",
+          "type": "text",
+          "required": true,
+          "lookup": {
+            "server": "erp",
+            "tool": "tim_khach_hang",
+            "args": {
+              "q": "{{q}}"
+            },
+            "value": "name",
+            "label": "customer_name"
+          }
+        },
+        {
+          "key": "ghi_chu",
+          "label": "Ghi chú",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "id": "kt",
+      "type": "notify",
+      "name": "Báo kế toán ghi nhận",
+      "to": [
+        {
+          "role": "ke_toan"
+        }
+      ],
+      "text": "Khoản {{form.so_tien}} đ ({{form.ma_gd}}) là của khách {{steps.chon_kh.output.khach_hang}}, đã được kinh doanh tiếp nhận."
+    },
+    {
+      "id": "end",
+      "type": "end"
+    }
+  ],
+  "edges": [
+    [
+      "start",
+      "nhom"
+    ],
+    [
+      "nhom",
+      "nhan"
+    ],
+    [
+      "nhan",
+      "chon_kh"
+    ],
+    [
+      "chon_kh",
+      "kt"
+    ],
+    [
+      "kt",
+      "end"
+    ]
+  ]
+}

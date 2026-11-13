@@ -1,0 +1,25 @@
+{
+  "id": "de-xuat-mua-hang", "name": "Đề xuất mua hàng", "icon": "🛍️", "category": "Mua hàng - Kho",
+  "form": [
+    { "key": "san_pham", "label": "Hàng cần mua", "type": "table", "required": true, "columns": [
+      { "key": "ten", "label": "Tên hàng", "type": "text", "required": true },
+      { "key": "so_luong", "label": "Số lượng", "type": "number", "required": true, "default": 1 },
+      { "key": "don_gia", "label": "Đơn giá dự kiến", "type": "money", "required": true },
+      { "key": "thanh_tien", "label": "Thành tiền", "type": "money", "calc": { "a": "so_luong", "op": "mul", "b": "don_gia" } }
+    ] },
+    { "key": "nha_cung_cap", "label": "Nhà cung cấp đề xuất", "type": "text" },
+    { "key": "can_truoc", "label": "Cần trước ngày", "type": "date" },
+    { "key": "bao_gia", "label": "Báo giá", "type": "files" }
+  ],
+  "nodes": [
+    { "id": "start", "type": "start" },
+    { "id": "ql", "type": "approval", "name": "Quản lý trực tiếp duyệt", "approver": { "manager": "$requester" }, "due": "24h" },
+    { "id": "lon", "type": "condition", "name": "Trên 20 triệu?", "rules": [{ "if": "form.san_pham__tong.thanh_tien > 20000000", "to": "gd" }], "else": "mh" },
+    { "id": "gd", "type": "approval", "name": "Giám đốc duyệt", "approver": { "role": "giam_doc" }, "due": "24h" },
+    { "id": "mh", "type": "form_task", "name": "Mua hàng đặt hàng", "assignee": { "role": "mua_hang" }, "due": "3d",
+      "fields": [{ "key": "so_po", "label": "Số đơn đặt hàng (PO)", "type": "text", "required": true }, { "key": "ngay_ve", "label": "Ngày hàng về dự kiến", "type": "date" }] },
+    { "id": "bao", "type": "notify", "name": "Báo người đề xuất", "to": ["$requester"], "text": "Đã đặt hàng, PO {{steps.mh.output.so_po}}." },
+    { "id": "end", "type": "end" }
+  ],
+  "edges": [["start", "ql"], ["ql", "lon"], ["gd", "mh"], ["mh", "bao"], ["bao", "end"]]
+}

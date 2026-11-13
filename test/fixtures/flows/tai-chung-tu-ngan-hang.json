@@ -1,0 +1,547 @@
+{
+ "name": "Tải chứng từ ngân hàng theo tháng",
+ "icon": "🏦",
+ "description": "Tải giấy báo Có / Nợ cả tháng của một tài khoản ngân hàng thành một tệp PDF (xếp theo thời gian), gửi riêng cho người chạy quy trình.",
+ "visible_to": [
+  {
+   "user": "8k7p6wrait8fdqgik1bssun7ra"
+  }
+ ],
+ "starts": [
+  {
+   "id": "thu_cong",
+   "type": "manual",
+   "name": "Bấm thủ công",
+   "who": [
+    {
+     "user": "8k7p6wrait8fdqgik1bssun7ra"
+    }
+   ]
+  }
+ ],
+ "title": "{{form.loai}} {{form.ngan_hang}} tháng {{form.thang}}",
+ "form": [
+  {
+   "key": "ngan_hang",
+   "label": "Ngân hàng",
+   "type": "select",
+   "required": true,
+   "options": [
+    "ACB",
+    "OCB",
+    "Shinhan",
+    "VPBank"
+   ]
+  },
+  {
+   "key": "tk_acb",
+   "label": "Tài khoản ACB",
+   "type": "text",
+   "required": true,
+   "show_if": "form.ngan_hang == \"ACB\"",
+   "lookup": {
+    "server": "acb",
+    "tool": "acb-list-accounts",
+    "args": {},
+    "value": "full_number",
+    "label": "full_number",
+    "sub": [
+     "account_name",
+     "currency",
+     "account_type"
+    ],
+    "fill": {
+     "tien_te": "currency"
+    }
+   }
+  },
+  {
+   "key": "tk_ocb",
+   "label": "Tài khoản OCB",
+   "type": "text",
+   "required": true,
+   "show_if": "form.ngan_hang == \"OCB\"",
+   "lookup": {
+    "server": "ocb",
+    "tool": "ocb-list-accounts",
+    "args": {},
+    "value": "full_number",
+    "label": "full_number",
+    "sub": [
+     "account_name",
+     "currency",
+     "account_type"
+    ],
+    "fill": {
+     "tien_te": "currency"
+    }
+   }
+  },
+  {
+   "key": "tk_shinhan",
+   "label": "Tài khoản Shinhan",
+   "type": "text",
+   "required": true,
+   "show_if": "form.ngan_hang == \"Shinhan\"",
+   "lookup": {
+    "server": "shinhan",
+    "tool": "shinhan-list-accounts",
+    "args": {},
+    "value": "full_number",
+    "label": "full_number",
+    "sub": [
+     "account_name",
+     "currency",
+     "account_type"
+    ],
+    "fill": {
+     "tien_te": "currency"
+    }
+   }
+  },
+  {
+   "key": "tk_vpbank",
+   "label": "Tài khoản VPBank",
+   "type": "text",
+   "required": true,
+   "show_if": "form.ngan_hang == \"VPBank\"",
+   "lookup": {
+    "server": "vpbank",
+    "tool": "vpbank-list-accounts",
+    "args": {},
+    "value": "full_number",
+    "label": "full_number",
+    "sub": [
+     "account_name",
+     "currency",
+     "account_type"
+    ],
+    "fill": {
+     "tien_te": "currency"
+    }
+   }
+  },
+  {
+   "key": "tien_te",
+   "label": "Loại tiền",
+   "type": "text",
+   "hint": "Tự điền khi chọn tài khoản"
+  },
+  {
+   "key": "loai",
+   "label": "Loại chứng từ",
+   "type": "select",
+   "required": true,
+   "options": [
+    "Báo Có",
+    "Báo Nợ",
+    "Cả hai"
+   ],
+   "default": "Báo Có"
+  },
+  {
+   "key": "thang",
+   "label": "Tháng",
+   "type": "select",
+   "required": true,
+   "options": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+   ]
+  },
+  {
+   "key": "nam",
+   "label": "Năm",
+   "type": "select",
+   "required": true,
+   "options": [
+    "Năm nay",
+    "Năm trước"
+   ],
+   "default": "Năm nay"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "s",
+   "type": "start",
+   "name": "Bắt đầu"
+  },
+  {
+   "id": "chuan_bi",
+   "type": "calc",
+   "name": "Chuẩn bị tham số",
+   "vars": [
+    {
+     "name": "server",
+     "label": "Máy chủ MCP",
+     "op": "lower",
+     "args": {
+      "a": {
+       "path": "form.ngan_hang"
+      }
+     }
+    },
+    {
+     "name": "tk_1",
+     "op": "if",
+     "args": {
+      "cond": "form.ngan_hang == \"ACB\"",
+      "then": {
+       "path": "form.tk_acb"
+      },
+      "else": {
+       "path": "form.tk_ocb"
+      }
+     }
+    },
+    {
+     "name": "tk_2",
+     "op": "if",
+     "args": {
+      "cond": "form.ngan_hang == \"Shinhan\"",
+      "then": {
+       "path": "form.tk_shinhan"
+      },
+      "else": {
+       "path": "form.tk_vpbank"
+      }
+     }
+    },
+    {
+     "name": "so_tk",
+     "label": "Số tài khoản",
+     "op": "if",
+     "args": {
+      "cond": "form.ngan_hang == \"ACB\" or form.ngan_hang == \"OCB\"",
+      "then": {
+       "path": "steps.chuan_bi.output.tk_1"
+      },
+      "else": {
+       "path": "steps.chuan_bi.output.tk_2"
+      }
+     }
+    },
+    {
+     "name": "kieu_1",
+     "op": "if",
+     "args": {
+      "cond": "form.loai == \"Báo Nợ\"",
+      "then": {
+       "value": "debit"
+      },
+      "else": {
+       "value": "all"
+      }
+     }
+    },
+    {
+     "name": "kieu",
+     "label": "Loại (mã)",
+     "op": "if",
+     "args": {
+      "cond": "form.loai == \"Báo Có\"",
+      "then": {
+       "value": "credit"
+      },
+      "else": {
+       "path": "steps.chuan_bi.output.kieu_1"
+      }
+     }
+    },
+    {
+     "name": "thang",
+     "label": "Tháng (số)",
+     "op": "add",
+     "args": {
+      "a": {
+       "path": "form.thang"
+      },
+      "b": {
+       "value": 0
+      }
+     }
+    },
+    {
+     "name": "hom_nay",
+     "op": "today",
+     "args": {}
+    },
+    {
+     "name": "nam_nay",
+     "op": "year",
+     "args": {
+      "a": {
+       "path": "steps.chuan_bi.output.hom_nay"
+      }
+     }
+    },
+    {
+     "name": "nam_truoc",
+     "op": "sub",
+     "args": {
+      "a": {
+       "path": "steps.chuan_bi.output.nam_nay"
+      },
+      "b": {
+       "value": 1
+      }
+     }
+    },
+    {
+     "name": "nam",
+     "label": "Năm (số)",
+     "op": "if",
+     "args": {
+      "cond": "form.nam == \"Năm nay\"",
+      "then": {
+       "path": "steps.chuan_bi.output.nam_nay"
+      },
+      "else": {
+       "path": "steps.chuan_bi.output.nam_truoc"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": "td_1",
+   "type": "progress",
+   "name": "Báo tiến độ: chuẩn bị",
+   "percent": "5",
+   "label": "Đang lấy danh sách giao dịch {{form.ngan_hang}} tháng {{steps.chuan_bi.output.thang}}/{{steps.chuan_bi.output.nam}}"
+  },
+  {
+   "id": "dem",
+   "type": "auto",
+   "name": "Đếm giao dịch trong tháng",
+   "action": "mcp",
+   "params": {
+    "server": "{{steps.chuan_bi.output.server}}",
+    "tool": "{{steps.chuan_bi.output.server}}-list-month-transactions",
+    "args": {
+     "account_number": "{{steps.chuan_bi.output.so_tk}}",
+     "currency": "{{form.tien_te}}",
+     "month": "{{steps.chuan_bi.output.thang}}",
+     "year": "{{steps.chuan_bi.output.nam}}"
+    }
+   },
+   "on_error": "continue"
+  },
+  {
+   "id": "kt_dem",
+   "type": "condition",
+   "name": "Lấy được danh sách?",
+   "rules": [
+    {
+     "if": "steps.dem.output.total >= 0",
+     "to": "td_2"
+    }
+   ],
+   "else": "loi_dem"
+  },
+  {
+   "id": "td_2",
+   "type": "progress",
+   "name": "Báo tiến độ: đã đếm",
+   "percent": "10",
+   "label": "Tháng có {{steps.dem.output.credit_count}} báo Có, {{steps.dem.output.debit_count}} báo Nợ. Đang gửi yêu cầu tải"
+  },
+  {
+   "id": "tai",
+   "type": "auto",
+   "name": "Yêu cầu tải giấy báo cả tháng",
+   "action": "mcp",
+   "params": {
+    "server": "{{steps.chuan_bi.output.server}}",
+    "tool": "{{steps.chuan_bi.output.server}}-download-month-advices",
+    "args": {
+     "account_number": "{{steps.chuan_bi.output.so_tk}}",
+     "currency": "{{form.tien_te}}",
+     "month": "{{steps.chuan_bi.output.thang}}",
+     "year": "{{steps.chuan_bi.output.nam}}",
+     "type": "{{steps.chuan_bi.output.kieu}}"
+    }
+   },
+   "on_error": "continue"
+  },
+  {
+   "id": "kt_tai",
+   "type": "condition",
+   "name": "Ngân hàng nhận việc?",
+   "rules": [
+    {
+     "if": "steps.tai.output.status in [\"queued\", \"running\", \"done\"]",
+     "to": "cho"
+    }
+   ],
+   "else": "loi_tai"
+  },
+  {
+   "id": "cho",
+   "type": "wait_event",
+   "name": "Chờ ngân hàng tải xong",
+   "server": "{{steps.chuan_bi.output.server}}",
+   "tool": "{{steps.chuan_bi.output.server}}-get-month-advices-job",
+   "args": {
+    "job_id": "{{steps.tai.output.job_id}}"
+   },
+   "cond": "result.status == \"done\" or result.status == \"failed\"",
+   "seconds": 30,
+   "timeout": "4h",
+   "progress": {
+    "percent": "{{result.percent}}",
+    "label": "{{result.message}}"
+   }
+  },
+  {
+   "id": "kt_xong",
+   "type": "condition",
+   "name": "Tải xong có tệp?",
+   "rules": [
+    {
+     "if": "steps.cho.output.result.status == \"done\" and steps.cho.output.result.result.count > 0",
+     "to": "gui"
+    }
+   ],
+   "else": "kt_rong"
+  },
+  {
+   "id": "kt_rong",
+   "type": "condition",
+   "name": "Tháng không có giấy báo?",
+   "rules": [
+    {
+     "if": "steps.cho.output.result.status == \"done\"",
+     "to": "td_rong"
+    }
+   ],
+   "else": "loi_cho"
+  },
+  {
+   "id": "gui",
+   "type": "auto",
+   "name": "Gửi tệp cho người chạy quy trình",
+   "action": "chat_post",
+   "params": {
+    "text": "🏦 **{{form.loai}} {{form.ngan_hang}} tháng {{steps.chuan_bi.output.thang}}/{{steps.chuan_bi.output.nam}}** · TK {{steps.chuan_bi.output.so_tk}}\n{{steps.cho.output.result.result.count}} giấy báo, {{steps.cho.output.result.result.pages}} trang (xếp theo thời gian).",
+    "files": "{{steps.cho.output.result.result.download_url}}",
+    "to": [
+     "$requester"
+    ]
+   }
+  },
+  {
+   "id": "td_xong",
+   "type": "progress",
+   "name": "Báo tiến độ: hoàn tất",
+   "percent": "100",
+   "label": "Đã gửi {{steps.cho.output.result.result.count}} giấy báo vào tin nhắn riêng của bạn",
+   "tone": "ok"
+  },
+  {
+   "id": "td_rong",
+   "type": "progress",
+   "name": "Báo tiến độ: không có giấy báo",
+   "percent": "100",
+   "label": "Tháng này không có giấy báo nào để tải",
+   "tone": "warn"
+  },
+  {
+   "id": "loi_dem",
+   "type": "progress",
+   "name": "Lỗi: không lấy được giao dịch",
+   "label": "Lỗi: không lấy được danh sách giao dịch ({{steps.dem.output.error}})",
+   "tone": "error"
+  },
+  {
+   "id": "loi_tai",
+   "type": "progress",
+   "name": "Lỗi: ngân hàng không nhận việc",
+   "label": "Lỗi: {{steps.tai.output.error}}",
+   "tone": "error"
+  },
+  {
+   "id": "loi_cho",
+   "type": "progress",
+   "name": "Lỗi khi tải",
+   "label": "Lỗi khi tải: {{steps.cho.output.result.message}}",
+   "tone": "error"
+  },
+  {
+   "id": "e_ok",
+   "type": "end",
+   "name": "Hoàn tất"
+  },
+  {
+   "id": "e_loi",
+   "type": "end",
+   "name": "Kết thúc do lỗi"
+  }
+ ],
+ "edges": [
+  [
+   "s",
+   "chuan_bi"
+  ],
+  [
+   "chuan_bi",
+   "td_1"
+  ],
+  [
+   "td_1",
+   "dem"
+  ],
+  [
+   "dem",
+   "kt_dem"
+  ],
+  [
+   "td_2",
+   "tai"
+  ],
+  [
+   "tai",
+   "kt_tai"
+  ],
+  [
+   "cho",
+   "kt_xong"
+  ],
+  [
+   "gui",
+   "td_xong"
+  ],
+  [
+   "td_xong",
+   "e_ok"
+  ],
+  [
+   "td_rong",
+   "e_ok"
+  ],
+  [
+   "loi_dem",
+   "e_loi"
+  ],
+  [
+   "loi_tai",
+   "e_loi"
+  ],
+  [
+   "loi_cho",
+   "e_loi"
+  ]
+ ],
+ "id": "S9MTF4"
+}

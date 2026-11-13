@@ -1,0 +1,21 @@
+{
+  "id": "cong-tac", "name": "Đề nghị đi công tác", "icon": "✈️", "category": "Nhân sự",
+  "form": [
+    { "key": "noi_den", "label": "Nơi đến", "type": "text", "required": true },
+    { "key": "tu_ngay", "label": "Từ ngày", "type": "date", "required": true },
+    { "key": "den_ngay", "label": "Đến ngày", "type": "date", "required": true },
+    { "key": "muc_dich", "label": "Mục đích", "type": "textarea", "required": true },
+    { "key": "chi_phi", "label": "Chi phí dự kiến", "type": "money", "hint": "Đi lại, lưu trú, công tác phí" },
+    { "key": "tam_ung", "label": "Cần tạm ứng", "type": "bool", "default": false }
+  ],
+  "nodes": [
+    { "id": "start", "type": "start" },
+    { "id": "ql", "type": "approval", "name": "Quản lý trực tiếp duyệt", "approver": { "manager": "$requester" }, "due": "24h" },
+    { "id": "tu", "type": "condition", "name": "Cần tạm ứng?", "rules": [{ "if": "form.tam_ung == true", "to": "kt" }], "else": "bao" },
+    { "id": "kt", "type": "form_task", "name": "Kế toán chi tạm ứng", "assignee": { "role": "ke_toan" }, "due": "2d",
+      "fields": [{ "key": "so_tien_chi", "label": "Số tiền đã chi", "type": "money", "required": true }, { "key": "so_phieu", "label": "Số phiếu chi", "type": "text" }] },
+    { "id": "bao", "type": "notify", "name": "Báo người đi", "to": ["$requester"], "text": "Đề nghị công tác {{form.noi_den}} đã được duyệt." },
+    { "id": "end", "type": "end" }
+  ],
+  "edges": [["start", "ql"], ["ql", "tu"], ["kt", "bao"], ["bao", "end"]]
+}

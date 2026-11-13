@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  --accent: #2557d6;
+  --border: #d0d5dd;
+}
+body.page {
+  margin: 0;
+  display: grid;
+  place-items: start center;
+  padding: 32px 16px;
+}
+.panel {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 12px;
+}
+h1 {
+  font-size: 18px;
+  margin: 0;
+}
+form {
+  display: grid;
+  gap: 10px;
+}
+label {
+  display: grid;
+  gap: 4px;
+  font-weight: 500;
+}
+label.check {
+  display: flex;
+  gap: 8px;
+  font-weight: 400;
+  align-items: center;
+}
+details {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+textarea {
+  font: 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+input:not([type="checkbox"]) {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button:disabled {
+  opacity: 0.6;
+}
+.muted {
+  color: #667085;
+  margin: 0;
+}
+.message:empty {
+  display: none;
+}
+body.popup {
+  width: 300px;
+  margin: 0;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.state {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.state.ok {
+  background: #e7f6ec;
+  color: #15803d;
+}
+.state.bad {
+  background: #fdecea;
+  color: #c42b1c;
+}
+.row.start {
+  justify-content: flex-start;
+}
+label .row input {
+  flex: 1;
+}
+.small {
+  font-size: 12px;
+}
+button.link {
+  border: none;
+  background: none;
+  padding: 4px 0;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}

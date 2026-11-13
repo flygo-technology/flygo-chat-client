@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>vn.flygo.chat.share</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>flygochat-share</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>vi</string>
+	<key>CFBundleDisplayName</key>
+	<string>Flygo Chat</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>vi</string>
+		<string>en</string>
+		<string>ko</string>
+		<string>ja</string>
+		<string>th</string>
+		<string>zh-Hans</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>Flygo Chat</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Flygo Chat kết nối tới máy tính trong cùng mạng Wi‑Fi khi bạn quét mã QR để đăng nhập Flygo Chat trên máy tính đó.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Flygo Chat dùng Face ID để bạn xác nhận trước mỗi lần ký số bằng token của công ty. Ví dụ: ký tờ khai thuế hoặc hoá đơn điện tử trong mục Ký số.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Flygo Chat dùng camera khi bạn chủ động chụp ảnh hoặc quay video để gửi trong cuộc trò chuyện, bật hình trong cuộc gọi video, hoặc quét mã QR. Ví dụ: chụp ảnh biên bản cuộc họp để gửi vào nhóm, hoặc quét mã QR để đăng nhập Flygo Chat trên máy tính.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Flygo Chat dùng nhận dạng giọng nói của Apple để chuyển lời bạn nói thành chữ khi bạn bấm nút đọc chính tả. Ví dụ: đọc nội dung tin nhắn thay vì gõ phím.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Flygo Chat dùng vị trí của bạn chỉ khi bạn chọn gửi vị trí, chia sẻ vị trí trực tiếp trong cuộc trò chuyện, hoặc chấm công trong một quy trình (kiểm tra vị trí và tên Wi-Fi văn phòng đang kết nối). Ví dụ: chia sẻ vị trí để đồng nghiệp biết bạn đã đến nơi hẹn, hoặc chấm công khi đang ở văn phòng.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Flygo Chat dùng micro khi bạn gọi thoại, gọi video, ghi tin nhắn thoại hoặc đọc để chuyển giọng nói thành chữ. Ví dụ: ghi một tin nhắn thoại để gửi cho đồng nghiệp.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Flygo Chat lưu ảnh hoặc video vào thư viện khi bạn bấm &quot;Lưu&quot; trên ảnh, video nhận được trong cuộc trò chuyện.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Flygo Chat truy cập thư viện ảnh khi bạn chọn ảnh hoặc video để gửi trong cuộc trò chuyện. Ví dụ: gửi ảnh sản phẩm cho khách hàng trong nhóm.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>voip</string>
+	</array>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

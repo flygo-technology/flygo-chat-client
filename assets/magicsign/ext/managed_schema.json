@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "serverUrl": {
+      "title": "Địa chỉ máy chủ ký",
+      "description": "Ví dụ https://ky.congty.vn. Khi đặt, extension không tự dò trong LAN và người dùng không sửa được.",
+      "type": "string"
+    },
+    "deviceName": {
+      "title": "Tên máy",
+      "description": "Tên hiển thị của máy này trên trang Thiết bị.",
+      "type": "string"
+    }
+  }
+}

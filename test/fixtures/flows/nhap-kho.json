@@ -1,0 +1,26 @@
+{
+  "id": "nhap-kho", "name": "Nhập kho & kiểm hàng", "icon": "📦", "category": "Mua hàng - Kho",
+  "form": [
+    { "key": "ncc", "label": "Nhà cung cấp", "type": "text", "required": true,
+      "lookup": { "server": "erp", "tool": "ton_kho", "args": { "ma_hang": "{{q}}" }, "value": "ma", "label": "ten" } },
+    { "key": "hang", "label": "Hàng nhận", "type": "table", "required": true, "columns": [
+      { "key": "ma", "label": "Mã", "type": "text", "required": true },
+      { "key": "sl", "label": "SL chứng từ", "type": "number", "required": true },
+      { "key": "loi", "label": "SL lỗi", "type": "number", "default": 0 } ] },
+    { "key": "tong_usd", "label": "Giá trị lô hàng", "type": "money", "currency": "USD" },
+    { "key": "ty_gia", "label": "Tỷ giá", "type": "number", "default": 25400 },
+    { "key": "tong_vnd", "label": "Giá trị VND", "type": "money", "calc": { "a": "tong_usd", "op": "mul", "b": "ty_gia" } },
+    { "key": "ly_do", "label": "Lý do nhận thiếu", "type": "textarea", "required": true, "show_if": "form.tong_vnd > 500000000" }
+  ],
+  "nodes": [
+    { "id": "start", "type": "start" },
+    { "id": "lap", "type": "foreach", "name": "Kiểm từng dòng", "items": "form.hang", "end": "het" },
+    { "id": "co_loi", "type": "condition", "name": "Dòng có lỗi?", "rules": [{ "if": "item.loi > 0", "to": "bao" }], "else": "het" },
+    { "id": "bao", "type": "notify", "name": "Báo mua hàng", "to": [{ "role": "mua_hang" }], "text": "Dòng {{loop.index}}: {{item.ma}} lỗi {{item.loi}}" },
+    { "id": "het", "type": "foreach_end" },
+    { "id": "kn", "type": "start_flow", "name": "Mở khiếu nại NCC", "flow_id": "de-xuat-thanh-toan", "confirm": "$requester", "wait": true,
+      "mapping": { "nha_cung_cap": { "from": "form.ncc" }, "loai": { "value": "Khác" } } },
+    { "id": "end", "type": "end" }
+  ],
+  "edges": [["start", "lap"], ["lap", "co_loi"], ["bao", "het"], ["het", "kn"], ["kn", "end"]]
+}

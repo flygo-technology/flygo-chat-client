@@ -1,0 +1,376 @@
+import '../i18n/i18n.dart';
+import 'dart:async';
+import 'dart:math';
+
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/material.dart';
+
+import 'popover.dart';
+import 'theme.dart';
+
+// Hiệu ứng tin nhắn (nút "Hiệu ứng" cạnh "Luồng riêng"):
+// - Hình ảnh: gửi kèm props.flygo_fx = {visual}; người nhận mở chat thấy tin thì phát một lần.
+// - Cảnh báo: tin quan trọng / khẩn cấp (bắt xác nhận đã đọc) — dùng metadata priority sẵn có của máy chủ chat.
+// - Tự hủy: người nhận bấm để xem, tin tự xoá sau 10 phút.
+// - Màu nền: props.flygo_fx.bg = mã nền gradient (fxBackgrounds).
+// Hẹn giờ gửi là nút riêng (showScheduleSheet).
+
+/// Âm thanh (tin cũ gửi kèm props.flygo_fx.sound vẫn phát; không còn chọn mới): mã → (tên, tệp trong assets/ringtones).
+Map<String, (String, String)> get fxSounds => {
+      'chime': (tr('Leng keng'), 'ringtones/ring_chime.mp3'),
+      'bell': (tr('Chuông'), 'ringtones/ring_bell.mp3'),
+      'birthday': (tr('Chúc mừng sinh nhật'), 'ringtones/ring_happy_birthday.mp3'),
+      'jingle': (tr('Giáng sinh'), 'ringtones/ring_jingle_bells.mp3'),
+      'digital': (tr('Báo động'), 'ringtones/ring_digital.mp3'),
+    };
+
+/// Hình ảnh: mã → (tên, các biểu tượng rơi trên màn hình).
+Map<String, (String, List<String>)> get fxVisuals => {
+      'fireworks': (tr('Pháo hoa'), ['🎆', '🎇', '✨']),
+      'hearts': (tr('Trái tim'), ['❤️', '💖', '💕']),
+      'balloons': (tr('Bóng bay'), ['🎈', '🎈', '🎉']),
+      'confetti': (tr('Hoa giấy'), ['🎊', '🎉', '✨']),
+      'money': (tr('Tiền về'), ['💰', '💵', '🪙']),
+    };
+
+/// Màu nền tin nhắn: mã → (tên, 2 màu gradient). Vẽ phủ mờ lên màu bong bóng nên chữ vẫn đọc được ở cả nền sáng / tối.
+Map<String, (String, List<Color>)> get fxBackgrounds => {
+      'sunset': (tr('Hoàng hôn'), const [Color(0xFFFF7E5F), Color(0xFFFEB47B)]),
+      'ocean': (tr('Đại dương'), const [Color(0xFF2193B0), Color(0xFF6DD5ED)]),
+      'mint': (tr('Bạc hà'), const [Color(0xFF11998E), Color(0xFF38EF7D)]),
+      'lavender': (tr('Oải hương'), const [Color(0xFF8E2DE2), Color(0xFFC471F5)]),
+      'peach': (tr('Đào'), const [Color(0xFFFFB199), Color(0xFFFF0844)]),
+      'sky': (tr('Bầu trời'), const [Color(0xFF56CCF2), Color(0xFF2F80ED)]),
+      'gold': (tr('Vàng'), const [Color(0xFFF7971E), Color(0xFFFFD200)]),
+      'rose': (tr('Hoa hồng'), const [Color(0xFFEE9CA7), Color(0xFFFFDDE1)]),
+      'forest': (tr('Rừng xanh'), const [Color(0xFF5A3F37), Color(0xFF2C7744)]),
+      'aurora': (tr('Cực quang'), const [Color(0xFF00C9FF), Color(0xFF92FE9D)]),
+    };
+
+/// Nền gradient của bong bóng tin theo mã (null nếu không có): gradient phủ mờ trên [base].
+Gradient? fxBubbleGradient(String? id, Color base) {
+  final g = fxBackgrounds[id];
+  if (g == null) return null;
+  return LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [for (final c in g.$2) Color.alphaBlend(c.withValues(alpha: .45), base)],
+  );
+}
+
+/// Cấu hình hiệu ứng đang chọn cho tin sắp gửi.
+class MsgFx {
+  String? visual, alert, bg; // alert: 'important' | 'urgent'; bg: mã nền (fxBackgrounds)
+  bool silent = false; // gửi im lặng: props.flygo_silent (trạm đẩy và app máy tính không báo)
+  DateTime? sendAt; // hẹn giờ gửi (nút "Hẹn giờ" riêng)
+  bool burn = false;
+  /// Chưa chọn hiệu ứng nào (không tính hẹn giờ).
+  bool get isEmpty => visual == null && alert == null && bg == null && !burn;
+  Map<String, dynamic>? get props => visual == null && bg == null ? null : {'flygo_fx': {'visual': ?visual, 'bg': ?bg}};
+  void clear() {
+    visual = alert = bg = null;
+    sendAt = null;
+    silent = false;
+    burn = false;
+  }
+
+  /// Các biểu tượng đại diện cho cấu hình (hiện trên nút "Hiệu ứng").
+  List<IconData> get icons => [
+        if (visual != null) Icons.auto_awesome_rounded,
+        if (alert == 'important') Icons.priority_high_rounded,
+        if (alert == 'urgent') Icons.campaign_rounded,
+        if (burn) Icons.local_fire_department_rounded,
+        if (bg != null) Icons.palette_outlined,
+      ];
+}
+
+/// Popover "Hiệu ứng": nổi sát phía trên nút hiệu ứng ([context] là nút), căn giữa theo nút.
+/// Nội dung cuộn được, hàng "Bỏ hết / Xong" luôn cố định ở dưới. Sửa trực tiếp [fx], gọi [onChanged] mỗi lần đổi.
+Future<void> showEffectsPopover(BuildContext context, MsgFx fx, {required bool allowBurn, required VoidCallback onChanged}) =>
+    showPopoverAbove<void>(context, width: 380, builder: (_) => EffectsPanel(fx: fx, allowBurn: allowBurn, onChanged: onChanged));
+
+class EffectsPanel extends StatefulWidget {
+  final MsgFx fx;
+  final bool allowBurn;
+  final VoidCallback onChanged;
+  const EffectsPanel({super.key, required this.fx, required this.allowBurn, required this.onChanged});
+  @override
+  State<EffectsPanel> createState() => _EffectsPanelState();
+}
+
+class _EffectsPanelState extends State<EffectsPanel> {
+  MsgFx get fx => widget.fx;
+
+  void set(VoidCallback f) {
+    setState(f);
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    Widget head(String t) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          child: Text(t.toUpperCase(), style: TextStyle(fontSize: 11.5, letterSpacing: .5, fontWeight: FontWeight.w700, color: pal.sub)),
+        );
+    Widget chip(String label, bool on, VoidCallback tap, {Color? color}) => Padding(
+          padding: const EdgeInsets.only(right: 6, bottom: 6),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: on,
+            showCheckmark: false,
+            visualDensity: VisualDensity.compact,
+            onSelected: (_) => set(tap),
+            selectedColor: (color ?? pal.accent).withValues(alpha: .2),
+            labelStyle: TextStyle(fontSize: 13.5, color: on ? (color ?? pal.accentText) : pal.text, fontWeight: on ? FontWeight.w600 : FontWeight.normal),
+          ),
+        );
+    Widget wrap(List<Widget> c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Wrap(children: c));
+    Widget toggle(String title, String sub, bool v, ValueChanged<bool> f) => SwitchListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          value: v,
+          onChanged: (x) => set(() => f(x)),
+          title: Text(title, style: TextStyle(color: pal.text, fontSize: 14.5)),
+          subtitle: Text(sub, style: TextStyle(color: pal.sub, fontSize: 12.5)),
+        );
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Flexible(
+        child: SingleChildScrollView(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          // Giới thiệu ngắn: hiệu ứng là gì, dùng khi nào.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(children: [
+              Icon(Icons.auto_awesome, size: 18, color: pal.accent),
+              const SizedBox(width: 8),
+              Text(tr('Hiệu ứng tin nhắn'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: pal.text)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Text(tr('Làm tin nổi bật hoặc kín đáo hơn: đánh dấu quan trọng / khẩn cấp, thêm hình ảnh rơi, đổi màu nền, gửi im lặng hay tự hủy sau khi đọc. Chỉ áp dụng cho tin sắp gửi.'),
+                style: TextStyle(fontSize: 13, height: 1.35, color: pal.sub)),
+          ),
+          head('✨ ${tr('Hiệu ứng')}'),
+          wrap([
+            chip(tr('❗ Quan trọng'), fx.alert == 'important', () => fx.alert = fx.alert == 'important' ? null : 'important', color: const Color(0xFFF5A623)),
+            chip(tr('🚨 Khẩn cấp'), fx.alert == 'urgent', () => fx.alert = fx.alert == 'urgent' ? null : 'urgent', color: Colors.redAccent),
+            for (final e in fxVisuals.entries)
+              chip('${e.value.$2.first} ${e.value.$1}', fx.visual == e.key, () {
+                fx.visual = fx.visual == e.key ? null : e.key;
+                if (fx.visual != null) playVisual(context, e.key);
+              }),
+          ]),
+          if (fx.alert != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(fx.alert == 'urgent' ? tr('Hiện toàn màn hình ở máy người nhận, kêu chuông tới khi bấm "Đã nhận".') : tr('Người nhận phải bấm xác nhận đã đọc.'),
+                  style: TextStyle(fontSize: 12.5, color: pal.sub)),
+            ),
+          if (widget.allowBurn)
+            toggle(tr('Tự hủy sau khi đọc'), tr('Người nhận phải bấm để xem, tin tự xóa sau 10 phút'), fx.burn, (v) => fx.burn = v),
+          head('🎨 ${tr('Màu nền tin nhắn')}'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(spacing: 8, runSpacing: 8, children: [
+              _BgSwatch(pal: pal, colors: null, label: tr('Không'), on: fx.bg == null, onTap: () => set(() => fx.bg = null)),
+              for (final e in fxBackgrounds.entries)
+                _BgSwatch(pal: pal, colors: e.value.$2, label: e.value.$1, on: fx.bg == e.key, onTap: () => set(() => fx.bg = e.key)),
+            ]),
+          ),
+          const SizedBox(height: 12),
+        ]),
+        ),
+      ),
+      // Hàng nút cố định ở đáy (không cuộn theo nội dung).
+      Container(
+        decoration: BoxDecoration(border: Border(top: BorderSide(color: pal.divider))),
+        padding: const EdgeInsets.fromLTRB(8, 8, 12, 10),
+        child: Row(children: [
+          TextButton(
+            onPressed: () => set(() {
+              fx.visual = fx.alert = fx.bg = null;
+              fx.burn = false;
+            }),
+            child: Text(tr('Bỏ hết')),
+          ),
+          const Spacer(),
+          FilledButton(onPressed: () => Navigator.pop(context), child: Text(tr('Xong'))),
+        ]),
+      ),
+    ]);
+  }
+}
+
+/// Ô mẫu màu nền (gradient) trong bảng hiệu ứng.
+class _BgSwatch extends StatelessWidget {
+  final Pal pal;
+  final List<Color>? colors;
+  final String label;
+  final bool on;
+  final VoidCallback onTap;
+  const _BgSwatch({required this.pal, required this.colors, required this.label, required this.on, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: label,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colors == null ? pal.surface2 : null,
+              gradient: colors == null ? null : LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors!),
+              border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 3 : 1),
+            ),
+            child: colors == null ? Icon(Icons.block, size: 18, color: pal.sub) : null,
+          ),
+        ),
+      );
+}
+
+/// Nút "Hẹn giờ": chọn lúc gửi tin. Trả về true nếu đã chọn (hoặc bỏ hẹn giờ).
+Future<bool> showScheduleSheet(BuildContext context, MsgFx fx) async {
+  final now = DateTime.now();
+  DateTime? at = fx.sendAt;
+  final ok = await showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    useSafeArea: true,
+    constraints: const BoxConstraints(maxWidth: 600),
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+    builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
+      final pal = Pal.of(ctx);
+      Widget chip(String label, bool on, VoidCallback tap) => ChoiceChip(
+            label: Text(label),
+            selected: on,
+            showCheckmark: false,
+            onSelected: (_) => set(tap),
+            selectedColor: pal.accent.withValues(alpha: .2),
+            labelStyle: TextStyle(color: on ? pal.accentText : pal.text, fontWeight: on ? FontWeight.w600 : FontWeight.normal),
+          );
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(tr('Hẹn giờ gửi'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            chip(tr('Gửi ngay'), at == null, () => at = null),
+            for (final m in const [5, 30, 60])
+              chip(m < 60 ? tr('Sau {0} phút', [m]) : tr('Sau 1 giờ'), at != null && _sameMinute(at!, now.add(Duration(minutes: m))),
+                  () => at = now.add(Duration(minutes: m))),
+            ActionChip(
+              avatar: const Icon(Icons.event, size: 16),
+              label: Text(at == null ? tr('Chọn giờ…') : _fmt(at!)),
+              onPressed: () async {
+                final d = await showDatePicker(context: ctx, initialDate: now, firstDate: now, lastDate: now.add(const Duration(days: 365)));
+                if (d == null || !ctx.mounted) return;
+                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))));
+                if (t == null) return;
+                final v = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+                if (v.isAfter(DateTime.now())) set(() => at = v);
+              },
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Align(alignment: Alignment.centerRight, child: FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Xong')))),
+        ]),
+      );
+    }),
+  );
+  if (ok == true) fx.sendAt = at;
+  return ok == true;
+}
+
+bool _sameMinute(DateTime a, DateTime b) => (a.difference(b).inSeconds).abs() < 90;
+String _fmt(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} ${d.day}/${d.month}';
+
+// ---------------------------------------------------------------- phát hiệu ứng
+AudioPlayer? _fxPlayer;
+Timer? _fxStop;
+
+/// Phát âm thanh hiệu ứng khoảng 4 giây.
+Future<void> previewSound(String id) async {
+  final a = fxSounds[id];
+  if (a == null) return;
+  try {
+    _fxStop?.cancel();
+    await _fxPlayer?.stop();
+    final p = _fxPlayer ??= AudioPlayer();
+    await p.play(AssetSource(a.$2));
+    _fxStop = Timer(const Duration(seconds: 4), () => p.stop());
+  } catch (_) {}
+}
+
+/// Các biểu tượng rơi từ trên xuống phủ màn hình trong ~3 giây.
+void playVisual(BuildContext context, String id) {
+  final v = fxVisuals[id];
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (v == null || overlay == null) return;
+  late OverlayEntry entry;
+  entry = OverlayEntry(builder: (_) => IgnorePointer(child: _Rain(emojis: v.$2, onDone: () => entry.remove())));
+  overlay.insert(entry);
+}
+
+/// Đã phát hiệu ứng của tin nào (mỗi tin chỉ phát một lần mỗi lần chạy app).
+final playedFx = <String>{};
+
+/// Chỉ phát cho tin mới (gửi sau lúc mở app trừ 1 phút): mở lại chat cũ không phát lại.
+final int fxSince = DateTime.now().millisecondsSinceEpoch - 60000;
+
+/// Phát hiệu ứng của một tin (props.flygo_fx) nếu chưa phát.
+void playPostFx(BuildContext context, String postId, Map<String, dynamic>? fx) {
+  if (fx == null || !playedFx.add(postId)) return;
+  final s = fx['sound'] as String?, v = fx['visual'] as String?;
+  if (s != null) previewSound(s);
+  if (v != null) playVisual(context, v);
+}
+
+class _Rain extends StatefulWidget {
+  final List<String> emojis;
+  final VoidCallback onDone;
+  const _Rain({required this.emojis, required this.onDone});
+  @override
+  State<_Rain> createState() => _RainState();
+}
+
+class _RainState extends State<_Rain> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 3200))
+    ..forward().whenComplete(widget.onDone);
+  final _rnd = Random();
+  late final List<(double x, double delay, double size, double drift, String e)> _p = [
+    for (var i = 0; i < 36; i++)
+      (_rnd.nextDouble(), _rnd.nextDouble() * .45, 22 + _rnd.nextDouble() * 20, (_rnd.nextDouble() - .5) * .2,
+          widget.emojis[_rnd.nextInt(widget.emojis.length)]),
+  ];
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final size = MediaQuery.sizeOf(context);
+          return Stack(children: [
+            for (final (x, delay, s, drift, e) in _p)
+              if (_c.value > delay)
+                Positioned(
+                  left: (x + drift * (_c.value - delay)) * size.width,
+                  top: -40 + ((_c.value - delay) / (1 - delay)) * (size.height + 80),
+                  child: Opacity(
+                    opacity: (1 - _c.value).clamp(0, 1) * .9 + .1,
+                    child: Text(e, style: TextStyle(fontSize: s, decoration: TextDecoration.none)),
+                  ),
+                ),
+          ]);
+        },
+      );
+}
