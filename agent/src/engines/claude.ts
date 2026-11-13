@@ -86,8 +86,6 @@ const A2A_TOOLS = ["mcp__flygo_chat__list_agents", "mcp__flygo_chat__ask_agent",
   "mcp__flygo_chat__ref_read", "mcp__flygo_chat__ref_thread", "mcp__flygo_chat__ref_post",
   // Bộ công cụ chat (chat-ops.ts): runner kiểm phạm vi, tự xin duyệt khi gửi ra chat khác / quản lý chat, tự ghi bước.
   ...[...CHAT_OP_TOOLS].map((t) => `mcp__flygo_chat__${t}`),
-  // task_create / task_update: tool tự xin duyệt qua runner (một bước duyệt chung cho Claude và Codex).
-  "mcp__flygo_chat__task_create", "mcp__flygo_chat__task_update",
   ...["state", "say", "show", "slides", "draw", "web", "people", "suggest", "watch", "music_list", "music_play", "music_volume", "music_fade", "music_pause", "music_stop", "deck", "deck_go", "asset", "sfx", "scene", "qa", "poll", "link", "present", "lobby"].map((t) => `mcp__flygo_chat__meeting_${t}`)]; // report_out / skill_save… runner tự xin duyệt khi cần
 
 const HIDDEN = new Set(["mcp__flygo_chat__approve", "mcp__flygo_chat__chat_report_out", "mcp__flygo_chat__chat_edit_message", "mcp__flygo_chat__chat_recall_message", "mcp__flygo_chat__ref_post", "mcp__flygo_chat__chat_session_title", "mcp__flygo_chat__session_rename", "mcp__flygo_chat__session_fork", "mcp__flygo_chat__session_new", "mcp__flygo_chat__project_create", "mcp__flygo_chat__project_rename", "mcp__flygo_chat__meeting_suggest", "mcp__flygo_chat__ask_user", "ToolSearch", "AskUserQuestion", "ExitPlanMode", "TodoWrite", "mcp__flygo_chat__update_plan", "mcp__flygo_chat__wrap_up", "mcp__flygo_chat__spawn_task", "mcp__flygo_chat__browser_token_set", "mcp__flygo_chat__browser_extension_setup", "mcp__flygo_chat__chat_send_files", "mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up"]);

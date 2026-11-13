@@ -4,7 +4,7 @@
 // (chỉ tổ tiên của kênh hiện tại, bot phải là thành viên); không đọc kênh anh em / kênh con, không ghi lên trên.
 // A2A: A2A_ROLE=orchestrator -> thêm list_agents / ask_agent; A2A_ROLE=callee (đang làm việc được agent khác nhờ)
 // -> chỉ approve + return_files (không đọc/gửi chat, không nhờ tiếp agent khác).
-// Giao việc trên Boards: task_boards / task_list (đọc), task_create / task_update (ghi, tự xin duyệt qua runner) — xem tasks-mcp.ts.
+// Giao việc / theo dõi việc (to-do): dùng các tool của ứng dụng Todo do Flygo Gateway cấp (không còn tool Boards).
 // Bộ công cụ chat (0.6.61): chat_list / chat_unread / chat_send / chat_poll / thread_close… ở MỌI chat trong phạm vi của bot —
 // runner xử lý (POST /chat_op/<tool>, chat-ops.ts), kể cả chat_history / chat_thread / chat_search khi có tham số `chat`.
 // Tệp ở chat khác (0.6.71): chat_get_files(post_id) tải tệp của một tin bất kỳ; chat_send / chat_reply nhận file_ids để gửi lại tệp có sẵn.
@@ -15,8 +15,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { ancestorChain, type Level } from "./chain";
 import { MM, type Post } from "./mm";
-import { Boards } from "./boards";
-import { TASK_TOOLS, TASK_TOOL_NAMES, taskTool } from "./tasks-mcp";
 import { CHAT_OP_TOOLS, isTextFile, parseWhen, safeFileName } from "./chat-ops";
 import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
@@ -25,7 +23,6 @@ import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
 export async function runMcpChat() {
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`thiếu env ${k}`); return v; };
 const mm = new MM(env("MM_URL"), env("MM_TOKEN"));
-const boards = new Boards(env("MM_URL"), env("MM_TOKEN"));
 const A2A_ROLE = process.env.A2A_ROLE ?? "";
 // Ngữ cảnh lượt: env lúc khởi động, rồi làm mới từ runner mỗi lần gọi tool (SCOPE = khoá phiên). Codex app-server giữ MCP
 // sống qua nhiều lượt (thread còn nạp khi Codex app đang mở nó) -> env cũ (RUN_KEY, cổng runner) sẽ sai nếu không hỏi lại.
@@ -634,7 +631,7 @@ async function gatewayTools(): Promise<any[]> {
 }
 
 server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx(); return {
-  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...(A2A_ROLE === "orchestrator" ? A2A_TOOLS : []), ...CHAT_TOOLS, ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...TASK_TOOLS, ...FS_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
+  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...(A2A_ROLE === "orchestrator" ? A2A_TOOLS : []), ...CHAT_TOOLS, ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
     ...(await gatewayTools())],
 }; });
 const CHAT_TOOLS = [
@@ -981,7 +978,7 @@ async function callTool(req: any): Promise<any> {
     return text(r.text ?? JSON.stringify(r));
   }
   if (req.params.name === "chat_watch") {
-    // Bật theo dõi là tool ghi: xin người giao việc duyệt (như task_create). Tắt / xem trạng thái thì không cần.
+    // Bật theo dõi là tool ghi: xin người giao việc duyệt qua runner. Tắt / xem trạng thái thì không cần.
     if (String(a.action ?? "start") === "start" && RUNNER && RUN_KEY) {
       const r = await fetch(`${RUNNER}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, tool_name: "mcp__flygo_chat__chat_watch", input: a }) })
         .then((x) => x.json()).catch(() => ({ allow: false }));
@@ -1003,16 +1000,6 @@ async function callTool(req: any): Promise<any> {
       return !!r.allow;
     };
     return text(await fsTool(req.params.name, a, approve, WORKDIR).catch((e) => `Lỗi: ${e?.message ?? e}`));
-  }
-  if (TASK_TOOL_NAMES.has(req.params.name)) {
-    // Tool ghi (task_create / task_update) xin người giao việc duyệt qua runner, như thẻ duyệt của engine; ngoài lượt chat thì từ chối.
-    const approve = async (tool: string, input: any) => {
-      if (!RUNNER || !RUN_KEY) return false;
-      const r = await fetch(`${RUNNER}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, tool_name: `mcp__flygo_chat__${tool}`, input }) })
-        .then((x) => x.json()).catch(() => ({ allow: false }));
-      return !!r.allow;
-    };
-    return text(await taskTool(req.params.name, a, { mm, boards, channel: CHANNEL, requester: OWNER_ID, approve }).catch((e) => `Lỗi: ${e?.message ?? e}`));
   }
   // Bộ công cụ chat: runner xử lý (phạm vi + duyệt); chat_history / chat_thread / chat_search có `chat` cũng qua runner.
   // chat_history theo khoảng thời gian ở kênh hiện tại cũng qua runner (phân trang chung); tầng trên (channel) đọc tại đây.
