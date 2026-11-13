@@ -2,6 +2,9 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 469 (2026-11-13)
+- Runner 0.6.90: Boards task tools removed (Boards plugin disabled); assistants use the Todo app tools via Flygo Gateway.
+
 ## 468 (2026-11-13)
 - Groups: a recalled message that starts a sender run keeps the sender name.
 
