@@ -24,7 +24,7 @@ class BangTinException implements Exception {
 class BangTinApi {
   BangTinApi({required this.base, required this.id, http.Client? client}) : _http = client ?? http.Client();
 
-  /// base_url của app (có thể kèm đường dẫn, vd https://chat.flygo.vn/apps/bang-tin).
+  /// base_url của app (có thể kèm đường dẫn, vd https://chat.example.com/apps/bang-tin).
   final String base;
   final FlygoId id;
   final http.Client _http;
