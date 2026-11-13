@@ -28,7 +28,7 @@ void main() {
     },
   ];
   Map<String, dynamic> detail() => {
-        'id': 'P-RMHYMT', 'flow_id': 'P5F68Z', 'flow_name': 'Hoá đơn LinkQ', 'name': 'HĐ 1C26MYY-2998', 'state': 'running', 'status_text': 'Gửi email',
+        'id': 'P-AB12CD', 'flow_id': 'F1HDON', 'flow_name': 'Hoá đơn LinkQ', 'name': 'HĐ 1C26AAA-0001', 'state': 'running', 'status_text': 'Gửi email',
         'current_step': 'gui', 'steps': [{'key': 'gui', 'title': 'Gửi email', 'state': 'active'}],
         'stats': [], 'labels': [], 'files': [], 'posts': [], 'events': [], 'created_at': now,
         'actions': [
@@ -46,7 +46,7 @@ void main() {
       requests.add(r);
       if (r.url.path == '/__apps/flows/tasks/9/submit') myTasks = [];
       return switch (r.url.path) {
-        '/__apps/flows/processes/P-RMHYMT' => _json(detail()),
+        '/__apps/flows/processes/P-AB12CD' => _json(detail()),
         _ => _json({'ok': true}),
       };
     });
@@ -59,7 +59,7 @@ void main() {
     addTearDown(t.view.reset);
     await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
       value: app,
-      child: MaterialApp(theme: buildTheme(Brightness.light), home: ProcessDetailPage(app: app, processId: 'P-RMHYMT')),
+      child: MaterialApp(theme: buildTheme(Brightness.light), home: ProcessDetailPage(app: app, processId: 'P-AB12CD')),
     ));
     await t.pump(const Duration(milliseconds: 300));
     await t.pump(const Duration(milliseconds: 300));
@@ -70,11 +70,11 @@ void main() {
     await t.tap(find.widgetWithText(FilledButton, 'Gửi'));
     await t.pump(const Duration(milliseconds: 300));
     expect(requests.where((r) => r.url.path == '/__apps/flows/tasks/9/submit'), isEmpty);
-    await t.enterText(find.widgetWithText(TextField, 'Email khách *'), 'kh@dnd.vn');
+    await t.enterText(find.widgetWithText(TextField, 'Email khách *'), 'kh@example.com');
     await t.tap(find.widgetWithText(FilledButton, 'Gửi'));
     await t.pump(const Duration(milliseconds: 300));
     final sent = requests.lastWhere((r) => r.url.path == '/__apps/flows/tasks/9/submit');
-    expect(jsonDecode(sent.body), {'data': {'email': 'kh@dnd.vn'}});
+    expect(jsonDecode(sent.body), {'data': {'email': 'kh@example.com'}});
     await t.pump(const Duration(milliseconds: 300));
     // Đã xong: tải lại, hết ô nhập của mình (bước chờ còn trên thẻ của người khác thì hiện như cũ).
     expect(find.widgetWithText(TextField, 'Email khách *'), findsNothing);
