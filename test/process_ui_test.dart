@@ -63,7 +63,7 @@ void main() {
       };
   final running = [
     proc('P-8K2Q4M', 'Hoá đơn 2154 · Cty Hoàng Long', 'running', 2, 'Chờ kế toán ký', 'orange', ['KLTM', 'ABC Capital']),
-    proc('P-7Z1XQ2', 'Hoá đơn 2155 · Cty Minh Phát', 'running', 1, 'Đang kiểm tra trùng', 'blue', ['Nghi trùng']),
+    {...proc('P-7Z1XQ2', 'Hoá đơn 2155 · Cty Minh Phát', 'running', 1, 'Đang kiểm tra trùng', 'blue', ['Nghi trùng']), 'progress': {'percent': 44, 'label': 'Đã kiểm 4/9'}},
   ];
   final failed = [proc('P-3F9DD1', 'Hoá đơn 2101 · Cty An Bình', 'failed', 1, 'Không lấy được XML', 'red', ['KLTM'], failed: true)];
   final done = [proc('P-1A2B3C', 'Hoá đơn 2050 · Cty Sao Mai', 'done', 4, 'Đã gửi khách', 'green', const [])];
@@ -189,6 +189,8 @@ void main() {
     expect(find.text('1/4'), findsOneWidget);
     expect(find.text('KLTM'), findsOneWidget);
     expect(find.text('ABC Capital'), findsOneWidget);
+    // Tiến độ của luồng đang chạy ngay trên dòng (như trang chi tiết).
+    expect(find.text('44% · Đã kiểm 4/9'), findsOneWidget);
     expect(find.textContaining('128.450.000'), findsNWidgets(2));
     expect(find.textContaining('Số dòng'), findsNothing, reason: 'chỉ 1–2 thống kê chính');
 

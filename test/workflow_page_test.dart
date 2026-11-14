@@ -159,7 +159,7 @@ void main() {
       };
   final runs = [
     run('i-101', 'Nghỉ phép 12/11 – 14/11 (Lan)', 'running'),
-    run('i-102', 'Nghỉ phép 20/11 (Ba)', 'running', requester: 'me', ago: 7200000),
+    {...run('i-102', 'Nghỉ phép 20/11 (Ba)', 'running', requester: 'me', ago: 7200000), 'progress': {'percent': 44, 'label': 'Chờ bàn giao'}},
     run('i-090', 'Nghỉ phép 01/11 (Lan)', 'done', ago: 86400000 * 6),
     run('i-091', 'Nghỉ phép 03/11 (Minh)', 'rejected', ago: 86400000 * 4),
   ];
@@ -442,6 +442,8 @@ void main() {
       await pump(t, const Size(1280, 860), leave(), b: b);
       expect(find.text('Nghỉ phép 12/11 – 14/11 (Lan)'), findsOneWidget);
       expect(find.text('Theo dõi'), findsNothing, reason: 'chỉ có lần chạy: một danh sách');
+      // Dòng lần chạy có tiến độ: thanh + "44% · nhãn" như cột phải.
+      expect(find.text('44% · Chờ bàn giao'), findsOneWidget);
       expect(requests.any((u) => u.path == '/__apps/flows/instances' && u.queryParameters['flow'] == 'nghiphep'), isTrue);
       await t.scrollUntilVisible(find.text('Theo ngày'), 300, scrollable: reportScroll());
       await settle(t);

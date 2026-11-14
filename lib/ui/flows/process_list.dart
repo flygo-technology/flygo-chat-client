@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../api/flows_api.dart';
+import '../../api/flows_live.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../common.dart';
@@ -11,6 +12,7 @@ import 'flow_card.dart' show kFlowGreen, kFlowOrange, kFlowRed;
 import 'flow_icon_picker.dart' show flowIconView;
 import 'flow_logic.dart' show vnNumber, vnDecimal;
 import 'flow_nav.dart';
+import 'flows_page.dart' show FlowProgressBar;
 import 'process_chat.dart' show ProcessUnreadBadge;
 import 'process_detail.dart';
 import 'process_report.dart';
@@ -212,8 +214,11 @@ class _ProcessesViewState extends State<ProcessesView> with SingleTickerProvider
   String? _label;
   late String? _step = widget.initialStep;
   String _q = '';
-  Timer? _live, _debounce;
+  Timer? _live, _debounce, _liveReload;
   int _seq = 0;
+  /// Kênh realtime: `flow:<mã>` khi lọc một quy trình, không thì `processes` (mọi tiến trình mình xem được).
+  FlowsLiveSub? _liveSub;
+  DateTime _liveReloadAt = DateTime.fromMillisecondsSinceEpoch(0);
   /// Nhãn và bước đã gặp (để chọn ở bộ lọc): bước theo quy trình.
   final _seenLabels = <String>{};
   final _seenSteps = <String, Map<String, String>>{};
@@ -235,6 +240,8 @@ class _ProcessesViewState extends State<ProcessesView> with SingleTickerProvider
   void dispose() {
     _live?.cancel();
     _debounce?.cancel();
+    _liveReload?.cancel();
+    _liveSub?.cancel();
     _tabs.dispose();
     _qCtl.dispose();
     super.dispose();
@@ -250,6 +257,7 @@ class _ProcessesViewState extends State<ProcessesView> with SingleTickerProvider
     final tab = _stateIdx;
     final seq = ++_seq;
     _live?.cancel();
+    _liveSubscribe();
     if (widget.stateSelect) {
       api.processes(flow: _flow, state: 'failed', limit: 200).then((l) {
         if (mounted && l.length != _failedCount) setState(() => _failedCount = l.length);
@@ -317,7 +325,40 @@ class _ProcessesViewState extends State<ProcessesView> with SingleTickerProvider
       if (!mounted) return;
       final ls = WidgetsBinding.instance.lifecycleState;
       final visible = TickerMode.valuesOf(context).enabled && (ls == null || ls == AppLifecycleState.resumed);
-      visible ? _load() : _scheduleLive();
+      visible && !FlowsLive.of(api).up ? _load() : _scheduleLive();
+    });
+  }
+
+  void _liveSubscribe() {
+    final topic = _flow == null || _flow!.isEmpty ? 'processes' : 'flow:$_flow';
+    if (_liveSub?.topic == topic) return;
+    _liveSub?.cancel();
+    _liveSub = FlowsLive.of(api).subscribe(topic, _onLive);
+  }
+
+  /// Tin realtime: tiến trình đang hiện (và vẫn đúng tab) thì thay dòng; tiến trình khác / đổi tab / `resync` thì tải
+  /// lại tab hiện tại, tối đa 5 giây một lần (máy chủ đông việc không làm app tải liên tục).
+  void _onLive(FlowsLiveEvent e) {
+    if (!mounted || e.type == 'instance') return;
+    final tab = _stateIdx;
+    final list = _lists[tab];
+    if (!e.resync && list != null && e.row.isNotEmpty) {
+      final p = FlowProcess.fromJson(e.row);
+      final want = _states[tab];
+      final fits = want.isEmpty || want.split(',').contains(p.state);
+      final i = list.indexWhere((x) => x.id == p.id);
+      if (i >= 0 && fits) {
+        _remember([p]);
+        setState(() => _lists[tab] = [...list]..[i] = p);
+        return;
+      }
+      if (i < 0 && !fits) return;
+    }
+    if (_liveReload?.isActive == true) return;
+    final wait = const Duration(seconds: 5) - DateTime.now().difference(_liveReloadAt);
+    _liveReload = Timer(wait.isNegative ? const Duration(milliseconds: 300) : wait, () {
+      _liveReloadAt = DateTime.now();
+      if (mounted) _load();
     });
   }
 
@@ -564,6 +605,8 @@ class _ProcessesViewState extends State<ProcessesView> with SingleTickerProvider
                   ]),
                 ),
               if (p.steps.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6, bottom: 2), child: ProcessStepsBar(p)),
+              // Tiến độ (bước Báo tiến độ) của luồng đang chạy, như trang chi tiết: thanh + "44% · nhãn".
+              if (p.progress != null) FlowProgressBar(progress: p.progress, compact: true),
               if (stats.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 3),

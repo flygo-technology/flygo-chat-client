@@ -236,6 +236,9 @@ class FlowProcess {
     return k;
   }
 
+  /// Tiến độ (bước Báo tiến độ) của luồng đã tạo tiến trình khi luồng còn chạy: `{percent, label, tone}`, null nếu không có.
+  Map<String, dynamic>? get progress => raw['progress'] is Map ? (raw['progress'] as Map).cast<String, dynamic>() : null;
+
   /// Bước hiện tại quá thời hạn (SLA) của bước.
   bool get overdue => raw['overdue'] == true || steps.any((st) => st['overdue'] == true && (st['state'] == 'active' || st['state'] == 'failed'));
 
@@ -292,6 +295,9 @@ class FlowsApi {
   @visibleForTesting
   static http.Client? debugClient;
 
+  /// Đang chạy với client HTTP giả của test (kênh realtime không nối WebSocket thật).
+  static bool get usesTestClient => debugClient != null;
+
   // ---------------------------------------------------------------- vé Flygo ID
   /// Flygo ID của máy chủ chat đang dùng theo phiên chat (null = máy chủ không có Flygo ID, dùng token chat).
   static final _ids = <String, Future<FlygoId?>>{};
@@ -321,6 +327,9 @@ class FlowsApi {
       return token;
     }
   }
+
+  /// Vé đăng nhập cho kênh realtime (tin `auth` đầu tiên của WebSocket, như header Authorization của REST).
+  Future<String> liveTicket({bool refresh = false}) => _bearer(refresh: refresh);
 
   Future<Map<String, String>> _headers({bool refresh = false}) async => {
         'Authorization': 'Bearer ${await _bearer(refresh: refresh)}',

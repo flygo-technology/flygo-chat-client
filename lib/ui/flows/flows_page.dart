@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../api/flows_api.dart';
+import '../../api/flows_live.dart';
 import '../../config.dart' show isDesktop;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
@@ -316,16 +317,44 @@ class _FlowsHomeState extends State<FlowsHome> {
   @override
   void dispose() {
     _live?.cancel();
+    for (final s in _liveSubs.values) {
+      s.cancel();
+    }
     flowsChanged.removeListener(_load);
     super.dispose();
   }
 
-  /// Có việc đang chạy báo tiến độ: 5 giây làm mới danh sách một lần để thanh tiến độ chạy theo.
+  /// Kênh realtime của các việc đang chạy có thanh tiến độ (tối đa 20): đổi thì thay dòng ngay.
+  final _liveSubs = <String, FlowsLiveSub>{};
+
+  void _onLive(FlowsLiveEvent e) {
+    if (!mounted) return;
+    final runs = _runs;
+    final i = runs == null || e.row.isEmpty ? -1 : runs.indexWhere((r) => '${r['id']}' == e.id);
+    if (i >= 0) {
+      setState(() => _runs = [...runs!]..[i] = e.row);
+      _keepLive();
+    }
+  }
+
+  /// Có việc đang chạy báo tiến độ: theo dõi qua kênh realtime; kênh rớt thì 5 giây làm mới danh sách một lần để thanh
+  /// tiến độ chạy theo.
   void _keepLive() {
     _live?.cancel();
-    final running = (_runs ?? const []).any((x) => x['status'] == 'running' && x['progress'] != null);
-    if (!running || !mounted) return;
+    final ids = {
+      for (final x in (_runs ?? const <Map<String, dynamic>>[]))
+        if (x['status'] == 'running' && x['progress'] != null) '${x['id']}',
+    }.take(20).toSet();
+    for (final id in [..._liveSubs.keys]) {
+      if (!ids.contains(id)) _liveSubs.remove(id)!.cancel();
+    }
+    if (!mounted) return;
+    for (final id in ids) {
+      _liveSubs[id] ??= FlowsLive.of(api).subscribe('instance:$id', _onLive);
+    }
+    if (ids.isEmpty) return;
     _live = Timer(const Duration(seconds: 5), () async {
+      if (FlowsLive.of(api).up) return _keepLive();
       try {
         final list = await api.instances(related: true);
         if (mounted) setState(() => _runs = list);
@@ -1128,18 +1157,38 @@ class _FlowDetailPageState extends State<FlowDetailPage> {
   Map<String, dynamic>? _d;
   String? _err;
   bool _busy = false;
-  Timer? _live;
+  Timer? _live, _liveReload;
+  /// Kênh realtime của đơn: đổi thì tải lại ngay; huỷ khi đóng trang hoặc đơn xong.
+  FlowsLiveSub? _liveSub;
 
   @override
   void initState() {
     super.initState();
+    _liveSub = FlowsLive.of(api).subscribe('instance:${widget.instanceId}', (_) {
+      if (!mounted) return;
+      _liveReload?.cancel();
+      _liveReload = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) _load();
+      });
+    });
     _load();
   }
 
   @override
   void dispose() {
     _live?.cancel();
+    _liveReload?.cancel();
+    _liveSub?.cancel();
     super.dispose();
+  }
+
+  /// Đơn còn chạy: 3 giây tải lại một lần (tiến độ, bước đang chạy, gỡ lỗi) khi kênh realtime không nối được.
+  void _poll() {
+    _live?.cancel();
+    _live = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      _liveSub != null && FlowsLive.of(api).up ? _poll() : _load();
+    });
   }
 
   /// Việc của mình trong đơn này kèm thông tin thêm từ GET /flows/tasks (nút / lựa chọn của bước chờ, yêu cầu phê
@@ -1166,8 +1215,12 @@ class _FlowDetailPageState extends State<FlowDetailPage> {
         });
       }
       await _enrich(d);
-      // Đơn còn chạy: 3 giây tải lại một lần (tiến độ, bước đang chạy, gỡ lỗi).
-      if (mounted && d['status'] == 'running') _live = Timer(const Duration(seconds: 3), _load);
+      final open = d['status'] == 'running' || d['status'] == 'returned';
+      if (!open) {
+        _liveSub?.cancel();
+        _liveSub = null;
+      }
+      if (mounted && d['status'] == 'running') _poll();
       // Có ủy quyền đề nghị: lấy tên quy trình để hiện.
       if (_flowNames.isEmpty && _delegationRequest != null) {
         final names = await api.flowNames();
