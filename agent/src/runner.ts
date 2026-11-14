@@ -3206,7 +3206,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         sessionId: session.session_id || undefined,
         forkFrom: session.session_id ? undefined : forkFrom || undefined,
         cwd: dir,
-        prompt: prompt + planNote + researchNote,
+        prompt: prompt + planNote + researchNote + (post.props?.flygo_voice ? `\n(Tin này ${owner} NÓI bằng giọng trong chế độ trò chuyện giọng nói; app sẽ ĐỌC TO câu trả lời: trả lời ngắn gọn bằng văn nói tự nhiên, không bảng, không khối mã, không liệt kê dài; việc cần chi tiết thì làm xong rồi tóm tắt bằng lời.)` : ""),
         research,
         extMcp: await extStore.servers().catch(() => ({})),
         persona: botPersona(),

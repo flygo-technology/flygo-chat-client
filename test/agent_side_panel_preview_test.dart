@@ -15,6 +15,7 @@ import 'package:flygo_chat/ui/artifact_view.dart';
 import 'package:flygo_chat/ui/chat_themes.dart';
 import 'package:flygo_chat/ui/file_card.dart';
 import 'package:flygo_chat/ui/mcp_page.dart';
+import 'package:flygo_chat/ui/voice_mode.dart';
 import 'package:flygo_chat/ui/markdown_view.dart';
 import 'package:flygo_chat/ui/shell_highlight.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -356,6 +357,9 @@ flutter build ios --release
             ),
           ),
         ));
+    VoiceModePage.debugPhase = VoicePhase.listening;
+    VoiceModePage.debugHeard = 'Kiểm tra giúp anh thang số 3 tòa B tuần này đã bảo trì chưa';
+    await shot(t, 'voice-mode', const Size(390, 844), VoiceModePage(channelId: cur), dark: true);
     await shot(t, 'mcp-page', const Size(900, 760), const McpPage());
     await shot(t, 'mcp-page-phone', const Size(390, 820), const McpPage());
     await shot(

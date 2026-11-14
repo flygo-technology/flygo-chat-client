@@ -2,6 +2,14 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## Unreleased (feat/agent-tools)
+- Artifacts: runner tool artifact_publish (HTML pages / charts / mini apps with versions) rendered inline in an isolated webview (CSP, no credentials), fullscreen, open in browser, copy HTML, public share link (relay /artifact).
+- Deep research: "+" → "Nghiên cứu sâu" (props.flygo_mode=research); runner research protocol (Claude sub-agents, Codex live web search), research summary strip with sources, citation badges.
+- Project knowledge: pinned knowledge files per project in the right panel; runner syncs them into .flygo-knowledge (pdf/docx text) for every session.
+- MCP & tiện ích (home › Cá nhân): connect external Streamable-HTTP MCP servers (test, API key, OAuth2 via relay callback) per assistant; agent tool mcp_add with approval card/modal; Claude and Codex get them as MCP servers (tool calls still need approval).
+- Voice mode: talk to the assistant (auto end-of-speech, STT, spoken replies via the station TTS); runner keeps voice replies short.
+- Runner 0.6.92.
+
 ## Unreleased (feat/agent-side-panel)
 - Agent chats: shell highlighting in bash/tool cards (JetBrains Mono, no ligatures), red failed output, folding long output; step rail line removed.
 - Agent chats: right side panel on desktop / ⋮ page on phone with sessions, photos, files, links, MCP token invite links and all ⋮ actions.

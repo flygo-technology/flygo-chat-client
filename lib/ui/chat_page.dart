@@ -27,6 +27,7 @@ import 'bg_tasks.dart';
 import 'agent_side_panel.dart';
 import 'artifact_view.dart';
 import 'mcp_page.dart' show McpAddCard;
+import 'voice_mode.dart';
 import 'shell_highlight.dart' show aiAnswerStyle;
 import 'ai_panel.dart';
 import 'flags.dart';
@@ -4762,6 +4763,8 @@ class _ComposerState extends State<_Composer> {
         await _pickRefs(app);
       case 'research':
         setState(() => _research = !_research);
+      case 'voice':
+        Navigator.of(context, rootNavigator: true).push(AppPageRoute(builder: (_) => VoiceModePage(channelId: widget.channelId)));
       case 'model':
         _modelKey.currentState?.showButtonMenu();
     }
@@ -4904,13 +4907,14 @@ class _ComposerState extends State<_Composer> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       constraints: const BoxConstraints(minWidth: 240),
       position: PopupMenuPosition.over,
-      offset: Offset(0, _desktop ? -336 : -400),
+      offset: Offset(0, _desktop ? -392 : -456),
       onSelected: (a) => _runPlus(app, a),
       itemBuilder: (_) => [
         if (!_desktop) item('camera', Icon(Icons.photo_camera_outlined, color: pal.text), tr('Máy ảnh')),
         item('gallery', Icon(Icons.image_outlined, color: pal.text), tr('Hình')),
         item('file', Icon(Icons.attach_file_rounded, color: pal.text), tr('Tệp')),
         item('refs', Text('@', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)), tr('Tag chat, luồng, agent')),
+        item('voice', Icon(Icons.graphic_eq_rounded, color: pal.text), tr('Trò chuyện bằng giọng nói')),
         item('research', Icon(Icons.travel_explore_rounded, color: _research ? const Color(0xFFD97757) : pal.text),
             _research ? tr('Tắt nghiên cứu sâu') : tr('Nghiên cứu sâu')),
         item('model', Icon(Icons.speed_rounded, color: pal.text), tr('Mô hình và mức suy nghĩ')),
