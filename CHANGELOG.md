@@ -2,6 +2,9 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 474 (2026-11-14)
+- Mini apps: keep_visible (page stays active when hidden), own window on macOS (features.window), TV link code panel (features.tv_code) for a TV web app.
+
 ## 473 (2026-11-14)
 - Flows tabs: content capped at a readable width on wide screens (lists 920px, catalog 1200px); task buttons sit under the row text.
 
