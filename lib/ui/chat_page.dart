@@ -1,7 +1,7 @@
 import '../i18n/i18n.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' show Random, pi, sin;
+import 'dart:math' show Random, cos, pi, sin, sqrt;
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
@@ -1860,13 +1860,22 @@ class _AgentWorkingState extends State<_AgentWorking> with SingleTickerProviderS
   late final AnimationController _spin = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
   final _rnd = Random();
   late String _verb = _verbs[_rnd.nextInt(_verbs.length)];
+  /// Lần lượt (đổi cùng lúc với chữ): biểu tượng Claude xoay → đồ thị 4 nút → biểu tượng → đồ thị 3 nút …
+  bool _dots = false;
+  int _nodes = 3;
   Timer? _t;
 
   @override
   void initState() {
     super.initState();
     _t = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (mounted) setState(() => _verb = _verbs[_rnd.nextInt(_verbs.length)]);
+      if (mounted) {
+        setState(() {
+          _verb = _verbs[_rnd.nextInt(_verbs.length)];
+          _dots = !_dots;
+          if (_dots) _nodes = _nodes == 4 ? 3 : 4;
+        });
+      }
     });
   }
 
@@ -1885,14 +1894,28 @@ class _AgentWorkingState extends State<_AgentWorking> with SingleTickerProviderS
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 2),
       child: Row(children: [
-        // Biểu tượng Claude (cam) xoay chậm và "thở" như app Claude khi đang nghĩ.
-        AnimatedBuilder(
-          animation: _spin,
-          builder: (_, child) => Transform.rotate(
-            angle: _spin.value * 2 * pi,
-            child: Transform.scale(scale: .82 + .22 * (0.5 + 0.5 * sin(_spin.value * 4 * pi)), child: child),
+        // Biểu tượng Claude (cam) xoay chậm và "thở" như app Claude khi đang nghĩ, xen kẽ với đồ thị nút xoay 3D.
+        SizedBox(
+          width: 18,
+          height: 18,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: _dots
+                ? AnimatedBuilder(
+                    key: const ValueKey('dots'),
+                    animation: _spin,
+                    builder: (_, _) => CustomPaint(size: const Size(18, 18), painter: _NodeGraphPainter(_spin.value, _nodes, orange)),
+                  )
+                : AnimatedBuilder(
+                    key: const ValueKey('spin'),
+                    animation: _spin,
+                    builder: (_, child) => Transform.rotate(
+                      angle: _spin.value * 2 * pi,
+                      child: Transform.scale(scale: .82 + .22 * (0.5 + 0.5 * sin(_spin.value * 4 * pi)), child: child),
+                    ),
+                    child: const EngineIcon('claude', size: 18, color: orange),
+                  ),
           ),
-          child: const EngineIcon('claude', size: 18, color: orange),
         ),
         const SizedBox(width: 8),
         AnimatedSwitcher(
@@ -1907,6 +1930,42 @@ class _AgentWorkingState extends State<_AgentWorking> with SingleTickerProviderS
       ]),
     );
   }
+}
+
+/// "Đồ thị nút" xoay 3D như dấu đang làm việc mới của app Claude: 4 nút (tứ diện) hoặc 3 nút (tam giác) quay quanh một
+/// trục nghiêng, chiếu xuống mặt phẳng. Ở cỡ nhỏ không thấy cạnh nối, chỉ thấy các chấm lúc thành hình vuông, lúc xếp
+/// chồng thành đường chéo. Nút gần hơn thì to và đậm hơn.
+class _NodeGraphPainter extends CustomPainter {
+  final double t;
+  final int nodes;
+  final Color color;
+  const _NodeGraphPainter(this.t, this.nodes, this.color);
+
+  static final _tetra = [for (final v in const [[1.0, 1.0, 1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]]) [for (final c in v) c / sqrt(3)]];
+  static final _tri = [for (var i = 0; i < 3; i++) [cos(i * 2 * pi / 3), 0.0, sin(i * 2 * pi / 3)]];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final a = t * 2 * pi; // quay quanh trục đứng
+    const tilt = .55; // nghiêng trục về phía người xem
+    final pts = <(double, double, double)>[];
+    for (final v in nodes == 3 ? _tri : _tetra) {
+      final x1 = v[0] * cos(a) + v[2] * sin(a), z1 = -v[0] * sin(a) + v[2] * cos(a);
+      final y2 = v[1] * cos(tilt) - z1 * sin(tilt), z2 = v[1] * sin(tilt) + z1 * cos(tilt);
+      pts.add((x1, y2, z2));
+    }
+    pts.sort((p, q) => p.$3.compareTo(q.$3)); // xa vẽ trước
+    final c = size.center(Offset.zero), span = size.width * .34, base = size.width * .13;
+    final paint = Paint();
+    for (final (x, y, z) in pts) {
+      final near = (z + 1) / 2; // 0 xa … 1 gần
+      paint.color = color.withValues(alpha: .55 + .45 * near);
+      canvas.drawCircle(c + Offset(x, y) * span, base * (.75 + .35 * near), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_NodeGraphPainter old) => old.t != t || old.nodes != nodes;
 }
 
 /// Chấm tròn phồng xẹp chậm (ChatGPT đang trả lời).
