@@ -20,6 +20,8 @@ import 'package:flygo_chat/ui/theme.dart';
 import 'package:flygo_chat/update/build_label.dart';
 import 'package:provider/provider.dart';
 
+import 'support/fake_photos.dart';
+
 Future<void> _fonts() async {
   final dir = '${Platform.environment['FLUTTER_ROOT'] ?? '${Platform.environment['HOME']}/tools/flutter'}/bin/cache/artifacts/material_fonts';
   Future<void> load(String family, List<String> files) async {
@@ -48,6 +50,7 @@ void main() {
       'first_name': 'Nguyễn Văn',
       'last_name': 'An',
       'email': 'nguyenvana@congty.example.vn',
+      'last_picture_update': 1,
       'position': 'Trưởng phòng Kinh doanh',
       'props': {
         'customStatus': jsonEncode({'emoji': '', 'text': 'Đang họp khách hàng', 'expires_at': DateTime.now().add(const Duration(hours: 1)).toUtc().toIso8601String()}),
@@ -60,25 +63,8 @@ void main() {
   ServerList.current = ServerList.items.first.url;
   currentBuild.value = '466';
 
-  // Đúng kiểu ô của trang (appTile): ô 62px bo 18, màu chuyển + bóng; mini app: ô trắng viền mảnh, biểu tượng emoji.
-  Widget tile(Pal pal, Widget icon, Color? color, String label, {int badge = 0}) {
-    final box = color == null
-        ? BoxDecoration(
-            color: pal.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: pal.divider),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 10, offset: const Offset(0, 4))],
-          )
-        : BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color.lerp(color, Colors.white, .28)!, color, Color.lerp(color, Colors.black, .12)!],
-              stops: const [0, .55, 1],
-            ),
-            boxShadow: [BoxShadow(color: color.withValues(alpha: .35), blurRadius: 12, offset: const Offset(0, 5))],
-          );
+  // Ô của trang (appTile): biểu tượng là widget thật AppTileIcon; ô Hồ sơ là ô tròn chứa ảnh đại diện.
+  Widget tile(Pal pal, Widget icon, Color? color, String label, {int badge = 0, bool circle = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -87,7 +73,7 @@ void main() {
           label: Text('$badge'),
           backgroundColor: const Color(0xFFE53935),
           textColor: Colors.white,
-          child: Container(width: 62, height: 62, decoration: box, child: Center(child: icon)),
+          child: AppTileIcon(icon: icon, color: color, circle: circle),
         ),
         const SizedBox(height: 9),
         Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, height: 1.2, fontWeight: FontWeight.w500, color: pal.text)),
@@ -168,7 +154,7 @@ void main() {
                     (Icons.manage_accounts_rounded, const Color(0xFF0F766E), 'Người dùng', 0),
                   ])),
                   grid(pal, 'Cá nhân', [
-                    tile(pal, ClipOval(child: Avatar(userId: 'me', name: 'Nguyễn Văn An', size: 62, status: false)), null, 'Hồ sơ'),
+                    tile(pal, Avatar(userId: 'me', name: 'Nguyễn Văn An', size: 62, status: false), null, 'Hồ sơ', circle: true),
                     ...icons(pal, [
                     (Icons.settings_rounded, const Color(0xFF14A38B), 'Cài đặt', 0),
                     (Icons.devices_rounded, const Color(0xFF2563EB), 'Thiết bị', 0),
@@ -226,13 +212,19 @@ void main() {
   testWidgets('cả trang Mở ứng dụng (điện thoại, sáng + tối)', (t) async {
     if (out == null) return;
     await t.runAsync(_fonts);
+    // Ảnh đại diện thật (máy chủ ảnh giả) để thấy mép cắt tròn; bóng mờ như app thật.
+    await useFakePhotos(t);
+    debugDisableShadows = false;
     for (final b in Brightness.values) {
       t.view.physicalSize = const Size(390, 2050);
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.reset);
       final key = GlobalKey();
       await t.pumpWidget(RepaintBoundary(key: key, child: page(b)));
-      await t.pump(const Duration(milliseconds: 200));
+      for (var i = 0; i < 8; i++) {
+        await t.runAsync(() => Future.delayed(const Duration(milliseconds: 80)));
+        await t.pump(const Duration(milliseconds: 100));
+      }
       expect(t.takeException(), isNull);
       await t.runAsync(() async {
         final img = await (key.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage();
@@ -240,6 +232,7 @@ void main() {
         await File('$out/h-apps-page-full-${b.name}.png').writeAsBytes(bytes!.buffer.asUint8List());
       });
     }
+    debugDisableShadows = true;
   });
 
   Future<void> png(WidgetTester t, String name, Size size, Widget w) async {
