@@ -27,6 +27,8 @@ Future<void> showMessageMenu({
   required bool mine,
   required List<MenuAction> actions,
   Rect? anchor,
+  /// false: không có thanh thả cảm xúc (chat với trợ lý).
+  bool reactions = true,
 }) {
   HapticFeedback.mediumImpact();
   return showGeneralDialog(
@@ -37,7 +39,7 @@ Future<void> showMessageMenu({
     transitionDuration: const Duration(milliseconds: 160),
     pageBuilder: (ctx, _, _) => Material(
       type: MaterialType.transparency,
-      child: _MessageMenu(app: app, post: post, mine: mine, actions: actions, anchor: anchor),
+      child: _MessageMenu(app: app, post: post, mine: mine, actions: actions, anchor: anchor, reactions: reactions),
     ),
     transitionBuilder: (ctx, anim, _, child) => FadeTransition(
       opacity: anim,
@@ -52,7 +54,8 @@ class _MessageMenu extends StatelessWidget {
   final bool mine;
   final List<MenuAction> actions;
   final Rect? anchor;
-  const _MessageMenu({required this.app, required this.post, required this.mine, required this.actions, this.anchor});
+  final bool reactions;
+  const _MessageMenu({required this.app, required this.post, required this.mine, required this.actions, this.anchor, this.reactions = true});
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +77,7 @@ class _MessageMenu extends StatelessWidget {
         onTap: () => Navigator.pop(context),
         onSecondaryTap: () => Navigator.pop(context),
         child: _placed(context, Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: align, children: [
-                  if (post.sendState == SendState.sent)
+                  if (post.sendState == SendState.sent && reactions)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                       decoration: BoxDecoration(

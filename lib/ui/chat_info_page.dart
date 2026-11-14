@@ -17,6 +17,7 @@ import 'chat_themes.dart';
 import 'common.dart';
 import 'day_sections.dart';
 import 'home_page.dart';
+import 'media_menu.dart';
 import 'media_view.dart';
 import 'popout_windows.dart' show popoutNotice;
 import 'desk_tabs.dart' show DeskTab, openTabHook;
@@ -994,12 +995,15 @@ class ChannelMediaPageState extends State<ChannelMediaPage> {
             crossAxisSpacing: 2,
             children: [
               for (final (p, f) in groups[i].$2)
-                GestureDetector(
+                MediaMenuArea(
+                  file: f,
+                  post: p,
+                  child: GestureDetector(
                   onTap: () => showGallery(context, p, [ChatImage(file: f)], 0),
                   child: Image(
                       image: DiskCachedImage.network(chatImageKey(f.id, 'thumb'), app.api.thumbUrl(f.id), headers: app.api.headers),
                       fit: BoxFit.cover, errorBuilder: (_, _, _) => Container(color: pal.surface2)),
-                ),
+                )),
             ],
           ),
         );
@@ -1017,13 +1021,13 @@ class ChannelMediaPageState extends State<ChannelMediaPage> {
             itemExtent: _rowExtent,
             delegate: SliverChildListDelegate([
               for (final (p, f) in groups[i].$2)
-                _tile(ListTile(
+                _tile(MediaMenuArea(file: f, post: p, child: ListTile(
                   leading: Icon(f.isVideo ? Icons.videocam_outlined : Icons.insert_drive_file_outlined, color: pal.accentText),
                   title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text)),
                   subtitle: Text('${fileSize(f.size)} · ${app.users[p.userId]?.displayName ?? ''} · ${hhmm(DateTime.fromMillisecondsSinceEpoch(p.createAt))}',
                       maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub, fontSize: 13)),
                   onTap: () => openFile(context, f),
-                )),
+                ))),
             ]),
           ),
         );
@@ -1043,12 +1047,12 @@ class ChannelMediaPageState extends State<ChannelMediaPage> {
           }
         }
         final groups = groupByDay(found, (x) => x.$1.createAt);
-        Widget link(String name, String u, bool bookmark) => _tile(ListTile(
+        Widget link(String name, String u, bool bookmark) => _tile(MediaMenuArea(link: u, child: ListTile(
               leading: Icon(bookmark ? Icons.bookmark_outline : Icons.link, color: pal.accentText),
               title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text)),
               subtitle: name == u ? null : Text(u, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub)),
               onTap: () => launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication),
-            ));
+            )));
         // Đánh dấu của kênh (không có ngày) đứng trước các nhóm ngày.
         const bookmarkHeader = 36.0;
         body = DaySectionsView(

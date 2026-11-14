@@ -16,6 +16,7 @@ import 'app_route.dart';
 import 'chat_page.dart' show openFile;
 import 'chat_info_page.dart' show ChannelMediaPage;
 import 'common.dart';
+import 'media_menu.dart';
 import 'media_view.dart';
 import 'theme.dart';
 
@@ -231,7 +232,9 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
         Expanded(child: list),
       ],
     );
-    if (widget.asPage) return Scaffold(backgroundColor: pal.bg, body: SafeArea(child: body));
+    if (widget.asPage) {
+      return Scaffold(backgroundColor: pal.bg, body: SafeArea(child: body));
+    }
     return Material(color: pal.bg, child: body);
   }
 
@@ -350,18 +353,22 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
                     for (final (p, f) in images.take(8))
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: GestureDetector(
-                          onTap: () => showGallery(context, p, [ChatImage(file: f)], 0),
-                          child:
-                              AgentSidePanel.debugThumb?.call(f) ??
-                              Image(
-                                image: DiskCachedImage.network(chatImageKey(f.id, 'thumb'), app.api.thumbUrl(f.id), headers: app.api.headers),
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => Container(
-                                  color: pal.text.withValues(alpha: .08),
-                                  child: Icon(Icons.image_outlined, color: pal.sub),
+                        child: MediaMenuArea(
+                          file: f,
+                          post: p,
+                          child: GestureDetector(
+                            onTap: () => showGallery(context, p, [ChatImage(file: f)], 0),
+                            child:
+                                AgentSidePanel.debugThumb?.call(f) ??
+                                Image(
+                                  image: DiskCachedImage.network(chatImageKey(f.id, 'thumb'), app.api.thumbUrl(f.id), headers: app.api.headers),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => Container(
+                                    color: pal.text.withValues(alpha: .08),
+                                    child: Icon(Icons.image_outlined, color: pal.sub),
+                                  ),
                                 ),
-                              ),
+                          ),
                         ),
                       ),
                   ],
@@ -378,17 +385,21 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
             : Column(
                 children: [
                   for (final (p, f) in files.take(3))
-                    ListTile(
-                      dense: true,
-                      leading: Icon(f.isVideo ? Icons.videocam_outlined : Icons.description_outlined, color: pal.accentText),
-                      title: Text(
-                        f.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 14, color: pal.text),
+                    MediaMenuArea(
+                      file: f,
+                      post: p,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(f.isVideo ? Icons.videocam_outlined : Icons.description_outlined, color: pal.accentText),
+                        title: Text(
+                          f.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 14, color: pal.text),
+                        ),
+                        subtitle: Text('${fileSize(f.size)} · ${when(p)}', style: TextStyle(fontSize: 12, color: pal.sub)),
+                        onTap: () => openFile(context, f),
                       ),
-                      subtitle: Text('${fileSize(f.size)} · ${when(p)}', style: TextStyle(fontSize: 12, color: pal.sub)),
-                      onTap: () => openFile(context, f),
                     ),
                 ],
               ),
@@ -403,22 +414,25 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
             : Column(
                 children: [
                   for (final (_, u) in links.take(3))
-                    ListTile(
-                      dense: true,
-                      leading: Icon(Icons.link_rounded, color: pal.accentText),
-                      title: Text(
-                        Uri.tryParse(u)?.host ?? u,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 14, color: pal.text),
+                    MediaMenuArea(
+                      link: u,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.link_rounded, color: pal.accentText),
+                        title: Text(
+                          Uri.tryParse(u)?.host ?? u,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 14, color: pal.text),
+                        ),
+                        subtitle: Text(
+                          u,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: pal.sub),
+                        ),
+                        onTap: () => launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication),
                       ),
-                      subtitle: Text(
-                        u,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: pal.sub),
-                      ),
-                      onTap: () => launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication),
                     ),
                 ],
               ),

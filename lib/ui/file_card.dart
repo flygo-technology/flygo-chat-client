@@ -144,6 +144,22 @@ class FileCard extends StatefulWidget {
 final Map<String, String> _openCache = {};
 final Map<String, String> _savedCache = {};
 
+/// Bản tệp đã có trên máy này (đã lưu / đã mở trong phiên chạy app), null nếu chưa có.
+String? localCopyOf(MmFile f) {
+  final p = _savedCache[f.id] ?? _openCache[f.id];
+  return p != null && File(p).existsSync() ? p : null;
+}
+
+/// Tải tệp về thư mục Tải về (máy tính) nếu chưa có bản trên máy; trả về đường dẫn.
+Future<String> saveFileLocally(AppState app, MmFile f) async {
+  final hit = localCopyOf(f);
+  if (hit != null) return hit;
+  final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+  final out = await app.api.downloadTo(f.id, File(uniqueSavePath(dir.path, f.name)));
+  _savedCache[f.id] = out.path;
+  return out.path;
+}
+
 class _FileCardState extends State<FileCard> {
   /// Đường dẫn trên máy bot; không có thì tệp đã lưu trên máy này; không nữa thì link tải từ máy chủ chat.
   Future<void> _copyPath() async {

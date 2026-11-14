@@ -318,6 +318,7 @@ class AppState extends ChangeNotifier {
     }
     renderMarkdown = await _store.meta<bool>('render_markdown') ?? true;
     agentPanelOpen = await _store.meta<bool>('agent_panel_open') ?? true;
+    agentPanelWidth = (await _store.meta<num>('agent_panel_width'))?.toDouble() ?? 340;
     final ls = await _store.meta<Map>('last_sync');
     ls?.forEach((k, v) => _lastSync[k as String] = (v as num).toInt());
   }
@@ -1985,6 +1986,14 @@ class AppState extends ChangeNotifier {
     agentPanelOpen = v;
     notifyListeners();
     await _store.setMeta('agent_panel_open', v);
+  }
+
+  /// Chiều rộng cột phải của chat với trợ lý (kéo mép trái để đổi; nhớ theo người dùng).
+  double agentPanelWidth = 340;
+  Future<void> setAgentPanelWidth(double v, {bool save = true}) async {
+    agentPanelWidth = v;
+    notifyListeners();
+    if (save) await _store.setMeta('agent_panel_width', v);
   }
 
   bool renderMarkdown = true;

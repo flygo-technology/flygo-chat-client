@@ -1142,10 +1142,21 @@ class _ChatPageState extends State<ChatPage> {
     }
     // Chat với trợ lý trên máy tính: cột phải (phiên, ảnh / tệp / liên kết, Token MCP, thao tác).
     if ((claude || ch.isAi) && _sideShown(context)) {
+      // Kéo mép trái của cột để đổi chiều rộng (280 px … chừa ít nhất 380 px cho chat); thả tay thì lưu.
+      final maxW = (MediaQuery.sizeOf(context).width - 380).clamp(280.0, 720.0);
+      final w = app.agentPanelWidth.clamp(280.0, maxW);
       page = Row(children: [
         Expanded(child: page),
-        Container(width: .5, color: pal.divider),
-        SizedBox(width: 340, child: _sidePanel(app, ch)),
+        MouseRegion(
+          cursor: SystemMouseCursors.resizeColumn,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragUpdate: (d) => app.setAgentPanelWidth((w - d.delta.dx).clamp(280.0, maxW), save: false),
+            onHorizontalDragEnd: (_) => app.setAgentPanelWidth(app.agentPanelWidth),
+            child: SizedBox(width: 6, child: Center(child: Container(width: .5, color: pal.divider))),
+          ),
+        ),
+        SizedBox(width: w, child: _sidePanel(app, ch)),
       ]);
     }
     // Kéo tệp từ máy tính thả vào khung chat (chat thường, chat với trợ lý, cột AI): đính kèm vào ô soạn tin.
@@ -2880,7 +2891,7 @@ class _Bubble extends StatelessWidget {
       key: bubbleKey,
       onLongPress: () => _actions(context, app, mine, anchor: _rectOf(bubbleKey)),
       onSecondaryTap: () => _actions(context, app, mine, anchor: _rectOf(bubbleKey)),
-      onDoubleTap: post.sendState == SendState.sent && !agentPost ? () => app.toggleReaction(post, 'heart') : null,
+      onDoubleTap: post.sendState == SendState.sent && !agentPost && !claudeStyleFor(app, channel) ? () => app.toggleReaction(post, 'heart') : null,
       // Đang chọn nhiều tin trong chat này: bấm vào tin là chọn / bỏ chọn.
       onTap: selecting && post.sendState == SendState.sent
           ? () {
@@ -3201,7 +3212,7 @@ class _Bubble extends StatelessWidget {
       padding: EdgeInsets.only(left: 14, right: 14, top: first ? 8 : 2),
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: post.sendState == SendState.sent && _isDesktop(context)
+        child: post.sendState == SendState.sent && _isDesktop(context) && !claudeStyleFor(app, channel)
             ? _HoverReact(mine: mine, onReact: () => _actions(context, app, mine, anchor: _rectOf(bubbleKey)), child: bubble)
             : bubble,
       ),
@@ -3248,6 +3259,8 @@ class _Bubble extends StatelessWidget {
       post: post,
       mine: mine,
       anchor: anchor,
+      // Chat với trợ lý: không thả cảm xúc (Sếp, 2026-11-14).
+      reactions: !claudeStyleFor(app, channel),
       actions: [
         if (post.sendState == SendState.sent && !claudeStyleFor(app, channel)) MenuAction(Icons.reply, tr('Trả lời'), onReply),
         // Máy tính có thanh tab: mở luồng của tin (tin gốc có trả lời, hoặc tin nằm trong luồng) ở tab mới.
