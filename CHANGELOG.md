@@ -2,6 +2,10 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 475 (2026-11-14)
+- Chat: calendar button next to scroll-to-bottom; pick a date to jump to the first message of that day.
+- Flows editor: one permission "Ai được dùng quy trình (xem + chạy)"; separate start list only behind an advanced switch.
+
 ## 474 (2026-11-14)
 - Mini apps: keep_visible (page stays active when hidden), own window on macOS (features.window), TV link code panel (features.tv_code) for a TV web app.
 
