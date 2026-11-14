@@ -22,6 +22,7 @@ import '../config.dart';
 import '../data/local_store.dart';
 import '../data/models.dart';
 import '../data/servers.dart';
+import 'date_jump.dart';
 import '../push/push_service.dart';
 import '../ui/agent_view.dart' show agentDisplayText;
 import '../ui/common.dart';
@@ -69,6 +70,8 @@ class AppState extends ChangeNotifier {
   final Map<String, MmPost?> latest = {};
   final Map<String, List<MmPost>> _posts = {}; // mới nhất trước
   final Map<String, bool> hasMore = {};
+  /// Tua tới ngày: cửa sổ tin ở đoạn lịch sử cũ (mới nhất trước), tách khỏi [_posts] tới khi tải dần nối được với nó.
+  final Map<String, _PostWindow> _windows = {};
   final Map<String, int> otherViewedAt = {};
   final Map<String, Map<String, DateTime>> _typing = {};
   final Map<String, int> _lastSync = {};
@@ -259,7 +262,8 @@ class AppState extends ChangeNotifier {
       .whereType<Map>()
       .any((m) => m['ch'] == call.channelId && m['video'] == true && ((m['at'] as num? ?? 0) - call.callStart).abs() < 120000);
 
-  AppState(this.token) : api = MmApi(token);
+  /// [api]: chỉ test truyền vào (máy chủ giả).
+  AppState(this.token, {@visibleForTesting MmApi? api}) : api = api ?? MmApi(token);
 
   static Future<AppState?> restore() async {
     final t = await TokenStore.read();
@@ -1000,7 +1004,10 @@ class AppState extends ChangeNotifier {
 
   // ---------------------------------------------------------------- một cuộc chat
   List<MmPost> postsOf(String channelId) {
-    final l = _posts[channelId] ?? const <MmPost>[];
+    return _visible(_posts[channelId] ?? const <MmPost>[]);
+  }
+
+  List<MmPost> _visible(List<MmPost> l) {
     // Tin của người mình đã chặn không hiện. Tin bot tự xóa (trợ lý AI thay tin đang viết bằng tin cuối)
     // không để lại dòng "Tin nhắn đã được thu hồi".
     return l
@@ -1319,6 +1326,81 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Đang xem cửa sổ tin cũ (tua tới ngày), chưa nối với tin mới nhất.
+  bool inWindow(String channelId) => _windows.containsKey(channelId);
+  bool windowHasNewer(String channelId) => _windows[channelId]?.hasNewer ?? false;
+
+  /// Tin hiển thị: cửa sổ tin cũ nếu đang tua tới ngày, không thì danh sách tin thường.
+  List<MmPost> visiblePostsOf(String channelId) {
+    final w = _windows[channelId];
+    return w == null ? postsOf(channelId) : _visible(w.posts);
+  }
+
+  /// Tua tới ngày [day]: đã có tin của ngày đó trong danh sách thì dùng luôn, không thì tìm trang chứa
+  /// tin đầu tiên từ 00:00 ngày đó và tải cửa sổ tin quanh nó. Trả về false khi không có tin nào từ ngày đó trở đi.
+  Future<bool> jumpToDate(String channelId, DateTime day) async {
+    final since = startOfDayMs(day);
+    final list = _posts[channelId] ?? const <MmPost>[];
+    final sent = list.where((p) => p.sendState == SendState.sent).toList();
+    if (sent.isEmpty || sent.first.createAt < since) {
+      // Tin mới nhất cũng cũ hơn ngày chọn.
+      if (sent.isNotEmpty || hasMore[channelId] == false) return false;
+    } else if (sent.last.createAt < since || hasMore[channelId] == false) {
+      _windows.remove(channelId);
+      notifyListeners();
+      return true;
+    }
+    final r = await findFirstPostSince(since, (page) => api.posts(channelId, page: page, perPage: 60));
+    if (r == null) return false;
+    _windows[channelId] = _PostWindow(r.posts.where((p) => !p.isEditHistory).toList(), hasOlder: r.hasOlder, hasNewer: r.hasNewer);
+    _joinWindow(channelId);
+    notifyListeners();
+    return true;
+  }
+
+  /// Bỏ cửa sổ tin cũ, quay về danh sách tin mới nhất.
+  void leaveWindow(String channelId) {
+    if (_windows.remove(channelId) != null) notifyListeners();
+  }
+
+  Future<void> loadOlderWindow(String channelId) async {
+    final w = _windows[channelId];
+    if (w == null || !w.hasOlder || w.posts.isEmpty) return;
+    try {
+      final got = await api.posts(channelId, before: w.posts.last.id, perPage: 60);
+      if (_windows[channelId] != w) return;
+      w.hasOlder = got.length >= 60;
+      w.add(got);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Tải tin mới hơn cửa sổ; chạm tới đoạn tin đã có (hoặc hết tin mới hơn) thì gộp cửa sổ vào danh sách thường.
+  Future<void> loadNewerWindow(String channelId) async {
+    final w = _windows[channelId];
+    if (w == null || w.posts.isEmpty) return;
+    try {
+      final got = await api.posts(channelId, after: w.posts.first.id, perPage: 60);
+      if (_windows[channelId] != w) return;
+      w.hasNewer = got.length >= 60;
+      w.add(got);
+      _joinWindow(channelId);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void _joinWindow(String channelId) {
+    final w = _windows[channelId];
+    final list = _posts[channelId];
+    if (w == null || list == null || w.posts.isEmpty) return;
+    final sent = list.where((p) => p.sendState == SendState.sent);
+    final joined = !w.hasNewer || (sent.isNotEmpty && w.posts.first.createAt >= sent.last.createAt);
+    if (!joined) return;
+    _windows.remove(channelId);
+    _merge(channelId, w.posts);
+    hasMore[channelId] = w.hasOlder;
+  }
+
   void markViewed(String channelId) {
     final c = channels[channelId];
     final m = members[channelId];
@@ -1361,6 +1443,8 @@ class AppState extends ChangeNotifier {
   void notifyTyping(String channelId, [String rootId = '']) => _ws?.sendTyping(channelId, rootId);
 
   void _merge(String channelId, List<MmPost> incoming) {
+    // Tin sửa / thu hồi / thả cảm xúc trong lúc xem cửa sổ tin cũ: cập nhật luôn tin trong cửa sổ.
+    _windows[channelId]?.update(incoming);
     final list = _posts[channelId];
     if (list == null) return;
     for (final p in incoming) {
@@ -1378,7 +1462,7 @@ class AppState extends ChangeNotifier {
   }
 
   MmPost? findPost(String channelId, String id) =>
-      _posts[channelId]?.where((p) => p.id == id).firstOrNull;
+      _posts[channelId]?.where((p) => p.id == id).firstOrNull ?? _windows[channelId]?.posts.where((p) => p.id == id).firstOrNull;
 
   // ---------------------------------------------------------------- gửi tin
   /// Gửi tin. [priority]: '' | 'important' | 'urgent'; [requestAck]: yêu cầu xác nhận đã đọc;
@@ -3807,4 +3891,27 @@ class AiConsentDeclined implements Exception {
   const AiConsentDeclined();
   @override
   String toString() => tr('Bạn chưa đồng ý dùng tính năng AI.');
+}
+
+/// Cửa sổ tin cũ khi tua tới ngày (mới nhất trước).
+class _PostWindow {
+  final List<MmPost> posts;
+  bool hasOlder, hasNewer;
+  _PostWindow(this.posts, {required this.hasOlder, required this.hasNewer}) {
+    posts.sort((a, b) => b.createAt.compareTo(a.createAt));
+  }
+
+  void add(List<MmPost> got) {
+    final have = {for (final p in posts) p.id};
+    posts.addAll(got.where((p) => !p.isEditHistory && !have.contains(p.id)));
+    posts.sort((a, b) => b.createAt.compareTo(a.createAt));
+  }
+
+  void update(List<MmPost> incoming) {
+    for (final p in incoming) {
+      final i = posts.indexWhere((x) => x.id == p.id);
+      if (i < 0 || p.isEditHistory) continue;
+      posts[i] = p.deleteAt == 0 ? p : MmPost({...p.raw, 'message': '', 'metadata': {}, 'file_ids': const [], '_deleted': true});
+    }
+  }
 }
