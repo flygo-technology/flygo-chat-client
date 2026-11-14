@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../api/flows_api.dart';
+import '../../api/flows_live.dart';
 import '../../data/models.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
@@ -22,7 +23,7 @@ import 'flow_form.dart';
 import 'flow_logic.dart' show flowTaskKindLabel;
 import 'flow_nav.dart';
 import 'flow_task_action.dart';
-import 'flows_page.dart' show openFlowInstance;
+import 'flows_page.dart' show FlowProgressBar, openFlowInstance;
 import 'process_chat.dart';
 import 'process_list.dart';
 
@@ -85,11 +86,20 @@ class _ProcessDetailPageState extends State<ProcessDetailPage> {
   /// Số tin thảo luận (nhãn tab khi một cột); null = chưa tải.
   int? _discCount;
   String? _err;
-  Timer? _live;
+  Timer? _live, _liveReload;
+  /// Kênh realtime của tiến trình: đổi thì tải lại ngay; huỷ khi đóng trang hoặc tiến trình xong.
+  FlowsLiveSub? _liveSub;
 
   @override
   void initState() {
     super.initState();
+    _liveSub = FlowsLive.of(api).subscribe('process:${widget.processId}', (_) {
+      if (!mounted) return;
+      _liveReload?.cancel();
+      _liveReload = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) _load();
+      });
+    });
     _load();
     widget.app.uiPref<num>(_chatPref).then((w) {
       if (w != null && mounted) setState(() => _chatW = w.toDouble());
@@ -99,6 +109,8 @@ class _ProcessDetailPageState extends State<ProcessDetailPage> {
   @override
   void dispose() {
     _live?.cancel();
+    _liveReload?.cancel();
+    _liveSub?.cancel();
     super.dispose();
   }
 
@@ -114,16 +126,22 @@ class _ProcessDetailPageState extends State<ProcessDetailPage> {
     } catch (e) {
       if (mounted && _p == null) setState(() => _err = '$e');
     }
-    // Chưa xong: tự làm mới khi trang đang hiện.
+    if (_p?.finished ?? false) {
+      _liveSub?.cancel();
+      _liveSub = null;
+    }
+    // Chưa xong: tự làm mới khi trang đang hiện (kênh realtime đang nối thì không cần).
     if (!mounted || (_p?.finished ?? false)) return;
+    _scheduleLive();
+  }
+
+  void _scheduleLive() {
+    _live?.cancel();
     _live = Timer(const Duration(seconds: 5), () {
       if (!mounted) return;
       final ls = WidgetsBinding.instance.lifecycleState;
-      if (TickerMode.valuesOf(context).enabled && (ls == null || ls == AppLifecycleState.resumed)) {
-        _load();
-      } else {
-        _live = Timer(const Duration(seconds: 5), _load);
-      }
+      final visible = TickerMode.valuesOf(context).enabled && (ls == null || ls == AppLifecycleState.resumed);
+      visible && !(_liveSub != null && FlowsLive.of(api).up) ? _load() : _scheduleLive();
     });
   }
 
@@ -326,6 +344,8 @@ class _ProcessDetailPageState extends State<ProcessDetailPage> {
                 decoration: BoxDecoration(color: tone.withValues(alpha: .08), borderRadius: BorderRadius.circular(10)),
                 child: SelectableText(p.statusText, style: TextStyle(fontSize: 13, color: pal.text, height: 1.35)),
               ),
+            // Tiến độ (bước Báo tiến độ) của luồng đang chạy.
+            if (p.progress != null && !p.finished) FlowProgressBar(progress: p.progress),
             const SizedBox(height: 6),
             Text(
               [

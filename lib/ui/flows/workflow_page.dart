@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../api/flows_api.dart';
+import '../../api/flows_live.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../common.dart';
@@ -15,7 +16,7 @@ import 'flow_experimental.dart';
 import 'flow_card.dart' show kFlowOrange, kFlowRed;
 import 'flow_logic.dart' show flowStatusLabel;
 import 'flow_nav.dart';
-import 'flows_page.dart' show FlowDetailPage, flowDefAdminAction, flowDefAdminItems, flowStatusColor, openFlowInstance, startFlowDef;
+import 'flows_page.dart' show FlowDetailPage, FlowProgressBar, flowDefAdminAction, flowDefAdminItems, flowStatusColor, openFlowInstance, startFlowDef;
 import 'process_detail.dart' show ProcessDetailPage;
 import 'process_list.dart' show ProcessesView, openProcess, processStatValue;
 import 'process_report.dart' show FlowReportCards, FlowStatsPanel, FlowStepTimes, durLabelShort;
@@ -56,7 +57,9 @@ class _WorkflowPageState extends State<WorkflowPage> {
   int _runTab = 0;
   String _q = '';
   final _qCtl = TextEditingController();
-  Timer? _live;
+  Timer? _live, _liveReload;
+  /// Kênh realtime: dòng lần chạy của quy trình này đổi thì cập nhật ngay (5 giây tự tải lại chỉ khi kênh rớt).
+  FlowsLiveSub? _liveSub;
   void Function(String? title)? _onTitle;
 
   String get _name => '${_info?['name'] ?? ''}'.isNotEmpty ? '${_info!['name']}' : (_def?.name ?? widget.name);
@@ -73,6 +76,7 @@ class _WorkflowPageState extends State<WorkflowPage> {
   void initState() {
     super.initState();
     flowsChanged.addListener(_loadRuns);
+    _liveSub = FlowsLive.of(api).subscribe('flow:${widget.flowId}', _onLive);
     _load();
     widget.app.uiPref<num>(_leftPref).then((w) {
       if (w != null && mounted) setState(() => _leftW = w.toDouble());
@@ -100,6 +104,8 @@ class _WorkflowPageState extends State<WorkflowPage> {
   @override
   void dispose() {
     _live?.cancel();
+    _liveReload?.cancel();
+    _liveSub?.cancel();
     flowsChanged.removeListener(_loadRuns);
     _qCtl.dispose();
     // Đóng trang: tab về tên ứng dụng (sau khung hình, không đổi cây widget lúc đang gỡ).
@@ -204,8 +210,24 @@ class _WorkflowPageState extends State<WorkflowPage> {
       if (!mounted) return;
       final ls = WidgetsBinding.instance.lifecycleState;
       final visible = TickerMode.valuesOf(context).enabled && (ls == null || ls == AppLifecycleState.resumed);
-      visible && _mode == 1 ? _loadRuns() : _scheduleLive();
+      visible && _mode == 1 && !FlowsLive.of(api).up ? _loadRuns() : _scheduleLive();
     });
+  }
+
+  /// Tin realtime: lần chạy đang hiện thì thay dòng; lần chạy mới (chưa có trong danh sách) hoặc có thể đã lỡ tin
+  /// (`resync`) thì tải lại danh sách (gom trong 1 giây).
+  void _onLive(FlowsLiveEvent e) {
+    if (!mounted || e.type == 'process') return;
+    final runs = _runs;
+    final i = e.resync || runs == null || e.row.isEmpty ? -1 : runs.indexWhere((r) => '${r['id']}' == e.id);
+    if (i < 0) {
+      _liveReload?.cancel();
+      _liveReload = Timer(const Duration(seconds: 1), () {
+        if (mounted) _loadRuns();
+      });
+      return;
+    }
+    setState(() => _runs = [...runs!]..[i] = e.row);
   }
 
   Future<void> _start() async {
@@ -369,6 +391,8 @@ class _WorkflowPageState extends State<WorkflowPage> {
                 Expanded(child: Text(tr('Bước: {0}', [current.join(', ')]), maxLines: 1, overflow: TextOverflow.ellipsis, style: small.copyWith(color: pal.text))),
               ]),
             ),
+          // Tiến độ (bước Báo tiến độ) như cột phải: thanh + "44% · nhãn".
+          if (status == 'running' || status == 'returned') FlowProgressBar(progress: r['progress'], compact: true),
         ]),
       ),
     );
