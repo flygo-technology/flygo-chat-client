@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../data/models.dart';
 import '../i18n/i18n.dart';
 import '../state/app_state.dart';
+import 'artifact_view.dart';
 import 'file_card.dart';
 import 'media_view.dart';
 import 'theme.dart';
@@ -35,7 +36,7 @@ class AgentInlineFiles extends StatelessWidget {
     final children = <Widget>[];
     for (final p in posts) {
       final caption = p.message.trim();
-      if (caption.isNotEmpty) {
+      if (caption.isNotEmpty && artifactOf(p) == null) {
         children.add(Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(caption, style: TextStyle(fontSize: 14, color: pal.text))));
       }
       final images = imagesOf(p);
@@ -44,6 +45,10 @@ class AgentInlineFiles extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 4),
           child: ChatMedia(post: p, images: images, maxWidth: double.infinity),
         ));
+      }
+      if (artifactOf(p) != null) {
+        children.add(Padding(padding: const EdgeInsets.only(bottom: 4), child: ArtifactCard(post: p)));
+        continue;
       }
       for (final f in p.files.where((f) => !f.isImage)) {
         children.add(Padding(padding: const EdgeInsets.only(bottom: 4), child: FileCard(file: f, remotePath: (p.props['flygo_file_paths'] as Map?)?[f.id] as String?)));

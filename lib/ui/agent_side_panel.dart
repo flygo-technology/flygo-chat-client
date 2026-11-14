@@ -13,6 +13,7 @@ import '../i18n/i18n.dart';
 import '../state/app_state.dart';
 import 'ai_panel.dart';
 import 'app_route.dart';
+import 'artifact_view.dart';
 import 'chat_page.dart' show openFile;
 import 'chat_info_page.dart' show ChannelMediaPage;
 import 'common.dart';
@@ -196,6 +197,7 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
           ),
         ),
         if (ch.isAi && ch.aiGroup != null) ..._sessions(app, ch, pal),
+        ..._artifacts(app, pal),
         ..._media(app, pal),
       ],
     );
@@ -306,6 +308,42 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
             ),
           ],
         ),
+      ),
+    ];
+  }
+
+  /// Artifacts của phiên (mỗi artifact một dòng, phiên bản mới nhất); bấm mở thẻ xem trực tiếp.
+  List<Widget> _artifacts(AppState app, Pal pal) {
+    final latest = <String, MmPost>{};
+    for (final p in [...?_scan, ...app.postsOf(widget.channelId)]) {
+      final a = artifactOf(p);
+      final id = a?['id'] as String?;
+      if (id == null) continue;
+      final old = latest[id];
+      if (old == null || ((a!['version'] as num?) ?? 1) > ((artifactOf(old)!['version'] as num?) ?? 1)) latest[id] = p;
+    }
+    if (latest.isEmpty) return const [];
+    final list = latest.values.toList()..sort((a, b) => b.createAt.compareTo(a.createAt));
+    return [
+      _section(pal, Icons.web_asset_rounded, tr('Artifacts'), null),
+      _card(
+        pal,
+        Column(children: [
+          for (final p in list.take(6))
+            ListTile(
+              dense: true,
+              leading: Icon(artifactIcon(artifactOf(p)!['kind'] as String?), color: pal.accentText),
+              title: Text(artifactOf(p)!['title'] as String? ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: pal.text)),
+              subtitle: Text('v${artifactOf(p)!['version'] ?? 1} · ${listTime(p.createAt)}', style: TextStyle(fontSize: 12, color: pal.sub)),
+              onTap: () => Navigator.of(context).push(AppPageRoute(
+                builder: (c) => Scaffold(
+                  backgroundColor: Pal.of(c).bg,
+                  appBar: AppBar(backgroundColor: Pal.of(c).bg, foregroundColor: Pal.of(c).text, elevation: 0),
+                  body: ListView(padding: const EdgeInsets.all(10), children: [ArtifactCard(post: p)]),
+                ),
+              )),
+            ),
+        ]),
       ),
     ];
   }

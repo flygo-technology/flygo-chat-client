@@ -866,6 +866,17 @@ const CHAT_TOOLS = [
       inputSchema: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "đường dẫn tệp (tuyệt đối hoặc tương đối với thư mục làm việc)" }, message: { type: "string", description: "lời nhắn kèm (tuỳ chọn)" } }, required: ["paths"] },
     },
     {
+      name: "artifact_publish",
+      description: "ĐĂNG ARTIFACT: trang HTML / mini app / biểu đồ tương tác hiện NGAY trong chat (app chạy trong khung riêng, có nút toàn màn hình, mở trình duyệt, chia sẻ link). Dùng khi kết quả nên XEM / BẤM được (báo cáo, dashboard, biểu đồ, công cụ tính, prototype giao diện) thay vì gửi tệp. HTML phải tự chứa (CSS/JS inline); thư viện chỉ lấy từ https://cdn.jsdelivr.net hoặc https://cdnjs.cloudflare.com; KHÔNG gọi mạng (fetch/XHR bị chặn) — nhúng sẵn dữ liệu. Sửa artifact cũ: truyền lại artifact_id để thành phiên bản mới (v2, v3…). Tối đa 2 MB.",
+      inputSchema: { type: "object", properties: {
+        title: { type: "string", description: "tên ngắn, hiện trên thẻ" },
+        html: { type: "string", description: "toàn bộ trang HTML (<!doctype html>…)" },
+        path: { type: "string", description: "hoặc: đường dẫn tệp .html trong thư mục làm việc" },
+        artifact_id: { type: "string", description: "id artifact đã đăng (trả về lần trước) để ra phiên bản mới; bỏ trống = artifact mới" },
+        kind: { type: "string", enum: ["page", "chart", "app", "report"], description: "loại (biểu tượng trên thẻ)" },
+      }, required: ["title"] },
+    },
+    {
       name: "chat_watch",
       description: "THEO DÕI một chat: runner gom tin mới của chat đó mỗi interval_sec giây rồi báo bạn trong phiên này để bạn tự quyết trả lời / hành động / im lặng (dùng tool chat để trả lời vào chat được theo dõi). Chỉ chủ bot, cần duyệt khi bật. Nên dùng từ phiên AI riêng để khỏi làm rộn chat được theo dõi. action=start (mặc định) | stop | status. Tự dừng khi tới 'until', hoặc chủ bot nhắn \"dừng theo dõi\".",
       inputSchema: { type: "object", properties: {
@@ -1195,6 +1206,54 @@ async function callTool(req: any): Promise<any> {
       }
       if (sentIds.length) await runner("/sent_files", { post_ids: sentIds, names: ok.map((f) => f.name) }).catch(() => {});
       return text([ok.length ? `Đã gửi ${ok.length} tệp vào nhóm: ${ok.map((f) => f.name).join(", ")} (tin ${sentIds.map((x) => `#${x}`).join(", ")}).` : "", errors.length ? `Không gửi được:\n- ${errors.join("\n- ")}` : ""].filter(Boolean).join("\n"));
+    }
+    case "artifact_publish": {
+      const { realpathSync, readFileSync } = await import("node:fs");
+      const { resolve, sep } = await import("node:path");
+      const title = String(a.title ?? "").trim().slice(0, 120);
+      if (!title) return text("Thiếu title.");
+      let html = typeof a.html === "string" ? a.html : "";
+      if (!html && a.path) {
+        const root = realpathSync(WORKDIR);
+        let real: string;
+        try { real = realpathSync(resolve(WORKDIR, String(a.path))); } catch { return text(`${a.path}: không tồn tại`); }
+        if (real !== root && !real.startsWith(root + sep)) return text(`${a.path}: nằm ngoài thư mục làm việc`);
+        html = readFileSync(real, "utf8");
+      }
+      if (!html.trim()) return text("Thiếu html (hoặc path tới tệp .html).");
+      if (Buffer.byteLength(html) > 2 * 1024 * 1024) return text("Artifact quá 2 MB: rút gọn dữ liệu nhúng hoặc gửi tệp bằng chat_send_files.");
+      const kind = ["page", "chart", "app", "report"].includes(String(a.kind)) ? String(a.kind) : "page";
+      // Phiên bản: tìm các tin cũ cùng artifact_id trong kênh (200 tin gần nhất).
+      let id = String(a.artifact_id ?? "").trim();
+      let version = 1;
+      if (id) {
+        const list = await mm.api<any>("GET", `/channels/${CHANNEL}/posts?per_page=200`).catch(() => null);
+        for (const p of Object.values<any>(list?.posts ?? {})) {
+          const art = p.props?.flygo_artifact;
+          if (art?.id === id) version = Math.max(version, Number(art.version || 1) + 1);
+        }
+        if (version === 1) id = ""; // id lạ: coi như artifact mới
+      }
+      if (!id) id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+      const slug = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "artifact";
+      const form = new FormData();
+      form.append("channel_id", CHANNEL);
+      form.append("files", new Blob([html], { type: "text/html" }), `${slug}${version > 1 ? `-v${version}` : ""}.html`);
+      const r = await fetch(`${mm.url}/api/v4/files`, { method: "POST", headers: { Authorization: `Bearer ${process.env.MM_TOKEN}` }, body: form });
+      if (!r.ok) return text(`Tải artifact lên lỗi ${r.status} ${(await r.text()).slice(0, 200)}`);
+      const info = (await r.json()).file_infos?.[0];
+      let reply = "thread_broadcast";
+      if (ROOT) {
+        const posts = await mm.thread(ROOT);
+        const lastOwner = [...posts].reverse().find((x) => x.user_id === OWNER_ID && !x.props?.flygo_agent_message);
+        if (lastOwner?.root_id && lastOwner.props?.flygo_reply === "thread") reply = "thread";
+      }
+      const post = await mm.createPost({
+        channel_id: CHANNEL, root_id: ROOT, message: `📄 ${title}${version > 1 ? ` (v${version})` : ""}`, file_ids: [info.id],
+        props: { ...(ROOT ? { flygo_reply: reply } : {}), flygo_agent_owner: OWNER_ID, flygo_artifact: { id, title, version, file_id: info.id, kind } },
+      });
+      await runner("/sent_files", { post_ids: [post.id], names: [`artifact ${title}`] }).catch(() => {});
+      return text(`Đã đăng artifact "${title}" v${version} (artifact_id=${id}, tin #${post.id}). Sửa tiếp thì gọi lại với artifact_id=${id}.`);
     }
     case "chat_send_bilingual": {
       const code = (x: any) => String(x ?? "").trim().toLowerCase().split(/[-_]/)[0];

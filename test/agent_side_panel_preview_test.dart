@@ -11,6 +11,7 @@ import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/agent_side_panel.dart';
 import 'package:flygo_chat/ui/agent_view.dart';
+import 'package:flygo_chat/ui/artifact_view.dart';
 import 'package:flygo_chat/ui/chat_themes.dart';
 import 'package:flygo_chat/ui/file_card.dart';
 import 'package:flygo_chat/ui/markdown_view.dart';
@@ -83,6 +84,12 @@ void main() {
   MmPost post(String id, String by, String msg, int at, {Map<String, dynamic> props = const {}, List<Map<String, dynamic>> files = const []}) =>
       MmPost({'id': id, 'channel_id': cur, 'user_id': by, 'message': msg, 'create_at': at, 'update_at': at, 'props': props, 'metadata': {'files': files}});
   final posts = [
+    post('a2', 'bot', '📄 Thị phần thang máy 2025 (v2)', now + 60000, props: {
+      'flygo_artifact': {'id': 'art1', 'title': 'Thị phần thang máy 2025', 'version': 2, 'file_id': 'fa2', 'kind': 'chart'}
+    }),
+    post('a1', 'bot', '📄 Thị phần thang máy 2025', now - 30000, props: {
+      'flygo_artifact': {'id': 'art1', 'title': 'Thị phần thang máy 2025', 'version': 1, 'file_id': 'fa1', 'kind': 'chart'}
+    }),
     post('p4', 'bot', 'Đã sửa xong, build chạy lại được.', now, props: {'flygo_bypass': true}),
     post('p3', _me, 'Xem log ở https://ci.example.com/builds/481 và tài liệu https://docs.flutter.dev/deployment/ios', now - 600000),
     post('p2', _me, 'Ảnh lỗi', now - 900000, files: [
@@ -96,6 +103,15 @@ void main() {
   ];
   app.debugPutPosts(cur, posts);
   AgentSidePanel.debugScan = posts;
+  ArtifactCard.debugHtml = '<html><body>chart</body></html>';
+  ArtifactCard.debugPreview = (_) => Container(
+        color: Colors.white,
+        padding: const EdgeInsets.all(16),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          for (final (h, c) in const [(240.0, Color(0xFFD97757)), (170.0, Color(0xFF5B8DEF)), (125.0, Color(0xFF3FB68B)), (105.0, Color(0xFFF2C14E)), (90.0, Color(0xFF9B6CF0)), (160.0, Color(0xFF9AA0A6))])
+            Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Container(height: h, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(6))))),
+        ]),
+      );
   AgentSidePanel.debugThumb = (f) => Container(
         decoration: BoxDecoration(
             gradient: LinearGradient(colors: f.id == 'f1' ? const [Color(0xFF5B8DEF), Color(0xFF9B6CF0)] : const [Color(0xFF3FB68B), Color(0xFFF2C14E)])),
@@ -272,6 +288,16 @@ flutter build ios --release
                 ),
               ),
             ),
+          ),
+        ));
+    await shot(
+        t,
+        'artifact-card',
+        const Size(800, 520),
+        Builder(
+          builder: (c) => Material(
+            color: Pal.of(c).chatBg,
+            child: Padding(padding: const EdgeInsets.all(16), child: Align(alignment: Alignment.topLeft, child: ArtifactCard(post: posts[1]))),
           ),
         ));
     await shot(t, 'remote-agent-dialog', const Size(560, 640), Scaffold(body: RemoteAgentDialog(channelId: cur)));

@@ -25,6 +25,7 @@ import '../state/date_jump.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
 import 'agent_side_panel.dart';
+import 'artifact_view.dart';
 import 'shell_highlight.dart' show aiAnswerStyle;
 import 'ai_panel.dart';
 import 'flags.dart';
@@ -2523,6 +2524,9 @@ class _Bubble extends StatelessWidget {
     }
     // Tin câu hỏi của trợ lý: nội dung chữ chỉ là bản dự phòng (danh sách lựa chọn đánh số) — thẻ đã hiện đủ.
     if (post.props.containsKey('flygo_agent_question')) msgText = '';
+    // Artifact: thẻ xem trực tiếp thay cho dòng "📄 tên" và thẻ tệp .html.
+    final artifact = artifactOf(post) != null;
+    if (artifact) msgText = '';
     if (combined && post.message.trimLeft().startsWith('🤖')) msgText = '';
     // Đã có bước chạy sau đoạn chữ cuối: dòng thời gian hiện đoạn đó đúng chỗ (trước các bước mới), không lặp ở đây.
     if (combined && hasAgentTimeline(agentRun) && agentTextsInTimeline(agentRun)) msgText = '';
@@ -2752,7 +2756,10 @@ class _Bubble extends StatelessWidget {
           child: ChatMedia(post: post, images: images, sending: sendingMedia, maxWidth: maxW - 22),
         ),
       if (!hidden)
-        for (final f in post.files.where((f) => !f.isImage)) _FileView(file: f, remotePath: (post.props['flygo_file_paths'] as Map?)?[f.id] as String?),
+        if (artifact)
+          ArtifactCard(post: post)
+        else
+          for (final f in post.files.where((f) => !f.isImage)) _FileView(file: f, remotePath: (post.props['flygo_file_paths'] as Map?)?[f.id] as String?),
       // Video đang gửi: hiện khung hình video kèm vòng tải.
       if (!hidden)
         for (final f in post.localFiles.where((f) => (f['mime'] as String? ?? '').startsWith('video/')))
