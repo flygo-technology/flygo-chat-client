@@ -38,6 +38,8 @@ Future<void> _fonts() async {
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
 }
 
+final _now = DateTime.now().millisecondsSinceEpoch;
+
 http.Response _json(Object o) => http.Response.bytes(utf8.encode(jsonEncode(o)), 200, headers: {'content-type': 'application/json'});
 
 final _defs = [
@@ -62,6 +64,16 @@ void main() {
   FlowsApi.debugClient = MockClient((r) async => switch (r.url.path) {
         '/__apps/flows/defs' || '/__apps/flows/admin/defs' => _json({'flows': _defs}),
         '/__apps/flows/me' => _json({'id': 'me', 'admin': true, 'viewer': true}),
+        '/__apps/flows/tasks' => _json({'tasks': [
+            {'id': 1, 'instance_id': 'i1', 'node': 'n1', 'kind': 'approval', 'title': 'Duyệt đề xuất thanh toán tháng 11', 'flow_id': 'tt', 'created_at': _now},
+            {'id': 2, 'instance_id': 'i2', 'node': 'n2', 'kind': 'action', 'title': 'Gửi hoá đơn cho khách hàng', 'flow_id': 'gui-hd', 'created_at': _now,
+              'action': {'prompt': 'Email gửi lỗi, kiểm tra địa chỉ rồi gửi lại', 'buttons': [{'id': 'resend', 'label': 'Gửi lại', 'style': 'primary'}, {'id': 'skip', 'label': 'Bỏ qua'}]}},
+            {'id': 3, 'instance_id': 'i3', 'node': 'n3', 'kind': 'form', 'title': 'Bổ sung chứng từ tạm ứng', 'flow_id': 'tt', 'created_at': _now, 'due_at': _now + 86400000},
+          ]}),
+        '/__apps/flows/instances' => _json({'instances': [
+            {'id': 'i1', 'title': 'Đề xuất thanh toán tháng 11', 'status': 'running', 'flow_name': 'Đề xuất thanh toán', 'category': 'Tài chính - Kế toán', 'requester': 'me', 'created_at': _now, 'updated_at': _now, 'current': ['Giám đốc duyệt']},
+            {'id': 'i4', 'title': 'Tải chứng từ ngân hàng tháng 10', 'status': 'running', 'flow_name': 'Tải chứng từ ngân hàng theo tháng', 'requester': 'me', 'created_at': _now, 'updated_at': _now},
+          ]}),
         '/__apps/flows/org/departments' => _json({'departments': [
             {'id': 'kt_hn', 'name': 'Kế toán Hà Nội', 'manager': 'me', 'members': ['me']},
             {'id': 'kd', 'name': 'Kinh doanh', 'manager': 'me', 'members': ['me']},
@@ -70,9 +82,9 @@ void main() {
         _ => _json({'flows': [], 'instances': [], 'tasks': [], 'processes': [], 'items': []}),
       });
 
-  Future<void> shot(WidgetTester tester, String name, Widget child, {Future<void> Function()? then}) async {
+  Future<void> shot(WidgetTester tester, String name, Widget child, {Future<void> Function()? then, Size size = const Size(1440, 860)}) async {
     await tester.runAsync(_fonts);
-    tester.view.physicalSize = const Size(1440, 860);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final key = GlobalKey();
@@ -127,6 +139,33 @@ void main() {
     if (out == null) return;
     await shot(t, 'flows-tab-after', Scaffold(body: FlowsHome(app: app, embedded: true, bottomPadding: 16)));
   });
+
+  testWidgets('tab Cần xử lý / Đang chạy ở 2000px: nội dung giữa trang, rộng vừa đọc', (t) async {
+    t.view.physicalSize = const Size(2000, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+      value: app,
+      child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: FlowsHome(app: app, embedded: true, initialTab: 1))),
+    ));
+    for (var i = 0; i < 4; i++) {
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    final row = t.getRect(find.ancestor(of: find.text('Gửi hoá đơn cho khách hàng'), matching: find.byType(ListTile)));
+    expect(row.width <= 920, isTrue);
+    expect((row.center.dx - 1000).abs() < 2, isTrue);
+    // Nút thao tác ngay dưới chữ của dòng, không dạt sang mép phải màn hình.
+    final btn = t.getRect(find.text('Gửi lại'));
+    expect(btn.left < row.left + 200, isTrue);
+  });
+
+  for (final (tab, name) in [(1, 'flows-tasks-2000'), (2, 'flows-running-2000')]) {
+    testWidgets('ảnh: $name', (t) async {
+      if (out == null) return;
+      await shot(t, name, Scaffold(body: FlowsHome(app: app, embedded: true, initialTab: tab)), size: const Size(2000, 900));
+    });
+  }
 
   FlowDoc doc() => FlowDoc.fromJson({
         'id': 'K7Q2XA',

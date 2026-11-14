@@ -15,7 +15,9 @@ class FlowTaskActionPanel extends StatefulWidget {
   final Future<void> Function(Map<String, dynamic> data) onSubmit;
   /// Hiện câu hỏi (`prompt`) phía trên nút.
   final bool showPrompt;
-  const FlowTaskActionPanel({super.key, required this.task, required this.onSubmit, this.showPrompt = true});
+  /// Căn các nút: phải (mặc định, trang chi tiết) hoặc trái (dòng trong danh sách, ngay dưới chữ).
+  final WrapAlignment buttonsAlign;
+  const FlowTaskActionPanel({super.key, required this.task, required this.onSubmit, this.showPrompt = true, this.buttonsAlign = WrapAlignment.end});
   @override
   State<FlowTaskActionPanel> createState() => _FlowTaskActionPanelState();
 }
@@ -82,7 +84,7 @@ class _FlowTaskActionPanelState extends State<FlowTaskActionPanel> {
           onAction: (x) => _send({'values': [for (final v in (x['values'] as List? ?? const [])) '$v']}, rethrowErr: true),
         )
       else if (buttons.isNotEmpty)
-        Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: [
+        Wrap(spacing: 8, runSpacing: 8, alignment: widget.buttonsAlign, children: [
           for (final b in buttons)
             if ('${b['url'] ?? ''}'.isNotEmpty)
               TextButton.icon(onPressed: () => _click(b), icon: Icon(b['sign'] is Map ? Icons.draw_outlined : Icons.open_in_new_rounded, size: 16), label: Text('${b['label'] ?? ''}'))

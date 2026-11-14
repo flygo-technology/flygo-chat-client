@@ -662,15 +662,16 @@ class _FlowsHomeState extends State<FlowsHome> {
       onTap: () => _openInstance(t.instanceId),
     );
     if (t.kind != 'action' || t.action == null) return tile;
-    // Chờ bấm nút / Lựa chọn: thao tác ngay trong danh sách.
+    // Chờ bấm nút / Lựa chọn: thao tác ngay trong danh sách, thẳng hàng với chữ của dòng (dưới tiêu đề).
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       tile,
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.fromLTRB(72, 0, 16, 12),
         child: FlowTaskActionPanel(
           key: ValueKey('task-action-${t.id}'),
           task: t,
           showPrompt: false,
+          buttonsAlign: WrapAlignment.start,
           onSubmit: (data) async {
             await api.submit(t.id, data);
             flowsChanged.value++;
@@ -826,6 +827,10 @@ class _FlowsHomeState extends State<FlowsHome> {
     );
   }
 
+  /// Giới hạn bề rộng nội dung một tab (giữa trang) khi trang rộng hơn [max].
+  static Widget _readable(Widget child, [double max = 920]) =>
+      Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: BoxConstraints(maxWidth: max), child: child));
+
   /// Khoảng thời gian ngắn gọn: "45 giây", "12 phút", "3 giờ", "2 ngày".
   static String _span(int ms) {
     final s = (ms / 1000).floor().clamp(0, 1 << 31);
@@ -897,13 +902,15 @@ class _FlowsHomeState extends State<FlowsHome> {
             ],
           ),
         ),
+        // Màn rộng (máy tính, danh sách cả trang): nội dung giữa trang, rộng vừa đọc; dòng không kéo dài hết màn hình
+        // (Sếp, 2026-11-14). Lưới quy trình rộng hơn; Bảng theo dõi (các cột) giữ cả bề rộng.
         body: TabBarView(children: [
-                if (_admin) RefreshIndicator(onRefresh: _load, child: _catalogTab()),
-                RefreshIndicator(onRefresh: _load, child: _state(_approvalsTab())),
-                RefreshIndicator(onRefresh: _load, child: _state(_runsTab(running: true))),
-                RefreshIndicator(onRefresh: _load, child: _state(_runsTab(problems: true))),
-                RefreshIndicator(onRefresh: _load, child: _state(_runsTab(running: false))),
-                ProcessesView(app: widget.app, defs: _defs ?? const [], bottomPadding: widget.bottomPadding),
+                if (_admin) _readable(RefreshIndicator(onRefresh: _load, child: _catalogTab()), 1200),
+                _readable(RefreshIndicator(onRefresh: _load, child: _state(_approvalsTab()))),
+                _readable(RefreshIndicator(onRefresh: _load, child: _state(_runsTab(running: true)))),
+                _readable(RefreshIndicator(onRefresh: _load, child: _state(_runsTab(problems: true)))),
+                _readable(RefreshIndicator(onRefresh: _load, child: _state(_runsTab(running: false)))),
+                _readable(ProcessesView(app: widget.app, defs: _defs ?? const [], bottomPadding: widget.bottomPadding)),
                 ProcessBoardView(app: widget.app, bottomPadding: widget.bottomPadding),
               ]),
       ),
