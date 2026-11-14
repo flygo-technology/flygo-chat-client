@@ -15,6 +15,7 @@ import '../state/app_state.dart';
 import 'chat_page.dart';
 import 'chat_themes.dart';
 import 'common.dart';
+import 'day_sections.dart';
 import 'home_page.dart';
 import 'media_view.dart';
 import 'popout_windows.dart' show popoutNotice;
@@ -409,18 +410,18 @@ class _ChatInfoPageState extends State<ChatInfoPage> {
               value: '${app.pinnedIn(ch.id).length}',
               onTap: () => _push(PinnedPage(channelId: ch.id)),
             ),
-            InfoRow(icon: Icons.photo_outlined, title: tr('Hình ảnh'), onTap: () => _push(_ChannelMediaPage(channelId: ch.id, kind: 'images'))),
+            InfoRow(icon: Icons.photo_outlined, title: tr('Hình ảnh'), onTap: () => _push(ChannelMediaPage(channelId: ch.id, kind: 'images'))),
             InfoRow(
                 icon: Icons.insert_drive_file_outlined,
                 title: tr('Tệp tin'),
-                onTap: () => _push(_ChannelMediaPage(channelId: ch.id, kind: 'files'))),
+                onTap: () => _push(ChannelMediaPage(channelId: ch.id, kind: 'files'))),
             InfoRow(
               icon: Icons.schedule_send_outlined,
               title: tr('Tin hẹn giờ'),
               value: '${app.scheduledIn(ch.id).length}',
               onTap: () => _push(ScheduledPage(channelId: ch.id)),
             ),
-            InfoRow(icon: Icons.link, title: tr('Liên kết'), onTap: () => _push(_ChannelMediaPage(channelId: ch.id, kind: 'links'))),
+            InfoRow(icon: Icons.link, title: tr('Liên kết'), onTap: () => _push(ChannelMediaPage(channelId: ch.id, kind: 'links'))),
             if (ch.isSub)
               InfoRow(icon: Icons.outbox_outlined, title: tr('Gửi kết luận về nhóm'), onTap: () => sendConclusionDialog(context, ch)),
             if (!ch.isDirect && !ch.isGroupDm)
@@ -909,26 +910,34 @@ class ScheduledPage extends StatelessWidget {
 }
 
 /// Hình ảnh / Tệp tin / Liên kết của một cuộc trò chuyện (quét các tin gần đây).
-class _ChannelMediaPage extends StatefulWidget {
+class ChannelMediaPage extends StatefulWidget {
   final String channelId;
   final String kind;
-  const _ChannelMediaPage({required this.channelId, required this.kind});
+  const ChannelMediaPage({super.key, required this.channelId, required this.kind});
   @override
-  State<_ChannelMediaPage> createState() => _ChannelMediaPageState();
+  State<ChannelMediaPage> createState() => ChannelMediaPageState();
 }
 
-class _ChannelMediaPageState extends State<_ChannelMediaPage> {
+class ChannelMediaPageState extends State<ChannelMediaPage> {
   List<MmPost>? _posts;
   List<Map<String, dynamic>> _bookmarks = [];
   String? _err;
+  /// Còn tin cũ hơn chưa quét (quét theo trang 200 tin, mới nhất trước).
+  bool _hasOlder = false;
   static final _url = RegExp(r'https?://[^\s<>()\]]+');
+  static const _rowExtent = 72.0;
 
   @override
   void initState() {
     super.initState();
     final app = context.read<AppState>();
     app.scanChannel(widget.channelId).then((p) {
-      if (mounted) setState(() => _posts = p);
+      if (mounted) {
+        setState(() {
+          _posts = p;
+          _hasOlder = p.isNotEmpty && p.length % 200 == 0;
+        });
+      }
     }).catchError((_) {
       if (mounted) setState(() => _err = tr('Không tải được. Kiểm tra kết nối mạng.'));
     });
@@ -939,6 +948,20 @@ class _ChannelMediaPageState extends State<_ChannelMediaPage> {
     }
   }
 
+  /// Quét thêm một trang tin cũ hơn (khi cuộn tới cuối hoặc tua tới ngày cũ hơn phần đã có).
+  Future<void> _loadOlder() async {
+    final posts = _posts;
+    if (posts == null || posts.isEmpty || !_hasOlder) return;
+    final got = await context.read<AppState>().api.posts(widget.channelId, before: posts.last.id, perPage: 200);
+    if (!mounted) return;
+    setState(() {
+      _posts = [...posts, ...got];
+      _hasOlder = got.length >= 200;
+    });
+  }
+
+  Widget _tile(Widget child) => SizedBox(height: _rowExtent, child: Center(child: child));
+
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
@@ -947,76 +970,117 @@ class _ChannelMediaPageState extends State<_ChannelMediaPage> {
     if (_err != null) return _SubPage(title: title, child: Center(child: Text(_err!, style: TextStyle(color: pal.sub))));
     if (_posts == null) return _SubPage(title: title, child: Center(child: CircularProgressIndicator(color: pal.accent)));
     final posts = _posts!;
+    final createdAt = app.channels[widget.channelId]?.createAt ?? 0;
+    Widget empty(String text) => Center(child: Text(text, style: TextStyle(color: pal.sub)));
     Widget body;
     switch (widget.kind) {
       case 'images':
-        final items = [for (final p in posts) for (final f in p.files.where((f) => f.isImage)) (p, f)];
-        body = items.isEmpty
-            ? Center(child: Text(tr('Chưa có hình ảnh'), style: TextStyle(color: pal.sub)))
-            : GridView.count(
-                crossAxisCount: 3,
-                mainAxisSpacing: 2,
-                crossAxisSpacing: 2,
-                children: [
-                  for (final (p, f) in items)
-                    GestureDetector(
-                      onTap: () => showGallery(context, p, [ChatImage(file: f)], 0),
-                      child: Image(
-                          image: DiskCachedImage.network(chatImageKey(f.id, 'thumb'), app.api.thumbUrl(f.id), headers: app.api.headers),
-                          fit: BoxFit.cover, errorBuilder: (_, _, _) => Container(color: pal.surface2)),
-                    ),
-                ],
-              );
+        final groups = groupByDay([for (final p in posts) for (final f in p.files.where((f) => f.isImage)) (p, f)], (x) => x.$1.createAt);
+        body = DaySectionsView(
+          days: [for (final g in groups) g.$1],
+          noun: tr('ảnh'),
+          createdAt: createdAt,
+          hasOlder: _hasOlder,
+          loadOlder: _loadOlder,
+          empty: empty(tr('Chưa có hình ảnh')),
+          // Lưới 3 cột, ô vuông, khe 2 px.
+          contentExtent: (i, w) {
+            final rows = (groups[i].$2.length + 2) ~/ 3;
+            return rows * (w - 4) / 3 + (rows - 1) * 2;
+          },
+          content: (context, i) => SliverGrid.count(
+            crossAxisCount: 3,
+            mainAxisSpacing: 2,
+            crossAxisSpacing: 2,
+            children: [
+              for (final (p, f) in groups[i].$2)
+                GestureDetector(
+                  onTap: () => showGallery(context, p, [ChatImage(file: f)], 0),
+                  child: Image(
+                      image: DiskCachedImage.network(chatImageKey(f.id, 'thumb'), app.api.thumbUrl(f.id), headers: app.api.headers),
+                      fit: BoxFit.cover, errorBuilder: (_, _, _) => Container(color: pal.surface2)),
+                ),
+            ],
+          ),
+        );
       case 'files':
-        final items = [for (final p in posts) for (final f in p.files.where((f) => !f.isImage)) (p, f)];
-        body = items.isEmpty
-            ? Center(child: Text(tr('Chưa có tệp tin'), style: TextStyle(color: pal.sub)))
-            : ListView(children: [
-                for (final (p, f) in items)
-                  ListTile(
-                    leading: Icon(f.isVideo ? Icons.videocam_outlined : Icons.insert_drive_file_outlined, color: pal.accentText),
-                    title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text)),
-                    subtitle: Text('${fileSize(f.size)} · ${app.users[p.userId]?.displayName ?? ''} · ${listTime(p.createAt)}',
-                        style: TextStyle(color: pal.sub, fontSize: 13)),
-                    onTap: () => openFile(context, f),
-                  ),
-              ]);
+        final groups = groupByDay([for (final p in posts) for (final f in p.files.where((f) => !f.isImage)) (p, f)], (x) => x.$1.createAt);
+        body = DaySectionsView(
+          days: [for (final g in groups) g.$1],
+          noun: tr('tệp'),
+          createdAt: createdAt,
+          hasOlder: _hasOlder,
+          loadOlder: _loadOlder,
+          empty: empty(tr('Chưa có tệp tin')),
+          contentExtent: (i, w) => groups[i].$2.length * _rowExtent,
+          content: (context, i) => SliverFixedExtentList(
+            itemExtent: _rowExtent,
+            delegate: SliverChildListDelegate([
+              for (final (p, f) in groups[i].$2)
+                _tile(ListTile(
+                  leading: Icon(f.isVideo ? Icons.videocam_outlined : Icons.insert_drive_file_outlined, color: pal.accentText),
+                  title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text)),
+                  subtitle: Text('${fileSize(f.size)} · ${app.users[p.userId]?.displayName ?? ''} · ${hhmm(DateTime.fromMillisecondsSinceEpoch(p.createAt))}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub, fontSize: 13)),
+                  onTap: () => openFile(context, f),
+                )),
+            ]),
+          ),
+        );
       default:
-        final links = <(String, String)>[];
+        final bookmarks = <(String, String)>[];
         final seen = <String>{};
         for (final b in _bookmarks) {
           final u = b['link_url'] as String? ?? '';
-          if (u.isNotEmpty && seen.add(u)) links.add((b['display_name'] as String? ?? u, u));
+          if (u.isNotEmpty && seen.add(u)) bookmarks.add((b['display_name'] as String? ?? u, u));
         }
-        final nBookmarks = links.length;
+        // Liên kết trong tin: mỗi liên kết hiện một lần, ở lần gửi mới nhất.
+        final found = <(MmPost, String)>[];
         for (final p in posts) {
           for (final m in _url.allMatches(p.message)) {
             final u = m.group(0)!;
-            if (seen.add(u)) links.add((u, u));
+            if (seen.add(u)) found.add((p, u));
           }
         }
-        body = links.isEmpty
-            ? Center(child: Text(tr('Chưa có liên kết'), style: TextStyle(color: pal.sub)))
-            : ListView(children: [
-                if (nBookmarks > 0)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                    child: Text(tr('ĐÁNH DẤU CỦA KÊNH'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
-                  ),
-                for (final (i, (name, u)) in links.indexed) ...[
-                  if (i == nBookmarks && nBookmarks > 0)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                      child: Text(tr('LIÊN KẾT TRONG TIN NHẮN'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
-                    ),
-                  ListTile(
-                    leading: Icon(i < nBookmarks ? Icons.bookmark_outline : Icons.link, color: pal.accentText),
-                    title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text)),
-                    subtitle: name == u ? null : Text(u, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub)),
-                    onTap: () => launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication),
-                  ),
-                ],
-              ]);
+        final groups = groupByDay(found, (x) => x.$1.createAt);
+        Widget link(String name, String u, bool bookmark) => _tile(ListTile(
+              leading: Icon(bookmark ? Icons.bookmark_outline : Icons.link, color: pal.accentText),
+              title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text)),
+              subtitle: name == u ? null : Text(u, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub)),
+              onTap: () => launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication),
+            ));
+        // Đánh dấu của kênh (không có ngày) đứng trước các nhóm ngày.
+        const bookmarkHeader = 36.0;
+        body = DaySectionsView(
+          days: [for (final g in groups) g.$1],
+          noun: tr('liên kết'),
+          createdAt: createdAt,
+          hasOlder: _hasOlder,
+          loadOlder: _loadOlder,
+          empty: empty(tr('Chưa có liên kết')),
+          leading: [
+            if (bookmarks.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Container(
+                  height: bookmarkHeader,
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(tr('ĐÁNH DẤU CỦA KÊNH'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+                ),
+              ),
+              SliverFixedExtentList(
+                itemExtent: _rowExtent,
+                delegate: SliverChildListDelegate([for (final (name, u) in bookmarks) link(name, u, true)]),
+              ),
+            ],
+          ],
+          leadingExtent: bookmarks.isEmpty ? 0 : bookmarkHeader + bookmarks.length * _rowExtent,
+          contentExtent: (i, w) => groups[i].$2.length * _rowExtent,
+          content: (context, i) => SliverFixedExtentList(
+            itemExtent: _rowExtent,
+            delegate: SliverChildListDelegate([for (final (_, u) in groups[i].$2) link(u, u, false)]),
+          ),
+        );
     }
     return _SubPage(title: title, child: body);
   }

@@ -183,6 +183,14 @@ String daySeparatorLabel(DateTime d, {DateTime? now}) {
   return '$name, $date';
 }
 
+/// Tiêu đề nhóm theo ngày (ảnh / tệp / liên kết của cuộc trò chuyện): luôn có thứ và ngày đầy đủ,
+/// "Hôm nay" / "Hôm qua" thay cho thứ ở hai ngày gần nhất ("Thứ Hai, 10/11/2026").
+String dayHeaderLabel(DateTime d, {DateTime? now}) {
+  final diff = _day(now ?? DateTime.now()).difference(_day(d)).inDays;
+  final name = diff == 0 ? tr('Hôm nay') : diff == 1 ? tr('Hôm qua') : _weekdays[d.weekday - 1];
+  return '$name, ${ddmmyyyy(d)}';
+}
+
 bool sameDay(int a, int b) =>
     _day(DateTime.fromMillisecondsSinceEpoch(a)) == _day(DateTime.fromMillisecondsSinceEpoch(b));
 

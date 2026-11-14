@@ -200,6 +200,8 @@ void main() {
     final out = Platform.environment['CL_OUT'];
     if (out == null) return;
     await t.runAsync(_fonts);
+    // flutter_test mặc định vẽ bóng thành viền đen đặc; app thật là bóng mờ.
+    debugDisableShadows = false;
     Future<void> save(GlobalKey key, String name) => t.runAsync(() async {
           final img = await (key.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage();
           final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
@@ -245,6 +247,7 @@ void main() {
       await t.pumpAndSettle();
       await t.pumpWidget(const SizedBox.shrink());
     }
+    debugDisableShadows = true;
     t.view.reset();
   });
 }

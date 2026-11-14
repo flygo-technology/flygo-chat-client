@@ -20,20 +20,7 @@ class ChatJumpButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!visible) return const SizedBox.shrink();
     final pal = Pal.of(context);
-    Widget round(Widget icon, String tip, VoidCallback? onTap, Key key) => Tooltip(
-          message: tip,
-          child: Material(
-            key: key,
-            color: pal.surface,
-            shape: const CircleBorder(),
-            elevation: 3,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: SizedBox(width: 44, height: 44, child: Center(child: icon)),
-            ),
-          ),
-        );
+    Widget round(Widget icon, String tip, VoidCallback? onTap, Key key) => ChatRoundButton(key: key, icon: icon, tooltip: tip, onTap: onTap);
     return Row(mainAxisSize: MainAxisSize.min, children: [
       round(
         busy
@@ -47,6 +34,32 @@ class ChatJumpButtons extends StatelessWidget {
       round(Icon(Icons.keyboard_double_arrow_down_rounded, color: pal.text), tr('Tin mới nhất'), onDown,
           const ValueKey('chat-jump-down')),
     ]);
+  }
+}
+
+/// Nút tròn nổi 44 px (nền surface, bóng nhẹ) dùng cho các nút tua trong khung chat / trang ảnh, tệp.
+class ChatRoundButton extends StatelessWidget {
+  final Widget icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  const ChatRoundButton({super.key, required this.icon, required this.tooltip, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: pal.surface,
+        shape: const CircleBorder(),
+        elevation: 3,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(width: 44, height: 44, child: Center(child: icon)),
+        ),
+      ),
+    );
   }
 }
 

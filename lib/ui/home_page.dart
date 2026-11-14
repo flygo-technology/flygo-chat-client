@@ -1068,25 +1068,9 @@ class _HomePageState extends State<HomePage> {
             child: text,
           );
 
-    Widget appTile(Widget icon, Color? color, String label, int badge, VoidCallback onTap) {
+    /// [circle]: ô tròn không viền (ô "Hồ sơ" là ảnh đại diện tròn, khung vuông bo góc sẽ lòi góc ra ngoài ảnh).
+    Widget appTile(Widget icon, Color? color, String label, int badge, VoidCallback onTap, {bool circle = false}) {
       if (_appQ.isNotEmpty && !_appFold(label).contains(_appFold(_appQ))) return const _HiddenTile();
-      final box = color == null
-          ? BoxDecoration(
-              color: pal.surface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: pal.divider),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 10, offset: const Offset(0, 4))],
-            )
-          : BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color.lerp(color, Colors.white, .28)!, color, Color.lerp(color, Colors.black, .12)!],
-                stops: const [0, .55, 1],
-              ),
-              boxShadow: [BoxShadow(color: color.withValues(alpha: .35), blurRadius: 12, offset: const Offset(0, 5))],
-            );
       return InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
@@ -1099,7 +1083,7 @@ class _HomePageState extends State<HomePage> {
               label: Text(badge > 99 ? '99+' : '$badge'),
               backgroundColor: const Color(0xFFE53935),
               textColor: Colors.white,
-              child: Container(width: 62, height: 62, decoration: box, child: Center(child: icon)),
+              child: AppTileIcon(icon: icon, color: color, circle: circle),
             ),
             const SizedBox(height: 9),
             // Tên hiện đầy đủ, xuống dòng khi dài (vd tên công ty Ký số), không cắt bằng dấu "…".
@@ -1302,9 +1286,10 @@ class _HomePageState extends State<HomePage> {
           grid(title, [
             if (phone && title == tr('Cá nhân') && me != null)
               appTile(
-                  ClipOval(child: Avatar(userId: me.id, name: me.displayName, size: 62, status: false)), null, tr('Hồ sơ'), 0,
+                  Avatar(key: const ValueKey('apps-profile-tile-avatar'), userId: me.id, name: me.displayName, size: 62, status: false), null, tr('Hồ sơ'), 0,
                   () => (nav() ?? Navigator.of(context)).push(AppPageRoute(
-                      builder: (_) => AppsProfilePage(onProfile: () => showEditProfile(context), onSettings: () => _openProfile(nav()))))),
+                      builder: (_) => AppsProfilePage(onProfile: () => showEditProfile(context), onSettings: () => _openProfile(nav())))),
+                  circle: true),
             for (final id in ids)
               if (id != 'update' && items[id] != null) tile(asTab(id, items[id]!)),
           ]),
@@ -3288,6 +3273,45 @@ class ProfileView extends StatelessWidget {
 /// ảnh đại diện to ở giữa đè lên mép dưới dải bìa (viền nền, nút máy ảnh đổi ảnh), tên, "@tên · email", chức danh; hai
 /// nút Chỉnh sửa hồ sơ / Đặt trạng thái; hai dòng Hoạt động / Trạng thái; chân: số bản · Kiểm tra cập nhật, Đăng xuất.
 /// Không có nền xám: nằm thẳng trên nền trang. Máy chủ: [AppsServerRow].
+/// Biểu tượng 62 px của một ô ứng dụng: nền màu chuyển sắc ([color]), ô trắng có viền ([color] null),
+/// hoặc ô tròn không viền ([circle], cho ảnh đại diện tròn).
+class AppTileIcon extends StatelessWidget {
+  final Widget icon;
+  final Color? color;
+  final bool circle;
+  const AppTileIcon({super.key, required this.icon, this.color, this.circle = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final c = color;
+    final box = circle
+        ? BoxDecoration(
+            shape: BoxShape.circle,
+            color: pal.surface,
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 10, offset: const Offset(0, 4))],
+          )
+        : c == null
+            ? BoxDecoration(
+                color: pal.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: pal.divider),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 10, offset: const Offset(0, 4))],
+              )
+            : BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color.lerp(c, Colors.white, .28)!, c, Color.lerp(c, Colors.black, .12)!],
+                  stops: const [0, .55, 1],
+                ),
+                boxShadow: [BoxShadow(color: c.withValues(alpha: .35), blurRadius: 12, offset: const Offset(0, 5))],
+              );
+    return Container(width: 62, height: 62, decoration: box, child: Center(child: icon));
+  }
+}
+
 class AppsUserCard extends StatelessWidget {
   /// "Chỉnh sửa hồ sơ" (màn chỉnh sửa hồ sơ).
   final VoidCallback onProfile;
