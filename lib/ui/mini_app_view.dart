@@ -123,6 +123,7 @@ const _tileIcons = <String, IconData>{
   'settings': Icons.settings_rounded,
   'slideshow': Icons.slideshow_rounded,
   'web': Icons.language_rounded,
+  'translate': Icons.translate_rounded,
   'news': Icons.campaign_rounded,
   'notes': Icons.sticky_note_2_rounded,
 };

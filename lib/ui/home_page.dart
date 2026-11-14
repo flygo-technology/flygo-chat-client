@@ -111,8 +111,8 @@ Widget brandIcon(String id, double size, Color color) =>
 /// Mini app hiện ở mục "Chính" của Trang chủ thay vì mục Ứng dụng.
 /// Bảng tin: ô riêng ngay sau "Dự án AI" ở mục Chính (Sếp, 2026-11-10); Todo ngay sau Bảng tin (Sếp, 2026-11-11).
 const kLeadMiniApps = ['vn.flygo.bangtin', 'vn.flygo.todo'];
-/// Teable, Multica, Nebula, Codex nằm ở mục Ứng dụng (Sếp, 2026-11-10).
-const kMainMiniApps = {'vn.flygo.bangtin', 'vn.flygo.todo', 'vn.flygo.show'};
+/// Teable, Multica, Nebula, Codex nằm ở mục Ứng dụng (Sếp, 2026-11-10). Dịch thuật ở mục Chính (Sếp, 2026-11-14).
+const kMainMiniApps = {'vn.flygo.bangtin', 'vn.flygo.todo', 'vn.flygo.show', 'vn.flygo.dich'};
 
 /// Thứ tự các app nhóm Công việc ở mục Chính (Sếp 10/11); app khác của nhóm (nếu có) đứng sau.
 List<String> _workAppOrder(Iterable<String> ids) {
