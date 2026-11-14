@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
@@ -26,6 +26,10 @@ class LocalStore {
 
   /// Bỏ các bản lịch sử sửa tin (có original_id) mà máy chủ trả kèm.
   static final _notHistory = Filter.custom((r) => ((r.value as Map)['original_id'] as String? ?? '').isEmpty);
+
+  /// Chỉ cho kiểm thử: kho trống trong bộ nhớ.
+  @visibleForTesting
+  static Future<LocalStore> memory(String name) async => LocalStore._(await databaseFactoryMemory.openDatabase(name));
 
   static Future<LocalStore> open(String userId) async {
     final dir = await getApplicationSupportDirectory();

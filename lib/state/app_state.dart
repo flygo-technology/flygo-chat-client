@@ -1270,6 +1270,10 @@ class AppState extends ChangeNotifier {
   }
 
   /// Chỉ cho test: đặt sẵn tin của một kênh (không đọc bộ nhớ máy / máy chủ).
+  /// Chỉ cho test: dùng kho [store] (vd. kho trong bộ nhớ) thay cho kho trên đĩa.
+  @visibleForTesting
+  void debugSetStore(LocalStore store) => _store = store;
+
   @visibleForTesting
   void debugPutPosts(String channelId, List<MmPost> posts) {
     _posts[channelId] = posts;
@@ -1462,7 +1466,10 @@ class AppState extends ChangeNotifier {
   }
 
   MmPost? findPost(String channelId, String id) =>
-      _posts[channelId]?.where((p) => p.id == id).firstOrNull ?? _windows[channelId]?.posts.where((p) => p.id == id).firstOrNull;
+      _posts[channelId]?.where((p) => p.id == id).firstOrNull ??
+      _windows[channelId]?.posts.where((p) => p.id == id).firstOrNull ??
+      // Câu trả lời trong luồng đã tải riêng (trang luồng), chưa có trong danh sách tin của kênh.
+      _threads.values.expand((l) => l).where((p) => p.id == id && p.channelId == channelId).firstOrNull;
 
   // ---------------------------------------------------------------- gửi tin
   /// Gửi tin. [priority]: '' | 'important' | 'urgent'; [requestAck]: yêu cầu xác nhận đã đọc;

@@ -1400,6 +1400,8 @@ class _ThreadPageState extends State<ThreadPage> {
   final _scroll = ScrollController();
   MmPost? _root;
   MmPost? _editing;
+  /// Đang trả lời (trích dẫn) một tin trong luồng: tin gửi vẫn nằm trong luồng, kèm trích dẫn tin đó.
+  MmPost? _replyTo;
   final _composer = GlobalKey<_ComposerState>();
 
   @override
@@ -1481,6 +1483,12 @@ class _ThreadPageState extends State<ThreadPage> {
     }
   }
 
+  /// Bấm vào trích dẫn trong luồng: cuộn tới tin được trích (nếu đang dựng) và nháy sáng.
+  void _jumpTo(String id) {
+    final ctx = _Bubble._bubbleKeys.entries.where((e) => e.key.startsWith('$id:true:')).map((e) => e.value.currentContext).nonNulls.firstOrNull;
+    if (ctx != null) Scrollable.ensureVisible(ctx, alignment: .4, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+  }
+
   @override
   void dispose() {
     // Rời luồng: các tin đã thấy coi như đã xem.
@@ -1560,10 +1568,21 @@ class _ThreadPageState extends State<ThreadPage> {
                                   agentRunOverride: runFor[p.id],
                                   agentCombined: cardOnly.contains(p.id),
                                   onReply: () {
+                                    // Trả lời tin gốc của luồng: chỉ cần gõ trong luồng, không trích dẫn.
+                                    if (!isRoot) {
+                                      setState(() {
+                                        _replyTo = p;
+                                        _editing = null;
+                                      });
+                                    }
                                     _composer.currentState?.mentionBotOf(p);
                                     _composer.currentState?._focus.requestFocus();
                                   },
-                                  onEdit: (p) => setState(() => _editing = p),
+                                  onJumpTo: _jumpTo,
+                                  onEdit: (p) => setState(() {
+                                    _editing = p;
+                                    _replyTo = null;
+                                  }),
                                 );
                           if (!isRoot) return bubble;
                           return Column(children: [
@@ -1667,11 +1686,15 @@ class _ThreadPageState extends State<ThreadPage> {
               key: _composer,
               channelId: widget.channelId,
               threadRoot: widget.rootId,
+              replyTo: _replyTo,
               editing: _editing,
               onCancelEdit: () => setState(() => _editing = null),
-              onCancelReply: () {},
+              onCancelReply: () => setState(() => _replyTo = null),
               onSent: () {
-                setState(() => _editing = null);
+                setState(() {
+                  _editing = null;
+                  _replyTo = null;
+                });
                 if (_scroll.hasClients) _scroll.jumpTo(0);
               },
             ),
@@ -2256,6 +2279,7 @@ class _Bubble extends StatelessWidget {
     final root = post.rootId.isNotEmpty
         ? app.findPost(post.channelId, post.rootId)
         : (quoteId == null ? null : app.findPost(post.channelId, quoteId));
+    final quoted = inThreadView && quoteId != null ? app.findPost(post.channelId, quoteId) : null;
     // 🛑 trên tin của trợ lý AI là lệnh dừng gửi runner, không hiện thành cảm xúc.
     final isQuestion = post.props.containsKey('flygo_agent_question');
     final reactions = post.props.containsKey('flygo_agent') || post.props.containsKey('flygo_agent_message') || isQuestion
@@ -2586,6 +2610,9 @@ class _Bubble extends StatelessWidget {
         ),
       if ((post.rootId.isNotEmpty || quoteId != null) && !inThreadView)
         _Quote(root: root, mine: mine, onTap: root == null || onJumpTo == null ? null : () => onJumpTo!(root.id)),
+      // Trong trang luồng: trả lời một tin cụ thể của luồng (props.flygo_quote), không trích tin gốc.
+      if (inThreadView && quoteId != null && quoteId != post.rootId)
+        _Quote(root: quoted, mine: mine, onTap: quoted == null || onJumpTo == null ? null : () => onJumpTo!(quoted.id)),
       if (!hidden && images.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 4, top: 2),
@@ -5516,6 +5543,8 @@ class _ComposerState extends State<_Composer> {
             ...?_fx.props,
             if (_fx.silent) 'flygo_silent': true,
             'flygo_ai_ref': ?ref,
+            // Trang luồng: trả lời một tin trong luồng (vẫn gửi vào luồng, kèm trích dẫn tin đó).
+            if (widget.threadRoot != null && widget.replyTo != null) 'flygo_quote': widget.replyTo!.id,
             if (_a2aPeers.isNotEmpty) 'flygo_a2a_peers': [for (final x in _a2aPeers) Map.of(x)],
             if (_tagPeopleProps(text).isNotEmpty) 'flygo_tag_people': _tagPeopleProps(text),
             'flygo_refs': ?_pendingRefs,
