@@ -31,8 +31,10 @@ class MiniApp {
   /// Manifest "plain": web bên ngoài có đăng nhập riêng (không phải mini app Flygo): được điều hướng sang trang khác
   /// (trang đăng nhập…) ngay trong webview thay vì đẩy ra trình duyệt hệ thống.
   final bool plain;
+  /// Manifest "user_agent": User-Agent của webview khi mở app (vd UA Smart TV cho youtube.com/tv). null = mặc định.
+  final String? userAgent;
   MiniApp._(this.id, this._name, this._description, this.icon, this.version, this.minClient, this.origin, this.scanPrefixes,
-      this.baseUrl, this._nativeScreen, this._nativeMin, this.openInBrowser, this.tile, this.plain);
+      this.baseUrl, this._nativeScreen, this._nativeMin, this.openInBrowser, this.tile, this.plain, this.userAgent);
 
   factory MiniApp.fromJson(Map j) => MiniApp._(
         '${j['id']}',
@@ -49,6 +51,7 @@ class MiniApp {
         j['open_in'] == 'browser',
         j['tile'] is Map ? Map<String, dynamic>.from(j['tile'] as Map) : null,
         j['plain'] == true || '${j['id']}'.startsWith('vn.flygo.web.'),
+        '${j['user_agent'] ?? ''}'.isEmpty ? null : '${j['user_agent']}',
       );
 
 
@@ -67,6 +70,7 @@ class MiniApp {
         'open_in': openInBrowser ? 'browser' : null,
         'tile': tile,
         'plain': plain,
+        'user_agent': userAgent,
       };
 
   /// Chuỗi hoặc map theo ngôn ngữ ({vi, en}).
