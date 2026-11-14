@@ -6,7 +6,8 @@ Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner versio
 - Agent chats: shell highlighting in bash/tool cards (JetBrains Mono, no ligatures), red failed output, folding long output; step rail line removed.
 - Agent chats: right side panel on desktop / ⋮ page on phone with sessions, photos, files, links, MCP token invite links and all ⋮ actions.
 - AI answers use bundled Roboto ("Flygo Roboto", 16 px, line height 1.58, max ~960 px wide); code in JetBrains Mono; licenses bundled.
-- Agent right panel: actions first (incl. "Kết nối agent từ xa" modal for MCP invite links); on desktop chat settings open inside the panel; bypass badge removed (it is in settings).
+- File cards: "Copy đường dẫn" (bot-machine path from props.flygo_file_paths, else the saved local path, else the download URL); runner records paths for chat_send_files.
+- Agent right panel: one ⋮ button toggles the column (pushes the chat left, state remembered per user); narrow windows/phones open it as a page; old popover and sidebar button removed. Actions first (incl. "Kết nối agent từ xa" modal for MCP invite links); on desktop chat settings open inside the panel; bypass badge removed (it is in settings).
 - Agent working indicator alternates the Claude spark with a rotating 3/4-node graph.
 - Posts from external agents (MCP bridge) are labelled "🔗 Agent ngoài".
 - Runner 0.6.91: bridged posts verified with the relay and handled as the session owner's; the bypass step only shows on the turn it is switched on; cards carry props.flygo_bypass.

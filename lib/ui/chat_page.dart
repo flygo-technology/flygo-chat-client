@@ -574,8 +574,7 @@ class _ChatPageState extends State<ChatPage> {
     widget.onClose?.call();
   }
 
-  /// ⋮ của chat với trợ lý: popover kiểu Codex (thẻ lớn, tên chat ở đầu, Xoá đỏ) hoặc kiểu Claude (thẻ gọn).
-  /// Các thao tác của ⋮ trong chat với trợ lý (dùng chung cho popover và cột phải).
+  /// Các thao tác của chat với trợ lý (mục Thao tác của cột phải / trang ⋮ trên điện thoại).
   List<(String, IconData, String)> _agentItems(AppState app, MmChannel ch) {
     final session = ch.isAi;
     final fav = app.isFavorite(ch.id);
@@ -597,18 +596,13 @@ class _ChatPageState extends State<ChatPage> {
     return items;
   }
 
-  /// Cột phải đang mở (máy tính, khung rộng; nhớ trong phiên chạy app, dùng chung mọi chat với trợ lý).
-  static bool _sidePanelOpen = true;
-  /// Máy tính, khung hẹp (cửa sổ nhỏ / cột AI): cột phải nổi đè lên chat, mặc định đóng.
-  bool _sideOverlay = false;
   /// Navigator riêng của cột phải: cài đặt chat, Xem tất cả ảnh / tệp / liên kết mở ngay trong cột (không thành trang riêng).
   final _sideNav = GlobalKey<NavigatorState>();
 
-  /// Khung đủ rộng để đặt cột phải cạnh chat (máy tính, không phải cột AI hẹp).
-  bool _wideAgent(BuildContext context) => isDesktop && widget.onClose == null && MediaQuery.sizeOf(context).width >= 1100;
-  bool _sideShown(BuildContext context) => _wideAgent(context) ? _sidePanelOpen : _sideOverlay;
-  void _setSide(BuildContext context, bool open) =>
-      setState(() => _wideAgent(context) ? _sidePanelOpen = open : _sideOverlay = open);
+  /// Máy tính, khung đủ chỗ cho cả chat và cột phải (cột đẩy chat sang trái). Hẹp hơn thì như điện thoại: ⋮ mở trang riêng.
+  bool _sideColumn(BuildContext context) => isDesktop && MediaQuery.sizeOf(context).width >= 720;
+  bool _sideShown(BuildContext context) => _sideColumn(context) && context.read<AppState>().agentPanelOpen;
+  void _setSide(BuildContext context, bool open) => context.read<AppState>().setAgentPanelOpen(open);
 
   Widget _sidePanel(AppState app, MmChannel ch) => Navigator(
         key: _sideNav,
@@ -651,7 +645,7 @@ class _ChatPageState extends State<ChatPage> {
         setState(() => _searchOpen = true);
       case 'info':
         // Máy tính: cài đặt chat với trợ lý mở trong cột phải; điện thoại: trang riêng như cũ.
-        if (isDesktop && (claudeStyleFor(app, ch) || ch.isAi)) {
+        if (_sideColumn(context) && (claudeStyleFor(app, ch) || ch.isAi)) {
           final wasOpen = _sideShown(context);
           _setSide(context, true);
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -693,46 +687,6 @@ class _ChatPageState extends State<ChatPage> {
         if (mounted) await runAiSessionAction(context, ch, a);
     }
   
-  }
-
-  Widget _agentMenu(AppState app, MmChannel ch, bool gpt) {
-    final pal = Pal.of(context);
-    final session = ch.isAi;
-    final items = _agentItems(app, ch);
-    final title = session ? aiSessionLabel(ch) : app.channelTitle(ch);
-    return PopupMenuButton<String>(
-      tooltip: tr('Thao tác'),
-      icon: Icon(Icons.more_vert, color: pal.text),
-      color: pal.surface,
-      elevation: gpt ? 10 : 6,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(gpt ? 28 : 16)),
-      constraints: BoxConstraints(minWidth: gpt ? 280 : 220, maxWidth: 340),
-      position: PopupMenuPosition.under,
-      onSelected: (a) => _agentAction(app, ch, a),
-      itemBuilder: (_) => [
-        // Kiểu Codex: tên chat (chữ xám) ở đầu thẻ.
-        if (gpt)
-          PopupMenuItem<String>(
-            enabled: false,
-            height: 44,
-            child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 15, color: pal.sub)),
-          ),
-        for (final (v, icon, label) in items)
-          PopupMenuItem<String>(
-            value: v,
-            height: gpt ? 54 : 48,
-            child: Row(children: [
-              Icon(icon, size: gpt ? 24 : 21, color: v == 'delete' && gpt ? const Color(0xFFD32F2F) : pal.text.withValues(alpha: gpt ? 1 : .75)),
-              SizedBox(width: gpt ? 18 : 16),
-              Text(label,
-                  style: TextStyle(
-                      fontSize: gpt ? 16.5 : 15.5,
-                      color: v == 'delete' && gpt ? const Color(0xFFD32F2F) : pal.text,
-                      fontWeight: gpt ? FontWeight.w500 : FontWeight.normal)),
-            ]),
-          ),
-      ],
-    );
   }
 
   Widget _buildPage(BuildContext context) {
@@ -920,20 +874,13 @@ class _ChatPageState extends State<ChatPage> {
             // Vòng tròn dung lượng ngữ cảnh của trợ lý (chat AI / chat 1-1 với trợ lý).
             if (ch.isAi || (ch.isDirect && app.users[other]?.isBot == true)) AgentContextRing(channelId: ch.id),
             // Chat với trợ lý: ⋮ mở popover kiểu app của hãng (Codex / Claude).
-            // Máy tính: nút ẩn / hiện cột phải + ⋮ như cũ; điện thoại: ⋮ mở trang cột phải.
+            // Chat với trợ lý: chỉ một nút ⋮ — máy tính bật / tắt cột phải, điện thoại (khung hẹp) mở trang cột phải.
             if (claude || ch.isAi) ...[
-              if (isDesktop) ...[
-                IconButton(
-                  tooltip: _sideShown(context) ? tr('Ẩn cột phải') : tr('Hiện cột phải'),
-                  icon: Icon(_sideShown(context) ? Icons.view_sidebar_rounded : Icons.view_sidebar_outlined, color: pal.text),
-                  onPressed: () => _setSide(context, !_sideShown(context)),
-                ),
-                if (claude)
-                  _agentMenu(app, ch, gptStyleFor(app, ch))
-                else
-                  AiSessionMenu(channel: ch, onOpenWindow: _canOpenAiWindow(ch) ? () => _openAiWindow(app, ch) : null),
-              ] else
-                IconButton(tooltip: tr('Thao tác'), icon: Icon(Icons.more_vert, color: pal.text), onPressed: () => _openSidePage(app, ch)),
+              IconButton(
+                tooltip: tr('Thao tác'),
+                icon: Icon(Icons.more_vert, color: pal.text),
+                onPressed: () => _sideColumn(context) ? _setSide(context, !app.agentPanelOpen) : _openSidePage(app, ch),
+              ),
             ] else
               IconButton(tooltip: tr('Cài đặt cuộc trò chuyện'), icon: Icon(Icons.more_vert, color: pal.text), onPressed: _openInfo),
             const SizedBox(width: 4),
@@ -1194,25 +1141,12 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
     // Chat với trợ lý trên máy tính: cột phải (phiên, ảnh / tệp / liên kết, Token MCP, thao tác).
-    if ((claude || ch.isAi) && isDesktop && _sideShown(context)) {
-      page = _wideAgent(context)
-          ? Row(children: [
-              Expanded(child: page),
-              Container(width: .5, color: pal.divider),
-              SizedBox(width: 340, child: _sidePanel(app, ch)),
-            ])
-          // Khung hẹp: cột phải nổi bên phải, bấm ra ngoài thì đóng.
-          : Stack(children: [
-              page,
-              Positioned.fill(child: GestureDetector(onTap: () => _setSide(context, false), child: Container(color: Colors.black26))),
-              Positioned(
-                top: 0,
-                bottom: 0,
-                right: 0,
-                width: 340,
-                child: Material(elevation: 12, color: pal.bg, child: _sidePanel(app, ch)),
-              ),
-            ]);
+    if ((claude || ch.isAi) && _sideShown(context)) {
+      page = Row(children: [
+        Expanded(child: page),
+        Container(width: .5, color: pal.divider),
+        SizedBox(width: 340, child: _sidePanel(app, ch)),
+      ]);
     }
     // Kéo tệp từ máy tính thả vào khung chat (chat thường, chat với trợ lý, cột AI): đính kèm vào ô soạn tin.
     return FileDropZone(onFiles: (f) => _composer.currentState?.stage(f), child: page);
@@ -2807,7 +2741,7 @@ class _Bubble extends StatelessWidget {
           child: ChatMedia(post: post, images: images, sending: sendingMedia, maxWidth: maxW - 22),
         ),
       if (!hidden)
-        for (final f in post.files.where((f) => !f.isImage)) _FileView(file: f),
+        for (final f in post.files.where((f) => !f.isImage)) _FileView(file: f, remotePath: (post.props['flygo_file_paths'] as Map?)?[f.id] as String?),
       // Video đang gửi: hiện khung hình video kèm vòng tải.
       if (!hidden)
         for (final f in post.localFiles.where((f) => (f['mime'] as String? ?? '').startsWith('video/')))
@@ -4133,7 +4067,8 @@ class _Quote extends StatelessWidget {
 
 class _FileView extends StatelessWidget {
   final MmFile file;
-  const _FileView({required this.file});
+  final String? remotePath;
+  const _FileView({required this.file, this.remotePath});
 
   @override
   Widget build(BuildContext context) {
@@ -4164,7 +4099,7 @@ class _FileView extends StatelessWidget {
     }
     if (file.mime.startsWith('audio/')) return AudioMessage(file: file);
     if (file.isVideo) return ChatVideo(file: file);
-    return FileCard(file: file);
+    return FileCard(file: file, remotePath: remotePath);
   }
 }
 

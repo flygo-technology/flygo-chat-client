@@ -1159,7 +1159,7 @@ async function callTool(req: any): Promise<any> {
       if (!paths.length) return text("Chưa có tệp nào để gửi.");
       const cfg = await mm.api<any>("GET", "/config/client?format=old").catch(() => ({}));
       const maxSize = Number(cfg.MaxFileSize) || 100 * 1024 * 1024;
-      const errors: string[] = [], ok: { id: string; name: string }[] = [], sentIds: string[] = [];
+      const errors: string[] = [], ok: { id: string; name: string; path: string }[] = [], sentIds: string[] = [];
       for (const p of paths) {
         let real: string;
         try { real = realpathSync(resolve(WORKDIR, p)); } catch { errors.push(`${p}: không tồn tại`); continue; }
@@ -1173,7 +1173,7 @@ async function callTool(req: any): Promise<any> {
         const r = await fetch(`${mm.url}/api/v4/files`, { method: "POST", headers: { Authorization: `Bearer ${process.env.MM_TOKEN}` }, body: form });
         if (!r.ok) { errors.push(`${p}: tải lên lỗi ${r.status} ${(await r.text()).slice(0, 200)}`); continue; }
         const info = (await r.json()).file_infos?.[0];
-        ok.push({ id: info.id, name: info.name });
+        ok.push({ id: info.id, name: info.name, path: real });
       }
       if (ok.length) {
         // Gửi giống tin cuối của lượt: Sếp hỏi trong luồng không tích "gửi cả vào chat chính" -> chỉ trong luồng.
@@ -1187,7 +1187,9 @@ async function callTool(req: any): Promise<any> {
           sentIds.push((await mm.createPost({
             channel_id: CHANNEL, root_id: ROOT, message: i === 0 ? String(a.message ?? "") : "",
             file_ids: ok.slice(i, i + 10).map((f) => f.id),
-            props: { ...(ROOT ? { flygo_reply: reply } : {}), flygo_agent_owner: OWNER_ID, flygo_agent_files: true },
+            // flygo_file_paths: đường dẫn tệp trên máy chạy bot (nút "Copy đường dẫn" trên thẻ tệp của app).
+            props: { ...(ROOT ? { flygo_reply: reply } : {}), flygo_agent_owner: OWNER_ID, flygo_agent_files: true,
+              flygo_file_paths: Object.fromEntries(ok.slice(i, i + 10).map((f) => [f.id, f.path])) },
           })).id);
         }
       }

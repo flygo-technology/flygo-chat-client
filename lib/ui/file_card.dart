@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -132,7 +133,9 @@ class FileCard extends StatefulWidget {
   /// Thay cách tải / thư mục lưu (dùng khi kiểm thử).
   final FileDownloader? downloader;
   final Future<Directory> Function()? saveDir;
-  const FileCard({super.key, required this.file, this.desktop, this.downloader, this.saveDir});
+  /// Đường dẫn tệp trên máy chạy bot (tin trợ lý gửi tệp: props.flygo_file_paths) cho nút "Copy đường dẫn".
+  final String? remotePath;
+  const FileCard({super.key, required this.file, this.desktop, this.downloader, this.saveDir, this.remotePath});
   @override
   State<FileCard> createState() => _FileCardState();
 }
@@ -142,6 +145,14 @@ final Map<String, String> _openCache = {};
 final Map<String, String> _savedCache = {};
 
 class _FileCardState extends State<FileCard> {
+  /// Đường dẫn trên máy bot; không có thì tệp đã lưu trên máy này; không nữa thì link tải từ máy chủ chat.
+  Future<void> _copyPath() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final path = widget.remotePath ?? _saved ?? _openCache[widget.file.id] ?? context.read<AppState>().api.fileUrl(widget.file.id);
+    await Clipboard.setData(ClipboardData(text: path));
+    messenger?.showSnackBar(toast(Text(tr('Đã sao chép'))));
+  }
+
   /// Tiến độ tải: null = không tải; 0..1 (hoặc -1 khi không rõ tổng).
   double? _progress;
   String? _saved;
@@ -305,6 +316,7 @@ class _FileCardState extends State<FileCard> {
           else
             btn(tr('Lưu'), Icons.download_rounded, _save, primary: true),
           btn(_desktop ? tr('Mở file') : tr('Mở'), Icons.open_in_new_rounded, _open),
+          btn(tr('Copy đường dẫn'), Icons.link_rounded, _copyPath),
         ]),
       ]),
     );

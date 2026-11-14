@@ -46,7 +46,7 @@ class AgentInlineFiles extends StatelessWidget {
         ));
       }
       for (final f in p.files.where((f) => !f.isImage)) {
-        children.add(Padding(padding: const EdgeInsets.only(bottom: 4), child: FileCard(file: f)));
+        children.add(Padding(padding: const EdgeInsets.only(bottom: 4), child: FileCard(file: f, remotePath: (p.props['flygo_file_paths'] as Map?)?[f.id] as String?)));
       }
     }
     return Padding(

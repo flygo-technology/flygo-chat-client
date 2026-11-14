@@ -12,6 +12,7 @@ import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/agent_side_panel.dart';
 import 'package:flygo_chat/ui/agent_view.dart';
 import 'package:flygo_chat/ui/chat_themes.dart';
+import 'package:flygo_chat/ui/file_card.dart';
 import 'package:flygo_chat/ui/markdown_view.dart';
 import 'package:flygo_chat/ui/shell_highlight.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -253,6 +254,26 @@ flutter build ios --release
         ));
     await shot(t, 'desktop-panel-dark', const Size(340, 1500), panel(), dark: true);
     await shot(t, 'phone-panel', const Size(390, 1500), panel(page: true));
+    await shot(
+        t,
+        'file-card',
+        const Size(460, 140),
+        Builder(
+          builder: (c) => Material(
+            color: Pal.of(c).chatBg,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: FileCard(
+                  desktop: true,
+                  remotePath: '/home/dev/projects/web/build-log.txt',
+                  file: MmFile({'id': 'f3', 'name': 'build-log.txt', 'mime_type': 'text/plain', 'size': 48213}),
+                ),
+              ),
+            ),
+          ),
+        ));
     await shot(t, 'remote-agent-dialog', const Size(560, 640), Scaffold(body: RemoteAgentDialog(channelId: cur)));
     await shot(
         t,

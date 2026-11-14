@@ -317,6 +317,7 @@ class AppState extends ChangeNotifier {
       latest[id] = last[id];
     }
     renderMarkdown = await _store.meta<bool>('render_markdown') ?? true;
+    agentPanelOpen = await _store.meta<bool>('agent_panel_open') ?? true;
     final ls = await _store.meta<Map>('last_sync');
     ls?.forEach((k, v) => _lastSync[k as String] = (v as num).toInt());
   }
@@ -1976,6 +1977,14 @@ class AppState extends ChangeNotifier {
     try {
       await _store.setMeta('ui_$key', value);
     } catch (_) {}
+  }
+
+  /// Cột phải của chat với trợ lý đang mở (máy tính; nhớ theo người dùng, bật / tắt bằng ⋮).
+  bool agentPanelOpen = true;
+  Future<void> setAgentPanelOpen(bool v) async {
+    agentPanelOpen = v;
+    notifyListeners();
+    await _store.setMeta('agent_panel_open', v);
   }
 
   bool renderMarkdown = true;
