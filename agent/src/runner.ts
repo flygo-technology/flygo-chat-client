@@ -2979,6 +2979,14 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const mode: PermMode | undefined = okMode(want.mode) ? want.mode : undefined;
   if (want.mode && !mode) bad.push(`chế độ ${want.mode}`);
   const runConfig = { model, effort, mode: mode ?? defaultMode(), ...(bad.length ? { note: `Không hỗ trợ ${bad.join(", ")}, dùng mặc định.` } : {}) };
+  // Nghiên cứu sâu (app: "+" → "Nghiên cứu sâu", props.flygo_mode = "research"): quy trình tìm nhiều nguồn + báo cáo có trích dẫn.
+  const research = post.props?.flygo_mode === "research";
+  const researchNote = research ? `\n\n(Chế độ NGHIÊN CỨU SÂU — làm đúng quy trình:
+1. Lập kế hoạch 3–6 câu hỏi con (update_plan nếu có).
+2. Tìm NHIỀU nguồn bằng công cụ tìm web / mở trang${ENGINE === "claude" ? " (chạy song song: giao mỗi câu hỏi con cho một agent con bằng Task)" : ""}; tối đa khoảng 40 lượt tìm, ưu tiên nguồn chính thống / số liệu gốc, ghi lại URL từng ý.
+3. Đối chiếu các nguồn, nêu rõ chỗ mâu thuẫn hoặc thiếu số liệu; KHÔNG bịa số liệu hay nguồn.
+4. Viết BÁO CÁO đầy đủ dạng HTML tự chứa (tiêu đề, tóm tắt, các phần, bảng / biểu đồ nếu có, trích dẫn [n] trỏ tới mục "Nguồn" cuối bài có link) và đăng bằng artifact_publish(kind="report").
+5. Trả lời trong chat: tóm tắt 5–10 dòng có trích dẫn [n], rồi mục "Nguồn" dạng "[n] Tiêu đề — tên miền (URL)".)` : "";
   const planNote = mode === "plan" && ENGINE !== "claude" ? `\n(Chế độ Lập kế hoạch: chỉ đọc và tìm hiểu, KHÔNG sửa tệp hay chạy lệnh làm thay đổi. Trả lời bằng kế hoạch từng bước, rồi hỏi ${owner} duyệt; ${owner} chuyển chế độ khác thì mới làm.)` : "";
 
   const runId = crypto.randomUUID();
@@ -3046,6 +3054,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   // "Luôn cho phép" đang bật: không lặp bước trong mỗi thẻ (chỉ hiện ở lượt bật); app hiện huy hiệu theo props.flygo_bypass.
   const bypass = isBypass(root);
   card.bypassOf = () => isBypass(root);
+  if (research) card.mode = "research";
   if ((post as any).via_mcp) card.step({ id: "bridge", kind: "approval", title: "🔗 Yêu cầu từ agent ngoài (Token MCP), thay chủ phiên", status: "done" });
   if (!bypass && mode === "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
   if (outer) reportRuns.set(runId, { outer, card, reply, assigner: post.user_id, channelId: post.channel_id, postId: post.id, dir, signal: ac.signal, sent: 0 });
@@ -3060,7 +3069,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         sessionId: session.session_id || undefined,
         forkFrom: session.session_id ? undefined : forkFrom || undefined,
         cwd: dir,
-        prompt: prompt + planNote,
+        prompt: prompt + planNote + researchNote,
         persona: botPersona(),
         ...skillDirs(),
         title: sessTitle,

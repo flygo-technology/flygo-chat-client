@@ -40,6 +40,8 @@ export class RunCard {
   status: RunStatus = "thinking";
   steps: Step[] = [];
   todos: Todo[] = []; // danh sách việc agent tự lập (bản mới nhất thay bản cũ)
+  /** Chế độ của lượt ("research" = Nghiên cứu sâu: app hiện số lượt tìm, các nguồn). */
+  mode = "";
   wrapUp: { recap: string; ask?: string; actions?: string[]; blocked?: boolean } | undefined; // tóm tắt cuối lượt (wrap_up)
   private texts: { id: string; text: string }[] = []; // mọi đoạn chữ agent viết trong lượt, theo thứ tự
   usage: Record<string, any> | undefined;
@@ -169,6 +171,7 @@ export class RunCard {
         ...this.segView(),
         ...(this.todos.length ? { todos: this.todos } : {}),
         ...(this.wrapUp ? { wrap_up: this.wrapUp } : {}),
+        ...(this.mode ? { mode: this.mode } : {}),
         usage: this.usage,
         error: this.error || undefined,
         post_id: this.triggerId || undefined,

@@ -300,6 +300,44 @@ flutter build ios --release
             child: Padding(padding: const EdgeInsets.all(16), child: Align(alignment: Alignment.topLeft, child: ArtifactCard(post: posts[1]))),
           ),
         ));
+    final rrun = <String, dynamic>{
+      'mode': 'research',
+      'status': 'done',
+      'started_at': now - 6 * 60000,
+      'ended_at': now,
+      'texts': <String>[],
+      'steps': [
+        for (final (i, tt) in [
+          'Tìm web: thị trường thang máy Việt Nam 2025',
+          'Mở https://vneconomy.vn/thi-truong-thang-may.htm',
+          'Tìm web: thị phần Mitsubishi Otis Việt Nam',
+          'Mở https://www.gso.gov.vn/nien-giam',
+          'Mở https://www.statista.com/outlook/elevators/vietnam',
+          'Mở https://vneconomy.vn/thang-may-gia-dinh.htm',
+          'Tìm web: elevator market Vietnam CAGR',
+          'Mở https://www.reuters.com/markets/asia',
+        ].indexed)
+          {'id': 's$i', 'kind': 'search', 'title': tt, 'status': 'done', 'seg': 0},
+      ],
+    };
+    await shot(
+        t,
+        'research',
+        const Size(800, 420),
+        Builder(
+          builder: (c) => Material(
+            color: Pal.of(c).chatBg,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                ResearchSummary(run: rrun),
+                MarkdownView(
+                    text: '**Tóm tắt.** Thị trường thang máy Việt Nam ước đạt khoảng 18.000 thang lắp mới năm 2025, tăng 6–8%/năm [1]. Nhà ở cao tầng chiếm hơn một nửa nhu cầu [2], thang gia đình tăng nhanh nhất ở đô thị loại 1 [3].\n\n**Nguồn**\n\n[1] Thị trường thang máy 2025 — vneconomy.vn\n\n[2] Niên giám thống kê — gso.gov.vn\n\n[3] Elevator market Vietnam — statista.com',
+                    style: aiAnswerStyle(Pal.of(c).text)),
+              ]),
+            ),
+          ),
+        ));
     await shot(t, 'remote-agent-dialog', const Size(560, 640), Scaffold(body: RemoteAgentDialog(channelId: cur)));
     await shot(
         t,

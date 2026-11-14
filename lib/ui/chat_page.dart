@@ -4473,6 +4473,8 @@ class _ComposerState extends State<_Composer> {
   /// Agent khác (phiên AI đang chạy) được kết nối vào tin gửi đi: trợ lý của phiên này trao đổi với chúng
   /// qua A2A (props flygo_a2a_peers). Xoá sau khi gửi.
   final List<Map<String, dynamic>> _a2aPeers = [];
+  /// "Nghiên cứu sâu" bật cho tin sắp gửi (props.flygo_mode = "research"); gửi xong thì tắt.
+  bool _research = false;
   // Chat / luồng được tag bằng nút @ (trợ lý được cấp quyền tạm lúc gửi).
   final List<RefItem> _refs = [];
   // Người chọn ở tab Danh bạ của nút @ (chèn @tên vào ô nhắn tin; còn @tên lúc gửi thì thành chip trên tin).
@@ -4754,6 +4756,8 @@ class _ComposerState extends State<_Composer> {
         await _pickDocuments();
       case 'refs':
         await _pickRefs(app);
+      case 'research':
+        setState(() => _research = !_research);
       case 'model':
         _modelKey.currentState?.showButtonMenu();
     }
@@ -4896,13 +4900,15 @@ class _ComposerState extends State<_Composer> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       constraints: const BoxConstraints(minWidth: 240),
       position: PopupMenuPosition.over,
-      offset: Offset(0, _desktop ? -280 : -344),
+      offset: Offset(0, _desktop ? -336 : -400),
       onSelected: (a) => _runPlus(app, a),
       itemBuilder: (_) => [
         if (!_desktop) item('camera', Icon(Icons.photo_camera_outlined, color: pal.text), tr('Máy ảnh')),
         item('gallery', Icon(Icons.image_outlined, color: pal.text), tr('Hình')),
         item('file', Icon(Icons.attach_file_rounded, color: pal.text), tr('Tệp')),
         item('refs', Text('@', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)), tr('Tag chat, luồng, agent')),
+        item('research', Icon(Icons.travel_explore_rounded, color: _research ? const Color(0xFFD97757) : pal.text),
+            _research ? tr('Tắt nghiên cứu sâu') : tr('Nghiên cứu sâu')),
         item('model', Icon(Icons.speed_rounded, color: pal.text), tr('Mô hình và mức suy nghĩ')),
         if (agentModesOf(_taggedAgents(app).firstOrNull?.$1).isNotEmpty)
           item('mode', Icon(Icons.bolt_outlined, color: pal.text), tr('Quyền')),
@@ -5689,6 +5695,7 @@ class _ComposerState extends State<_Composer> {
             // Trang luồng: trả lời một tin trong luồng (vẫn gửi vào luồng, kèm trích dẫn tin đó).
             if (widget.threadRoot != null && widget.replyTo != null) 'flygo_quote': widget.replyTo!.id,
             if (_a2aPeers.isNotEmpty) 'flygo_a2a_peers': [for (final x in _a2aPeers) Map.of(x)],
+            if (_research) 'flygo_mode': 'research',
             if (_tagPeopleProps(text).isNotEmpty) 'flygo_tag_people': _tagPeopleProps(text),
             'flygo_refs': ?_pendingRefs,
             if (_fontScale >= 1.1) 'flygo_font_scale': double.parse(_fontScale.toStringAsFixed(2)),
@@ -5706,6 +5713,7 @@ class _ComposerState extends State<_Composer> {
     _aiQuote = '';
     // Tag đã đi theo tin này: không giữ sang tin sau.
     _a2aPeers.clear();
+    _research = false;
     _tagPeople.clear();
     _ctl.clear();
     setState(() => _threadMode = '');
@@ -6608,6 +6616,14 @@ class _ComposerState extends State<_Composer> {
                         child: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.accentText)),
                       ),
                       onDeleted: () => setState(() => _refs.remove(r)),
+                    ),
+                  if (_research)
+                    InputChip(
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      avatar: const Icon(Icons.travel_explore_rounded, size: 16, color: Color(0xFFD97757)),
+                      label: Text(tr('Nghiên cứu sâu'), style: const TextStyle(fontSize: 13, color: Color(0xFFD97757))),
+                      onDeleted: () => setState(() => _research = false),
                     ),
                   for (final peer in _a2aPeers)
                       InputChip(

@@ -295,5 +295,28 @@ class MarkdownView extends StatelessWidget {
     return out;
   }
 
-  List<InlineSpan> _mentions(Pal pal, String text) => linkSpans(text, pal, (t) => mentionSpans(t, pal, onMention));
+  List<InlineSpan> _mentions(Pal pal, String text) {
+    List<InlineSpan> plain(String t) => linkSpans(t, pal, (x) => mentionSpans(x, pal, onMention));
+    if (!_reading || !_cite.hasMatch(text)) return plain(text);
+    // Câu trả lời của trợ lý: trích dẫn [n] (Nghiên cứu sâu) hiện thành huy hiệu nhỏ.
+    final out = <InlineSpan>[];
+    var i = 0;
+    for (final m in _cite.allMatches(text)) {
+      if (m.start > i) out.addAll(plain(text.substring(i, m.start)));
+      out.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          decoration: BoxDecoration(color: const Color(0xFFD97757).withValues(alpha: .14), borderRadius: BorderRadius.circular(6)),
+          child: Text(m.group(1)!, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFD97757))),
+        ),
+      ));
+      i = m.end;
+    }
+    if (i < text.length) out.addAll(plain(text.substring(i)));
+    return out;
+  }
+
+  static final _cite = RegExp(r'\[(\d{1,2})\]');
 }

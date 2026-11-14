@@ -497,6 +497,69 @@ class _StepRow extends StatelessWidget {
   }
 }
 
+/// Dải "Nghiên cứu sâu" trên thẻ của lượt (runner ghi flygo_agent.mode = "research"): đang chạy / xong, số lượt tìm,
+/// số trang đã mở, thời gian, và các tên miền nguồn (từ bước tìm web "Tìm web: …" / "Mở url").
+class ResearchSummary extends StatelessWidget {
+  final Map<String, dynamic> run;
+  const ResearchSummary({super.key, required this.run});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    const accent = Color(0xFFD97757);
+    final steps = [for (final s in (run['steps'] as List? ?? const [])) (s as Map).cast<String, dynamic>()];
+    final search = steps.where((s) => s['kind'] == 'search').toList();
+    final queries = search.where((s) => '${s['title']}'.startsWith('Tìm web')).length;
+    final domains = <String, int>{};
+    for (final s in search) {
+      final m = RegExp(r'https?://([^/\s]+)').firstMatch('${s['title']}');
+      if (m != null) domains.update(m.group(1)!.replaceFirst(RegExp(r'^www\.'), ''), (v) => v + 1, ifAbsent: () => 1);
+    }
+    final top = domains.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final active = agentRunActive(run);
+    final start = (run['started_at'] as num?)?.toInt() ?? 0;
+    final end = (run['ended_at'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final mins = start > 0 ? ((end - start) / 60000).round() : 0;
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: .07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: .25)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          const Icon(Icons.travel_explore_rounded, size: 18, color: accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(active ? tr('Nghiên cứu sâu · đang tìm nguồn…') : tr('Nghiên cứu sâu · xong'),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: pal.text)),
+          ),
+          Text(tr('{0} lượt tìm · {1} nguồn · {2} phút', [queries, domains.length, mins]), style: TextStyle(fontSize: 12, color: pal.sub)),
+        ]),
+        if (top.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final e in top.take(8))
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: pal.text.withValues(alpha: .06), borderRadius: BorderRadius.circular(20)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.public, size: 13, color: pal.sub),
+                  const SizedBox(width: 4),
+                  Text('${e.key} · ${e.value}', style: TextStyle(fontSize: 12, color: pal.sub)),
+                ]),
+              ),
+            if (top.length > 8)
+              Text(tr('+{0} trang khác', [top.length - 8]), style: TextStyle(fontSize: 12, color: pal.sub)),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
 /// Tiêu đề bước / yêu cầu duyệt. Runner ghi lệnh shell dạng "\$ lệnh" (có thể sau "Chờ duyệt: "):
 /// bỏ "\$ " và hiện lệnh như một khối bash (chữ đơn cách, tên lệnh tô màu).
 class AgentTitle extends StatelessWidget {
@@ -1397,6 +1460,8 @@ class _AgentTimelineState extends State<AgentTimeline> {
         ));
       }
     }
+    // Nghiên cứu sâu: dải tóm tắt (số lượt tìm, nguồn đã mở, thời gian) ở đầu dòng thời gian.
+    if (run['mode'] == 'research') children.insert(0, ResearchSummary(run: run));
     if (children.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
