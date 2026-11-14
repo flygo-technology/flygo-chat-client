@@ -2,6 +2,9 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 473 (2026-11-14)
+- Flows tabs: content capped at a readable width on wide screens (lists 920px, catalog 1200px); task buttons sit under the row text.
+
 ## 472 (2026-11-14)
 - Flows editor: settings open in the right column on desktop, icon next to the name, one visible Lưu button; Flows tab list is full width until a page opens.
 - Mini apps can set a custom user agent (e.g. a TV web app).
