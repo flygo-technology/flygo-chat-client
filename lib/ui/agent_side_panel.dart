@@ -137,7 +137,6 @@ class AgentSidePanel extends StatefulWidget {
 
 class _AgentSidePanelState extends State<AgentSidePanel> {
   List<MmPost>? _scan;
-  bool _allSessions = false;
   static final _url = RegExp(r'https?://[^\s<>()\]]+');
 
   @override
@@ -188,8 +187,7 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
                   builder: (_) => RemoteAgentDialog(channelId: ch.id),
                 ),
               ),
-              // Phiên / Phiên mới đã có ở mục Phiên bên dưới.
-              for (final (v, icon, label) in widget.actions.where((a) => !(ch.isAi && ch.aiGroup != null && (a.$1 == 'switch' || a.$1 == 'new'))))
+              for (final (v, icon, label) in widget.actions)
                 ListTile(
                   dense: true,
                   visualDensity: VisualDensity.compact,
@@ -200,7 +198,6 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
             ],
           ),
         ),
-        if (ch.isAi && ch.aiGroup != null) ..._sessions(app, ch, pal),
         if (_knowledgeGroup(app, ch) case final g?) ..._knowledge(app, pal, g),
         ..._artifacts(app, pal),
         ..._media(app, pal),
@@ -280,42 +277,6 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
       style: TextStyle(fontSize: 12.5, color: pal.accentText, fontWeight: FontWeight.w600),
     ),
   );
-
-  List<Widget> _sessions(AppState app, MmChannel ch, Pal pal) {
-    final all = app.aiChannelsFor(ch.aiGroup!, thread: ch.aiThread); // mới nhất trước
-    final shown = _allSessions ? all : all.take(5).toList();
-    return [
-      _section(
-        pal,
-        Icons.view_list_outlined,
-        tr('Phiên'),
-        all.length > 5 ? _more(pal, _allSessions ? tr('Thu gọn') : tr('Tất cả ({0})', [all.length]), () => setState(() => _allSessions = !_allSessions)) : null,
-      ),
-      _card(
-        pal,
-        Column(
-          children: [
-            for (final c in shown)
-              AiSessionTile(
-                channel: c,
-                selected: c.id == ch.id,
-                compact: true,
-                onTap: () => c.id == ch.id ? null : (widget.onOpenSession ?? (id) => widget.onAction('open:$id'))(c.id),
-              ),
-            ListTile(
-              dense: true,
-              leading: Icon(Icons.add_comment_outlined, size: 20, color: pal.accentText),
-              title: Text(
-                tr('Phiên mới'),
-                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.accentText),
-              ),
-              onTap: () => widget.onAction('new'),
-            ),
-          ],
-        ),
-      ),
-    ];
-  }
 
   /// Chat gốc giữ kiến thức dự án: dự án của phiên (hoặc chat 1-1 với trợ lý mà phiên tách ra), hay chính chat 1-1.
   String? _knowledgeGroup(AppState app, MmChannel ch) => ch.isAi ? ch.aiGroup : (app.isAgentDm(ch) ? ch.id : null);
