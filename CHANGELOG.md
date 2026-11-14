@@ -2,6 +2,11 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 472 (2026-11-14)
+- Flows editor: settings open in the right column on desktop, icon next to the name, one visible Lưu button; Flows tab list is full width until a page opens.
+- Mini apps can set a custom user agent (e.g. a TV web app).
+- App grid labels no longer run into each other.
+
 ## 471 (2026-11-14)
 - Tổ chức permissions: collapsible app groups with granted/total, group checkbox, Chọn tất cả / Bỏ tất cả.
 - Flows: progress bar on list rows; realtime process updates over WebSocket (subscribe on open, unsubscribe on close), polling only as fallback.
