@@ -746,6 +746,10 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
     if (widget.initialTab == 0) WidgetsBinding.instance.addPostFrameCallback((_) => _showSettingsSide());
     // Quy trình lưu trước khi có nốt Bắt đầu: đổi who_can_start / trigger sang starts (lưu lần tới sẽ dùng starts).
     if ((doc.meta['starts'] as List? ?? const []).isEmpty) doc.meta['starts'] = legacyStarts(doc.meta);
+    // Bấm thủ công theo "Ai được dùng quy trình" trừ khi bật "chỉ một số người" (ghi rõ `only` cho lần lưu tới).
+    for (final st in (doc.meta['starts'] as List)) {
+      if (st is Map) normalizeManualStart(st, doc.meta['visible_to'] as List? ?? const []);
+    }
     doc.meta.remove('who_can_start');
     doc.meta.remove('trigger');
     doc.numberNodes();
@@ -1697,7 +1701,7 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
               kGroupStart,
               onTap: () => _editStart(st),
               child: _head(pal, startIcon('${st['type']}'), kGroupStart, _numbered((st['no'] as num?)?.toInt(), tr('Bắt đầu')), '${st['name'] ?? ''}'.isEmpty ? startTypeLabel('${st['type']}') : '${st['name']}',
-                  startSummary(st, widget.app), trailing: const SizedBox.shrink()),
+                  startSummary(st, widget.app, visibleTo: doc.meta['visible_to'] as List? ?? const []), trailing: const SizedBox.shrink()),
             ),
           ),
         ]),
@@ -2059,9 +2063,11 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
         ],
       ]),
       const SizedBox(height: 16),
-      Text(tr('Ai thấy quy trình này'), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+      // Một chỗ cài quyền (Sếp, 2026-11-14): ai được dùng thì thấy và bắt đầu được (bước Bấm thủ công).
+      Text(tr('Ai được dùng quy trình (xem + chạy)'), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
       const SizedBox(height: 4),
-      Text(tr('Chỉ những người này thấy và tạo được tiến trình (cùng với điều kiện của bước Bắt đầu).'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
+      Text(tr('Những người này thấy quy trình và bắt đầu được (bấm "Tạo tiến trình mới"). Muốn chỉ một số người được bắt đầu: chạm bước "Bắt đầu" trên sơ đồ, bật "Nâng cao".'),
+          style: TextStyle(color: pal.sub, fontSize: 12.5)),
       const SizedBox(height: 6),
       WhoListField(
         app: widget.app,
@@ -2071,7 +2077,7 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
         onChanged: (v) => _edit(() => v.isEmpty ? doc.meta.remove('visible_to') : doc.meta['visible_to'] = v),
       ),
       const SizedBox(height: 12),
-      Text(tr('Cách bắt đầu và ai được tạo tiến trình: chạm các bước "Bắt đầu" ở đầu sơ đồ.'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
+      Text(tr('Cách bắt đầu (bấm tay, lịch, webhook...): chạm các bước "Bắt đầu" ở đầu sơ đồ.'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
       const SizedBox(height: 12),
       // Nhánh khi luồng bị huỷ (`on_cancel`): chỉ bước tự động (báo tin, cập nhật / huỷ tiến trình, gọi công cụ).
       SwitchListTile(

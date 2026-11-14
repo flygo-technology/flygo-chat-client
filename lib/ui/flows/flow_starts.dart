@@ -67,13 +67,41 @@ String intervalLabel(int s) => s % 86400 == 0
             ? tr('{0} phút', [s ~/ 60])
             : tr('{0} giây', [s]);
 
-/// Dòng tóm tắt của nốt trên sơ đồ.
-String startSummary(Map s, AppState app) {
+/// Danh sách riêng "chỉ một số người được bắt đầu" của nốt Bấm thủ công; null = ai được dùng quy trình
+/// ([visibleTo], "Ai được dùng quy trình") thì được bắt đầu. Cùng luật với máy chủ (FlowDef::manual_restriction):
+/// `only: true` dùng `who`; `only: false` theo [visibleTo]; chưa có `only` (quy trình cũ): `who` trống hoặc nằm gọn
+/// trong [visibleTo] (không trống) thì theo [visibleTo].
+List? manualRestriction(Map s, List visibleTo) {
+  final who = s['who'] as List? ?? const [];
+  final vis = {for (final w in visibleTo) jsonEncode(w)};
+  final inherit = switch (s['only']) {
+    true => who.isEmpty,
+    false => true,
+    _ => who.isEmpty || (vis.isNotEmpty && who.every((w) => vis.contains(jsonEncode(w)))),
+  };
+  return inherit ? null : who;
+}
+
+/// Ghi nốt Bấm thủ công theo dạng mới (lúc mở trình soạn): theo "Ai được dùng" thì bỏ `who`, có danh sách riêng thì
+/// `only: true` (lưu lần tới máy chủ không phải đoán).
+void normalizeManualStart(Map s, List visibleTo) {
+  if ('${s['type']}' != 'manual') return;
+  if (manualRestriction(s, visibleTo) == null) {
+    s.remove('who');
+    s.remove('only');
+  } else {
+    s['only'] = true;
+  }
+}
+
+/// Dòng tóm tắt của nốt trên sơ đồ. [visibleTo]: "Ai được dùng quy trình" (nốt Bấm thủ công theo danh sách này).
+String startSummary(Map s, AppState app, {List visibleTo = const []}) {
   final at = '${s['at'] ?? '08:00'}';
   switch ('${s['type']}') {
     case 'manual':
-      final who = s['who'] as List? ?? const [];
-      return who.isEmpty ? tr('Mọi người') : who.map((w) => whoLabel(w, app)).join(', ');
+      final only = manualRestriction(s, visibleTo);
+      if (only != null) return tr('Chỉ: {0}', [only.map((w) => whoLabel(w, app)).join(', ')]);
+      return visibleTo.isEmpty ? tr('Mọi người') : visibleTo.map((w) => whoLabel(w, app)).join(', ');
     case 'once':
       return '${s['at'] ?? tr('Chưa chọn ngày giờ')}';
     case 'schedule':
@@ -391,10 +419,36 @@ class _StartConfigSheetState extends State<StartConfigSheet> {
 
   // ------------------------------------------------------------------ từng loại
 
-  List<Widget> _manual() => [
+  /// Ai được dùng quy trình (Cài đặt quy trình) thì được bắt đầu (Sếp, 2026-11-14: một chỗ cài quyền). Chỉ khi bật
+  /// "Chỉ một số người được bắt đầu" mới có danh sách riêng.
+  List<Widget> _manual() {
+    final vis = editorCtx?.doc?.meta['visible_to'] as List? ?? const [];
+    final only = manualRestriction(s, vis) != null || s['only'] == true;
+    return [
+      _note(vis.isEmpty
+          ? tr('Ai được dùng quy trình (ở Cài đặt quy trình) thì được bắt đầu. Hiện là: cả công ty.')
+          : tr('Ai được dùng quy trình (ở Cài đặt quy trình) thì được bắt đầu. Hiện là: {0}.', [vis.map((w) => whoLabel(w, widget.app)).join(', ')])),
+      SwitchListTile(
+        key: const ValueKey('manual-only'),
+        contentPadding: EdgeInsets.zero,
+        title: Text(tr('Nâng cao: chỉ một số người được bắt đầu')),
+        subtitle: Text(tr('Những người khác vẫn thấy quy trình nhưng không bắt đầu được')),
+        value: only,
+        onChanged: (v) => setState(() {
+          if (v) {
+            s['only'] = true;
+          } else {
+            s.remove('only');
+            s.remove('who');
+          }
+        }),
+      ),
+      if (only) ...[
         _label(tr('Ai được bắt đầu')),
-        WhoListField(app: widget.app, roles: widget.roles, value: s['who'] as List? ?? const [], emptyLabel: tr('Mọi người'), onChanged: (v) => _set('who', v)),
-      ];
+        WhoListField(app: widget.app, roles: widget.roles, value: s['who'] as List? ?? const [], emptyLabel: tr('Mọi người dùng quy trình'), onChanged: (v) => _set('who', v)),
+      ],
+    ];
+  }
 
   List<Widget> _once() {
     final cur = DateTime.tryParse('${s['at'] ?? ''}'.replaceFirst(' ', 'T')) ?? DateTime.now();
