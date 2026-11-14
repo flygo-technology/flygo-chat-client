@@ -6154,6 +6154,27 @@ class _ComposerState extends State<_Composer> {
     if (_mentionStart == _mentionDismissed) return;
     final q = m.group(2)!.toLowerCase();
     final app = context.read<AppState>();
+    // Chat với trợ lý: @ chỉ gợi ý các phiên cùng dự án (chọn = nối A2A để hai agent phối hợp); cuối danh sách là
+    // "＋ Tag sâu hơn" mở bảng chọn chat / luồng / dự án / danh bạ.
+    final here = app.channels[widget.channelId];
+    final project = here == null || !_claudeStyle(app) ? null : (here.isAi ? here.aiGroup : (app.isAgentDm(here) ? here.id : null));
+    if (project != null) {
+      final picked = {for (final x in _a2aPeers) x['session_id']};
+      final sessions = app
+          .aiChannelsFor(project, thread: here!.aiThread)
+          .where((c) => c.id != here.id && !c.aiDone && !c.aiArchived && !picked.contains(c.id))
+          .where((c) => q.isEmpty || aiSessionLabel(c).toLowerCase().contains(q))
+          .take(8);
+      if (_mentionScroll.hasClients) _mentionScroll.jumpTo(0);
+      setState(() {
+        _mentionIndex = 0;
+        _mentionList = [
+          for (final c in sessions) MmUser({'id': c.id, 'username': aiSessionLabel(c), 'first_name': aiSessionLabel(c), '_session': true}),
+          MmUser({'id': '__deeper', 'username': '', 'first_name': tr('Tag sâu hơn: chat, luồng, dự án khác, danh bạ'), '_deeper': true}),
+        ];
+      });
+      return;
+    }
     final members = await app.channelUsers(widget.channelId);
     final myBots = await app.myBotIds();
     if (!mounted) return;
@@ -6189,6 +6210,19 @@ class _ComposerState extends State<_Composer> {
   void _insertMention(MmUser u) {
     final t = _ctl.text;
     final end = _ctl.selection.baseOffset < 0 ? t.length : _ctl.selection.baseOffset;
+    // Phiên cùng dự án / "Tag sâu hơn": bỏ "@…" đang gõ, nối A2A (chip phía trên ô nhập) hoặc mở bảng chọn.
+    if (u.raw['_session'] == true || u.raw['_deeper'] == true) {
+      _ctl.value = TextEditingValue(text: t.replaceRange(_mentionStart, end, ''), selection: TextSelection.collapsed(offset: _mentionStart));
+      setState(() => _mentionList = []);
+      final app = context.read<AppState>();
+      if (u.raw['_deeper'] == true) {
+        _pickRefs(app);
+      } else {
+        _addSessionPeer(app, u.id);
+      }
+      _focus.requestFocus();
+      return;
+    }
     final insert = '@${u.username} ';
     _ctl.value = TextEditingValue(
       text: t.replaceRange(_mentionStart, end, insert),
@@ -6196,6 +6230,16 @@ class _ComposerState extends State<_Composer> {
     );
     setState(() => _mentionList = []);
     _focus.requestFocus();
+  }
+
+  /// Nối A2A với một phiên cùng dự án (như chọn ở tab Dự án của bảng tag): tìm bot của phiên để relay biết gọi ai.
+  Future<void> _addSessionPeer(AppState app, String sessionId) async {
+    final c = app.channels[sessionId];
+    if (c == null || _a2aPeers.any((x) => x['session_id'] == sessionId)) return;
+    final bot = (await app.channelUsers(sessionId)).where((u) => u.isBot && app.isAssistant(u.id)).firstOrNull;
+    if (bot == null || !mounted) return;
+    setState(() => _a2aPeers.add(
+        {'session_id': c.id, 'title': aiSessionLabel(c), 'group': c.aiGroup, 'kind': 'ai_session', 'bot_id': bot.id, 'username': bot.username}));
   }
 
   @override
@@ -6412,7 +6456,23 @@ class _ComposerState extends State<_Composer> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   children: [
                 for (final (i, u) in _mentionList.indexed)
-                  u.raw['_special'] == true
+                  u.raw['_session'] == true || u.raw['_deeper'] == true
+                      ? ListTile(
+                          dense: true,
+                          selected: _desktop && i == _mentionIndex,
+                          selectedTileColor: pal.accent.withValues(alpha: .28),
+                          leading: CircleAvatar(
+                            radius: 17,
+                            backgroundColor: pal.accent.withValues(alpha: .15),
+                            child: Icon(u.raw['_deeper'] == true ? Icons.add_rounded : Icons.swap_horiz_rounded, size: 19, color: pal.accentText),
+                          ),
+                          title: Text(u.raw['_deeper'] == true ? tr('Tag sâu hơn…') : u.displayName,
+                              maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text, fontWeight: FontWeight.w600)),
+                          subtitle: Text(u.raw['_deeper'] == true ? u.raw['first_name'] as String : tr('Phiên cùng dự án · trao đổi A2A'),
+                              maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub)),
+                          onTap: () => _insertMention(u),
+                        )
+                      : u.raw['_special'] == true
                       ? ListTile(
                           dense: true,
                           selected: _desktop && i == _mentionIndex,
