@@ -1018,10 +1018,9 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                   ),
                 ),
-              // Đã cuộn lên xem tin cũ: nút chọn ngày (trái) và nút tua xuống tin mới nhất (phải).
+              // Đã cuộn lên xem tin cũ: nút chọn ngày và nút tua xuống tin mới nhất, cạnh nhau ở góc dưới bên phải.
               if (_showDown && posts.isNotEmpty)
                 Positioned(
-                  left: 14,
                   right: 14,
                   bottom: 12,
                   child: ChatJumpButtons(
@@ -2144,7 +2143,7 @@ class _DayChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(10)),
-        child: Text(dayLabel(d), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: pal.sub)),
+        child: Text(daySeparatorLabel(d), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: pal.sub)),
       ),
     );
   }

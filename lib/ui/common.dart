@@ -172,6 +172,17 @@ String dayLabel(DateTime d) {
   return ddmmyyyy(d);
 }
 
+/// Nhãn ngày giữa các tin trong khung chat: ngày gần đây ghi kèm ngày tháng sau "Hôm nay" / "Hôm qua" / thứ
+/// ("Thứ Hai, 10/11"; khác năm thì thêm năm), ngày cũ hơn ghi ngày đầy đủ như trước.
+String daySeparatorLabel(DateTime d, {DateTime? now}) {
+  final n = now ?? DateTime.now();
+  final diff = _day(n).difference(_day(d)).inDays;
+  if (diff < 0 || diff >= 7) return ddmmyyyy(d);
+  final name = diff == 0 ? tr('Hôm nay') : diff == 1 ? tr('Hôm qua') : _weekdays[d.weekday - 1];
+  final date = d.year == n.year ? '${two(d.day)}/${two(d.month)}' : ddmmyyyy(d);
+  return '$name, $date';
+}
+
 bool sameDay(int a, int b) =>
     _day(DateTime.fromMillisecondsSinceEpoch(a)) == _day(DateTime.fromMillisecondsSinceEpoch(b));
 

@@ -4,6 +4,7 @@ import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/state/date_jump.dart';
 import 'package:flygo_chat/ui/chat_jump.dart';
+import 'package:flygo_chat/ui/common.dart';
 import 'package:flygo_chat/ui/theme.dart';
 
 const _hour = 3600 * 1000;
@@ -118,7 +119,6 @@ void main() {
           home: Scaffold(
             body: Stack(children: [
               Positioned(
-                left: 14,
                 right: 14,
                 bottom: 12,
                 child: ChatJumpButtons(visible: visible, onPickDate: onDate ?? () {}, onDown: onDown ?? () {}),
@@ -127,7 +127,7 @@ void main() {
           ),
         ));
 
-    testWidgets('ẩn khi ở đáy, hiện cả hai nút (lịch bên trái) khi cuộn lên', (t) async {
+    testWidgets('ẩn khi ở đáy, hiện cả hai nút cạnh nhau ở góc dưới bên phải khi cuộn lên', (t) async {
       await pump(t, false);
       expect(find.byKey(const ValueKey('chat-jump-date')), findsNothing);
       expect(find.byKey(const ValueKey('chat-jump-down')), findsNothing);
@@ -137,6 +137,9 @@ void main() {
       final r = t.getCenter(find.byKey(const ValueKey('chat-jump-down')));
       expect(l.dx, lessThan(r.dx));
       expect(l.dy, r.dy);
+      // Sát nhau (44 px + khoảng 10 px), nút tua xuống sát mép phải.
+      expect(r.dx - l.dx, 54);
+      expect(t.getTopRight(find.byKey(const ValueKey('chat-jump-down'))).dx, t.view.physicalSize.width / t.view.devicePixelRatio - 14);
       await t.tap(find.byKey(const ValueKey('chat-jump-date')));
       await t.tap(find.byKey(const ValueKey('chat-jump-down')));
       expect((date, down), (1, 1));
@@ -164,5 +167,16 @@ void main() {
       await t.pumpAndSettle();
       expect(picked, DateTime(2026, 11, 12));
     });
+  });
+
+  test('nhãn ngày giữa các tin: kèm ngày sau Hôm nay / Hôm qua / thứ', () {
+    final now = DateTime(2026, 11, 14, 9); // Thứ Bảy
+    expect(daySeparatorLabel(DateTime(2026, 11, 14, 8), now: now), 'Hôm nay, 14/11');
+    expect(daySeparatorLabel(DateTime(2026, 11, 13, 23), now: now), 'Hôm qua, 13/11');
+    expect(daySeparatorLabel(DateTime(2026, 11, 10, 7), now: now), 'Thứ Ba, 10/11');
+    expect(daySeparatorLabel(DateTime(2026, 11, 8), now: now), 'Chủ Nhật, 08/11');
+    expect(daySeparatorLabel(DateTime(2026, 11, 7), now: now), '07/11/2026');
+    // Gần đây nhưng khác năm: ghi cả năm.
+    expect(daySeparatorLabel(DateTime(2026, 12, 30), now: DateTime(2027, 1, 2)), 'Thứ Tư, 30/12/2026');
   });
 }

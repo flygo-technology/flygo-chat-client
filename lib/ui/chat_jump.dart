@@ -8,7 +8,7 @@ import 'theme.dart';
 bool chatScrolledUp({required double pixels, required double minExtent, bool inWindow = false}) =>
     inWindow || pixels - minExtent > 600;
 
-/// Hai nút tròn nổi ở đáy khung chat khi đã cuộn lên: chọn ngày (trái) và tua xuống tin mới nhất (phải).
+/// Hai nút tròn nổi cạnh nhau ở góc dưới bên phải khung chat khi đã cuộn lên: chọn ngày, rồi tua xuống tin mới nhất.
 class ChatJumpButtons extends StatelessWidget {
   final bool visible;
   final bool busy;
@@ -34,7 +34,7 @@ class ChatJumpButtons extends StatelessWidget {
             ),
           ),
         );
-    return Row(children: [
+    return Row(mainAxisSize: MainAxisSize.min, children: [
       round(
         busy
             ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: pal.text))
@@ -43,7 +43,7 @@ class ChatJumpButtons extends StatelessWidget {
         busy ? null : onPickDate,
         const ValueKey('chat-jump-date'),
       ),
-      const Spacer(),
+      const SizedBox(width: 10),
       round(Icon(Icons.keyboard_double_arrow_down_rounded, color: pal.text), tr('Tin mới nhất'), onDown,
           const ValueKey('chat-jump-down')),
     ]);

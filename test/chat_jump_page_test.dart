@@ -67,7 +67,7 @@ Widget _wrap(AppState app, Brightness b, Key key) => ChangeNotifierProvider<AppS
     );
 
 void main() {
-  testWidgets('cuộn lên: hiện nút lịch bên trái + nút tua xuống', (t) async {
+  testWidgets('cuộn lên: hiện nút lịch + nút tua xuống ở góc dưới bên phải', (t) async {
     t.view.physicalSize = const Size(420, 860);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
@@ -205,6 +205,18 @@ void main() {
           final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
           await File('$out/$name.png').writeAsBytes(bytes!.buffer.asUint8List());
         });
+    // Nhãn ngày gần đây: thứ kèm ngày tháng.
+    {
+      t.view.physicalSize = const Size(420, 860);
+      t.view.devicePixelRatio = 1;
+      final key = GlobalKey();
+      await t.pumpWidget(_wrap(_app(80), Brightness.light, key));
+      await t.pumpAndSettle();
+      await t.drag(find.byType(CustomScrollView), const Offset(0, 700));
+      await t.pumpAndSettle();
+      await save(key, 'phone-light-0-day-labels');
+      await t.pumpWidget(const SizedBox.shrink());
+    }
     for (final (b, size, name) in [
       (Brightness.light, const Size(420, 860), 'phone-light'),
       (Brightness.dark, const Size(420, 860), 'phone-dark'),
