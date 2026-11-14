@@ -12,6 +12,8 @@ import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/agent_side_panel.dart';
 import 'package:flygo_chat/ui/agent_view.dart';
 import 'package:flygo_chat/ui/chat_themes.dart';
+import 'package:flygo_chat/ui/markdown_view.dart';
+import 'package:flygo_chat/ui/shell_highlight.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -31,7 +33,18 @@ Future<void> _fonts() async {
   await load('Roboto', ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf', 'Roboto-Black.ttf']);
   await load('Noto Sans', ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf', 'Roboto-Black.ttf']); // theme Linux dùng Noto Sans
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
-  // Chữ đơn cách cho khối lệnh (máy Linux có DejaVu).
+  // Phông đóng gói của chat trợ lý (pubspec) — kiểm thử không tự nạp.
+  Future<void> asset(String family, List<String> files) async {
+    final l = FontLoader(family);
+    for (final f in files) {
+      l.addFont(Future.value(ByteData.sublistView(File('assets/fonts/$f').readAsBytesSync())));
+    }
+    await l.load();
+  }
+
+  await asset('Source Serif 4', ['SourceSerif4-Regular.ttf', 'SourceSerif4-It.ttf', 'SourceSerif4-Semibold.ttf', 'SourceSerif4-Bold.ttf']);
+  await asset('JetBrains Mono', ['JetBrainsMono-Regular.ttf', 'JetBrainsMono-Medium.ttf', 'JetBrainsMono-Bold.ttf', 'JetBrainsMono-Italic.ttf']);
+  // Chữ đơn cách cũ ('monospace': máy Linux lấy DejaVu) cho ảnh "trước".
   final mono = FontLoader('monospace');
   for (final f in ['/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf']) {
     if (File(f).existsSync()) mono.addFont(Future.value(ByteData.sublistView(File(f).readAsBytesSync())));
@@ -181,6 +194,45 @@ void main() {
           ('delete', Icons.delete_outline_rounded, 'Xoá phiên'),
         ],
       );
+
+  const answer = '''## Nguyên nhân lỗi build iOS
+
+Bản build thất bại vì **chưa chọn đội ký (development team)** cho target `Runner`. Xcode cần đội ký kể cả khi chỉ build thử trên máy.
+
+Các bước sửa:
+
+1. Mở `ios/Runner.xcworkspace` bằng Xcode.
+2. Vào **Signing & Capabilities**, chọn đội *Flygo Technology*.
+3. Chạy lại lệnh build:
+
+```bash
+flutter build ios --release
+```
+
+- Nếu vẫn lỗi, xoá thư mục `ios/Pods` rồi chạy `pod install`.
+- Kiểm tra hồ sơ ký còn hạn: hồ sơ hết hạn sẽ báo lỗi tương tự.
+
+> Ghi chú: lệnh ghi tệp vẫn chờ chủ phiên duyệt trước khi chạy.''';
+  Widget answerView(TextStyle style) => Builder(
+        builder: (c) => Material(
+          color: Pal.of(c).chatBg,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 20), child: MarkdownView(text: answer, style: style)),
+            ),
+          ),
+        ),
+      );
+
+  testWidgets('ảnh câu trả lời AI trước / sau', (t) async {
+    if (out == null) return;
+    await t.runAsync(_fonts);
+    await shot(t, 'ai-answer-before', const Size(800, 760), Builder(builder: (c) => answerView(TextStyle(fontSize: 17, color: Pal.of(c).text, height: 1.3))));
+    await shot(t, 'ai-answer-after', const Size(800, 760), Builder(builder: (c) => answerView(aiAnswerStyle(Pal.of(c).text))));
+    await shot(t, 'ai-answer-after-dark', const Size(800, 760), Builder(builder: (c) => answerView(aiAnswerStyle(Pal.of(c).text))), dark: true);
+  });
 
   testWidgets('ảnh xem trước cột phải + thẻ bash', (t) async {
     if (out == null) return;

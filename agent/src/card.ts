@@ -65,6 +65,9 @@ export class RunCard {
     private onChange?: () => void,
   ) {}
 
+  /** "Luôn cho phép" của phạm vi lượt này (runner gán): thẻ ở chat chính mang props.flygo_bypass để app hiện huy hiệu. */
+  bypassOf: (() => boolean) | null = null;
+
   /** Thẻ gắn vào tin trả lời ở chat chính (InlineReply): app hiện dòng thời gian, vẽ được tệp tại chỗ. */
   get inline() { return !!this.onChange; }
 
@@ -152,6 +155,7 @@ export class RunCard {
       ...(this.where.root_id ? { flygo_reply: "thread" } : {}),
       flygo_agent_owner: this.ownerId,
       flygo_agent_requester: this.ownerId, // người có tin mở lượt: app cho người này (hoặc chủ bot) bấm duyệt
+      ...(this.bypassOf && !this.where.root_id ? { flygo_bypass: this.bypassOf() } : {}),
       flygo_agent: {
         v: 1,
         run_id: this.runId,

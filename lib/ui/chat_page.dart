@@ -25,6 +25,7 @@ import '../state/date_jump.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
 import 'agent_side_panel.dart';
+import 'shell_highlight.dart' show aiAnswerStyle;
 import 'ai_panel.dart';
 import 'flags.dart';
 import 'flows/flows_page.dart' show messageStartsCached, startFlowFromPost;
@@ -2358,7 +2359,10 @@ class _Bubble extends StatelessWidget {
     }
     final width = MediaQuery.sizeOf(context).width;
     // Tin của bot (trợ lý AI): được rộng hết khung chat.
-    final maxW = app.users[post.userId]?.isBot == true ? double.infinity : (width > 900 ? width * .5 : width * .8);
+    // Chat với trợ lý trên màn rộng: câu trả lời rộng tối đa ~760 px cho dễ đọc.
+    final maxW = app.users[post.userId]?.isBot == true
+        ? (claude && width > 900 ? 760.0 : double.infinity)
+        : (width > 900 ? width * .5 : width * .8);
     // Tin trích dẫn: trả lời thường (root_id) hoặc tin mở luồng riêng / bí mật khi đang trả lời một tin
     // (tin gốc của luồng không thể là trả lời nên trích dẫn nằm ở props.flygo_quote).
     final quoteId = post.props['flygo_quote'] as String?;
@@ -2446,7 +2450,9 @@ class _Bubble extends StatelessWidget {
       bottomRight: mine && last ? tailR : r,
     );
 
-    final textStyle = TextStyle(fontSize: 17, color: pal.text, height: 1.3);
+    // Câu trả lời của trợ lý (chat với trợ lý): chữ đọc có chân, 16 px, giãn dòng 1.6; tin người gửi giữ nguyên.
+    final aiAnswer = claude && !mine && app.users[post.userId]?.isBot == true;
+    final textStyle = aiAnswer ? aiAnswerStyle(pal.text) : TextStyle(fontSize: 17, color: pal.text, height: 1.3);
     // Bấm @tên trong tin: mở tin nhắn riêng với người đó.
     void onMention(String username) {
       final u = app.users.values.where((x) => x.username == username).firstOrNull;

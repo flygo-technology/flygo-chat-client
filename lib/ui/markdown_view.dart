@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'common.dart';
 import 'json_view.dart';
 import 'links.dart';
+import 'shell_highlight.dart' show CodeColors, kMonoFallback, kMonoFont, kNoLigatures, kReadingFont, shellSpan;
 import 'theme.dart';
 
 /// Hiển thị markdown của máy chủ chat thành widget: đoạn văn, tiêu đề, danh sách,
@@ -21,6 +22,11 @@ class MarkdownView extends StatelessWidget {
   /// Bấm vào @tên.
   final void Function(String username)? onMention;
   const MarkdownView({super.key, required this.text, required this.style, this.trailingSpace = 0, this.onMention});
+
+  /// Câu trả lời của trợ lý (kiểu chữ [aiAnswerStyle]): đoạn cách nhau rộng hơn, tiêu đề vừa phải, danh sách thụt
+  /// thoáng, code dùng phông đơn cách đóng gói trong app.
+  bool get _reading => style.fontFamily == kReadingFont;
+  String get _mono => _reading ? kMonoFont : 'monospace';
 
   static final _mdLink = RegExp(r'\[[^\]\n]+\]\([^)\s]+\)');
 
@@ -61,7 +67,7 @@ class MarkdownView extends StatelessWidget {
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
       for (var i = 0; i < blocks.length; i++) ...[
-        if (i > 0) const SizedBox(height: 6),
+        if (i > 0) SizedBox(height: _reading ? 11 : 6),
         blocks[i],
       ],
     ]);
@@ -75,9 +81,10 @@ class MarkdownView extends StatelessWidget {
       case 'p':
         return _para(pal, children, style, trailing);
       case 'h1' || 'h2' || 'h3' || 'h4' || 'h5' || 'h6':
-        final size = {'h1': 1.35, 'h2': 1.25, 'h3': 1.15}[node.tag] ?? 1.05;
+        final size = (_reading ? {'h1': 1.3, 'h2': 1.18, 'h3': 1.08} : {'h1': 1.35, 'h2': 1.25, 'h3': 1.15})[node.tag] ?? 1.05;
         return _para(pal, children,
-            style.copyWith(fontSize: (style.fontSize ?? 17) * size, fontWeight: FontWeight.w700), trailing);
+            style.copyWith(fontSize: (style.fontSize ?? 17) * size, fontWeight: _reading ? FontWeight.w600 : FontWeight.w700, height: _reading ? 1.35 : null),
+            trailing);
       case 'ul' || 'ol':
         return _list(context, pal, node, 0);
       case 'pre':
@@ -91,10 +98,18 @@ class MarkdownView extends StatelessWidget {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(10, 10, 34, 10),
-            decoration: BoxDecoration(color: pal.text.withValues(alpha: .07), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(color: pal.text.withValues(alpha: _reading ? .05 : .07), borderRadius: BorderRadius.circular(_reading ? 10 : 8)),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: Text(code, style: style.copyWith(fontFamily: 'monospace', fontSize: 13.5, height: 1.35)),
+              child: Builder(builder: (ctx) {
+                final codeStyle = style.copyWith(
+                    fontFamily: _mono, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures, fontSize: _reading ? 13 : 13.5, height: _reading ? 1.5 : 1.35);
+                // Câu trả lời của trợ lý: khối ```bash / sh tô màu như thẻ lệnh.
+                if (_reading && const {'bash', 'sh', 'shell', 'zsh', 'console'}.contains(lang)) {
+                  return Text.rich(shellSpan(code, CodeColors.of(ctx), codeStyle.copyWith(fontStyle: FontStyle.normal, fontWeight: FontWeight.normal)));
+                }
+                return Text(code, style: codeStyle);
+              }),
             ),
           ),
           // Nút sao chép cả khối code.
@@ -150,14 +165,14 @@ class MarkdownView extends StatelessWidget {
     final start = int.tryParse(list.attributes['start'] ?? '') ?? 1;
     final items = (list.children ?? const <md.Node>[]).whereType<md.Element>().toList();
     return Padding(
-      padding: EdgeInsets.only(left: depth * 14.0),
+      padding: EdgeInsets.only(left: depth * (_reading ? 22.0 : 14.0)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (var i = 0; i < items.length; i++)
           Padding(
-            padding: const EdgeInsets.only(top: 2),
+            padding: EdgeInsets.only(top: _reading ? 4 : 2),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(
-                width: ordered ? 24 : 16,
+                width: _reading ? (ordered ? 28 : 22) : (ordered ? 24 : 16),
                 child: Text(ordered ? '${start + i}.' : '•', style: style.copyWith(color: pal.sub)),
               ),
               Expanded(child: _listItem(context, pal, items[i], depth)),
@@ -250,7 +265,7 @@ class MarkdownView extends StatelessWidget {
         case 'code':
           out.add(TextSpan(
             text: n.textContent,
-            style: TextStyle(fontFamily: 'monospace', fontSize: (st.fontSize ?? 17) - 2, backgroundColor: pal.text.withValues(alpha: .08)),
+            style: TextStyle(fontFamily: _mono, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures, fontSize: (st.fontSize ?? 17) - (_reading ? 2.5 : 2), backgroundColor: pal.text.withValues(alpha: .08)),
           ));
         case 'br':
           out.add(const TextSpan(text: '\n'));

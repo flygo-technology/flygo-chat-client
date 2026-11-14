@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'ui/shell_highlight.dart' show registerAiFontLicenses;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
@@ -136,6 +137,7 @@ Future<void> main(List<String> args) async {
           : null;
   kWindowPopout = args.contains('--popout') && popout != null;
   WidgetsFlutterBinding.ensureInitialized();
+  registerAiFontLicenses();
   initMark('ensureInitialized xong');
   // macOS: bản ký Developer ID không mang entitlement (không sandbox), mà file_picker kiểm entitlement
   // files.user-selected trước khi mở hộp chọn tệp nên báo lỗi và không mở gì (Sếp, bản 452: đăng bài, đính kèm).

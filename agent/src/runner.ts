@@ -1441,6 +1441,15 @@ async function onPosted(post: Post, channelType: string) {
   // Tin "Bắt đầu công việc trong luồng riêng tư" ở chat chính: app tạo kênh luồng riêng và chép tin sang đó;
   // bot chỉ trả lời trong kênh luồng riêng, KHÔNG BAO GIỜ trả lời tin gốc này (kể cả có @tag hay quy tắc 1 người + 1 bot).
   if (post.props?.flygo_private_thread === true || post.props?.flygo_private_thread === "true") return;
+  // Tin agent ngoài gửi qua Token MCP (trạm đẩy đăng thay, props.flygo_bridge): props ai cũng tự đặt được nên phải hỏi
+  // trạm xác nhận chính nó đăng tin này bằng token còn hạn; đúng thì coi như tin của chủ phiên (duyệt vẫn do chủ bấm).
+  if (post.props?.flygo_bridge && typeof post.props.flygo_bridge === "object") {
+    const owner = await verifyBridge(post).catch(() => "");
+    if (!owner || !isOwner(owner)) { log(`bridge: bỏ qua tin ${post.id} (trạm không xác nhận)`); return; }
+    (post as any).via_mcp = post.user_id;
+    post.user_id = owner;
+    post.message = `(🔗 Tin từ agent bên ngoài, gửi qua Token MCP thay chủ phiên)\n${post.message}`;
+  }
   // Tin nhắn riêng: chỉ chủ bot (danh sách allow không còn được nhắn riêng). Nhóm nhắn tin (G) không có chủ: như vậy.
   if (channelType === "D" && !isOwner(post.user_id)) return refuse(post, "dm", DM_REFUSE, true);
   if (channelType === "G" && !isOwner(post.user_id) && !(await ownerIn(post.channel_id))) {
@@ -1497,7 +1506,7 @@ async function onPosted(post: Post, channelType: string) {
     const was = isBypass(root);
     if (was) setBypass(root, false);
     const where = post.root_id ? "luồng này" : "chat này";
-    await mm.createPost({ channel_id: post.channel_id, root_id: post.root_id, message: was ? `🔒 Đã bật lại duyệt cho ${where}: từ lượt sau em sẽ xin Sếp duyệt như bình thường.` : `${where[0].toUpperCase()}${where.slice(1)} đang duyệt bình thường, không bật "Luôn cho phép".`, props: { ...(post.root_id ? { flygo_reply: "thread" } : {}), flygo_agent_owner: post.user_id } });
+    await mm.createPost({ channel_id: post.channel_id, root_id: post.root_id, message: was ? `🔒 Đã bật lại duyệt cho ${where}: từ lượt sau em sẽ xin Sếp duyệt như bình thường.` : `${where[0].toUpperCase()}${where.slice(1)} đang duyệt bình thường, không bật "Luôn cho phép".`, props: { ...(post.root_id ? { flygo_reply: "thread" } : { flygo_bypass: false }), flygo_agent_owner: post.user_id } });
     return;
   }
   if (await isClosed(post)) return; // luồng đã đóng: không nhận việc mới (mở lại thì nhận bình thường)
@@ -2729,6 +2738,15 @@ async function groupNews(outer: Outer, root: string, first: boolean): Promise<st
 interface RefItem { ref_id: string; kind: "chat" | "thread"; channel_id: string; root_id?: string; name: string }
 interface RefGrant { grant_id: string; expires_at: number; write: boolean; server: string; items: RefItem[] }
 /** Relay /ref: cấu hình refRelay, không có thì trạm đẩy cùng tên miền với server ("chat.x" -> "push.x"). */
+/** Hỏi trạm đẩy: tin [post] có đúng do trạm đăng qua Token MCP còn hạn không; trả id chủ phiên hoặc "". */
+async function verifyBridge(post: Post): Promise<string> {
+  const r = await fetch(`${refRelay()}/bridge/verify?post_id=${encodeURIComponent(post.id)}`, {
+    headers: { Authorization: `Bearer ${cfg.botToken}`, "X-MM-Server": cfg.serverUrl }, signal: AbortSignal.timeout(10_000),
+  });
+  if (!r.ok) return "";
+  const j: any = await r.json().catch(() => ({}));
+  return j?.channel_id === post.channel_id ? String(j.owner_id ?? "") : "";
+}
 const refRelay = () => ((cfg as any).refRelay as string | undefined)?.replace(/\/+$/, "") || cfg.serverUrl.replace(/\/\/chat\./, "//push.").replace(/\/+$/, "");
 function saveRefs(post: Post, root: string) {
   let raw: any = post.props?.flygo_refs;
@@ -3024,9 +3042,11 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   skillRuns.set(runId, { assigner: post.user_id, ask, dir });
   schedRuns.set(runId, { assigner: post.user_id, channel_id: post.channel_id, root_id: threadRoot });
   orchRuns.set(runId, { card, dir, root, channelId: post.channel_id, signal: ac.signal, calls: 0, chat, waiting: new Map(), assigner: post.user_id, runId, title: threadTitle, bridged: !!out?.bridged });
+  // "Luôn cho phép" đang bật: không lặp bước trong mỗi thẻ (chỉ hiện ở lượt bật); app hiện huy hiệu theo props.flygo_bypass.
   const bypass = isBypass(root);
-  if (bypass) card.step({ id: "bypass", kind: "approval", title: BYPASS_NOTE, status: "done" });
-  else if (mode === "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
+  card.bypassOf = () => isBypass(root);
+  if ((post as any).via_mcp) card.step({ id: "bridge", kind: "approval", title: "🔗 Yêu cầu từ agent ngoài (Token MCP), thay chủ phiên", status: "done" });
+  if (!bypass && mode === "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
   if (outer) reportRuns.set(runId, { outer, card, reply, assigner: post.user_id, channelId: post.channel_id, postId: post.id, dir, signal: ac.signal, sent: 0 });
 
   let release = () => {};
@@ -3553,7 +3573,8 @@ async function onStaleApproval(r: any) {
     setBypass(p.root_id || mainKey(p.channel_id), true, r.user_id);
     note += " Em đã bật \"Luôn cho phép\" cho " + (p.root_id ? "luồng này." : "chat này.");
   }
-  await mm.createPost({ channel_id: p.channel_id, root_id: p.root_id, message: note, props: { ...(p.root_id ? { flygo_reply: "thread" } : {}), flygo_agent_owner: r.user_id } });
+  const on = isBypass(p.root_id || mainKey(p.channel_id));
+  await mm.createPost({ channel_id: p.channel_id, root_id: p.root_id, message: note, props: { ...(p.root_id ? { flygo_reply: "thread" } : on ? { flygo_bypass: true } : {}), flygo_agent_owner: r.user_id } });
 }
 
 async function shutdown(sig: string) {

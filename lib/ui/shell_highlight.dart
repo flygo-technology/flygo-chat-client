@@ -1,5 +1,7 @@
 // Tô màu lệnh shell và kết quả chạy lệnh trong thẻ bước của trợ lý (kiểu GitHub, theo sáng / tối).
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../i18n/i18n.dart';
 
 import 'theme.dart';
@@ -272,7 +274,26 @@ TextSpan shellSpan(String cmd, CodeColors c, TextStyle base) {
   ]);
 }
 
-const kMono = TextStyle(fontFamily: 'monospace', fontFamilyFallback: ['Menlo', 'Consolas', 'DejaVu Sans Mono', 'monospace']);
+/// Phông của chat với trợ lý (đóng gói trong app, OFL): chữ đọc câu trả lời và chữ đơn cách cho lệnh / code.
+const kReadingFont = 'Source Serif 4';
+const kMonoFont = 'JetBrains Mono';
+const kMonoFallback = ['Menlo', 'Consolas', 'DejaVu Sans Mono', 'monospace'];
+/// Tắt chữ ghép của JetBrains Mono ("--" thành một nét, "!=" thành "≠"): lệnh phải hiện đúng từng ký tự.
+const kNoLigatures = [FontFeature.disable('calt'), FontFeature.disable('liga')];
+const kMono = TextStyle(fontFamily: kMonoFont, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures);
+
+/// Kiểu chữ câu trả lời của trợ lý: chữ có chân dễ đọc, 16 px, giãn dòng 1.6.
+TextStyle aiAnswerStyle(Color color) =>
+    TextStyle(fontFamily: kReadingFont, fontFamilyFallback: const ['Noto Serif', 'Georgia', 'Noto Color Emoji'], fontSize: 16, height: 1.6, color: color);
+
+/// Giấy phép OFL của hai phông trên (trang Giấy phép của app).
+void registerAiFontLicenses() {
+  LicenseRegistry.addLicense(() async* {
+    for (final (name, file) in [('Source Serif 4', 'OFL-SourceSerif4.txt'), ('JetBrains Mono', 'OFL-JetBrainsMono.txt')]) {
+      yield LicenseEntryWithLineBreaks([name], await rootBundle.loadString('assets/fonts/$file'));
+    }
+  });
+}
 
 /// Khối lệnh shell: nhãn ngôn ngữ nhỏ + lệnh đã tô màu.
 class ShellBlock extends StatelessWidget {

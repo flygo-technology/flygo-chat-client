@@ -651,7 +651,7 @@ class AgentApprovalBar extends StatelessWidget {
                 ? JsonView(value: detailJson, fontSize: 12.5, background: Colors.transparent)
                 : Text(
                     detail,
-                    style: TextStyle(fontFamily: 'monospace', fontSize: 12.5, color: pal.text, height: 1.3),
+                    style: TextStyle(fontFamily: kMonoFont, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures, fontSize: 12.5, color: pal.text, height: 1.3),
                   ),
           ),
         const SizedBox(height: 8),
@@ -1431,18 +1431,15 @@ class _Rail extends StatelessWidget {
   final bool first, last;
   const _Rail({required this.icon, required this.first, required this.last});
 
+  // Chỉ còn biểu tượng trạng thái, bỏ đường kẻ dọc nối các bước (Sếp, 2026-11-14: gọn hơn).
   @override
-  Widget build(BuildContext context) {
-    final line = Pal.of(context).text.withValues(alpha: .18);
-    return SizedBox(
-      width: 22,
-      child: Column(children: [
-        Container(width: 1.5, height: 4, color: first ? Colors.transparent : line),
-        SizedBox(width: 16, height: 16, child: Center(child: icon)),
-        Expanded(child: Container(width: 1.5, color: last ? Colors.transparent : line)),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => SizedBox(
+        width: 22,
+        child: Column(children: [
+          const SizedBox(height: 4),
+          SizedBox(width: 16, height: 16, child: Center(child: icon)),
+        ]),
+      );
 }
 
 /// Một bước trong tin: biểu tượng trạng thái (vòng quay / dấu xong / lỗi), "Đã chạy" + mô tả một dòng;
