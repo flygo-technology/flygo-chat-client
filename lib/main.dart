@@ -25,6 +25,7 @@ import 'ui/share_intake.dart';
 import 'ui/app_route.dart';
 import 'kyso/kyso_api.dart';
 import 'kyso/kyso_windows.dart';
+import 'ui/mini_app_windows.dart';
 import 'ui/qr_login.dart';
 import 'state/drafts.dart';
 import 'state/app_state.dart';
@@ -119,6 +120,10 @@ Future<void> main(List<String> args) async {
   kWindowKyso = kWindowChannel == null && !kWindowRc
       ? args.where((a) => a.startsWith('--kyso=')).map((a) => a.substring(7)).where((s) => s.isNotEmpty).firstOrNull
       : null;
+  // Cửa sổ riêng của một mini app (máy tính): chỉ có webview của app (lib/ui/mini_app_windows.dart).
+  kWindowMiniApp = kWindowChannel == null && !kWindowRc && kWindowKyso == null
+      ? args.where((a) => a.startsWith('--miniapp=')).map((a) => a.substring(10)).where((s) => s.isNotEmpty).firstOrNull
+      : null;
   kWindowAddServer = args.contains('--add-server');
   kStartHidden = args.contains('--hidden');
   final section = args.where((a) => a.startsWith('--section=')).map((a) => a.substring(10)).firstOrNull;
@@ -139,6 +144,8 @@ Future<void> main(List<String> args) async {
   if (kWindowPopout) await _initStep('cửa sổ riêng', () => PopoutWindows.startChild(popout!));
   KysoWindows.parentKey = args.where((a) => a.startsWith('--kyso-key=')).map((a) => a.substring(11)).where((s) => s.isNotEmpty).firstOrNull;
   if (kWindowKyso != null) await _initStep('cửa sổ Ký số', () => KysoWindows.startChild(kWindowKyso!));
+  MiniAppWindows.parentKey = args.where((a) => a.startsWith('--miniapp-key=')).map((a) => a.substring(14)).where((s) => s.isNotEmpty).firstOrNull;
+  if (kWindowMiniApp != null) await _initStep('cửa sổ mini app', () => MiniAppWindows.startChild(kWindowMiniApp!));
   // macOS (không sandbox): thư mục tạm ~/Library/Caches/<bundle id> có thể chưa tồn tại, mọi chỗ ghi tệp tạm
   // (dán ảnh, chụp màn hình, ảnh sửa, tải cập nhật…) sẽ lỗi "No such file or directory".
   try {
@@ -154,14 +161,14 @@ Future<void> main(List<String> args) async {
   unawaited(_initStep('khay', DesktopTray.init, limit: const Duration(seconds: 60)));
   // Cập nhật app, thông báo: chỉ cửa sổ chính (cửa sổ riêng khởi động nhẹ, không báo trùng).
   if (!isChildWindow) Updater.start();
-  if (!kWindowPopout && kWindowKyso == null) await _initStep('push', PushService.init);
+  if (!kWindowPopout && kWindowKyso == null && kWindowMiniApp == null) await _initStep('push', PushService.init);
   // Ký số (lib/kyso): nút "Mở bằng trình duyệt ký số" của Quy trình gọi qua MagicSignHooks.
   KysoApi.register();
   initMark('runApp');
   runApp(const FlygoChatApp());
   WidgetsBinding.instance.addPostFrameCallback((_) => initMark('khung hình đầu tiên đã vẽ'));
   // Máy tính: cửa sổ vừa mở riêng (chat, trợ lý AI, luồng, cuộc họp, máy chủ khác, thêm máy chủ) thì đưa lên trước.
-  if (isDesktop && (ServerList.pinned != null || kWindowChannel != null || kWindowAddServer || kWindowRc || kWindowKyso != null)) {
+  if (isDesktop && (ServerList.pinned != null || kWindowChannel != null || kWindowAddServer || kWindowRc || kWindowKyso != null || kWindowMiniApp != null)) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WindowToFront.activate();
       Future.delayed(const Duration(milliseconds: 600), WindowToFront.activate);
@@ -825,6 +832,7 @@ class _RootState extends State<Root> {
     }
     if (_rcJob case final job?) return RcWindow(key: ValueKey(a), job: job);
     if (kWindowKyso case final space?) return KysoSpaceWindowPage(key: ValueKey(a), spaceId: space);
+    if (kWindowMiniApp case final id?) return MiniAppWindowPage(key: ValueKey(a), appId: id);
     final w = kWindowChannel;
     if (w != null && kWindowCall) return CallWindow(key: ValueKey(a), app: a);
     if (w != null && kWindowThread != null) return ThreadPage(key: ValueKey(Object.hash(a, appLanguage.value)), channelId: w, rootId: kWindowThread!);

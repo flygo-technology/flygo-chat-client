@@ -20,6 +20,7 @@ import 'todo/todo_page.dart' show openTodo;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
+import 'mini_app_windows.dart';
 import 'package:flygo_chat/ui/app_route.dart';
 
 /// Mở mini app [app] (tại [path] nếu có): xin URL mở app ngay lúc bấm rồi mở webview toàn màn hình;
@@ -58,6 +59,15 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
     final code = path == null ? null : RegExp(r'^/pair/([A-Za-z0-9]{8})').firstMatch(path)?.group(1)?.toUpperCase();
     tab?.onTitle?.call(app.name);
     await nav.push(AppPageRoute(builder: (_) => ShowHome(app: app, mmToken: token, pairCode: code)));
+    return;
+  }
+  // App "window" trên máy tính (Sếp, 2026-11-14): mở cửa sổ riêng; app "tv_code" thì tab này hiện mã liên kết TV để
+  // điều khiển / thêm bài từ điện thoại.
+  if (app.feature('window') && MiniAppWindows.supported && await MiniAppWindows.open(app.id)) {
+    if (app.feature('tv_code')) {
+      tab?.onTitle?.call(app.name);
+      await nav.push(AppPageRoute(builder: (_) => TvRemotePage(app: app)));
+    }
     return;
   }
   // Máy tính (Sếp): luôn mở trong tab của app, không ra trình duyệt ngoài. "open_in": "browser" chỉ áp cho điện thoại.
@@ -236,7 +246,9 @@ class MiniAppPage extends StatefulWidget {
   final MiniApp app;
   /// URL mở app (đang xin vé): trang hiện màn "Đang mở ứng dụng" tới khi trang đầu tiên của app tải xong.
   final Future<Uri> url;
-  const MiniAppPage({super.key, required this.app, required this.url});
+  /// Trang là nội dung của cửa sổ riêng (lib/ui/mini_app_windows.dart): không có thanh tiêu đề, đóng bằng cửa sổ.
+  final bool inWindow;
+  const MiniAppPage({super.key, required this.app, required this.url, this.inWindow = false});
   @override
   State<MiniAppPage> createState() => _MiniAppPageState();
 }
@@ -250,6 +262,7 @@ class _MiniAppPageState extends State<MiniAppPage> {
   Timer? _readyFallback;
 
   MiniApp get _app => widget.app;
+  Completer<String>? _tvCode;
 
   @override
   void initState() {
@@ -257,11 +270,16 @@ class _MiniAppPageState extends State<MiniAppPage> {
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel('FlygoApp', onMessageReceived: (m) => _onBridge(m.message))
+      ..addJavaScriptChannel('FlygoTvCode', onMessageReceived: (m) => _onTvCode(m.message))
       ..setNavigationDelegate(NavigationDelegate(
         onProgress: (p) {
           if (mounted) setState(() => _progress = p);
         },
-        onPageFinished: _maybeReady,
+        onPageStarted: (_) => _keepVisible(),
+        onPageFinished: (u) {
+          _keepVisible();
+          _maybeReady(u);
+        },
         // App một trang (SPA) đổi đường dẫn bằng pushState: không có onPageFinished mới, nên nghe cả onUrlChange.
         onUrlChange: (c) => _maybeReady(c.url ?? ''),
         onNavigationRequest: (req) {
@@ -278,7 +296,50 @@ class _MiniAppPageState extends State<MiniAppPage> {
         },
       ));
     if (_app.userAgent != null) _web.setUserAgent(_app.userAgent);
+    if (widget.inWindow) MiniAppWindows.codeProvider = tvCode;
     _open(widget.url);
+  }
+
+  /// App "keep_visible": trang luôn thấy mình đang hiện. youtube.com/tv khi bị ẩn (đổi tab, cửa sổ khác lên trước)
+  /// thì dừng và xoá giao diện, quay lại là bị "out" (Sếp, 2026-11-14).
+  void _keepVisible() {
+    if (_app.feature('keep_visible')) _web.runJavaScript(kKeepVisibleJs).catchError((_) {});
+  }
+
+  /// Mã liên kết TV của trang YouTube TV đang mở (app "tv_code"): 12 chữ số, nhập ở app YouTube trên điện thoại
+  /// (Cài đặt → Xem trên TV → Liên kết bằng mã) để thêm bài vào hàng chờ.
+  Future<String> tvCode() {
+    final c = _tvCode ?? Completer<String>();
+    if (_tvCode == null) {
+      _tvCode = c;
+      _web.runJavaScript(kTvCodeJs).catchError((Object e) => _onTvCode(jsonEncode({'error': '$e'})));
+      Future.delayed(const Duration(seconds: 20), () => _onTvCode(jsonEncode({'error': 'timeout'})));
+    }
+    return c.future;
+  }
+
+  void _onTvCode(String raw) {
+    final c = _tvCode;
+    if (c == null || c.isCompleted) return;
+    _tvCode = null;
+    try {
+      final m = jsonDecode(raw) as Map;
+      final code = '${m['code'] ?? ''}';
+      code.isEmpty ? c.completeError('${m['error'] ?? 'no code'}') : c.complete(code);
+    } catch (e) {
+      c.completeError('$e');
+    }
+  }
+
+  Future<void> _showTvCode() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final code = await tvCode();
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (_) => TvCodeDialog(code: code));
+    } catch (_) {
+      messenger.showSnackBar(toast(Text(tr('Chưa lấy được mã TV. Chờ trang tải xong rồi thử lại.'))));
+    }
   }
 
   /// Trang của app đã tải (không phải bước launch / SSO của Flygo ID / trang đăng nhập riêng): bỏ màn chờ.
@@ -315,6 +376,7 @@ class _MiniAppPageState extends State<MiniAppPage> {
   @override
   void dispose() {
     _readyFallback?.cancel();
+    if (MiniAppWindows.codeProvider == tvCode) MiniAppWindows.codeProvider = null;
     super.dispose();
   }
 
@@ -387,7 +449,7 @@ class _MiniAppPageState extends State<MiniAppPage> {
       child: Scaffold(
         backgroundColor: pal.bg,
         // Trong tab máy tính (Sếp): không có thanh tiêu đề, đóng bằng tab; chỉ còn vạch tải trang.
-        appBar: DeskTabScope.of(context) != null
+        appBar: DeskTabScope.of(context) != null || widget.inWindow
             ? PreferredSize(
                 preferredSize: const Size.fromHeight(2),
                 child: _progress < 100 ? LinearProgressIndicator(value: _progress / 100, minHeight: 2) : const SizedBox(height: 2))
@@ -399,7 +461,11 @@ class _MiniAppPageState extends State<MiniAppPage> {
             const SizedBox(width: 10),
             Flexible(child: Text(_app.name, overflow: TextOverflow.ellipsis)),
           ]),
-          actions: [IconButton(icon: const Icon(Icons.refresh_rounded), tooltip: tr('Tải lại'), onPressed: _reload)],
+          actions: [
+            if (_app.feature('tv_code'))
+              IconButton(icon: const Icon(Icons.connected_tv_rounded), tooltip: tr('Mã liên kết TV'), onPressed: _showTvCode),
+            IconButton(icon: const Icon(Icons.refresh_rounded), tooltip: tr('Tải lại'), onPressed: _reload),
+          ],
           bottom: _progress < 100
               ? PreferredSize(preferredSize: const Size.fromHeight(2), child: LinearProgressIndicator(value: _progress / 100, minHeight: 2))
               : null,

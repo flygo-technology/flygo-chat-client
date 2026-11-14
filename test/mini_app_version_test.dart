@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/api/mini_apps.dart';
+import 'package:flygo_chat/ui/mini_app_windows.dart' show formatTvCode;
 
 void main() {
   test('mốc min_client là số trơn: so với số build', () {
@@ -23,5 +24,20 @@ void main() {
     expect(a.userAgent, ua);
     expect(MiniApp.fromJson(a.toJson()).userAgent, ua);
     expect(MiniApp.fromJson({'id': 'x.y.z', 'origin': 'https://a.test'}).userAgent, isNull);
+  });
+
+  test('features trong manifest: cờ bật / tắt, thiếu = tắt', () {
+    final a = MiniApp.fromJson({'id': 'vn.flygo.web.youtube-tv', 'origin': 'https://www.youtube.com',
+        'features': {'window': true, 'keep_visible': true, 'tv_code': false}});
+    expect(a.feature('window'), isTrue);
+    expect(a.feature('keep_visible'), isTrue);
+    expect(a.feature('tv_code'), isFalse);
+    expect(MiniApp.fromJson(a.toJson()).feature('window'), isTrue);
+    expect(MiniApp.fromJson({'id': 'x.y.z', 'origin': 'https://a.test'}).feature('window'), isFalse);
+  });
+
+  test('mã TV hiện theo nhóm 3 số', () {
+    expect(formatTvCode('110621207476'), '110 621 207 476');
+    expect(formatTvCode('1234567'), '123 456 7');
   });
 }

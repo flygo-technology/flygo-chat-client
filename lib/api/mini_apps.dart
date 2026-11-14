@@ -33,8 +33,13 @@ class MiniApp {
   final bool plain;
   /// Manifest "user_agent": User-Agent của webview khi mở app (vd UA Smart TV cho youtube.com/tv). null = mặc định.
   final String? userAgent;
+  /// Manifest "features" (cờ bật / tắt) mà app Flygo dùng cho webview:
+  /// - `keep_visible`: trang luôn coi là đang hiện (vd youtube.com/tv tự dừng, xoá giao diện khi bị ẩn lúc đổi tab);
+  /// - `window`: máy tính mở app ở cửa sổ riêng (lib/ui/mini_app_windows.dart);
+  /// - `tv_code`: trang là YouTube TV: lấy được mã liên kết TV (điện thoại "Liên kết với TV bằng mã" để thêm bài).
+  final Map<String, dynamic> features;
   MiniApp._(this.id, this._name, this._description, this.icon, this.version, this.minClient, this.origin, this.scanPrefixes,
-      this.baseUrl, this._nativeScreen, this._nativeMin, this.openInBrowser, this.tile, this.plain, this.userAgent);
+      this.baseUrl, this._nativeScreen, this._nativeMin, this.openInBrowser, this.tile, this.plain, this.userAgent, this.features);
 
   factory MiniApp.fromJson(Map j) => MiniApp._(
         '${j['id']}',
@@ -52,6 +57,7 @@ class MiniApp {
         j['tile'] is Map ? Map<String, dynamic>.from(j['tile'] as Map) : null,
         j['plain'] == true || '${j['id']}'.startsWith('vn.flygo.web.'),
         '${j['user_agent'] ?? ''}'.isEmpty ? null : '${j['user_agent']}',
+        j['features'] is Map ? Map<String, dynamic>.from(j['features'] as Map) : const {},
       );
 
 
@@ -71,7 +77,10 @@ class MiniApp {
         'tile': tile,
         'plain': plain,
         'user_agent': userAgent,
+        'features': features,
       };
+
+  bool feature(String name) => features[name] == true;
 
   /// Chuỗi hoặc map theo ngôn ngữ ({vi, en}).
   static String _text(Object? v) {

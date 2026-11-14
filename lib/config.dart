@@ -55,7 +55,10 @@ bool kStartHidden = false;
 /// Cửa sổ Ký số riêng (máy tính): mã space (Flygo ID) của công ty, `--kyso=<space>`.
 String? kWindowKyso;
 
-bool get isChildWindow => kWindowChannel != null || kWindowSection != null || kWindowRc || kWindowKyso != null;
+/// Cửa sổ riêng của một mini app (máy tính, app "features": {"window": true}): id app, `--miniapp=<id>`.
+String? kWindowMiniApp;
+
+bool get isChildWindow => kWindowChannel != null || kWindowSection != null || kWindowRc || kWindowKyso != null || kWindowMiniApp != null;
 const kUserAgent = 'FlygoChat/1.0 (Flutter)';
 
 /// Trạm của từng máy chủ chat (đẩy thông báo, sổ thiết bị, TURN, sticker, A2A cho bot, phòng họp, dịch AI, QR…):
