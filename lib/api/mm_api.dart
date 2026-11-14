@@ -117,9 +117,11 @@ class MmApi {
 
   // --- Tin nhắn
   /// Trả về danh sách tin theo thứ tự mới nhất trước.
-  Future<List<MmPost>> posts(String channelId, {String? before, int? since, int perPage = 60}) async {
+  Future<List<MmPost>> posts(String channelId, {String? before, String? after, int? since, int? page, int perPage = 60}) async {
     final q = <String, String>{'per_page': '$perPage'};
     if (before != null) q['before'] = before;
+    if (after != null) q['after'] = after;
+    if (page != null) q['page'] = '$page';
     if (since != null) q['since'] = '$since';
     final r = (await get('/channels/$channelId/posts', q) as Map).cast<String, dynamic>();
     final posts = (r['posts'] as Map).cast<String, dynamic>();

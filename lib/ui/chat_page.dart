@@ -21,6 +21,7 @@ import '../data/image_disk_cache.dart';
 import '../data/models.dart';
 import '../state/drafts.dart';
 import '../state/app_state.dart';
+import '../state/date_jump.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
 import 'ai_panel.dart';
@@ -30,6 +31,7 @@ import 'popover.dart';
 import 'zoom_view.dart';
 import 'attach_panel.dart';
 import 'chat_info_page.dart';
+import 'chat_jump.dart';
 import 'clip.dart';
 import 'expression_panel.dart';
 import 'chat_list.dart';
@@ -116,7 +118,14 @@ class _ChatPageState extends State<ChatPage> {
   MmPost? _replyTo;
   MmPost? _editing;
   bool _loadingOlder = false;
+  bool _loadingNewer = false;
   final _composer = GlobalKey<_ComposerState>();
+
+  /// Tua tới ngày: tin neo ở vị trí cuộn 0 (tin mới hơn nằm trong sliver phía dưới, cuộn âm),
+  /// để tải thêm tin mới hơn không làm xô lệch chỗ đang xem. Về lại tin mới nhất thì bỏ neo.
+  String? _anchorId;
+  final _centerKey = GlobalKey();
+  bool _dateBusy = false;
 
   /// Khóa của từng tin đang hiển thị, để cuộn tới đúng tin.
   final Map<String, GlobalKey> _keys = {};
@@ -324,7 +333,9 @@ class _ChatPageState extends State<ChatPage> {
   /// Cuộn tới tin [id]: tải thêm tin cũ nếu chưa có, rồi cuộn dần tới khi tin được dựng, nháy sáng tin đó.
   Future<void> _jumpToPost(String id) async {
     final cid = widget.channelId;
-    bool loaded() => _app.postsOf(cid).any((p) => p.id == id);
+    bool loaded() => _app.visiblePostsOf(cid).any((p) => p.id == id);
+    // Tin cần tới không nằm trong cửa sổ tin cũ đang xem: quay về danh sách tin thường rồi tìm.
+    if (_app.inWindow(cid) && !loaded()) _resetToLive();
     for (var n = 0; n < 40 && !loaded() && _app.hasMore[cid] != false; n++) {
       await _app.loadOlder(cid);
     }
@@ -344,7 +355,7 @@ class _ChatPageState extends State<ChatPage> {
         });
         return;
       }
-      final posts = _app.postsOf(cid);
+      final posts = _app.visiblePostsOf(cid);
       final target = posts.indexWhere((p) => p.id == id);
       var maxBuilt = -1;
       for (var i = 0; i < posts.length; i++) {
@@ -353,7 +364,7 @@ class _ChatPageState extends State<ChatPage> {
       final pos = _scroll.position;
       final step = pos.viewportDimension * .8;
       // Danh sách đảo ngược: tin cũ hơn (chỉ số lớn hơn) nằm ở vị trí cuộn lớn hơn.
-      _scroll.jumpTo((target > maxBuilt ? pos.pixels + step : pos.pixels - step).clamp(0.0, pos.maxScrollExtent));
+      _scroll.jumpTo((target > maxBuilt ? pos.pixels + step : pos.pixels - step).clamp(pos.minScrollExtent, pos.maxScrollExtent));
       await WidgetsBinding.instance.endOfFrame;
     }
   }
@@ -362,6 +373,7 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     chatSearchRequest.removeListener(_onSearchRequest);
     _app.jumpRequest.removeListener(_onJumpRequest);
+    _app.leaveWindow(widget.channelId);
     _app.closeChannel(widget.channelId);
     _scroll.dispose();
     _searchDebounce?.cancel();
@@ -375,15 +387,147 @@ class _ChatPageState extends State<ChatPage> {
   double _topInset = 120;
 
   void _onScroll() {
-    final down = _scroll.position.pixels > 600;
+    final cid = widget.channelId;
+    final pos = _scroll.position;
+    final inWindow = _app.inWindow(cid);
+    final down = chatScrolledUp(pixels: pos.pixels, minExtent: pos.minScrollExtent, inWindow: inWindow);
     if (down != _showDown) setState(() => _showDown = down);
     // Cuộn tới tin mới nhất: ghi nhận đã đọc hết (kể cả tin đến trong lúc đang xem ở đoạn trên).
-    if (_scroll.position.pixels < 80 && _app.unreadAllOf(widget.channelId) > 0) _app.markViewed(widget.channelId);
-    if (_loadingOlder) return;
-    if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 400) {
-      _loadingOlder = true;
-      _app.loadOlder(widget.channelId).whenComplete(() => _loadingOlder = false);
+    if (!inWindow && pos.pixels < pos.minScrollExtent + 80 && _app.unreadAllOf(cid) > 0) _app.markViewed(cid);
+    // Đang xem cửa sổ tin cũ: tới gần đáy thì tải tin mới hơn (tới khi nối với tin mới nhất).
+    if (inWindow && !_loadingNewer && pos.pixels < pos.minScrollExtent + 400) {
+      _loadingNewer = true;
+      _app.loadNewerWindow(cid).whenComplete(() => _loadingNewer = false);
     }
+    if (_loadingOlder) return;
+    if (pos.pixels > pos.maxScrollExtent - 400) {
+      _loadingOlder = true;
+      (inWindow ? _app.loadOlderWindow(cid) : _app.loadOlder(cid)).whenComplete(() => _loadingOlder = false);
+    }
+  }
+
+  /// Về lại tin mới nhất: bỏ cửa sổ tin cũ và tin neo, cuộn về đáy.
+  void _resetToLive({bool animate = false}) {
+    _app.leaveWindow(widget.channelId);
+    if (!_scroll.hasClients) {
+      _anchorId = null;
+      return;
+    }
+    if (_anchorId != null) {
+      // Bỏ neo: vị trí 0 trở lại là đáy danh sách (tin mới nhất), đặt luôn trước khi dựng lại để không nháy.
+      _scroll.position.correctPixels(0);
+      setState(() {
+        _anchorId = null;
+        _showDown = false;
+      });
+    } else if (animate) {
+      _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    } else {
+      _scroll.jumpTo(0);
+    }
+  }
+
+  /// Đã nối với tin mới nhất và cuộn tới đáy: bỏ neo để tin mới đến tiếp tục hiện ở đáy như thường.
+  void _normalizeAnchor() {
+    if (_anchorId == null || _app.inWindow(widget.channelId) || !_scroll.hasClients) return;
+    final pos = _scroll.position;
+    if (pos.pixels > pos.minScrollExtent + 1) return;
+    pos.correctPixels(0);
+    setState(() => _anchorId = null);
+  }
+
+  /// Tin hiện trong khung chat (mới nhất trước).
+  List<MmPost> _displayPosts(AppState app, MmChannel ch) {
+    final claude = claudeStyleFor(app, ch);
+    // Câu trả lời chỉ thuộc chủ đề không hiện ở chat chính.
+    // Kiểu Claude: không hiện tin hệ thống vào / rời / thêm thành viên, đổi tên / mô tả kênh.
+    return app
+        .visiblePostsOf(ch.id)
+        // Tệp trợ lý gửi giữa câu trả lời (props.flygo_agent_inline): đã vẽ ngay trong dòng thời gian của câu trả lời.
+        .where((p) => !p.threadOnly && !(claude && _quietSystem.contains(p.type)) && p.props['flygo_agent_inline'] is! String)
+        .toList();
+  }
+
+  /// Nút lịch: chọn ngày rồi tua tới tin đầu tiên từ 00:00 ngày đó, đặt tin ở đầu khung và nháy sáng.
+  Future<void> _pickDate(MmChannel ch, List<MmPost> posts) async {
+    final d = await pickJumpDate(context,
+        createdAt: ch.createAt, initial: posts.isEmpty ? null : DateTime.fromMillisecondsSinceEpoch(posts.last.createAt));
+    if (d == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final day = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    setState(() => _dateBusy = true);
+    bool found;
+    try {
+      found = await _app.jumpToDate(widget.channelId, d);
+    } catch (_) {
+      messenger.showSnackBar(toast(Text(tr('Không tải được tin nhắn. Kiểm tra kết nối mạng.'))));
+      return;
+    } finally {
+      if (mounted) setState(() => _dateBusy = false);
+    }
+    if (!mounted) return;
+    final since = startOfDayMs(d);
+    final target = found ? _displayPosts(_app, ch).where((p) => p.createAt >= since).lastOrNull : null;
+    if (target == null) {
+      messenger.showSnackBar(toast(Text(tr('Không có tin nhắn nào từ ngày {0}.', [day]))));
+      return;
+    }
+    setState(() {
+      _anchorId = target.id;
+      _highlight = target.id;
+      _showDown = true;
+    });
+    await _alignTop(target.id);
+    Future.delayed(const Duration(milliseconds: 1600), () {
+      if (mounted && _highlight == target.id) setState(() => _highlight = null);
+    });
+  }
+
+  /// Đặt tin [id] (đang là tin neo) ở mép trên khung tin, ngay dưới phần đầu nổi.
+  Future<void> _alignTop(String id) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.hasClients) return;
+    _scroll.jumpTo(0);
+    await WidgetsBinding.instance.endOfFrame;
+    final ctx = _keys[id]?.currentContext;
+    if (!mounted || ctx == null || !ctx.mounted || !_scroll.hasClients) return;
+    final box = ctx.findRenderObject() as RenderBox?;
+    final viewport = Scrollable.of(ctx).context.findRenderObject() as RenderBox?;
+    if (box == null || viewport == null) return;
+    final y = box.localToGlobal(Offset.zero, ancestor: viewport).dy;
+    final pos = _scroll.position;
+    // Danh sách đảo ngược: tăng vị trí cuộn thì nội dung trượt xuống.
+    _scroll.jumpTo((pos.pixels + (_topInset + 8 - y)).clamp(pos.minScrollExtent, pos.maxScrollExtent));
+  }
+
+  /// Danh sách tin (đảo ngược). Có tin neo: tin mới hơn tin neo ở sliver trước tâm (mọc xuống phía dưới).
+  Widget _postList(List<MmPost> posts, Widget Function(BuildContext, int) item) {
+    final a = _anchorId == null ? -1 : posts.indexWhere((p) => p.id == _anchorId);
+    final split = a > 0 ? a : 0;
+    return NotificationListener<ScrollEndNotification>(
+      onNotification: (n) {
+        if (n.depth == 0) _normalizeAnchor();
+        return false;
+      },
+      child: CustomScrollView(
+        controller: _scroll,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        reverse: true,
+        center: split > 0 ? _centerKey : null,
+        slivers: [
+          if (split > 0)
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: 8),
+              sliver: SliverList(delegate: SliverChildBuilderDelegate((c, j) => item(c, split - 1 - j), childCount: split)),
+            ),
+          SliverPadding(
+            key: _centerKey,
+            padding: EdgeInsets.only(top: _topInset + 8, bottom: split > 0 ? 0 : 8),
+            sliver: SliverList(delegate: SliverChildBuilderDelegate((c, j) => item(c, split + j), childCount: posts.length - split)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _renameSub(AppState app, MmChannel ch) async {
@@ -530,13 +674,7 @@ class _ChatPageState extends State<ChatPage> {
     final title = app.channelTitle(ch);
     final other = app.me == null ? null : ch.otherUserId(app.me!.id);
     final typing = app.typingIn(ch.id);
-    // Câu trả lời chỉ thuộc chủ đề không hiện ở chat chính.
-    // Kiểu Claude: không hiện tin hệ thống vào / rời / thêm thành viên, đổi tên / mô tả kênh.
-    final posts = app
-        .postsOf(ch.id)
-        // Tệp trợ lý gửi giữa câu trả lời (props.flygo_agent_inline): đã vẽ ngay trong dòng thời gian của câu trả lời.
-        .where((p) => !p.threadOnly && !(claude && _quietSystem.contains(p.type)) && p.props['flygo_agent_inline'] is! String)
-        .toList();
+    final posts = _displayPosts(app, ch);
     // Tin chưa đọc (người khác gửi, sau lần xem cuối): tin cũ nhất trong số đó là chỗ đặt vạch "chưa đọc".
     final unread = _unreadSince <= 0
         ? const <MmPost>[]
@@ -774,13 +912,7 @@ class _ChatPageState extends State<ChatPage> {
                 },
                 child: posts.isEmpty
                 ? Padding(padding: EdgeInsets.only(top: _topInset), child: const Center(child: _EmptyChat()))
-                : ListView.builder(
-                    controller: _scroll,
-                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                    reverse: true,
-                    padding: EdgeInsets.only(top: _topInset + 8, bottom: 8),
-                    itemCount: posts.length,
-                    itemBuilder: (context, i) {
+                : _postList(posts, (context, i) {
                       final p = posts[i];
                       final older = i + 1 < posts.length ? posts[i + 1] : null;
                       final newer = i > 0 ? posts[i - 1] : null;
@@ -832,8 +964,7 @@ class _ChatPageState extends State<ChatPage> {
                                 }),
                               ),
                       ]));
-                    },
-                  )))),
+                    })))),
               // Chat chính đã đọc hết nhưng còn tin chưa đọc trong luồng / luồng bí mật: nút tua tới tin gốc của luồng đó.
               if ((firstUnreadId == null || _unreadJumped) && spots.isNotEmpty)
                 Positioned(
@@ -887,23 +1018,17 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                   ),
                 ),
-              if (_showDown)
+              // Đã cuộn lên xem tin cũ: nút chọn ngày (trái) và nút tua xuống tin mới nhất (phải).
+              if (_showDown && posts.isNotEmpty)
                 Positioned(
+                  left: 14,
                   right: 14,
                   bottom: 12,
-                  child: Material(
-                    color: pal.surface,
-                    shape: const CircleBorder(),
-                    elevation: 3,
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: () => _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut),
-                      child: SizedBox(
-                        width: 44,
-                        height: 44,
-                        child: Icon(Icons.keyboard_double_arrow_down_rounded, color: pal.text),
-                      ),
-                    ),
+                  child: ChatJumpButtons(
+                    visible: true,
+                    busy: _dateBusy,
+                    onPickDate: () => _pickDate(ch, posts),
+                    onDown: () => _resetToLive(animate: true),
                   ),
                 ),
               Positioned(top: 0, left: 0, right: 0, child: top),
@@ -972,7 +1097,7 @@ class _ChatPageState extends State<ChatPage> {
                 _replyTo = null;
                 _editing = null;
               });
-              if (_scroll.hasClients) _scroll.jumpTo(0);
+              _resetToLive();
             },
           ),
           ]),
