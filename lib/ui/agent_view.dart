@@ -1469,7 +1469,10 @@ class AgentStepRow extends StatelessWidget {
                 ? const Icon(Icons.error_outline, size: 15, color: Colors.redAccent)
                 : const Icon(Icons.check_rounded, size: 15, color: Color(0xFF2E9D5B));
     final canOpen = title.isNotEmpty || detail.isNotEmpty;
-    return InkWell(
+    // Mỗi bước "Đã chạy …" cách bước trên một khoảng cho dễ tách (Sếp, 2026-11-14).
+    return Padding(
+      padding: EdgeInsets.only(top: first ? 2 : 10),
+      child: InkWell(
       borderRadius: BorderRadius.circular(6),
       onTap: canOpen ? onTap : null,
       child: IntrinsicHeight(
@@ -1510,7 +1513,7 @@ class AgentStepRow extends StatelessWidget {
           ),
         ]),
       ),
-    );
+    ));
   }
 }
 
