@@ -2,6 +2,10 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 471 (2026-11-14)
+- Tổ chức permissions: collapsible app groups with granted/total, group checkbox, Chọn tất cả / Bỏ tất cả.
+- Flows: progress bar on list rows; realtime process updates over WebSocket (subscribe on open, unsubscribe on close), polling only as fallback.
+
 ## 470 (2026-11-14)
 - Dịch AI (translate before send) also works in the self chat.
 
