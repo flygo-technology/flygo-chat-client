@@ -57,14 +57,45 @@ Future<List<(String, String)>> _copiedFiles() async {
 }
 
 Future<List<(String, String)>> _clipImage() async {
-  final bytes = await Pasteboard.image;
-  if (bytes == null || bytes.isEmpty) return const [];
+  final raw = await Pasteboard.image;
+  if (raw == null || raw.isEmpty) return const [];
+  final (bytes, ext) = await normalizeClipImage(raw);
   final dir = await getTemporaryDirectory();
   await dir.create(recursive: true);
-  final name = 'paste_${DateTime.now().millisecondsSinceEpoch}.png';
+  final name = 'paste_${DateTime.now().millisecondsSinceEpoch}.$ext';
   final f = File('${dir.path}${Platform.pathSeparator}$name');
   await f.writeAsBytes(bytes);
   return [(f.path, name)];
+}
+
+/// Đuôi tệp theo nội dung ảnh (chữ ký đầu tệp); null nếu không nhận ra.
+String? imageExtOf(List<int> b) {
+  bool at(int o, List<int> sig) => b.length >= o + sig.length && [for (var i = 0; i < sig.length; i++) b[o + i] == sig[i]].every((x) => x);
+  if (at(0, const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) return 'png';
+  if (at(0, const [0xFF, 0xD8, 0xFF])) return 'jpg';
+  if (at(0, const [0x47, 0x49, 0x46, 0x38])) return 'gif';
+  if (at(0, const [0x52, 0x49, 0x46, 0x46]) && at(8, const [0x57, 0x45, 0x42, 0x50])) return 'webp';
+  if (at(0, const [0x42, 0x4D])) return 'bmp';
+  if (at(0, const [0x49, 0x49, 0x2A, 0x00]) || at(0, const [0x4D, 0x4D, 0x00, 0x2A])) return 'tiff';
+  return null;
+}
+
+/// Ảnh dán từ bộ nhớ tạm: PNG / JPEG / GIF / WebP giữ nguyên (đuôi đúng theo nội dung); còn lại (Windows trả
+/// BMP từ CF_DIB, nhiều trình xem không mở được; TIFF) thì đổi sang PNG. Không giải mã được thì giữ nguyên với đuôi thật.
+Future<(Uint8List, String)> normalizeClipImage(Uint8List bytes) async {
+  final ext = imageExtOf(bytes);
+  if (ext != null && ext != 'bmp' && ext != 'tiff') return (bytes, ext);
+  try {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final png = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    frame.image.dispose();
+    codec.dispose();
+    if (png != null) return (png.buffer.asUint8List(), 'png');
+  } catch (e) {
+    clipLog('paste: convert ${ext ?? 'unknown'} -> png failed: $e');
+  }
+  return (bytes, ext ?? 'bin');
 }
 
 /// Lấy ảnh / tệp đang có trong bộ nhớ tạm, lưu ra file tạm. Trả về (đường dẫn, tên).

@@ -5578,6 +5578,8 @@ class _ComposerState extends State<_Composer> {
       'png' => 'image/png',
       'gif' => 'image/gif',
       'webp' => 'image/webp',
+      'bmp' => 'image/bmp',
+      'tif' || 'tiff' => 'image/tiff',
       'heic' || 'heif' => 'image/heic',
       'mp4' || 'm4v' => 'video/mp4',
       'mov' => 'video/quicktime',
