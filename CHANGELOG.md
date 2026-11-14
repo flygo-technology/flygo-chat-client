@@ -2,6 +2,9 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 470 (2026-11-14)
+- Dịch AI (translate before send) also works in the self chat.
+
 ## 469 (2026-11-13)
 - Runner 0.6.90: Boards task tools removed (Boards plugin disabled); assistants use the Todo app tools via Flygo Gateway.
 
