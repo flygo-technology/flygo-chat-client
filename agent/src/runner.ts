@@ -1436,7 +1436,8 @@ async function onPosted(post: Post, channelType: string) {
   if (post.user_id === BOT_ID) return;
   if (post.props?.flygo_thread_closed !== undefined) return onCloseMarker(post);
   if (post.props?.flygo_meet_comment || post.props?.flygo_meet_thread) return; // bình luận cuộc họp (luồng công khai): runner nhận qua phòng họp, không phải việc
-  if (post.props?.flygo_thread_name !== undefined) return; // app đổi tên luồng (✏️ Đổi tên luồng thành "…"): không phải việc, không phải câu trả lời
+  if (post.props?.flygo_thread_name !== undefined) return;
+  if (post.props?.flygo_knowledge) return; // app thêm tài liệu dự án (tệp ghim): không phải việc // app đổi tên luồng (✏️ Đổi tên luồng thành "…"): không phải việc, không phải câu trả lời
   if (onQuestionPost(post)) return; // trả lời câu bot đang hỏi (ý khác / props trả lời): không mở lượt mới
   // Tin "Bắt đầu công việc trong luồng riêng tư" ở chat chính: app tạo kênh luồng riêng và chép tin sang đó;
   // bot chỉ trả lời trong kênh luồng riêng, KHÔNG BAO GIỜ trả lời tin gốc này (kể cả có @tag hay quy tắc 1 người + 1 bot).
@@ -2739,6 +2740,39 @@ async function groupNews(outer: Outer, root: string, first: boolean): Promise<st
 interface RefItem { ref_id: string; kind: "chat" | "thread"; channel_id: string; root_id?: string; name: string }
 interface RefGrant { grant_id: string; expires_at: number; write: boolean; server: string; items: RefItem[] }
 /** Relay /ref: cấu hình refRelay, không có thì trạm đẩy cùng tên miền với server ("chat.x" -> "push.x"). */
+/** Kiến thức dự án: tải các tệp ghim mang props.flygo_knowledge của chat [groupId] vào <dir>/.flygo-knowledge (một lần
+ *  mỗi tệp), PDF / Word thì kèm bản chữ (pdftotext / pandoc nếu máy có); trả về đoạn liệt kê tệp để ghép vào prompt. */
+async function syncKnowledge(groupId: string, dir: string): Promise<string> {
+  if (!groupId) return "";
+  const r = await mm.api<any>("GET", `/channels/${groupId}/pinned`).catch(() => null);
+  const posts = Object.values<any>(r?.posts ?? {}).filter((p) => p.props?.flygo_knowledge && !p.delete_at);
+  if (!posts.length) return "";
+  const kdir = join(dir, ".flygo-knowledge");
+  mkdirSync(kdir, { recursive: true });
+  const lines: string[] = [];
+  for (const p of posts) {
+    for (const f of (p.metadata?.files ?? []) as any[]) {
+      const name = `${String(f.id).slice(0, 6)}-${safeFileName(f.name, "tai-lieu")}`;
+      const path = join(kdir, name);
+      if (!existsSync(path)) {
+        const res = await fetch(`${cfg.serverUrl}/api/v4/files/${f.id}`, { headers: { Authorization: `Bearer ${cfg.botToken}` }, signal: AbortSignal.timeout(60_000) });
+        if (!res.ok) continue;
+        writeFileSync(path, new Uint8Array(await res.arrayBuffer()));
+        const ext = String(f.extension ?? "").toLowerCase();
+        const tool = ext === "pdf" ? Bun.which("pdftotext") : ["docx", "odt", "rtf"].includes(ext) ? Bun.which("pandoc") : null;
+        if (tool) {
+          const args = ext === "pdf" ? [tool, "-layout", path, `${path}.txt`] : [tool, "-t", "plain", "-o", `${path}.txt`, path];
+          await Bun.spawn(args, { stdout: "ignore", stderr: "ignore" }).exited.catch(() => {});
+        }
+      }
+      const txt = existsSync(`${path}.txt`) ? ` · bản chữ: .flygo-knowledge/${name}.txt` : "";
+      const note = String(p.message ?? "").replace(/^📚[^:]*:\s*/, "").trim();
+      lines.push(`- .flygo-knowledge/${name} (${Math.round((f.size ?? 0) / 1024)} KB)${txt}${note && note !== f.name ? ` — ${note.slice(0, 200)}` : ""}`);
+    }
+  }
+  return lines.length ? `\n\n## Tài liệu dự án (dùng chung cho mọi phiên của dự án; đọc khi liên quan, nêu tên tệp khi dùng)\n${lines.join("\n")}` : "";
+}
+
 /** Hỏi trạm đẩy: tin [post] có đúng do trạm đăng qua Token MCP còn hạn không; trả id chủ phiên hoặc "". */
 async function verifyBridge(post: Post): Promise<string> {
   const r = await fetch(`${refRelay()}/bridge/verify?post_id=${encodeURIComponent(post.id)}`, {
@@ -2895,6 +2929,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const meeting = await callActive(meetCh);
   if (meeting && aiOf(ch) && isOwner(post.user_id) && !threadRoot) startMeetWatch(meetCh, post.channel_id, post.user_id, "chủ trì nhắn trong phiên AI khi đang họp");
   const meetNote = meeting ? `\n(Nhóm ${aiOf(ch) ? `"${(await mm.channel(meetCh).then(chatName).catch(() => meetCh))}" của phiên này` : "này"} đang có cuộc họp trực tuyến. Bạn có tool meeting_* để dẫn họp: meeting_state (ai đang họp, giơ tay, bình luận), meeting_say (NÓI bằng giọng cho cả phòng nghe), meeting_show / meeting_slides / meeting_web / meeting_draw (chiếu lên màn hình chung), meeting_people (mời phát biểu, tắt mic, làm nổi bật), meeting_suggest (soạn gợi ý trả lời câu hỏi cho chủ trì duyệt), meeting_watch (bật / tắt theo dõi bình luận), meeting_music_* (nhạc nền theo giai đoạn). Chỉ đưa lên màn hình / nói / phát nhạc trong cuộc họp khi chủ trì yêu cầu hoặc đã cho bạn tự trình bày. Khi tự dẫn cả buổi, gợi ý trình tự nhạc: lobby khi chờ người vào → stinger transition + nhạc opening khi mở màn → present nhỏ khi chiếu slide → transition giữa các phần → qa khi hỏi đáp → closing khi kết thúc.)` : "";
+  // Kiến thức dự án: tệp ghim (props.flygo_knowledge) ở chat gốc của phiên (dự án / chat 1-1 với trợ lý), dùng chung cho mọi phiên.
+  const knowledgeNote = await syncKnowledge(aiOf(ch)?.group ?? (ch.type === "D" ? ch.id : ""), dir).catch((e) => { log(`kiến thức dự án: ${e?.message ?? e}`); return ""; });
   const titleNote = needTitle ? `\n(Phiên này chưa có tên. Gọi chat_session_title đúng một lần với tên ngắn tiếng Việt 2–6 từ (tối đa 40 ký tự), nói đúng chủ đề tin nhắn này; không dấu chấm cuối, không ngoặc kép. Không nhắc chuyện đặt tên trong câu trả lời.)` : "";
   const peers: string[] = (post as any).a2a_peers ?? [];
   const peerNote = (peers.length && a2a
@@ -2954,7 +2990,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       }))),
       outerCtx,
       `\n${block}`,
-      `\n## Việc ${owner} giao ${trigger}\n${text}${filesNote(post)}${quoteNote}${refNote}${peerNote}${reportNote}${titleNote}${meetNote}`,
+      `\n## Việc ${owner} giao ${trigger}\n${text}${filesNote(post)}${quoteNote}${refNote}${peerNote}${reportNote}${titleNote}${meetNote}${knowledgeNote}`,
     ].filter(Boolean).join("\n");
   } else {
     const recent = inline ? (await mm.channelPosts(post.channel_id, 50)).filter(isMainPost) : await mm.thread(root);
@@ -2962,7 +2998,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     const lastBot = Math.max(session.last_seen_at, ...recent.filter((p) => p.user_id === BOT_ID).map((p) => p.create_at));
     const since = recent.filter((p) => p.create_at > lastBot && p.create_at < post.create_at && p.id !== post.id && p.user_id !== BOT_ID);
     const sinceText = since.length ? await fmtPosts(since) : "";
-    prompt = [block ? `${block}\n` : "", outer?.ai && outerCtx ? `${outerCtx.trim()}\n` : "", sinceText ? `## Tin khác ${inline ? "trong nhóm" : "trong chủ đề"} từ lần trả lời trước (chỉ để tham khảo, không cần trả lời)\n${sinceText}\n` : "", `## ${owner} nhắn ${trigger}\n${text}${filesNote(post)}${quoteNote}${refNote}${peerNote}${reportNote}${titleNote}${meetNote}`].filter(Boolean).join("\n");
+    prompt = [block ? `${block}\n` : "", outer?.ai && outerCtx ? `${outerCtx.trim()}\n` : "", sinceText ? `## Tin khác ${inline ? "trong nhóm" : "trong chủ đề"} từ lần trả lời trước (chỉ để tham khảo, không cần trả lời)\n${sinceText}\n` : "", `## ${owner} nhắn ${trigger}\n${text}${filesNote(post)}${quoteNote}${refNote}${peerNote}${reportNote}${titleNote}${meetNote}${knowledgeNote}`].filter(Boolean).join("\n");
   }
 
   // Model / mức suy nghĩ người dùng chọn trên app: props.flygo_agent_config = { "<bot>": { model, effort } }. Thiếu = mặc định.
@@ -3070,6 +3106,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         forkFrom: session.session_id ? undefined : forkFrom || undefined,
         cwd: dir,
         prompt: prompt + planNote + researchNote,
+        research,
         persona: botPersona(),
         ...skillDirs(),
         title: sessTitle,

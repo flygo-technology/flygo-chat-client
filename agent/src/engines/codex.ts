@@ -343,6 +343,8 @@ export class CodexEngine implements Engine {
       mcp_servers: { flygo_chat: { command: this.mcpCommand.command, args: this.mcpCommand.args, env: input.mcpEnv, tool_timeout_sec: 2400 }, ...codexServers(desktopMcp(this.cfg)) },
       // Lệnh trong sandbox được ra mạng (tải PDF, gọi API nội bộ), kể cả khi app-server dùng chung do Codex app chạy.
       ...(this.cfg.codex.network !== false ? { sandbox_workspace_write: { network_access: true } } : {}),
+      // Nghiên cứu sâu: tìm web trực tiếp (không dùng bản đệm) cho lượt này.
+      ...(input.research ? { web_search: "live" } : {}),
     };
     let threadId = input.sessionId;
     if (threadId) {

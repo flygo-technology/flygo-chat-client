@@ -123,6 +123,10 @@ class AgentSidePanel extends StatefulWidget {
   @visibleForTesting
   static List<MmPost>? debugScan;
 
+  /// Chỉ cho ảnh xem trước: tin tài liệu dự án thay cho lần đọc tin ghim.
+  @visibleForTesting
+  static List<MmPost>? debugKnowledge;
+
   /// Chỉ cho ảnh xem trước: ô ảnh thay cho ảnh tải từ máy chủ.
   @visibleForTesting
   static Widget Function(MmFile f)? debugThumb;
@@ -197,6 +201,7 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
           ),
         ),
         if (ch.isAi && ch.aiGroup != null) ..._sessions(app, ch, pal),
+        if (_knowledgeGroup(app, ch) case final g?) ..._knowledge(app, pal, g),
         ..._artifacts(app, pal),
         ..._media(app, pal),
       ],
@@ -308,6 +313,105 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
             ),
           ],
         ),
+      ),
+    ];
+  }
+
+  /// Chat gốc giữ kiến thức dự án: dự án của phiên (hoặc chat 1-1 với trợ lý mà phiên tách ra), hay chính chat 1-1.
+  String? _knowledgeGroup(AppState app, MmChannel ch) => ch.isAi ? ch.aiGroup : (app.isAgentDm(ch) ? ch.id : null);
+
+  List<MmPost>? _kPosts;
+  String? _kGroup;
+  bool _kBusy = false;
+
+  Future<void> _loadKnowledge(AppState app, String group) async {
+    _kGroup = group;
+    if (AgentSidePanel.debugKnowledge != null) return setState(() => _kPosts = AgentSidePanel.debugKnowledge);
+    try {
+      final r = (await app.api.get('/channels/$group/pinned') as Map).cast<String, dynamic>();
+      final posts = (r['posts'] as Map? ?? {}).values.map((p) => MmPost((p as Map).cast())).where((p) => p.props['flygo_knowledge'] != null).toList()
+        ..sort((a, b) => b.createAt.compareTo(a.createAt));
+      if (mounted) setState(() => _kPosts = posts);
+    } catch (_) {
+      if (mounted) setState(() => _kPosts = const []);
+    }
+  }
+
+  /// Tải tài liệu lên: mỗi tệp một tin (ghim, props.flygo_knowledge) ở chat gốc; runner không coi tin này là việc.
+  Future<void> _addKnowledge(AppState app, String group) async {
+    final files = await pickFilesOrReport(context);
+    if (files.isEmpty || !mounted) return;
+    setState(() => _kBusy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      for (final f in files) {
+        if (f.path == null) continue;
+        final ids = await app.api.uploadPath(group, f.name, f.path!);
+        final p = await app.api.createPost({'channel_id': group, 'message': '📚 ${tr('Tài liệu dự án')}: ${f.name}', 'file_ids': ids, 'props': {'flygo_knowledge': true}});
+        await app.api.post('/posts/${p.id}/pin', {});
+      }
+    } catch (_) {
+      messenger.showSnackBar(toast(Text(tr('Không tải lên được. Kiểm tra kết nối mạng.'))));
+    }
+    if (mounted) setState(() => _kBusy = false);
+    await _loadKnowledge(app, group);
+  }
+
+  Future<void> _removeKnowledge(AppState app, String group, MmPost p) async {
+    try {
+      await app.api.deletePost(p.id);
+    } catch (_) {}
+    await _loadKnowledge(app, group);
+  }
+
+  List<Widget> _knowledge(AppState app, Pal pal, String group) {
+    if (_kGroup != group) {
+      _kGroup = group;
+      _kPosts = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadKnowledge(app, group));
+    }
+    final posts = _kPosts;
+    final files = [for (final p in posts ?? const <MmPost>[]) for (final f in p.files) (p, f)];
+    final total = files.fold<int>(0, (a, x) => a + x.$2.size);
+    return [
+      _section(pal, Icons.menu_book_outlined, tr('Kiến thức dự án'),
+          files.isEmpty ? null : Text(tr('{0} tệp · {1}', [files.length, fileSize(total)]), style: TextStyle(fontSize: 12, color: pal.sub))),
+      _card(
+        pal,
+        Column(children: [
+          if (posts == null)
+            const Padding(padding: EdgeInsets.all(14), child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))))
+          else
+            for (final (p, f) in files)
+              MediaMenuArea(
+                file: f,
+                post: p,
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(f.mime.contains('pdf') ? Icons.picture_as_pdf_outlined : Icons.description_outlined, color: pal.accentText),
+                  title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: pal.text)),
+                  subtitle: Text('${fileSize(f.size)} · ${listTime(p.createAt)}', style: TextStyle(fontSize: 12, color: pal.sub)),
+                  onTap: () => openFile(context, f),
+                  trailing: IconButton(
+                    tooltip: tr('Bỏ khỏi kiến thức dự án'),
+                    icon: Icon(Icons.close_rounded, size: 18, color: pal.sub),
+                    onPressed: () => _removeKnowledge(app, group, p),
+                  ),
+                ),
+              ),
+          ListTile(
+            dense: true,
+            leading: _kBusy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(Icons.upload_file_rounded, size: 20, color: pal.accentText),
+            title: Text(tr('Tải tài liệu lên'), style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.accentText)),
+            onTap: _kBusy ? null : () => _addKnowledge(app, group),
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+        child: Text(tr('Mọi phiên trong dự án tự đọc các tài liệu này khi cần.'), style: TextStyle(fontSize: 12, color: pal.sub)),
       ),
     ];
   }

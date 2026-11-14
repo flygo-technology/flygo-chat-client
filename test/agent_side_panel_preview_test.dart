@@ -103,6 +103,12 @@ void main() {
   ];
   app.debugPutPosts(cur, posts);
   AgentSidePanel.debugScan = posts;
+  AgentSidePanel.debugKnowledge = [
+    MmPost({'id': 'k1', 'channel_id': _g, 'user_id': _me, 'message': '📚', 'create_at': now - 86400000, 'props': {'flygo_knowledge': true},
+      'metadata': {'files': [{'id': 'kf1', 'name': 'Quy trình bảo trì thang.pdf', 'mime_type': 'application/pdf', 'size': 820000}]}}),
+    MmPost({'id': 'k2', 'channel_id': _g, 'user_id': _me, 'message': '📚', 'create_at': now - 3600000, 'props': {'flygo_knowledge': true},
+      'metadata': {'files': [{'id': 'kf2', 'name': 'Bảng giá linh kiện 2026.xlsx', 'mime_type': 'application/vnd.ms-excel', 'size': 310000}]}}),
+  ];
   ArtifactCard.debugHtml = '<html><body>chart</body></html>';
   ArtifactCard.debugPreview = (_) => Container(
         color: Colors.white,
