@@ -13,6 +13,7 @@ import 'common.dart';
 import 'agent_files.dart';
 import 'json_view.dart';
 import 'markdown_view.dart';
+import 'shell_highlight.dart';
 import 'theme.dart';
 
 /// Hiển thị tin của bot AI (runner flygo-agent):
@@ -486,17 +487,7 @@ class _StepRow extends StatelessWidget {
                   if (tryParseJson(detail) case final json?)
                     JsonView(value: json)
                   else
-                    Container(
-                      margin: const EdgeInsets.only(top: 3),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(color: pal.text.withValues(alpha: .06), borderRadius: BorderRadius.circular(6)),
-                      child: Text(
-                        detail,
-                        maxLines: 6,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: pal.sub, height: 1.3),
-                      ),
-                    ),
+                    ShellOutput(detail, error: status == 'error', maxLines: 6),
               ],
             ),
           ),
@@ -519,36 +510,11 @@ class AgentTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final m = _cmd.firstMatch(title);
     if (m == null) return Text(title, style: style);
-    final pal = Pal.of(context);
     final label = (m.group(1) ?? '').trim();
     final cmd = m.group(2)!.trim();
-    final sp = cmd.indexOf(RegExp(r'\s'));
-    final head = sp < 0 ? cmd : cmd.substring(0, sp);
-    final rest = sp < 0 ? '' : cmd.substring(sp);
-    final mono = TextStyle(fontFamily: 'monospace', fontSize: 12.5, height: 1.35, color: pal.text);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
       if (label.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 3), child: Text(label, style: style)),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(8, 5, 8, 6),
-        decoration: BoxDecoration(
-          color: pal.text.withValues(alpha: .07),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: pal.text.withValues(alpha: .08)),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text('bash', style: TextStyle(fontSize: 10, color: pal.sub, fontWeight: FontWeight.w600, letterSpacing: .4)),
-          const SizedBox(height: 2),
-          Text.rich(
-            TextSpan(style: mono, children: [
-              TextSpan(text: head, style: TextStyle(color: pal.accentText, fontWeight: FontWeight.w600)),
-              TextSpan(text: rest),
-            ]),
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ]),
-      ),
+      ShellBlock(cmd, maxLines: 6),
     ]);
   }
 }
@@ -658,12 +624,11 @@ class AgentApprovalBar extends StatelessWidget {
       children: [
         header,
         if (codeLine != null)
-          Container(
-            margin: const EdgeInsets.only(top: 6),
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: pal.text.withValues(alpha: .07), borderRadius: BorderRadius.circular(10)),
-            child: SelectableText(codeLine, style: TextStyle(fontFamily: 'monospace', fontSize: 13, color: pal.text, height: 1.35)),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: command != null
+                ? ShellBlock(command, maxLines: null, selectable: true, fontSize: 13)
+                : ShellBlock(codeLine, lang: tr('tệp'), maxLines: null, selectable: true, fontSize: 13),
           ),
         if (plan && detail.isNotEmpty)
           Container(
@@ -1541,18 +1506,7 @@ class AgentStepRow extends StatelessWidget {
                     if (tryParseJson(detail) case final json?)
                       JsonView(value: json)
                     else
-                      Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(top: 4),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                        decoration: BoxDecoration(color: pal.text.withValues(alpha: .06), borderRadius: BorderRadius.circular(6)),
-                        child: Text(
-                          detail,
-                          maxLines: 12,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: pal.sub, height: 1.3),
-                        ),
-                      ),
+                      ShellOutput(detail, error: error),
                 ],
               ]),
             ),

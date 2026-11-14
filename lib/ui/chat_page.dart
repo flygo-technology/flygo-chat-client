@@ -24,6 +24,7 @@ import '../state/app_state.dart';
 import '../state/date_jump.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
+import 'agent_side_panel.dart';
 import 'ai_panel.dart';
 import 'flags.dart';
 import 'flows/flows_page.dart' show messageStartsCached, startFlowFromPost;
@@ -573,8 +574,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /// ⋮ của chat với trợ lý: popover kiểu Codex (thẻ lớn, tên chat ở đầu, Xoá đỏ) hoặc kiểu Claude (thẻ gọn).
-  Widget _agentMenu(AppState app, MmChannel ch, bool gpt) {
-    final pal = Pal.of(context);
+  /// Các thao tác của ⋮ trong chat với trợ lý (dùng chung cho popover và cột phải).
+  List<(String, IconData, String)> _agentItems(AppState app, MmChannel ch) {
     final session = ch.isAi;
     final fav = app.isFavorite(ch.id);
     final items = <(String, IconData, String)>[
@@ -592,6 +593,87 @@ class _ChatPageState extends State<ChatPage> {
         ch.aiArchived ? ('unarchive', Icons.unarchive_outlined, tr('Bỏ lưu trữ')) : ('archive', Icons.archive_outlined, tr('Lưu trữ')),
       ('delete', Icons.delete_outline_rounded, session ? tr('Xoá phiên') : tr('Xoá đoạn chat')),
     ];
+    return items;
+  }
+
+  /// Cột phải đang mở (máy tính; nhớ trong phiên chạy app, dùng chung mọi chat với trợ lý).
+  static bool _sidePanelOpen = true;
+
+  /// Khung đủ rộng để đặt cột phải cạnh chat (máy tính, không phải cột AI hẹp).
+  bool _wideAgent(BuildContext context) => isDesktop && widget.onClose == null && MediaQuery.sizeOf(context).width >= 1100;
+
+  Widget _sidePanel(AppState app, MmChannel ch) => AgentSidePanel(
+        key: ValueKey('side:${ch.id}'),
+        channelId: ch.id,
+        actions: _agentItems(app, ch),
+        onClose: () => setState(() => _sidePanelOpen = false),
+        onAction: (a) => _agentAction(app, ch, a),
+      );
+
+  /// Điện thoại / khung hẹp: ⋮ mở cột phải thành một trang; chọn thao tác thì đóng trang rồi làm.
+  void _openSidePage(AppState app, MmChannel ch) {
+    Navigator.of(context).push(AppPageRoute(
+      builder: (ctx) => AgentSidePanel(
+        channelId: ch.id,
+        actions: _agentItems(app, ch),
+        asPage: true,
+        onAction: (a) async {
+          Navigator.pop(ctx);
+          if (mounted) await _agentAction(app, ch, a);
+        },
+      ),
+    ));
+  }
+
+  /// Chạy một thao tác của ⋮ (popover hoặc cột phải). 'open:' + id = chuyển sang phiên khác.
+  Future<void> _agentAction(AppState app, MmChannel ch, String a) async {
+    final session = ch.isAi;
+    final title = session ? aiSessionLabel(ch) : app.channelTitle(ch);
+    if (a.startsWith('open:')) return openChatWith(context, a.substring(5));
+    if (a == 'window' && !_canOpenAiWindow(ch)) return;
+    switch (a) {
+      case 'fav':
+        await app.toggleFavorite(ch.id);
+      case 'search':
+        setState(() => _searchOpen = true);
+      case 'info':
+        _openInfo();
+      case 'window':
+        _openAiWindow(app, ch);
+      case 'switch':
+        final id = await showAiSessions(context, ch.aiGroup!, thread: ch.aiThread);
+        if (id != null && id != AppState.kAiNewSession && mounted) openChatWith(context, id);
+        if (id == AppState.kAiNewSession && mounted) await runAiSessionAction(context, ch, 'new');
+      case 'delete' when !session:
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: Text(tr('Xoá đoạn chat với {0}?', [title])),
+            content: Text(tr('Đoạn chat ẩn khỏi danh sách. Trợ lý vẫn còn, nhắn lại là hiện lại.')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
+              TextButton(
+                  style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                  onPressed: () => Navigator.pop(d, true),
+                  child: Text(tr('Xoá'))),
+            ],
+          ),
+        );
+        if (ok == true && mounted) {
+          final nav = Navigator.of(context);
+          await app.hideConversation(ch.id);
+          if (nav.canPop()) nav.pop();
+        }
+      default:
+        if (mounted) await runAiSessionAction(context, ch, a);
+    }
+  
+  }
+
+  Widget _agentMenu(AppState app, MmChannel ch, bool gpt) {
+    final pal = Pal.of(context);
+    final session = ch.isAi;
+    final items = _agentItems(app, ch);
     final title = session ? aiSessionLabel(ch) : app.channelTitle(ch);
     return PopupMenuButton<String>(
       tooltip: tr('Thao tác'),
@@ -601,44 +683,7 @@ class _ChatPageState extends State<ChatPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(gpt ? 28 : 16)),
       constraints: BoxConstraints(minWidth: gpt ? 280 : 220, maxWidth: 340),
       position: PopupMenuPosition.under,
-      onSelected: (a) async {
-        switch (a) {
-          case 'fav':
-            await app.toggleFavorite(ch.id);
-          case 'search':
-            setState(() => _searchOpen = true);
-          case 'info':
-            _openInfo();
-          case 'window':
-            _openAiWindow(app, ch);
-          case 'switch':
-            final id = await showAiSessions(context, ch.aiGroup!, thread: ch.aiThread);
-            if (id != null && id != AppState.kAiNewSession && mounted) openChatWith(context, id);
-            if (id == AppState.kAiNewSession && mounted) await runAiSessionAction(context, ch, 'new');
-          case 'delete' when !session:
-            final ok = await showDialog<bool>(
-              context: context,
-              builder: (d) => AlertDialog(
-                title: Text(tr('Xoá đoạn chat với {0}?', [title])),
-                content: Text(tr('Đoạn chat ẩn khỏi danh sách. Trợ lý vẫn còn, nhắn lại là hiện lại.')),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
-                  TextButton(
-                      style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
-                      onPressed: () => Navigator.pop(d, true),
-                      child: Text(tr('Xoá'))),
-                ],
-              ),
-            );
-            if (ok == true && mounted) {
-              final nav = Navigator.of(context);
-              await app.hideConversation(ch.id);
-              if (nav.canPop()) nav.pop();
-            }
-          default:
-            if (mounted) await runAiSessionAction(context, ch, a);
-        }
-      },
+      onSelected: (a) => _agentAction(app, ch, a),
       itemBuilder: (_) => [
         // Kiểu Codex: tên chat (chữ xám) ở đầu thẻ.
         if (gpt)
@@ -850,12 +895,22 @@ class _ChatPageState extends State<ChatPage> {
             // Vòng tròn dung lượng ngữ cảnh của trợ lý (chat AI / chat 1-1 với trợ lý).
             if (ch.isAi || (ch.isDirect && app.users[other]?.isBot == true)) AgentContextRing(channelId: ch.id),
             // Chat với trợ lý: ⋮ mở popover kiểu app của hãng (Codex / Claude).
-            if (claude)
-              _agentMenu(app, ch, gptStyleFor(app, ch))
-            else if (!ch.isAi)
-              IconButton(tooltip: tr('Cài đặt cuộc trò chuyện'), icon: Icon(Icons.more_vert, color: pal.text), onPressed: _openInfo)
-            else
-              AiSessionMenu(channel: ch, onOpenWindow: _canOpenAiWindow(ch) ? () => _openAiWindow(app, ch) : null),
+            // Máy tính (khung rộng): nút ẩn / hiện cột phải + ⋮ như cũ; điện thoại: ⋮ mở trang cột phải.
+            if (claude || ch.isAi) ...[
+              if (_wideAgent(context)) ...[
+                IconButton(
+                  tooltip: _sidePanelOpen ? tr('Ẩn cột phải') : tr('Hiện cột phải'),
+                  icon: Icon(_sidePanelOpen ? Icons.view_sidebar_rounded : Icons.view_sidebar_outlined, color: pal.text),
+                  onPressed: () => setState(() => _sidePanelOpen = !_sidePanelOpen),
+                ),
+                if (claude)
+                  _agentMenu(app, ch, gptStyleFor(app, ch))
+                else
+                  AiSessionMenu(channel: ch, onOpenWindow: _canOpenAiWindow(ch) ? () => _openAiWindow(app, ch) : null),
+              ] else
+                IconButton(tooltip: tr('Thao tác'), icon: Icon(Icons.more_vert, color: pal.text), onPressed: () => _openSidePage(app, ch)),
+            ] else
+              IconButton(tooltip: tr('Cài đặt cuộc trò chuyện'), icon: Icon(Icons.more_vert, color: pal.text), onPressed: _openInfo),
             const SizedBox(width: 4),
           ]),
         ),
@@ -933,6 +988,8 @@ class _ChatPageState extends State<ChatPage> {
                         child: Column(children: [
                         if (showDay) _DayChip(DateTime.fromMillisecondsSinceEpoch(p.createAt)),
                         if (p.id == firstUnreadId) _UnreadDivider(count: unread.length),
+                        // Tin agent ngoài gửi qua Token MCP: nhãn "🔗 Agent ngoài" phía trên.
+                        if (isBridgedPost(p)) const _BridgeLabel(),
                         p.isSystem
                             ? _SystemChip(p.message)
                             // Đóng / mở lại luồng: dòng hệ thống nhỏ ở giữa, không phải bong bóng tin.
@@ -1110,6 +1167,14 @@ class _ChatPageState extends State<ChatPage> {
         foregroundDecoration: BoxDecoration(border: Border.all(color: const Color(0xFFE53935), width: 3)),
         child: page,
       );
+    }
+    // Chat với trợ lý trên máy tính: cột phải (phiên, ảnh / tệp / liên kết, Token MCP, thao tác).
+    if ((claude || ch.isAi) && _wideAgent(context) && _sidePanelOpen) {
+      page = Row(children: [
+        Expanded(child: page),
+        Container(width: .5, color: pal.divider),
+        SizedBox(width: 340, child: _sidePanel(app, ch)),
+      ]);
     }
     // Kéo tệp từ máy tính thả vào khung chat (chat thường, chat với trợ lý, cột AI): đính kèm vào ô soạn tin.
     return FileDropZone(onFiles: (f) => _composer.currentState?.stage(f), child: page);
@@ -2133,6 +2198,27 @@ class _EmptyChat extends StatelessWidget {
       decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(14)),
       child: Text(tr('Chưa có tin nhắn. Hãy gửi lời chào đầu tiên 👋'),
           textAlign: TextAlign.center, style: TextStyle(color: pal.sub)),
+    );
+  }
+}
+
+/// Nhãn trên tin do agent bên ngoài gửi qua Token MCP.
+class _BridgeLabel extends StatelessWidget {
+  const _BridgeLabel();
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(color: const Color(0xFF6C4CE0).withValues(alpha: .12), borderRadius: BorderRadius.circular(10)),
+          child: Text(tr('🔗 Agent ngoài'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF6C4CE0))),
+        ),
+        const SizedBox(width: 6),
+        Flexible(child: Text(tr('gửi qua Token MCP'), style: TextStyle(fontSize: 11.5, color: pal.sub))),
+      ]),
     );
   }
 }

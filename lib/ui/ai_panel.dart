@@ -693,9 +693,9 @@ class _AiSessionList extends StatelessWidget {
       Expanded(
         child: ListView(padding: const EdgeInsets.only(bottom: 8), children: [
           if (open.isNotEmpty) header(tr('Đang làm')),
-          for (final c in open) _AiSessionTile(channel: c, selected: c.id == current && !sendMode),
+          for (final c in open) AiSessionTile(channel: c, selected: c.id == current && !sendMode),
           if (done.isNotEmpty) header(tr('Đã xong')),
-          for (final c in done) _AiSessionTile(channel: c, selected: c.id == current && !sendMode),
+          for (final c in done) AiSessionTile(channel: c, selected: c.id == current && !sendMode),
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -717,10 +717,13 @@ class _AiSessionList extends StatelessWidget {
   }
 }
 
-class _AiSessionTile extends StatelessWidget {
+class AiSessionTile extends StatelessWidget {
   final MmChannel channel;
   final bool selected;
-  const _AiSessionTile({required this.channel, required this.selected});
+  /// Bấm vào phiên (mặc định: đóng hộp chọn, trả về id phiên).
+  final VoidCallback? onTap;
+  final bool compact;
+  const AiSessionTile({super.key, required this.channel, required this.selected, this.onTap, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -734,21 +737,21 @@ class _AiSessionTile extends StatelessWidget {
     final at = last?.createAt ?? (c.lastPostAt > 0 ? c.lastPostAt : c.createAt);
     final busy = st == AiSessionState.running || st == AiSessionState.approval;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 10, vertical: compact ? 1 : 2),
       child: Material(
         color: selected ? pal.accent.withValues(alpha: .12) : Colors.transparent,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => Navigator.pop(context, c.id),
+          onTap: onTap ?? () => Navigator.pop(context, c.id),
           onLongPress: () => _sessionOptions(context, c),
           onSecondaryTap: () => _sessionOptions(context, c),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 8 : 12),
             child: Row(children: [
               Container(
-                width: 44,
-                height: 44,
+                width: compact ? 34 : 44,
+                height: compact ? 34 : 44,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -765,7 +768,7 @@ class _AiSessionTile extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 16,
+                              fontSize: compact ? 14.5 : 16,
                               fontWeight: unread > 0 || selected ? FontWeight.w700 : FontWeight.w600,
                               color: c.aiDone ? pal.sub : pal.text)),
                     ),
