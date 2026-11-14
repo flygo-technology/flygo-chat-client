@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart' show AndroidWebViewWidgetCreationParams;
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart' show WebKitWebViewController;
 
 import '../api/mini_apps.dart';
 import '../config.dart' show isDesktop;
@@ -264,6 +266,9 @@ class _MiniAppPageState extends State<MiniAppPage> {
 
   MiniApp get _app => widget.app;
   Completer<String>? _tvCode;
+  /// Trang đang xem, trang đầu tiên của app (lúc bỏ màn chờ) và trạng thái lùi / tới cho thanh điều hướng.
+  Uri? _cur, _start;
+  bool _canBack = false, _canFwd = false;
 
   @override
   void initState() {
@@ -280,9 +285,13 @@ class _MiniAppPageState extends State<MiniAppPage> {
         onPageFinished: (u) {
           _keepVisible();
           _maybeReady(u);
+          _syncNav();
         },
         // App một trang (SPA) đổi đường dẫn bằng pushState: không có onPageFinished mới, nên nghe cả onUrlChange.
-        onUrlChange: (c) => _maybeReady(c.url ?? ''),
+        onUrlChange: (c) {
+          _maybeReady(c.url ?? '');
+          _syncNav();
+        },
         onNavigationRequest: (req) {
           final u = Uri.tryParse(req.url);
           if (u == null) return NavigationDecision.prevent;
@@ -297,6 +306,9 @@ class _MiniAppPageState extends State<MiniAppPage> {
         },
       ));
     if (_app.userAgent != null) _web.setUserAgent(_app.userAgent);
+    // iOS / macOS: vuốt từ mép trái / phải để lùi / tới như Safari.
+    final wk = _web.platform;
+    if (wk is WebKitWebViewController) wk.setAllowsBackForwardNavigationGestures(true).catchError((_) {});
     if (widget.inWindow) MiniAppWindows.codeProvider = tvCode;
     _open(widget.url);
   }
@@ -351,14 +363,81 @@ class _MiniAppPageState extends State<MiniAppPage> {
     if (u == null || !_app.owns(u)) return;
     final p = u.path.toLowerCase();
     final hop = p.startsWith('/launch') || p.startsWith('/_flygo/enter') || p.contains('/auth/flygo/') || p.endsWith('/flygo-sso') || p.contains('/oidc/');
-    if (!hop && mounted && !_ready) setState(() => _ready = true);
+    if (!hop && mounted && !_ready) {
+      _start ??= u;
+      setState(() => _ready = true);
+    }
+  }
+
+  /// Đọc lại trang đang xem, lùi / tới được không. Đang ở trang đầu tiên của app thì không lùi: phía sau chỉ là các
+  /// bước vé / SSO (vé dùng một lần), lùi về đó là trang lỗi; nút quay lại khi đó đóng app.
+  Future<void> _syncNav() async {
+    try {
+      final cur = Uri.tryParse(await _web.currentUrl() ?? '');
+      final back = await _web.canGoBack(), fwd = await _web.canGoForward();
+      if (!mounted) return;
+      final atStart = _start == null || (cur != null && _sameUrl(cur, _start!));
+      setState(() {
+        _cur = cur;
+        _canBack = back && !atStart;
+        _canFwd = fwd;
+      });
+    } catch (_) {}
+  }
+
+  static bool _sameUrl(Uri a, Uri b) => a.removeFragment() == b.removeFragment();
+
+  /// Liên kết của trang đang xem để chép / chia sẻ / mở trình duyệt: trang vé (/launch?token=…) thì chỉ đưa gốc app.
+  Uri? get _shareUrl {
+    final u = _cur;
+    if (u == null || (u.scheme != 'https' && u.scheme != 'http')) return null;
+    if (_app.owns(u) && (u.path.startsWith('/launch') || u.queryParameters.containsKey('token'))) return Uri.parse(_app.baseUrl);
+    return u;
+  }
+
+  Future<void> _back() async {
+    if (_canBack && await _web.canGoBack()) await _web.goBack();
+  }
+
+  Future<void> _forward() async {
+    if (await _web.canGoForward()) await _web.goForward();
+  }
+
+  /// Tải lại: trang trong app xin vé mới (giữ trang đang xem), trang bên ngoài thì tải lại như trình duyệt.
+  Future<void> _reloadPage() async {
+    final cur = _cur;
+    if (cur == null || _app.owns(cur)) return _reload();
+    await _web.reload();
+  }
+
+  void _copyUrl() {
+    final u = _shareUrl;
+    if (u == null) return;
+    Clipboard.setData(ClipboardData(text: '$u'));
+    ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Đã sao chép liên kết'))));
+  }
+
+  Future<void> _navMenu(String v) async {
+    final u = _shareUrl;
+    if (u == null) return;
+    switch (v) {
+      case 'external':
+        await launchUrl(u, mode: LaunchMode.externalApplication);
+      case 'copy':
+        _copyUrl();
+      case 'share':
+        await SharePlus.instance.share(ShareParams(uri: u));
+    }
   }
 
   void _open(Future<Uri> url) {
     _readyFallback?.cancel();
     // Trang của app có thể dừng ở bước đăng nhập riêng: tối đa 8 giây thì hiện trang dù chưa "xong".
-    _readyFallback = Timer(const Duration(seconds: 8), () {
-      if (mounted && !_ready) setState(() => _ready = true);
+    _readyFallback = Timer(const Duration(seconds: 8), () async {
+      if (!mounted || _ready) return;
+      _start ??= Uri.tryParse(await _web.currentUrl() ?? '');
+      if (mounted) setState(() => _ready = true);
+      _syncNav();
     });
     url.then((u) => _web.loadRequest(u)).catchError((Object e) {
       _readyFallback?.cancel();
@@ -370,6 +449,7 @@ class _MiniAppPageState extends State<MiniAppPage> {
     setState(() {
       _error = null;
       _ready = false;
+      _start = null;
     });
     _open(MiniApps.launch(context.read<AppState>().token, _app));
   }
@@ -436,12 +516,15 @@ class _MiniAppPageState extends State<MiniAppPage> {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
+    final nav = _ready && _error == null && _app.navBar.visible(_app, canGoBack: _canBack, current: _cur);
+    final progress = _progress < 100 ? LinearProgressIndicator(value: _progress / 100, minHeight: 2) : const SizedBox(height: 2);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        // Nút quay lại: lùi trong app trước, hết trang mới đóng.
-        if (await _web.canGoBack()) {
+        // Nút quay lại (Android): lùi trong app trước, hết trang mới đóng.
+        await _syncNav();
+        if (_canBack && await _web.canGoBack()) {
           await _web.goBack();
         } else if (context.mounted) {
           Navigator.of(context).pop();
@@ -450,10 +533,11 @@ class _MiniAppPageState extends State<MiniAppPage> {
       child: Scaffold(
         backgroundColor: pal.bg,
         // Trong tab máy tính (Sếp): không có thanh tiêu đề, đóng bằng tab; chỉ còn vạch tải trang.
+        // Thanh điều hướng (Sếp, 2026-11-14): lùi, tới, tải lại, tên miền; điện thoại nằm dưới thanh tiêu đề.
         appBar: DeskTabScope.of(context) != null || widget.inWindow
             ? PreferredSize(
-                preferredSize: const Size.fromHeight(2),
-                child: _progress < 100 ? LinearProgressIndicator(value: _progress / 100, minHeight: 2) : const SizedBox(height: 2))
+                preferredSize: Size.fromHeight(nav ? _kNavBarHeight + 2 : 2),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [if (nav) _navBar(pal), progress]))
             : AppBar(
           leading: IconButton(icon: const Icon(Icons.close_rounded), tooltip: tr('Đóng'), onPressed: () => Navigator.of(context).pop()),
           titleSpacing: 0,
@@ -465,11 +549,15 @@ class _MiniAppPageState extends State<MiniAppPage> {
           actions: [
             if (_app.feature('tv_code'))
               IconButton(icon: const Icon(Icons.connected_tv_rounded), tooltip: tr('Mã liên kết TV'), onPressed: _showTvCode),
-            IconButton(icon: const Icon(Icons.refresh_rounded), tooltip: tr('Tải lại'), onPressed: _reload),
+            if (!nav) IconButton(icon: const Icon(Icons.refresh_rounded), tooltip: tr('Tải lại'), onPressed: _reload),
           ],
-          bottom: _progress < 100
-              ? PreferredSize(preferredSize: const Size.fromHeight(2), child: LinearProgressIndicator(value: _progress / 100, minHeight: 2))
-              : null,
+          bottom: nav
+              ? PreferredSize(
+                  preferredSize: const Size.fromHeight(_kNavBarHeight + 2),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [_navBar(pal), progress]))
+              : _progress < 100
+                  ? PreferredSize(preferredSize: const Size.fromHeight(2), child: progress)
+                  : null,
         ),
         // Android: hybrid composition (như trình duyệt Ký số). Mặc định webview_flutter vẽ qua texture (TLHC), trên
         // một số máy (S24 Ultra, Impeller) trang mini app chỉ hiện màn đen.
@@ -488,7 +576,19 @@ class _MiniAppPageState extends State<MiniAppPage> {
   }
 }
 
+const _kNavBarHeight = 40.0;
+
 extension on _MiniAppPageState {
+  Widget _navBar(Pal pal) => MiniAppNavStrip(
+        url: _cur,
+        outside: _cur != null && !_app.owns(_cur!),
+        onBack: _canBack ? _back : null,
+        onForward: _canFwd ? _forward : null,
+        onReload: _reloadPage,
+        onCopy: _shareUrl == null ? null : _copyUrl,
+        onMenu: _shareUrl == null ? null : _navMenu,
+      );
+
   /// Màn chờ khi mở app (xin vé, SSO, trang đầu): biểu tượng app, vòng quay, "Đang mở ứng dụng …"; lỗi thì có Thử lại.
   Widget _opening(Pal pal) {
     final color = miniAppTileColor(_app);
@@ -522,6 +622,85 @@ extension on _MiniAppPageState {
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// Thanh điều hướng mỏng của webview mini app: lùi, tới, tải lại, tên miền (khoá = https; chạm để chép liên kết) và
+/// menu ⋯ (mở trình duyệt, chép / chia sẻ liên kết). Không có ô gõ địa chỉ. Nút null = mờ.
+class MiniAppNavStrip extends StatelessWidget {
+  final Uri? url;
+  /// Trang đang ở ngoài origin của app: tên miền đậm để dễ thấy.
+  final bool outside;
+  final VoidCallback? onBack, onForward, onReload, onCopy;
+  final ValueChanged<String>? onMenu;
+  const MiniAppNavStrip({super.key, this.url, this.outside = false, this.onBack, this.onForward, this.onReload, this.onCopy, this.onMenu});
+
+  static const height = _kNavBarHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final u = url;
+    final secure = u?.scheme == 'https';
+    final host = u == null ? '' : (u.hasPort && u.port != 443 && u.port != 80 ? '${u.host}:${u.port}' : u.host);
+    Widget btn(IconData i, String tip, VoidCallback? on, Key key) => IconButton(
+          key: key,
+          icon: Icon(i, size: 20),
+          tooltip: tip,
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          onPressed: on,
+        );
+    return Container(
+      key: const ValueKey('mini-app-nav-bar'),
+      height: _kNavBarHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(color: pal.surface, border: Border(bottom: BorderSide(color: pal.divider, width: 0.5))),
+      child: Row(children: [
+        btn(Icons.arrow_back_rounded, tr('Quay lại'), onBack, const ValueKey('nav-back')),
+        btn(Icons.arrow_forward_rounded, tr('Trang sau'), onForward, const ValueKey('nav-forward')),
+        btn(Icons.refresh_rounded, tr('Tải lại'), onReload, const ValueKey('nav-reload')),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Tooltip(
+            message: tr('Sao chép liên kết'),
+            child: InkWell(
+              key: const ValueKey('nav-domain'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: onCopy,
+              child: Container(
+                height: 30,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(color: pal.bg, borderRadius: BorderRadius.circular(8)),
+                child: Row(children: [
+                  Icon(secure ? Icons.lock_rounded : Icons.lock_open_rounded, size: 14, color: secure ? pal.sub : Colors.orange),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(host,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13, color: outside ? pal.text : pal.sub, fontWeight: outside ? FontWeight.w600 : null)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+        PopupMenuButton<String>(
+          key: const ValueKey('nav-menu'),
+          icon: const Icon(Icons.more_horiz_rounded, size: 20),
+          tooltip: tr('Thêm'),
+          enabled: onMenu != null,
+          onSelected: onMenu,
+          itemBuilder: (_) => [
+            PopupMenuItem(value: 'external', child: ListTile(leading: const Icon(Icons.open_in_new_rounded), title: Text(tr('Mở trong trình duyệt')))),
+            PopupMenuItem(value: 'copy', child: ListTile(leading: const Icon(Icons.link_rounded), title: Text(tr('Sao chép liên kết')))),
+            PopupMenuItem(value: 'share', child: ListTile(leading: const Icon(Icons.ios_share_rounded), title: Text(tr('Chia sẻ liên kết')))),
+          ],
+        ),
+      ]),
     );
   }
 }

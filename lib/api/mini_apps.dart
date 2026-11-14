@@ -38,8 +38,12 @@ class MiniApp {
   /// - `window`: máy tính mở app ở cửa sổ riêng (lib/ui/mini_app_windows.dart);
   /// - `tv_code`: trang là YouTube TV: lấy được mã liên kết TV (điện thoại "Liên kết với TV bằng mã" để thêm bài).
   final Map<String, dynamic> features;
+  /// Manifest "nav_bar" (hoặc features.nav_bar): thanh điều hướng kiểu trình duyệt (lùi, tới, tải lại, tên miền)
+  /// trên webview của app. true = luôn hiện, false = không bao giờ, "auto" (mặc định) = chỉ hiện khi lùi được hoặc
+  /// trang đã ra ngoài base_url.
+  final MiniAppNavBar navBar;
   MiniApp._(this.id, this._name, this._description, this.icon, this.version, this.minClient, this.origin, this.scanPrefixes,
-      this.baseUrl, this._nativeScreen, this._nativeMin, this.openInBrowser, this.tile, this.plain, this.userAgent, this.features);
+      this.baseUrl, this._nativeScreen, this._nativeMin, this.openInBrowser, this.tile, this.plain, this.userAgent, this.features, this.navBar);
 
   factory MiniApp.fromJson(Map j) => MiniApp._(
         '${j['id']}',
@@ -58,6 +62,7 @@ class MiniApp {
         j['plain'] == true || '${j['id']}'.startsWith('vn.flygo.web.'),
         '${j['user_agent'] ?? ''}'.isEmpty ? null : '${j['user_agent']}',
         j['features'] is Map ? Map<String, dynamic>.from(j['features'] as Map) : const {},
+        MiniAppNavBar.parse(j['nav_bar'] ?? (j['features'] is Map ? (j['features'] as Map)['nav_bar'] : null)),
       );
 
 
@@ -78,6 +83,7 @@ class MiniApp {
         'plain': plain,
         'user_agent': userAgent,
         'features': features,
+        'nav_bar': navBar.json,
       };
 
   bool feature(String name) => features[name] == true;
@@ -105,6 +111,14 @@ class MiniApp {
     return o != null && u.scheme == o.scheme && u.host == o.host && u.port == o.port;
   }
 
+  /// Trang nằm trong base_url của app (cùng origin, đường dẫn bắt đầu bằng đường dẫn của base_url).
+  bool underBase(Uri u) {
+    if (!owns(u)) return false;
+    final b = Uri.tryParse(baseUrl);
+    final bp = b == null ? '' : b.path.replaceAll(RegExp(r'/+$'), '');
+    return bp.isEmpty || u.path == bp || u.path.startsWith('$bp/');
+  }
+
   /// Đường dẫn (kèm query / fragment) mở app khi quét [raw], nếu khớp một scan_prefixes; không khớp: null.
   String? scanPath(String raw) {
     if (!scanPrefixes.any((p) => p.isNotEmpty && raw.startsWith(p))) return null;
@@ -113,6 +127,29 @@ class MiniApp {
     final path = u.path.isEmpty ? '/' : u.path;
     return '$path${u.hasQuery ? '?${u.query}' : ''}${u.hasFragment ? '#${u.fragment}' : ''}';
   }
+}
+
+/// Chế độ thanh điều hướng của webview mini app (manifest "nav_bar").
+enum MiniAppNavBar {
+  auto,
+  always,
+  never;
+
+  static MiniAppNavBar parse(Object? v) => v == true || v == 'true' || v == 'always'
+      ? always
+      : v == false || v == 'false' || v == 'never'
+          ? never
+          : auto;
+
+  Object get json => switch (this) { always => true, never => false, auto => 'auto' };
+
+  /// Có hiện thanh không: [canGoBack] = lùi được trong app (không tính các trang vé / SSO trước trang đầu tiên),
+  /// [current] = trang đang xem.
+  bool visible(MiniApp app, {required bool canGoBack, Uri? current}) => switch (this) {
+        always => true,
+        never => false,
+        auto => canGoBack || (current != null && (current.scheme == 'https' || current.scheme == 'http') && !app.underBase(current)),
+      };
 }
 
 String? _clientVersion;

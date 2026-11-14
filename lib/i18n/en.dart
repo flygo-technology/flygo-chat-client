@@ -3360,4 +3360,8 @@ const Map<String, String> en = {
   'Cấp quyền': "Grant",
   'Đang cập nhật {0}/{1}': "Updating {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "{0} permissions couldn't be changed: {1}",
+  'Trang sau': "Forward",
+  'Sao chép liên kết': "Copy link",
+  'Chia sẻ liên kết': "Share link",
+  'Đã sao chép liên kết': "Link copied",
 };

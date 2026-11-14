@@ -2412,4 +2412,8 @@ const Map<String, String> ko = {
   'Cấp quyền': "부여",
   'Đang cập nhật {0}/{1}': "업데이트 중 {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "권한 {0}개를 변경하지 못했습니다: {1}",
+  'Trang sau': "앞으로",
+  'Sao chép liên kết': "링크 복사",
+  'Chia sẻ liên kết': "링크 공유",
+  'Đã sao chép liên kết': "링크가 복사되었습니다",
 };

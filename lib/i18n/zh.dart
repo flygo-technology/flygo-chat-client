@@ -2412,4 +2412,8 @@ const Map<String, String> zh = {
   'Cấp quyền': "授予",
   'Đang cập nhật {0}/{1}': "正在更新 {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "{0} 项权限未能更改：{1}",
+  'Trang sau': "前进",
+  'Sao chép liên kết': "复制链接",
+  'Chia sẻ liên kết': "分享链接",
+  'Đã sao chép liên kết': "链接已复制",
 };

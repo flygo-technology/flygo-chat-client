@@ -2412,4 +2412,8 @@ const Map<String, String> ja = {
   'Cấp quyền': "付与",
   'Đang cập nhật {0}/{1}': "更新中 {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "{0} 件の権限を変更できませんでした: {1}",
+  'Trang sau': "進む",
+  'Sao chép liên kết': "リンクをコピー",
+  'Chia sẻ liên kết': "リンクを共有",
+  'Đã sao chép liên kết': "リンクをコピーしました",
 };
