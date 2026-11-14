@@ -2406,4 +2406,10 @@ const Map<String, String> zh = {
   'VD: Trưởng phòng Kinh doanh': "例如：销售经理",
   'Hồ sơ': '个人资料',
   'Mẹo: vuốt lên bằng 3 ngón để đổi hoặc thêm máy chủ': '提示：三指上滑可切换或添加服务器',
+  'Bỏ tất cả': "全部取消",
+  'Cấp {0} quyền cho {1}?': "为 {1} 授予 {0} 项权限？",
+  'Bỏ {0} quyền của {1}?': "移除 {1} 的 {0} 项权限？",
+  'Cấp quyền': "授予",
+  'Đang cập nhật {0}/{1}': "正在更新 {0}/{1}",
+  '{0} quyền chưa đổi được: {1}': "{0} 项权限未能更改：{1}",
 };

@@ -587,6 +587,12 @@ class _PermPanelState extends State<_PermPanel> {
   String _q = '';
   final _busy = <String>{};
 
+  /// Nhóm app đang mở / thu gọn, giữ trong phiên chạy app (theo mục đang chọn + app). Chưa có thì: mở nếu nhóm có quyền.
+  static final _expanded = <String, bool>{};
+
+  /// Đang cấp / bỏ hàng loạt: (đã xong, tổng).
+  (int, int)? _progress;
+
   @override
   void initState() {
     super.initState();
@@ -660,6 +666,66 @@ class _PermPanelState extends State<_PermPanel> {
     if (mounted) setState(() => _busy.remove(k));
   }
 
+  bool _isOn(String id) => _direct.containsKey(id) || (_via[id]?.isNotEmpty ?? false);
+
+  /// Có sẵn nhờ phòng cấp trên / vai trò / "Mọi người" (không gán trực tiếp): cấp / bỏ hàng loạt không đụng tới.
+  bool _isInherited(String id) => !_direct.containsKey(id) && (_via[id]?.isNotEmpty ?? false);
+
+  String _expandKey(String app) => '${widget.sel.type}:${widget.sel.id}|$app';
+
+  /// Cấp ([on]) hoặc bỏ các quyền [items] (app, quyền; mọi công ty), mỗi lúc 4 yêu cầu, có tiến độ. Đổi nhiều hơn 10 quyền
+  /// thì hỏi lại. Quyền kế thừa bỏ qua; quyền đã đúng trạng thái bỏ qua.
+  Future<void> _bulk(List<(String, String)> items, bool on) async {
+    final todo = [
+      for (final (app, perm) in items)
+        if (on ? !_isOn('$app\n$perm\n') : _direct.containsKey('$app\n$perm\n')) (app, perm),
+    ];
+    if (todo.isEmpty || _progress != null) return;
+    final who = widget.title ?? '';
+    if (todo.length > 10) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(on ? tr('Cấp {0} quyền cho {1}?', [todo.length, who]) : tr('Bỏ {0} quyền của {1}?', [todo.length, who])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(on ? tr('Cấp quyền') : tr('Bỏ quyền'))),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+    final m = ScaffoldMessenger.of(context);
+    setState(() => _progress = (0, todo.length));
+    var next = 0, done = 0, failed = 0;
+    Object? lastErr;
+    Future<void> worker() async {
+      while (next < todo.length) {
+        final (app, perm) = todo[next++];
+        final k = '$app\n$perm\n';
+        try {
+          if (on) {
+            final r = await widget.api.call('POST', '/v1/admin/grants', {'subject_type': widget.sel.type, 'subject_id': widget.sel.id, 'app': app, 'perm': perm});
+            _direct[k] = '${(r['grant'] as Map)['id']}';
+          } else if (_direct[k] != null) {
+            await widget.api.call('DELETE', '/v1/admin/grants/${_direct[k]}');
+            _direct.remove(k);
+          }
+        } catch (e) {
+          failed++;
+          lastErr = e;
+        }
+        done++;
+        if (mounted) setState(() => _progress = (done, todo.length));
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < 4; i++) worker()]);
+    if (!mounted) return;
+    setState(() => _progress = null);
+    if (failed > 0) m.showSnackBar(toast(Text(tr('{0} quyền chưa đổi được: {1}', [failed, '$lastErr']))));
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
@@ -673,6 +739,17 @@ class _PermPanelState extends State<_PermPanel> {
         return ta != tb ? ta.compareTo(tb) : appName(a).compareTo(appName(b));
       });
     final q = _q.toLowerCase();
+    // Các quyền của app hiện theo ô tìm, theo thứ tự: quản trị, dùng app, tool, quyền khác, sự kiện.
+    List<String> keysOf(Map a) {
+      final perms = Map<String, dynamic>.from((a['perms'] as Map?) ?? const {});
+      return perms.keys.where((k) => q.isEmpty || appName(a).toLowerCase().contains(q) || '$k ${(perms[k] as Map)['name']}'.toLowerCase().contains(q)).toList()
+        ..sort((x, y) {
+          int rank(String k) => k == 'admin' ? -1 : k == 'use' ? 0 : (k.startsWith('tool:') ? 1 : (k.startsWith('webhook:') ? 3 : 2));
+          final r = rank(x).compareTo(rank(y));
+          return r != 0 ? r : x.compareTo(y);
+        });
+    }
+
     return ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 40), children: [
       if (widget.title != null)
         Padding(
@@ -697,16 +774,41 @@ class _PermPanelState extends State<_PermPanel> {
         onChanged: (v) => setState(() => _q = v),
       ),
       const SizedBox(height: 8),
+      // Chọn tất cả / Bỏ tất cả: mọi quyền đang hiện (theo ô tìm), không đụng quyền kế thừa.
+      Row(children: [
+        TextButton.icon(
+          key: const ValueKey('perm-all-on'),
+          onPressed: _progress != null ? null : () => _bulk([for (final a in sorted) for (final k in keysOf(a)) ('${a['id']}', k)], true),
+          icon: const Icon(Icons.done_all_rounded, size: 18),
+          label: Text(tr('Chọn tất cả')),
+        ),
+        TextButton.icon(
+          key: const ValueKey('perm-all-off'),
+          onPressed: _progress != null ? null : () => _bulk([for (final a in sorted) for (final k in keysOf(a)) ('${a['id']}', k)], false),
+          icon: const Icon(Icons.remove_done_rounded, size: 18),
+          label: Text(tr('Bỏ tất cả')),
+        ),
+        const Spacer(),
+        if (_progress != null)
+          Text(tr('Đang cập nhật {0}/{1}', [_progress!.$1, _progress!.$2]), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+      ]),
+      if (_progress != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: LinearProgressIndicator(value: _progress!.$2 == 0 ? null : _progress!.$1 / _progress!.$2),
+        ),
+      const SizedBox(height: 4),
       for (final a in sorted)
         Builder(builder: (_) {
           final perms = Map<String, dynamic>.from((a['perms'] as Map?) ?? const {});
-          final keys = perms.keys.where((k) => q.isEmpty || appName(a).toLowerCase().contains(q) || '$k ${(perms[k] as Map)['name']}'.toLowerCase().contains(q)).toList()
-            ..sort((x, y) {
-              int rank(String k) => k == 'admin' ? -1 : k == 'use' ? 0 : (k.startsWith('tool:') ? 1 : (k.startsWith('webhook:') ? 3 : 2));
-              final r = rank(x).compareTo(rank(y));
-              return r != 0 ? r : x.compareTo(y);
-            });
+          final keys = keysOf(a);
           if (keys.isEmpty) return const SizedBox.shrink();
+          final ids = [for (final k in keys) '${a['id']}\n$k\n'];
+          final granted = ids.where(_isOn).length;
+          final groupValue = granted == 0 ? false : (granted == ids.length ? true : null);
+          final changeable = ids.any((id) => !_isInherited(id));
+          final ek = _expandKey('${a['id']}');
+          final open = q.isNotEmpty || (_expanded[ek] ?? granted > 0);
           return Card(
             elevation: 0,
             color: pal.surface,
@@ -715,10 +817,27 @@ class _PermPanelState extends State<_PermPanel> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
-                  child: Text(appName(a), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+                // Đầu nhóm: mũi tên thu / mở, tên app, "đã cấp/tổng", ô chọn cả nhóm (tất cả / một phần / không).
+                InkWell(
+                  key: ValueKey('perm-group-${a['id']}'),
+                  onTap: () => setState(() => _expanded[ek] = !open),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 2, 6, 2),
+                    child: Row(children: [
+                      Icon(open ? Icons.expand_more_rounded : Icons.chevron_right_rounded, color: pal.sub),
+                      const SizedBox(width: 4),
+                      Expanded(child: Text(appName(a), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text))),
+                      Text('$granted/${ids.length}', key: ValueKey('perm-count-${a['id']}'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+                      Checkbox(
+                        key: ValueKey('perm-group-check-${a['id']}'),
+                        tristate: true,
+                        value: groupValue,
+                        onChanged: _progress != null || !changeable ? null : (_) => _bulk([for (final k in keys) ('${a['id']}', k)], groupValue != true),
+                      ),
+                    ]),
+                  ),
                 ),
+                if (open)
                 for (final k in keys)
                   Builder(builder: (_) {
                     final p = Map<String, dynamic>.from(perms[k] as Map);

@@ -3344,4 +3344,10 @@ const Map<String, String> en = {
   'VD: Trưởng phòng Kinh doanh': "e.g. Sales Manager",
   'Hồ sơ': 'Profile',
   'Mẹo: vuốt lên bằng 3 ngón để đổi hoặc thêm máy chủ': 'Tip: swipe up with 3 fingers to switch or add a server',
+  'Bỏ tất cả': "Clear all",
+  'Cấp {0} quyền cho {1}?': "Grant {0} permissions to {1}?",
+  'Bỏ {0} quyền của {1}?': "Remove {0} permissions from {1}?",
+  'Cấp quyền': "Grant",
+  'Đang cập nhật {0}/{1}': "Updating {0}/{1}",
+  '{0} quyền chưa đổi được: {1}': "{0} permissions couldn't be changed: {1}",
 };

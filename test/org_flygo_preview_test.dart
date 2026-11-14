@@ -85,8 +85,14 @@ void main() {
       'vn.flygo.kyso/fpt-7e3f': {'name': 'Ký số CÔNG TY TNHH ABC CAPITAL', 'provider': 'vn.flygo.kyso'},
     },
   };
+  final posted = <Map>[];
   FlygoOrgView.debugClient = MockClient((r) async {
     final p = r.url.path;
+    if (p == '/v1/admin/grants' && r.method == 'POST') {
+      final b = jsonDecode(r.body) as Map;
+      posted.add(b);
+      return _json({'grant': {'id': 'n${posted.length}', ...b}});
+    }
     if (p == '/v1/org') return _json(org);
     if (p == '/v1/admin/catalog') return _json(catalog);
     if (p == '/v1/admin/grants') {
@@ -161,5 +167,49 @@ void main() {
       await tester.tapAt(tester.getCenter(find.text('Kế toán')), buttons: kSecondaryButton);
       await tester.pump();
     });
+  });
+
+  testWidgets('quyền theo app: nhóm thu gọn, đếm n/N, chọn cả nhóm, Chọn tất cả (hỏi lại khi > 10)', (tester) async {
+    posted.clear();
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+      value: app,
+      child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: FlygoOrgView(app: app, fid: FlygoId(base: 'https://apps.test', chatToken: 't')))),
+    ));
+    Future<void> settle() async {
+      for (var i = 0; i < 8; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await settle();
+    await tester.tap(find.text('Kinh doanh'));
+    await settle();
+    // Chưa có quyền nào: nhóm thu gọn, đếm 0/N.
+    expect(find.byKey(const ValueKey('perm-count-vn.example.bank')), findsOneWidget);
+    expect(find.text('0/5'), findsOneWidget);
+    expect(find.text('Xem số dư'), findsNothing, reason: 'thu gọn: không hiện từng quyền');
+    await tester.tap(find.byKey(const ValueKey('perm-group-vn.example.bank')));
+    await settle();
+    expect(find.text('Xem số dư'), findsOneWidget, reason: 'bấm đầu nhóm thì mở ra');
+    // Ô chọn cả nhóm (2 quyền: không hỏi lại).
+    await tester.tap(find.byKey(const ValueKey('perm-group-check-vn.flygo.minvoice')));
+    await settle();
+    expect(posted.length, 2);
+    expect(find.text('2/2'), findsOneWidget);
+    // Chọn tất cả: còn 10 quyền -> không hỏi; bỏ tất cả 12 -> hỏi lại.
+    await tester.tap(find.byKey(const ValueKey('perm-all-on')));
+    await settle();
+    expect(posted.length, 12);
+    expect(find.text('5/5'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('perm-all-off')));
+    await settle();
+    expect(find.textContaining('Bỏ 12 quyền của'), findsOneWidget);
+    await tester.tap(find.text('Bỏ quyền'));
+    await settle();
+    expect(find.text('0/5'), findsOneWidget);
   });
 }
