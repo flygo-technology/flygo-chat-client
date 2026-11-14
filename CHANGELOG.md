@@ -2,6 +2,9 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 478 (2026-11-14)
+- Apps: "Dịch thuật" tile under Chính with a translate icon.
+
 ## 477 (2026-11-14)
 - Threads: Trả lời on a message inside a thread quotes it.
 - Paste: clipboard BMP/TIFF converted to real PNG; file name and MIME match the content.
