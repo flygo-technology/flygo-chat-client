@@ -14,6 +14,7 @@ import 'package:flygo_chat/ui/agent_view.dart';
 import 'package:flygo_chat/ui/artifact_view.dart';
 import 'package:flygo_chat/ui/chat_themes.dart';
 import 'package:flygo_chat/ui/file_card.dart';
+import 'package:flygo_chat/ui/mcp_page.dart';
 import 'package:flygo_chat/ui/markdown_view.dart';
 import 'package:flygo_chat/ui/shell_highlight.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -60,7 +61,18 @@ const _me = 'mmmmmmmmmmmmmmmmmmmmmmmmmm';
 void main() {
   final out = Platform.environment['AP_OUT'];
   final app = AppState('t')..me = MmUser({'id': _me, 'username': 'owner', 'first_name': 'Owner'});
-  app.users['bot'] = MmUser({'id': 'bot', 'username': 'coder', 'first_name': 'Coder', 'is_bot': true});
+  app.users['bot'] = MmUser({'id': 'bot', 'username': 'coder', 'first_name': 'Coder', 'is_bot': true, 'bot_description': '[flygo-agent engine=claude]'});
+  app.users['bot2'] = MmUser({'id': 'bot2', 'username': 'gpt-coder', 'first_name': 'GPT', 'is_bot': true, 'bot_description': '[flygo-agent engine=codex]'});
+  app.noteMyBot('bot');
+  app.noteMyBot('bot2');
+  ExtApi.debugCall = (bot, body) async => {
+        'ok': true,
+        'list': [
+          {'id': 'linear', 'name': 'Linear', 'url': 'https://mcp.linear.app/mcp', 'enabled': true, 'auth': 'oauth', 'connected': true, 'added_by': 'agent'},
+          if (bot == 'bot') {'id': 'sentry', 'name': 'Sentry', 'url': 'https://mcp.sentry.dev/mcp', 'enabled': true, 'auth': 'key', 'connected': true},
+          {'id': 'docs', 'name': 'Tài liệu nội bộ', 'url': 'https://docs.example.com/mcp', 'enabled': false, 'auth': 'none', 'connected': true},
+        ],
+      };
   final now = DateTime(2026, 11, 14, 15, 30).millisecondsSinceEpoch;
   MmChannel session(String id, String title, int at, {String header = ''}) => MmChannel({
         'id': id,
@@ -341,6 +353,43 @@ flutter build ios --release
                     text: '**Tóm tắt.** Thị trường thang máy Việt Nam ước đạt khoảng 18.000 thang lắp mới năm 2025, tăng 6–8%/năm [1]. Nhà ở cao tầng chiếm hơn một nửa nhu cầu [2], thang gia đình tăng nhanh nhất ở đô thị loại 1 [3].\n\n**Nguồn**\n\n[1] Thị trường thang máy 2025 — vneconomy.vn\n\n[2] Niên giám thống kê — gso.gov.vn\n\n[3] Elevator market Vietnam — statista.com',
                     style: aiAnswerStyle(Pal.of(c).text)),
               ]),
+            ),
+          ),
+        ));
+    await shot(t, 'mcp-page', const Size(900, 760), const McpPage());
+    await shot(t, 'mcp-page-phone', const Size(390, 820), const McpPage());
+    await shot(
+        t,
+        'mcp-request-dialog',
+        const Size(560, 620),
+        Scaffold(
+          body: McpConnectDialog(bots: [app.users['bot']!], request: const {
+            'req_id': 'r1', 'bot_id': 'bot', 'name': 'Linear', 'url': 'https://mcp.linear.app/mcp', 'auth': 'oauth', 'tools': 21,
+            'reason': 'Cần đọc các issue của dự án để lập kế hoạch sprint.', 'status': 'pending',
+          }),
+        ));
+    await shot(
+        t,
+        'mcp-connect-dialog',
+        const Size(560, 640),
+        Scaffold(body: McpConnectDialog(bots: [app.users['bot']!, app.users['bot2']!], preset: const {'name': 'Sentry', 'url': 'https://mcp.sentry.dev/mcp'})));
+    await shot(
+        t,
+        'mcp-add-card',
+        const Size(560, 200),
+        Builder(
+          builder: (c) => Material(
+            color: Pal.of(c).chatBg,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: McpAddCard(
+                    post: MmPost({'id': 'm1', 'channel_id': cur, 'user_id': 'bot', 'message': '', 'create_at': 0, 'props': {
+                  'flygo_agent_owner': _me,
+                  'flygo_mcp_add': {'req_id': 'r1', 'bot_id': 'bot', 'name': 'Linear', 'url': 'https://mcp.linear.app/mcp', 'auth': 'oauth', 'tools': 21, 'status': 'pending'}
+                }})),
+              ),
             ),
           ),
         ));

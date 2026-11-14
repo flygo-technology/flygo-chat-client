@@ -24,6 +24,7 @@ import { INLINE_MAX, insideDir, saveFilePart, splitParts, toFilePart, uploadLarg
 import { InlineReply } from "./messages";
 import { aiChannelName, aiOf, ancestorChain, linkOf, projectChannelName, projectOwnerOf, subOf, type Level } from "./chain";
 import { createChatOps, safeFileName, type Origin } from "./chat-ops";
+import { ExtStore, extFileFor, probeMcp, type Ext } from "./ext-mcp";
 import { collectRange, pageEntries, parseAgyDb, parseClaudeJsonl, parseCodexRollout, renderChatTranscript, renderEntry, type Entry } from "./history";
 import { botHome, claudeSkillsDir, deleteSkill, listSkills, memoryPath, readRole, readSkill, roleLine, roleSlug, saveSkill, setRole, skillDoc, skillFilesOf, skillName, type SkillFile } from "./skills";
 import pkg from "../package.json";
@@ -148,6 +149,8 @@ const ENGINE: EngineName = cfg.engine; // bot gắn cố định một engine, k
 const dbPath = join(CONFIG_DIR, `state-${BOT_ID}.db`);
 if (!existsSync(dbPath) && existsSync(join(CONFIG_DIR, "state.db")) && BOT_NAME === "sep-ai") copyFileSync(join(CONFIG_DIR, "state.db"), dbPath);
 const db = new Database(dbPath);
+// MCP bên ngoài (Streamable HTTP) của chủ bot: thêm từ app hoặc agent đề xuất (mcp_add); khoá chỉ lưu trên máy này.
+const extStore = new ExtStore(extFileFor(CONFIG_DIR, BOT_ID), log);
 db.run(`CREATE TABLE IF NOT EXISTS sessions (
   root_id TEXT PRIMARY KEY, channel_id TEXT, engine TEXT, session_id TEXT, status TEXT,
   title TEXT, card_post_id TEXT, last_seen_at INTEGER, updated_at INTEGER)`);
@@ -421,6 +424,12 @@ const http = Bun.serve({
     if (url.pathname === "/chat_watch" && req.method === "POST") { // chat_watch: AI theo dõi chat
       const r = await chatWatchTool(await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
       return Response.json({ text: r });
+    }
+    if (url.pathname === "/mcp_add" && req.method === "POST") { // agent đề xuất thêm MCP bên ngoài: chủ bot duyệt trên app
+      const b = await req.json();
+      const ctx = orchRuns.get(String(b.key ?? ""));
+      if (!ctx) return Response.json({ text: "Phiên không còn chạy." });
+      return Response.json({ text: await mcpAddRequest({ ...ctx, assigner: ctx.assigner ?? "" }, String(b.url ?? ""), String(b.name ?? ""), String(b.reason ?? "")) });
     }
     if (url.pathname === "/sent_files" && req.method === "POST") { // chat_send_files đã gửi: ghi bước; trả lời dạng dòng thời gian thì
       const b = await req.json();                                   // đánh dấu tin tệp để app vẽ ảnh đúng chỗ trong câu trả lời
@@ -2612,6 +2621,7 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
     `- chat_history(limit?, before_post_id?, channel?) · chat_thread(root_id?, channel?) · chat_search(terms, channel?)`,
     `- chat_files(scope?: thread|channel, root_id?, channel?) · chat_read_file(file_id, channel?) · chat_info() · chat_ancestors()`,
     `- chat_send_files(paths, message?): gửi tệp vào chủ đề hiện tại`,
+    `- mcp_add(url, name?, reason?): đề xuất nối một MCP bên ngoài (Streamable HTTP); chủ bot duyệt / đăng nhập trên app, tool của nó dùng được từ lượt sau`,
     `- artifact_publish(title, html | path, artifact_id?, kind?): đăng trang HTML / biểu đồ / mini app XEM và BẤM được ngay trong chat (HTML tự chứa, thư viện từ cdn.jsdelivr.net / cdnjs, không gọi mạng); sửa thì gọi lại với artifact_id để ra phiên bản mới`,
     `- Mọi chat bot thấy (tham số chat / to: id kênh, ~tên, @username = chat 1-1 bot↔người đó, ref_id chat được tag)${owner ? "" : "; người giao việc không phải chủ bot nên chỉ dùng được chat người đó cũng ở trong, nhắn riêng chỉ cho chính người đó"}:`,
     `  · đọc: chat_list(type?, query?, unread_only?) · chat_unread(since?, only?) · chat_history / chat_thread / chat_search với chat (chat_history nhận from / to để đọc theo khoảng thời gian) · chat_export(chat?, from?, to?, threads?, format?) (xuất CẢ lịch sử một chat ra tệp md / jsonl trong thư mục làm việc, kể cả trả lời trong luồng, tệp, cảm xúc) · chat_get_message(post_id) · chat_get_files(post_id | file_id, download?) (tải tệp của tin ở chat bất kỳ) · chat_members(chat) · chat_find_user(query) · user_info(user) · chat_pinned(chat) · chat_digest(chats?, since?) (bạn tự tóm tắt)`,
@@ -2740,6 +2750,97 @@ async function groupNews(outer: Outer, root: string, first: boolean): Promise<st
 interface RefItem { ref_id: string; kind: "chat" | "thread"; channel_id: string; root_id?: string; name: string }
 interface RefGrant { grant_id: string; expires_at: number; write: boolean; server: string; items: RefItem[] }
 /** Relay /ref: cấu hình refRelay, không có thì trạm đẩy cùng tên miền với server ("chat.x" -> "push.x"). */
+// ---- MCP bên ngoài
+/** Đề xuất của agent (mcp_add) đang chờ chủ bot: req_id -> … */
+const mcpReqs = new Map<string, { name: string; url: string; auth: string; postId: string; channelId: string; resolve: (t: string) => void }>();
+const oauthRedirect = () => `${refRelay()}/a2a/oauth/callback`;
+const extHeaders = (secrets: any): Record<string, string> =>
+  secrets && typeof secrets === "object" ? Object.fromEntries(Object.entries(secrets).filter(([k, v]) => /^[A-Za-z0-9-]{1,64}$/.test(k) && typeof v === "string" && v.length < 4096)) as Record<string, string> : {};
+
+async function mcpReqStatus(id: string, status: string, extra: Record<string, any> = {}) {
+  const r = mcpReqs.get(id);
+  if (!r) return;
+  const p = await mm.api<any>("GET", `/posts/${r.postId}`).catch(() => null);
+  if (p) await mm.patchPost(r.postId, { props: { ...(p.props ?? {}), flygo_mcp_add: { ...(p.props?.flygo_mcp_add ?? {}), status, ...extra } } }).catch(() => {});
+}
+
+async function mcpAddRequest(ctx: { channelId: string; assigner: string; card?: any; signal?: AbortSignal }, url: string, name: string, reason: string): Promise<string> {
+  if (!/^https?:\/\//i.test(url)) return "URL MCP phải là http(s) (Streamable HTTP).";
+  const probe = await probeMcp(url);
+  if (!probe.ok && probe.auth === "none") return `Không kết nối được MCP: ${probe.error}`;
+  const label = (name || probe.serverName || new URL(url).hostname).slice(0, 60);
+  const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const owner = cfg.ownerUserIds[0];
+  const post = await mm.createPost({
+    channel_id: ctx.channelId, root_id: "",
+    message: `🔌 Trợ lý muốn thêm MCP "${label}" (${url}) — chờ chủ bot duyệt trên app.`,
+    props: { flygo_agent_owner: owner, flygo_mcp_add: { req_id: id, bot_id: BOT_ID, name: label, url, auth: probe.ok ? "none" : probe.auth, tools: probe.tools?.length ?? null, reason: reason.slice(0, 300), status: "pending" } },
+  });
+  ctx.card?.step({ id: `mcp-${id}`, kind: "approval", title: `Chờ duyệt thêm MCP ${label}`, status: "waiting" });
+  const text = await new Promise<string>((resolve) => {
+    const timer = setTimeout(() => { mcpReqStatus(id, "expired"); mcpReqs.delete(id); resolve("Chủ bot chưa duyệt trong 15 phút, chưa thêm MCP."); }, 15 * 60_000);
+    mcpReqs.set(id, { name: label, url, auth: probe.ok ? "none" : probe.auth, postId: post.id, channelId: ctx.channelId, resolve: (t) => { clearTimeout(timer); mcpReqs.delete(id); resolve(t); } });
+    ctx.signal?.addEventListener("abort", () => { mcpReqs.get(id)?.resolve("Lượt đã dừng."); });
+  });
+  ctx.card?.step({ id: `mcp-${id}`, kind: "approval", title: `MCP ${label}: ${text.slice(0, 80)}`, status: text.startsWith("Đã thêm") ? "done" : "error" });
+  return text;
+}
+
+/** Thao tác MCP từ app (qua relay). Chỉ chủ bot. Không bao giờ trả khoá / token. */
+async function extAction(userId: string, body: any): Promise<any> {
+  if (!isOwner(userId)) return { ok: false, status: 403, error: "chỉ chủ bot" };
+  const action = String(body.action ?? "");
+  const ext = body.ext ?? {};
+  const headers = extHeaders(body.secrets);
+  const done = (extra: any = {}) => ({ ok: true, list: extStore.view(), ...extra });
+  switch (action) {
+    case "list": return done({ pending: [...mcpReqs.entries()].map(([req_id, r]) => ({ req_id, name: r.name, url: r.url, auth: r.auth })) });
+    case "test": {
+      const r = await probeMcp(String(ext.url ?? ""), headers);
+      return { ok: r.ok, auth: r.auth, tools: r.tools, server_name: r.serverName, error: r.error };
+    }
+    case "install": case "update": {
+      const url = String(ext.url ?? ""), name = String(ext.name ?? "").trim();
+      const r = await probeMcp(url, headers);
+      if (!r.ok) return { ok: false, status: 400, auth: r.auth, error: r.error, need_oauth: r.auth === "oauth" };
+      const e = extStore.upsert({ id: String(ext.id ?? ""), name: name || r.serverName || new URL(url).hostname, url, enabled: true, headers, addedBy: "app" });
+      return done({ id: e.id, tools: r.tools });
+    }
+    case "enable": case "disable": return extStore.setEnabled(String(ext.id), action === "enable") ? done() : { ok: false, status: 404, error: "không có MCP này" };
+    case "remove": return extStore.remove(String(ext.id)) ? done() : { ok: false, status: 404, error: "không có MCP này" };
+    case "oauth_start": {
+      // Từ trang MCP (ext.url/name) hoặc từ đề xuất của agent (req_id).
+      const req = body.req_id ? mcpReqs.get(String(body.req_id)) : undefined;
+      const url = req?.url ?? String(ext.url ?? ""), name = req?.name ?? String(ext.name ?? "").trim();
+      const probe = await probeMcp(url);
+      if (probe.ok) return { ok: false, status: 400, error: "MCP này không cần đăng nhập" };
+      const e: Ext = { id: String(ext.id ?? "") || extStore.get(name)?.id || "", name: name || new URL(url).hostname, url, enabled: true, addedAt: Date.now(), addedBy: req ? "agent" : "app" };
+      const authUrl = await extStore.oauthStart(e, probe, oauthRedirect(), BOT_ID, req ? (r) => {
+        if (r.ok) { mcpReqStatus(String(body.req_id), "added"); req.resolve(`Đã thêm MCP "${req.name}" (đăng nhập OAuth2). Tool của nó dùng được từ lượt sau.`); }
+      } : undefined);
+      return { ok: true, auth_url: authUrl };
+    }
+    case "request_approve": {
+      const req = mcpReqs.get(String(body.req_id ?? ""));
+      if (!req) return { ok: false, status: 404, error: "đề xuất đã hết hạn" };
+      const r = await probeMcp(req.url, headers);
+      if (!r.ok) return { ok: false, status: 400, auth: r.auth, error: r.error, need_oauth: r.auth === "oauth" };
+      const e = extStore.upsert({ id: "", name: req.name, url: req.url, enabled: true, headers, addedBy: "agent" });
+      await mcpReqStatus(String(body.req_id), "added", { tools: r.tools?.length ?? null });
+      req.resolve(`Đã thêm MCP "${req.name}" (${r.tools?.length ?? 0} tool, id ${e.id}). Tool của nó dùng được từ lượt sau.`);
+      return done({ id: e.id });
+    }
+    case "request_reject": {
+      const req = mcpReqs.get(String(body.req_id ?? ""));
+      if (!req) return { ok: false, status: 404, error: "đề xuất đã hết hạn" };
+      await mcpReqStatus(String(body.req_id), "rejected");
+      req.resolve("Chủ bot từ chối, không thêm MCP này.");
+      return done();
+    }
+    default: return { ok: false, status: 400, error: `thao tác lạ: ${action}` };
+  }
+}
+
 /** Kiến thức dự án: tải các tệp ghim mang props.flygo_knowledge của chat [groupId] vào <dir>/.flygo-knowledge (một lần
  *  mỗi tệp), PDF / Word thì kèm bản chữ (pdftotext / pandoc nếu máy có); trả về đoạn liệt kê tệp để ghép vào prompt. */
 async function syncKnowledge(groupId: string, dir: string): Promise<string> {
@@ -3107,6 +3208,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         cwd: dir,
         prompt: prompt + planNote + researchNote,
         research,
+        extMcp: await extStore.servers().catch(() => ({})),
         persona: botPersona(),
         ...skillDirs(),
         title: sessTitle,
@@ -3654,6 +3756,17 @@ recoverInterrupted().catch((e) => log(`recoverInterrupted: ${e}`));
 restoreChatWatches(); // AI theo dõi chat: khôi phục các theo dõi còn hạn
 // Lịch hẹn: app gọi qua relay (POST /a2a/schedules -> {t:"sched"}), xét đến hạn mỗi 30 giây, đăng danh sách lúc khởi động.
 // Chọn thư mục dự án trên app: relay (GET /a2a/dirs) -> {t:"dirs"}; chỉ chủ bot, chỉ trong projectRoots.
+// MCP bên ngoài: app (Trang chủ › Cá nhân › MCP & tiện ích) gửi qua relay POST /a2a/extensions -> {t:"ext"}; chỉ chủ bot.
+if (a2a) a2a.onExt = (m) => {
+  extAction(String(m.user?.id ?? ""), m.body ?? {})
+    .catch((e: any) => ({ ok: false, status: 500, error: String(e?.message ?? e) }))
+    .then((result) => a2a!.send({ t: "ext_res", cid: m.cid, result }));
+};
+if (a2a) a2a.onOauthCb = (m) => {
+  extStore.oauthCallback(String(m.state ?? ""), m.code, m.error ? `${m.error}${m.error_description ? `: ${m.error_description}` : ""}` : undefined)
+    .catch((e: any) => ({ ok: false, error: String(e?.message ?? e) }))
+    .then((result) => a2a!.send({ t: "oauth_cb_res", cid: m.cid, result }));
+};
 if (a2a) a2a.onDirs = (m) => {
   let r: any;
   try { r = listDirs(String(m.user?.id ?? ""), String(m.path ?? "")); } catch (e: any) { r = { ok: false, status: 500, error: String(e?.message ?? e) }; }

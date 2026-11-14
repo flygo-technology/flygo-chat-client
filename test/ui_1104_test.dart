@@ -227,7 +227,7 @@ void main() {
       final g = youAppGroups(desktop: true);
       expect(g.map((e) => e.$1), ['Công việc', 'Cá nhân']);
       final personal = g[1].$2;
-      expect(personal, containsAll(['assistants', 'bots']));
+      expect(personal, containsAll(['assistants', 'bots', 'mcp']));
       expect(personal.indexOf('assistants'), lessThan(personal.indexOf('language')));
       expect(g.expand((e) => e.$2), isNot(contains('schedules')));
       expect(personal, isNot(contains('qr')));

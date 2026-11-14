@@ -20,6 +20,8 @@ export class A2AClient {
   me: A2APeer | null = null;
   onSched: ((m: { cid: string; user: { id: string; username?: string }; body: any }) => void) | null = null; // app thao tác lịch hẹn qua relay
   onDirs: ((m: { cid: string; user: { id: string }; path: string }) => void) | null = null; // app chọn thư mục dự án qua relay
+  onExt: ((m: { cid: string; user: { id: string; username?: string }; body: any }) => void) | null = null; // MCP bên ngoài (app: MCP & tiện ích)
+  onOauthCb: ((m: { cid: string; state: string; code?: string; error?: string; error_description?: string }) => void) | null = null; // OAuth2 của MCP: mã từ trình duyệt
   onTranslate: ((m: { cid: string; text: string; to: string; user?: { id: string } }) => void) | null = null; // nút "Dịch AI": relay nhờ bot dịch cho chủ bot
   onSkills: ((m: { cid: string; user: { id: string }; body: any }) => void) | null = null; // tab Skill của app sửa kỹ năng từ xa (chỉ chủ bot)
 
@@ -88,6 +90,8 @@ export class A2AClient {
       case "cancel": this.onCancel(m.cid); return;
       case "sched": this.onSched?.(m); return;
       case "dirs": this.onDirs?.(m); return;
+      case "ext": this.onExt?.(m); return;
+      case "oauth_cb": this.onOauthCb?.(m); return;
       case "translate": this.onTranslate?.(m); return;
       case "skills": this.onSkills?.(m); return;
       case "ev": this.pending.get(m.id)?.onEvent?.(m.data); return;

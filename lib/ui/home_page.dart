@@ -31,6 +31,7 @@ import '../push/push_service.dart';
 import 'server_picker.dart';
 import 'status_ui.dart';
 import 'agent_page.dart';
+import 'mcp_page.dart';
 import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
@@ -91,6 +92,8 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         if (!desktop) 'qr',
         'assistants',
         'bots',
+        // MCP bên ngoài (Streamable HTTP) cho các trợ lý của mình.
+        'mcp',
         'language',
         'password',
         'blocked',
@@ -121,7 +124,7 @@ List<String> _workAppOrder(Iterable<String> ids) {
   return [...order.where(all.contains), ...all.where((id) => !order.contains(id))];
 }
 
-const kDeskTabApps = {'zalo', 'wechat', 'wallpaper', 'devices', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'password', 'blocked'};
+const kDeskTabApps = {'zalo', 'wechat', 'wallpaper', 'devices', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
 
 /// Màn hình chính. Màn hình rộng (máy tính) chia hai cột, vùng nội dung chia được tới 4 ô; màn hình hẹp
 /// (điện thoại) có thanh tab nổi ở dưới như WhatsApp iOS.
@@ -1027,6 +1030,8 @@ class _HomePageState extends State<HomePage> {
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AgentPage()))),
       'bots': (Icons.power_outlined, const Color(0xFF607D8B), tr('Bot'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const BotsPage()))),
+      'mcp': (Icons.extension_outlined, const Color(0xFFD97757), tr('MCP & tiện ích'), 0,
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const McpPage()))),
       'language': (Icons.translate_rounded, const Color(0xFF9B51E0), tr('Ngôn ngữ'), 0, () => _pickLanguage(context)),
       'password': (Icons.password_rounded, const Color(0xFFF2C94C), tr('Mật khẩu'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const PasswordPage()))),
@@ -1981,6 +1986,7 @@ class _HomePageState extends State<HomePage> {
       'settings' => Scaffold(backgroundColor: pal.bg, body: ProfileView(onLogout: _confirmLogout, onSwitchServer: _switchServer)),
       'assistants' => const AgentPage(),
       'bots' => const BotsPage(),
+      'mcp' => const McpPage(),
       'password' => const PasswordPage(),
       'blocked' => const BlockedUsersPage(),
       'wallpaper' => const WallpaperPage(),

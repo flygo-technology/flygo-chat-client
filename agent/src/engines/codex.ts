@@ -340,7 +340,11 @@ export class CodexEngine implements Engine {
     await this.connect();
     const config = {
       // tool_timeout_sec: approve / ask_agent (A2A) chờ người duyệt hoặc agent khác làm việc lâu.
-      mcp_servers: { flygo_chat: { command: this.mcpCommand.command, args: this.mcpCommand.args, env: input.mcpEnv, tool_timeout_sec: 2400 }, ...codexServers(desktopMcp(this.cfg)) },
+      mcp_servers: {
+        flygo_chat: { command: this.mcpCommand.command, args: this.mcpCommand.args, env: input.mcpEnv, tool_timeout_sec: 2400 }, ...codexServers(desktopMcp(this.cfg)),
+        // MCP bên ngoài của chủ bot (Streamable HTTP): mỗi lần gọi tool vẫn hỏi duyệt.
+        ...Object.fromEntries(Object.entries(input.extMcp ?? {}).map(([k, v]) => [k, { url: v.url, http_headers: v.headers, enabled: true, default_tools_approval_mode: "prompt" }])),
+      },
       // Lệnh trong sandbox được ra mạng (tải PDF, gọi API nội bộ), kể cả khi app-server dùng chung do Codex app chạy.
       ...(this.cfg.codex.network !== false ? { sandbox_workspace_write: { network_access: true } } : {}),
       // Nghiên cứu sâu: tìm web trực tiếp (không dùng bản đệm) cho lượt này.

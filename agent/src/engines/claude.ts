@@ -143,7 +143,11 @@ export class ClaudeEngine implements Engine {
 
   async runTurn(input: TurnInput, hooks: TurnHooks, signal: AbortSignal): Promise<TurnResult> {
     const mcpConfig = JSON.stringify({
-      mcpServers: { flygo_chat: { command: this.mcpCommand.command, args: this.mcpCommand.args, env: input.mcpEnv }, ...desktopMcp(this.cfg).servers },
+      mcpServers: {
+        flygo_chat: { command: this.mcpCommand.command, args: this.mcpCommand.args, env: input.mcpEnv }, ...desktopMcp(this.cfg).servers,
+        // MCP bên ngoài của chủ bot: tool của chúng không nằm trong allowedTools nên mỗi lần gọi vẫn xin duyệt.
+        ...Object.fromEntries(Object.entries(input.extMcp ?? {}).map(([k, v]) => [k, { type: "http", url: v.url, headers: v.headers }])),
+      },
     });
     // Không nạp settings cá nhân (~/.claude/settings.json có thể allow Bash/Write hoặc bypass);
     // quyền của phiên chỉ gồm allowedTools + deny của runner, còn lại hỏi Sếp qua Flygo.

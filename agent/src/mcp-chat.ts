@@ -866,6 +866,15 @@ const CHAT_TOOLS = [
       inputSchema: { type: "object", properties: { paths: { type: "array", items: { type: "string" }, description: "đường dẫn tệp (tuyệt đối hoặc tương đối với thư mục làm việc)" }, message: { type: "string", description: "lời nhắn kèm (tuỳ chọn)" } }, required: ["paths"] },
     },
     {
+      name: "mcp_add",
+      description: "ĐỀ XUẤT nối thêm một máy chủ MCP bên ngoài (Streamable HTTP, vd. https://mcp.example.com/mcp) để có thêm công cụ. Runner tự dò kiểu xác thực (không cần / API key / OAuth2) và hiện hộp duyệt trên app của chủ bot; chủ bot nhập key hoặc đăng nhập — KHÔNG bao giờ hỏi xin key / mật khẩu trong chat. Chờ tới khi chủ bot duyệt / từ chối; tool của MCP mới dùng được từ lượt sau.",
+      inputSchema: { type: "object", properties: {
+        url: { type: "string", description: "URL Streamable HTTP của máy chủ MCP" },
+        name: { type: "string", description: "tên ngắn (vd. Linear, Sentry)" },
+        reason: { type: "string", description: "vì sao cần (hiện cho chủ bot)" },
+      }, required: ["url"] },
+    },
+    {
       name: "artifact_publish",
       description: "ĐĂNG ARTIFACT: trang HTML / mini app / biểu đồ tương tác hiện NGAY trong chat (app chạy trong khung riêng, có nút toàn màn hình, mở trình duyệt, chia sẻ link). Dùng khi kết quả nên XEM / BẤM được (báo cáo, dashboard, biểu đồ, công cụ tính, prototype giao diện) thay vì gửi tệp. HTML phải tự chứa (CSS/JS inline); thư viện chỉ lấy từ https://cdn.jsdelivr.net hoặc https://cdnjs.cloudflare.com; KHÔNG gọi mạng (fetch/XHR bị chặn) — nhúng sẵn dữ liệu. Sửa artifact cũ: truyền lại artifact_id để thành phiên bản mới (v2, v3…). Tối đa 2 MB.",
       inputSchema: { type: "object", properties: {
@@ -1206,6 +1215,10 @@ async function callTool(req: any): Promise<any> {
       }
       if (sentIds.length) await runner("/sent_files", { post_ids: sentIds, names: ok.map((f) => f.name) }).catch(() => {});
       return text([ok.length ? `Đã gửi ${ok.length} tệp vào nhóm: ${ok.map((f) => f.name).join(", ")} (tin ${sentIds.map((x) => `#${x}`).join(", ")}).` : "", errors.length ? `Không gửi được:\n- ${errors.join("\n- ")}` : ""].filter(Boolean).join("\n"));
+    }
+    case "mcp_add": {
+      const r = await runner("/mcp_add", { url: a.url, name: a.name, reason: a.reason }).catch((e) => ({ text: `Lỗi: ${e?.message ?? e}` }));
+      return text(String(r.text ?? ""));
     }
     case "artifact_publish": {
       const { realpathSync, readFileSync } = await import("node:fs");
