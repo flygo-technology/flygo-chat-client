@@ -219,7 +219,7 @@ flutter build ios --release
           child: Align(
             alignment: Alignment.topLeft,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 760),
+              constraints: const BoxConstraints(maxWidth: 960),
               child: Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 20), child: MarkdownView(text: answer, style: style)),
             ),
           ),
@@ -230,8 +230,8 @@ flutter build ios --release
     if (out == null) return;
     await t.runAsync(_fonts);
     await shot(t, 'ai-answer-before', const Size(800, 760), Builder(builder: (c) => answerView(TextStyle(fontSize: 17, color: Pal.of(c).text, height: 1.3))));
-    await shot(t, 'ai-answer-after', const Size(800, 760), Builder(builder: (c) => answerView(aiAnswerStyle(Pal.of(c).text))));
-    await shot(t, 'ai-answer-after-dark', const Size(800, 760), Builder(builder: (c) => answerView(aiAnswerStyle(Pal.of(c).text))), dark: true);
+    await shot(t, 'ai-answer-after', const Size(1000, 620), Builder(builder: (c) => answerView(aiAnswerStyle(Pal.of(c).text))));
+    await shot(t, 'ai-answer-after-dark', const Size(1000, 620), Builder(builder: (c) => answerView(aiAnswerStyle(Pal.of(c).text))), dark: true);
   });
 
   testWidgets('ảnh xem trước cột phải + thẻ bash', (t) async {

@@ -2396,9 +2396,9 @@ class _Bubble extends StatelessWidget {
     }
     final width = MediaQuery.sizeOf(context).width;
     // Tin của bot (trợ lý AI): được rộng hết khung chat.
-    // Chat với trợ lý trên màn rộng: câu trả lời rộng tối đa ~760 px cho dễ đọc.
+    // Chat với trợ lý trên màn rộng: câu trả lời rộng tối đa ~960 px.
     final maxW = app.users[post.userId]?.isBot == true
-        ? (claude && width > 900 ? 760.0 : double.infinity)
+        ? (claude && width > 900 ? 960.0 : double.infinity)
         : (width > 900 ? width * .5 : width * .8);
     // Tin trích dẫn: trả lời thường (root_id) hoặc tin mở luồng riêng / bí mật khi đang trả lời một tin
     // (tin gốc của luồng không thể là trả lời nên trích dẫn nằm ở props.flygo_quote).
