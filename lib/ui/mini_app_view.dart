@@ -277,6 +277,7 @@ class _MiniAppPageState extends State<MiniAppPage> {
           return req.isMainFrame ? NavigationDecision.prevent : NavigationDecision.navigate;
         },
       ));
+    if (_app.userAgent != null) _web.setUserAgent(_app.userAgent);
     _open(widget.url);
   }
 
