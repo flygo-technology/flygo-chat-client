@@ -5251,7 +5251,8 @@ class _ComposerState extends State<_Composer> {
   /// Nút "Dịch AI" chỉ hiện với tài khoản có trợ lý AI của mình (bot flygo-agent), trên mọi máy của tài khoản đó:
   /// máy tính gọi runner trên máy, không có thì trạm nhờ bot của mình đang chạy ở máy khác, cuối cùng Google Dịch.
   /// Nút "Dịch AI": máy chủ có bot dịch dùng chung (ai cũng dùng được); trạm cũ chưa có thì chỉ người có trợ lý AI riêng.
-  bool _canTranslate(AppState app) => (app.translateReady || app.hasMyAgents) && !_agentChat(app) && app.channels[widget.channelId]?.isSelfDm != true;
+  /// "Dịch AI" trước khi gửi: mọi chat trừ chat với trợ lý; có cả "Cloud của tôi" (Sếp, 2026-11-14: soạn / lưu bản dịch cho mình).
+  bool _canTranslate(AppState app) => (app.translateReady || app.hasMyAgents) && !_agentChat(app);
 
   /// Đã hỏi lại các @tên không khớp tài khoản cho lần gửi này (bỏ qua bước kiểm tra khi gọi lại _send).
   bool _mentionsConfirmed = false;
@@ -6265,8 +6266,9 @@ class _ComposerState extends State<_Composer> {
                       _agentPicker(app, pal, bot, o, showName: !_agentChat(app), key: _gptStyle(app) ? _modelKey : null),
                   // Gửi im lặng / hẹn giờ: popover giải thích + lựa chọn (đứng trước "Luồng riêng").
                   // Chat với agent và "Cloud của tôi" không cần.
+                  // "Dịch AI" có cả trong "Cloud của tôi"; gửi im lặng / hẹn giờ thì không cần ở đó.
+                  if (_canTranslate(app)) _translateButton(pal),
                   if (!_agentChat(app) && app.channels[widget.channelId]?.isSelfDm != true) ...[
-                    if (_canTranslate(app)) _translateButton(pal),
                     _silentButton(pal),
                     _scheduleButton(pal),
                   ],
