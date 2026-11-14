@@ -1091,7 +1091,8 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          // Lề ngang: tên dài xuống dòng không dính vào tên ô bên cạnh (Sếp, 2026-11-14).
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Badge(
               isLabelVisible: badge > 0,
@@ -1921,6 +1922,7 @@ class _HomePageState extends State<HomePage> {
       'flows' => _SplitTab(
           onChat: onChat,
           onPageClosed: () => setState(() => _tabTitles.remove(t.id)),
+          fullLeftWhenIdle: true,
           leftWidth: 460, left: (ctx, open, sel) => FlowsHome(app: app, embedded: true, bottomPadding: 16)),
       // Chat / phiên trợ lý mở ở tab mới: kèm danh sách bên trái (chat hoặc trợ lý), không chỉ một cuộc trò chuyện.
       'conv' => (app.channels[t.arg]?.isAi ?? false) || (app.channels[t.arg]?.isAgentProject ?? false)
@@ -2302,7 +2304,9 @@ class _SplitTab extends StatefulWidget {
   final void Function(String? id)? onChat;
   /// Trang ở giữa (vd một quy trình) vừa đóng.
   final VoidCallback? onPageClosed;
-  const _SplitTab({this.left, this.leftWidth = 360, this.initialChat, this.initialThread, this.onChat, this.onPageClosed});
+  /// Chưa mở gì ở giữa thì danh sách bên trái chiếm cả trang (tab Quy trình, Sếp 2026-11-14); mở trang thì về hai cột.
+  final bool fullLeftWhenIdle;
+  const _SplitTab({this.left, this.leftWidth = 360, this.initialChat, this.initialThread, this.onChat, this.onPageClosed, this.fullLeftWhenIdle = false});
   @override
   State<_SplitTab> createState() => _SplitTabState();
 }
@@ -2312,6 +2316,7 @@ class _SplitTabState extends State<_SplitTab> {
   (String, WidgetBuilder)? _page;
   (String, WidgetBuilder)? _side;
   var _centreNav = GlobalKey<NavigatorState>();
+  final _leftKey = GlobalKey();
   late double _leftW = widget.leftWidth;
 
   @override
@@ -2372,6 +2377,14 @@ class _SplitTabState extends State<_SplitTab> {
     } else {
       centre = const _Welcome();
     }
+    final full = widget.fullLeftWhenIdle && widget.left != null && centre is _Welcome;
+    // Một khoá chung: đổi giữa cả trang và cột trái vẫn giữ trạng thái danh sách (tab đang chọn, vị trí cuộn).
+    final leftNav = widget.left == null
+        ? null
+        : _ColumnNavigator(
+            key: _leftKey,
+            root: Scaffold(backgroundColor: pal.bg, body: Builder(builder: (ctx) => widget.left!(ctx, _openChat, _page == null ? _chat : null))),
+          );
     return ChatHost(
       openChat: _openChat,
       openInfo: (id) => _push((_) => ChatInfoPage(channelId: id)),
@@ -2386,20 +2399,17 @@ class _SplitTabState extends State<_SplitTab> {
       child: LayoutBuilder(builder: (context, box) {
         _leftW = _leftW.clamp(260.0, (box.maxWidth * .5).clamp(260.0, 720.0));
         return Row(children: [
-          if (widget.left != null) ...[
-            SizedBox(
-              width: _leftW,
-              child: _ColumnNavigator(
-                root: Scaffold(backgroundColor: pal.bg, body: Builder(builder: (ctx) => widget.left!(ctx, _openChat, _page == null ? _chat : null))),
-              ),
-            ),
+          if (full)
+            Expanded(child: leftNav!)
+          else if (widget.left != null) ...[
+            SizedBox(width: _leftW, child: leftNav),
             _ResizeHandle(
               onDrag: (dx) => setState(() => _leftW += dx),
               onEnd: () {},
               onReset: () => setState(() => _leftW = widget.leftWidth),
             ),
           ],
-          Expanded(child: centre),
+          if (!full) Expanded(child: centre),
           if (_side != null) ...[
             VerticalDivider(width: 1, color: pal.divider),
             SizedBox(width: 420, child: _ColumnNavigator(key: ValueKey('side-${_side!.$1}'), root: Builder(builder: _side!.$2))),

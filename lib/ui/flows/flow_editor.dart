@@ -30,6 +30,7 @@ import 'flow_editor_vars.dart';
 import 'flow_icon_picker.dart';
 import 'flow_logic.dart';
 import 'flow_nav.dart';
+import '../home_page.dart' show PageCloser;
 import 'flow_starts.dart';
 import '../location.dart' show currentPosition;
 import 'package:flygo_chat/ui/app_route.dart';
@@ -696,6 +697,8 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
   List<Map<String, dynamic>> _flows = [];
 
   void Function(String, WidgetBuilder?)? _side;
+  /// Trình soạn mở gần nhất (để trình soạn cũ khi bị thay không đóng cột phải của trình soạn mới).
+  static _FlowEditorPageState? _liveEditor;
 
   @override
   void didChangeDependencies() {
@@ -724,9 +727,11 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
     if (_editorLeaveGuard == _confirmLeave) _editorLeaveGuard = null;
     _rev.dispose();
     editorCtx = null;
-    // Rời trình soạn: đóng khung cài đặt ở cột phải (sau khung hình, tránh setState khi đang huỷ cây).
+    // Rời trình soạn: đóng khung cài đặt ở cột phải (sau khung hình, tránh setState khi đang huỷ cây). Trình soạn
+    // khác vừa mở thay chỗ thì cột phải đã là của nó: để nguyên.
     final side = _side;
-    if (side != null) WidgetsBinding.instance.addPostFrameCallback((_) => side('step', null));
+    if (side != null && _liveEditor == this) WidgetsBinding.instance.addPostFrameCallback((_) => side('step', null));
+    if (_liveEditor == this) _liveEditor = null;
     super.dispose();
   }
 
@@ -736,6 +741,9 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
   void initState() {
     super.initState();
     _editorLeaveGuard = _confirmLeave;
+    _liveEditor = this;
+    // Máy tính: Cài đặt quy trình mở sẵn ở cột phải.
+    if (widget.initialTab == 0) WidgetsBinding.instance.addPostFrameCallback((_) => _showSettingsSide());
     // Quy trình lưu trước khi có nốt Bắt đầu: đổi who_can_start / trigger sang starts (lưu lần tới sẽ dùng starts).
     if ((doc.meta['starts'] as List? ?? const []).isEmpty) doc.meta['starts'] = legacyStarts(doc.meta);
     doc.meta.remove('who_can_start');
@@ -795,7 +803,7 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
       if (!mounted) return;
       final side = flowSidePanel(context);
       if (side != null) {
-        side('ai-$id', (_) => ChatPage(channelId: c.id, embedded: true, onClose: () => side('ai-$id', null)));
+        side('ai-$id', (_) => ChatPage(channelId: c.id, embedded: true, onClose: _closeSide));
       } else {
         await Navigator.of(context).push(AppPageRoute(builder: (_) => ChatPage(channelId: c.id)));
       }
@@ -1004,6 +1012,7 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
   String? _sideFor;
 
   void _closeSide() {
+    if (_settingsSide && mounted) return _showSettingsSide();
     flowSidePanel(context)?.call('step', null);
     if (mounted) setState(() => _sideFor = null);
   }
@@ -1833,18 +1842,69 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
     if (e != null && mounted) _edit(() => doc.meta['icon'] = e);
   }
 
-  /// Cài đặt quy trình (tên, biểu tượng, danh mục, bật / tắt, ai thấy...): mở từ nút ba chấm. Trang cài đặt dựng lại
-  /// mỗi khi trình soạn đổi trạng thái ([_rev]), nên sửa ở đây là thấy ngay và vẫn hoàn tác / lưu như trước.
-  Future<void> _openSettings() => Navigator.of(context).push(AppPageRoute(
-        builder: (_) => ValueListenableBuilder<int>(
-          valueListenable: _rev,
-          builder: (ctx, _, _) => Scaffold(
-            backgroundColor: Pal.of(ctx).bg,
-            appBar: AppBar(title: Text(tr('Cài đặt quy trình'))),
-            body: _settingsTab(Pal.of(ctx)),
-          ),
+  /// Cài đặt quy trình (tên, biểu tượng, danh mục, bật / tắt, ai thấy...). Máy tính: ở cột phải, mở sẵn khi vào
+  /// trình soạn (Sếp, 2026-11-14); điện thoại: trang riêng. Dựng lại mỗi khi trình soạn đổi trạng thái ([_rev]), nên
+  /// sửa ở đây là thấy ngay; nút "Lưu" của trình soạn lưu cả quy trình.
+  Future<void> _openSettings() async {
+    if (_side != null) return _showSettingsSide();
+    await Navigator.of(context).push(AppPageRoute(
+      builder: (_) => ValueListenableBuilder<int>(
+        valueListenable: _rev,
+        builder: (ctx, _, _) => Scaffold(
+          backgroundColor: Pal.of(ctx).bg,
+          appBar: AppBar(title: Text(tr('Cài đặt quy trình')), actions: [_saveButton('flow-settings-save'), const SizedBox(width: 8)]),
+          body: _settingsTab(Pal.of(ctx)),
         ),
-      ));
+      ),
+    ));
+  }
+
+  /// Máy tính: khung Cài đặt đang được giữ ở cột phải (mở bước thì tạm thay chỗ, xong bước thì hiện lại).
+  bool _settingsSide = false;
+
+  void _showSettingsSide() {
+    final side = _side;
+    if (side == null || !mounted) return;
+    setState(() {
+      _settingsSide = true;
+      _sideFor = null;
+    });
+    side(
+      'settings',
+      (_) => ValueListenableBuilder<int>(
+        valueListenable: _rev,
+        builder: (ctx, _, _) => Scaffold(
+          backgroundColor: Pal.of(ctx).bg,
+          appBar: AppBar(
+            automaticallyImplyLeading: false,
+            title: Text(tr('Cài đặt quy trình')),
+            // Không có nút Lưu riêng: nút Lưu ở thanh tiêu đề trình soạn ngay bên cạnh (một nút cho cả quy trình).
+            actions: [
+              IconButton(key: const ValueKey('flow-settings-close'), tooltip: tr('Đóng'), onPressed: _hideSettingsSide, icon: const Icon(Icons.close_rounded)),
+            ],
+          ),
+          body: _settingsTab(Pal.of(ctx)),
+        ),
+      ),
+    );
+  }
+
+  void _hideSettingsSide() {
+    _side?.call('settings', null);
+    if (mounted) setState(() => _settingsSide = false);
+  }
+
+  /// Nút Lưu luôn thấy (thanh tiêu đề trình soạn; điện thoại cả ở trang Cài đặt vì trang đó che trình soạn): mờ khi
+  /// không có gì để lưu, khi đó ghi "Đã lưu".
+  Widget _saveButton(String key) {
+    final pending = _dirty || _upgradeNote;
+    return FilledButton.icon(
+      key: ValueKey(key),
+      onPressed: pending && !_busy ? _save : null,
+      icon: Icon(pending ? Icons.save_outlined : Icons.check_rounded, size: 18),
+      label: Text(pending ? tr('Lưu') : tr('Đã lưu')),
+    );
+  }
 
   /// Tăng mỗi lần setState: trang Cài đặt (route riêng) nghe để dựng lại.
   final _rev = ValueNotifier<int>(0);
@@ -1857,43 +1917,55 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
 
   Widget _settingsTab(Pal pal) {
     return ListView(padding: const EdgeInsets.all(16), children: [
-      TextFormField(
-        initialValue: '${doc.meta['name'] ?? ''}',
-        decoration: InputDecoration(labelText: tr('Tên quy trình'), border: const OutlineInputBorder()),
-        onChanged: (v) => _edit(() => doc.meta['name'] = v),
-      ),
-      const SizedBox(height: 16),
+      // Biểu tượng ở đầu, cạnh tên (Sếp, 2026-11-14): bấm để đổi.
       Row(children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: _pickIcon,
-          child: Padding(
-            padding: const EdgeInsets.all(4),
-            child: Text('${doc.meta['icon'] ?? ''}'.isEmpty ? '📋' : '${doc.meta['icon']}', style: const TextStyle(fontSize: 44)),
+        Tooltip(
+          message: tr('Đổi biểu tượng'),
+          child: InkWell(
+            key: const ValueKey('flow-settings-icon'),
+            borderRadius: BorderRadius.circular(14),
+            onTap: _pickIcon,
+            child: Stack(clipBehavior: Clip.none, children: [
+              Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(14), border: Border.all(color: pal.divider)),
+                child: Text('${doc.meta['icon'] ?? ''}'.isEmpty ? '📋' : '${doc.meta['icon']}', style: const TextStyle(fontSize: 30)),
+              ),
+              Positioned(
+                right: -4,
+                bottom: -4,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(color: pal.accent, shape: BoxShape.circle),
+                  child: const Icon(Icons.edit_rounded, size: 12, color: Colors.white),
+                ),
+              ),
+            ]),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(onPressed: _pickIcon, icon: const Icon(Icons.emoji_emotions_outlined, size: 18), label: Text(tr('Đổi biểu tượng'))),
-            ),
-            const SizedBox(height: 6),
-            // Mã cố định do máy chủ cấp: chỉ hiện để chép, không sửa.
-            Text.rich(TextSpan(children: [
-              TextSpan(text: '${tr('Mã quy trình')}: ', style: TextStyle(color: pal.sub, fontSize: 12.5)),
-              WidgetSpan(
-                alignment: PlaceholderAlignment.baseline,
-                baseline: TextBaseline.alphabetic,
-                child: SelectableText('${doc.meta['id'] ?? ''}', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1, color: pal.text)),
-              ),
-            ])),
-            Text(tr('Cố định, dùng để tra tiến trình / bước'), style: TextStyle(color: pal.sub, fontSize: 12)),
-          ]),
+          child: TextFormField(
+            initialValue: '${doc.meta['name'] ?? ''}',
+            decoration: InputDecoration(labelText: tr('Tên quy trình'), border: const OutlineInputBorder()),
+            onChanged: (v) => _edit(() => doc.meta['name'] = v),
+          ),
         ),
       ]),
-      const SizedBox(height: 12),
+      const SizedBox(height: 8),
+      // Mã cố định do máy chủ cấp: chỉ hiện để chép, không sửa.
+      Text.rich(TextSpan(children: [
+        TextSpan(text: '${tr('Mã quy trình')}: ', style: TextStyle(color: pal.sub, fontSize: 12.5)),
+        WidgetSpan(
+          alignment: PlaceholderAlignment.baseline,
+          baseline: TextBaseline.alphabetic,
+          child: SelectableText('${doc.meta['id'] ?? ''}', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1, color: pal.text)),
+        ),
+        TextSpan(text: '  ·  ${tr('Cố định, dùng để tra tiến trình / bước')}', style: TextStyle(color: pal.sub, fontSize: 12)),
+      ])),
+      const SizedBox(height: 16),
       TextFormField(
         initialValue: '${doc.meta['category'] ?? ''}',
         decoration: InputDecoration(labelText: tr('Danh mục'), hintText: tr('Tài chính - Kế toán, Nhân sự, Mua hàng...'), helperText: tr('Nhóm trên trang "Tạo tiến trình mới"'), border: const OutlineInputBorder()),
@@ -2041,6 +2113,19 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
 
   // ------------------------------------------------------------------ khung trang
 
+  /// Nút đóng của trang ở vùng giữa (máy tính): hỏi bỏ thay đổi chưa lưu trước khi đóng.
+  Widget? _leading() {
+    final closer = PageCloser.of(context);
+    if (Navigator.of(context).canPop() || closer == null) return flowLeading(context);
+    return IconButton(
+      tooltip: tr('Đóng'),
+      onPressed: () async {
+        if (await _confirmLeave()) closer.onClose();
+      },
+      icon: const Icon(Icons.close_rounded),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
@@ -2055,7 +2140,7 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
       child: Scaffold(
           backgroundColor: pal.bg,
           appBar: AppBar(
-            leading: flowLeading(context),
+            leading: _leading(),
             title: Row(children: [
               Text('${doc.meta['icon'] ?? ''}'.isEmpty ? '📋' : '${doc.meta['icon']}', style: const TextStyle(fontSize: 20)),
               const SizedBox(width: 8),
@@ -2063,6 +2148,9 @@ class _FlowEditorPageState extends State<FlowEditorPage> {
             ]),
             // Các thao tác gộp vào nút ba chấm; có thay đổi chưa lưu thì nút có chấm báo.
             actions: [
+              if (_side != null && !_settingsSide)
+                IconButton(key: const ValueKey('flow-settings-open'), tooltip: tr('Cài đặt quy trình'), onPressed: _showSettingsSide, icon: const Icon(Icons.tune_rounded)),
+              _saveButton('flow-save'),
               PopupMenuButton<String>(
                 tooltip: tr('Thao tác'),
                 enabled: !_busy,

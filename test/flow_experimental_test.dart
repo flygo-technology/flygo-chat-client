@@ -193,7 +193,9 @@ void main() {
     expect(doc.meta['experimental'], isTrue);
     Navigator.of(t.element(sw)).pop();
     await t.pumpAndSettle();
-    await menu('Lưu');
+    // Nút Lưu luôn hiện trên thanh tiêu đề.
+    await t.tap(find.byKey(const ValueKey('flow-save')));
+    await t.pumpAndSettle();
     expect(saved.last['experimental'], isTrue);
     // Mở lại từ JSON đã lưu: vẫn bật; tắt thì không còn khoá experimental.
     final again = FlowDoc.fromJson(Map<String, dynamic>.from(saved.last));
@@ -206,7 +208,8 @@ void main() {
     await t.pumpAndSettle();
     Navigator.of(t.element(sw)).pop();
     await t.pumpAndSettle();
-    await menu('Lưu');
+    await t.tap(find.byKey(const ValueKey('flow-save')));
+    await t.pumpAndSettle();
     expect(saved.last.containsKey('experimental'), isFalse);
   });
 }
