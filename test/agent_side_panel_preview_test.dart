@@ -103,11 +103,9 @@ void main() {
   BridgeApi.debugClient = MockClient((r) async {
     if (r.method == 'GET') {
       return http.Response(
-          jsonEncode({
-            'tokens': [
-              {'token_id': 'tok1', 'created_at': now - 3600000, 'expires_at': now + 20 * 3600000, 'last_used_at': now - 120000, 'sends': 4, 'reads': 31},
-            ]
-          }),
+          jsonEncode([
+            {'token_id': 'tok1', 'created_at': now - 3600000, 'expires_at': now + 20 * 3600000, 'last_used_at': now - 120000, 'sends': 4, 'reads': 31},
+          ]),
           200);
     }
     return http.Response('{}', 200);
@@ -255,16 +253,16 @@ flutter build ios --release
         ));
     await shot(t, 'desktop-panel-dark', const Size(340, 1500), panel(), dark: true);
     await shot(t, 'phone-panel', const Size(390, 1500), panel(page: true));
+    await shot(t, 'remote-agent-dialog', const Size(560, 640), Scaffold(body: RemoteAgentDialog(channelId: cur)));
     await shot(
         t,
         'invite-dialog',
-        const Size(520, 620),
-        Builder(
-          builder: (c) => Scaffold(
-            body: BridgeInviteDialog(
-              invite: BridgeInvite('tok2', 'https://chat.example.com/__apps/bridge/i/fgb_Q2xBa8Ws3mZt_7fKcX1d9vQyR2pLmN0aTsUeHgJbWo4i', '', '',
-                  DateTime(2026, 11, 15, 15, 30)),
-            ),
+        const Size(560, 700),
+        Scaffold(
+          body: RemoteAgentDialog(
+            channelId: cur,
+            debugInvite: BridgeInvite('tok2', 'https://chat.example.com/__apps/bridge/i/fgb_Q2xBa8Ws3mZt_7fKcX1d9vQyR2pLmN0aTsUeHgJbWo4i', '', '',
+                DateTime(2026, 11, 15, 15, 30)),
           ),
         ));
   });
