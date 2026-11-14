@@ -118,6 +118,10 @@ function supportsStreamInput(bin: string): Promise<boolean> {
   return p;
 }
 
+/** Tool flygo_chat luôn chạy không cần duyệt (kể cả khi cấu hình tự đặt allowedTools): đăng artifact vào chính phiên;
+ *  mcp_add tự mở hộp duyệt riêng trên app nên không xin duyệt hai lần. */
+const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add"];
+
 export class ClaudeEngine implements Engine {
   name = "claude" as const;
   private initSkills: string[] = []; // kỹ năng claude nạp (sự kiện init của lượt gần nhất)
@@ -179,7 +183,7 @@ export class ClaudeEngine implements Engine {
       "--mcp-config", mcpConfig,
       // --permission-prompt-tool luôn có (cả toàn quyền): claude -p chỉ bật AskUserQuestion khi có nơi trả lời câu hỏi.
       "--permission-prompt-tool", "mcp__flygo_chat__approve",
-      ...(full ? [] : ["--allowedTools", [...this.cfg.claude.allowedTools, ...A2A_TOOLS, ...claudeReadOnly(desktopMcp(this.cfg))].join(",")]),
+      ...(full ? [] : ["--allowedTools", [...this.cfg.claude.allowedTools, ...A2A_TOOLS, ...ALWAYS_OK, ...claudeReadOnly(desktopMcp(this.cfg))].join(",")]),
       "--append-system-prompt", input.persona,
       ...(input.addDirs ?? []).flatMap((d) => ["--add-dir", d]),
     ];
