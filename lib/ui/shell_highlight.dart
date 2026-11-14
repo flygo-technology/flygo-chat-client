@@ -274,22 +274,23 @@ TextSpan shellSpan(String cmd, CodeColors c, TextStyle base) {
   ]);
 }
 
-/// Phông của chat với trợ lý (đóng gói trong app, OFL): chữ đọc câu trả lời và chữ đơn cách cho lệnh / code.
-const kReadingFont = 'Source Serif 4';
+/// Phông của chat với trợ lý (đóng gói trong app): chữ đọc câu trả lời (Roboto, tên riêng để không đổi chữ của
+/// Android) và chữ đơn cách cho lệnh / code.
+const kReadingFont = 'Flygo Roboto';
 const kMonoFont = 'JetBrains Mono';
 const kMonoFallback = ['Menlo', 'Consolas', 'DejaVu Sans Mono', 'monospace'];
 /// Tắt chữ ghép của JetBrains Mono ("--" thành một nét, "!=" thành "≠"): lệnh phải hiện đúng từng ký tự.
 const kNoLigatures = [FontFeature.disable('calt'), FontFeature.disable('liga')];
 const kMono = TextStyle(fontFamily: kMonoFont, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures);
 
-/// Kiểu chữ câu trả lời của trợ lý: chữ có chân dễ đọc, 16 px, giãn dòng 1.6.
+/// Kiểu chữ câu trả lời của trợ lý: Roboto 16 px, giãn dòng 1.58.
 TextStyle aiAnswerStyle(Color color) =>
-    TextStyle(fontFamily: kReadingFont, fontFamilyFallback: const ['Noto Serif', 'Georgia', 'Noto Color Emoji'], fontSize: 16, height: 1.6, color: color);
+    TextStyle(fontFamily: kReadingFont, fontFamilyFallback: const ['Roboto', 'Noto Sans', 'Noto Color Emoji'], fontSize: 16, height: 1.58, color: color);
 
-/// Giấy phép OFL của hai phông trên (trang Giấy phép của app).
+/// Giấy phép của hai phông trên (trang Giấy phép của app).
 void registerAiFontLicenses() {
   LicenseRegistry.addLicense(() async* {
-    for (final (name, file) in [('Source Serif 4', 'OFL-SourceSerif4.txt'), ('JetBrains Mono', 'OFL-JetBrainsMono.txt')]) {
+    for (final (name, file) in [('Roboto', 'LICENSE-Roboto.txt'), ('JetBrains Mono', 'OFL-JetBrainsMono.txt')]) {
       yield LicenseEntryWithLineBreaks([name], await rootBundle.loadString('assets/fonts/$file'));
     }
   });

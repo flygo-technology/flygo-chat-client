@@ -597,18 +597,30 @@ class _ChatPageState extends State<ChatPage> {
     return items;
   }
 
-  /// Cột phải đang mở (máy tính; nhớ trong phiên chạy app, dùng chung mọi chat với trợ lý).
+  /// Cột phải đang mở (máy tính, khung rộng; nhớ trong phiên chạy app, dùng chung mọi chat với trợ lý).
   static bool _sidePanelOpen = true;
+  /// Máy tính, khung hẹp (cửa sổ nhỏ / cột AI): cột phải nổi đè lên chat, mặc định đóng.
+  bool _sideOverlay = false;
+  /// Navigator riêng của cột phải: cài đặt chat, Xem tất cả ảnh / tệp / liên kết mở ngay trong cột (không thành trang riêng).
+  final _sideNav = GlobalKey<NavigatorState>();
 
   /// Khung đủ rộng để đặt cột phải cạnh chat (máy tính, không phải cột AI hẹp).
   bool _wideAgent(BuildContext context) => isDesktop && widget.onClose == null && MediaQuery.sizeOf(context).width >= 1100;
+  bool _sideShown(BuildContext context) => _wideAgent(context) ? _sidePanelOpen : _sideOverlay;
+  void _setSide(BuildContext context, bool open) =>
+      setState(() => _wideAgent(context) ? _sidePanelOpen = open : _sideOverlay = open);
 
-  Widget _sidePanel(AppState app, MmChannel ch) => AgentSidePanel(
-        key: ValueKey('side:${ch.id}'),
-        channelId: ch.id,
-        actions: _agentItems(app, ch),
-        onClose: () => setState(() => _sidePanelOpen = false),
-        onAction: (a) => _agentAction(app, ch, a),
+  Widget _sidePanel(AppState app, MmChannel ch) => Navigator(
+        key: _sideNav,
+        onGenerateRoute: (_) => MaterialPageRoute(
+          builder: (_) => AgentSidePanel(
+            key: ValueKey('side:${ch.id}'),
+            channelId: ch.id,
+            actions: _agentItems(app, ch),
+            onClose: () => _setSide(context, false),
+            onAction: (a) => _agentAction(app, ch, a),
+          ),
+        ),
       );
 
   /// Điện thoại / khung hẹp: ⋮ mở cột phải thành một trang; chọn thao tác thì đóng trang rồi làm.
@@ -638,7 +650,19 @@ class _ChatPageState extends State<ChatPage> {
       case 'search':
         setState(() => _searchOpen = true);
       case 'info':
-        _openInfo();
+        // Máy tính: cài đặt chat với trợ lý mở trong cột phải; điện thoại: trang riêng như cũ.
+        if (isDesktop && (claudeStyleFor(app, ch) || ch.isAi)) {
+          final wasOpen = _sideShown(context);
+          _setSide(context, true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final nav = _sideNav.currentState;
+            if (nav == null) return;
+            if (wasOpen) nav.popUntil((r) => r.isFirst);
+            nav.push(AppPageRoute(builder: (_) => ChatInfoPage(channelId: ch.id)));
+          });
+        } else {
+          _openInfo();
+        }
       case 'window':
         _openAiWindow(app, ch);
       case 'switch':
@@ -896,13 +920,13 @@ class _ChatPageState extends State<ChatPage> {
             // Vòng tròn dung lượng ngữ cảnh của trợ lý (chat AI / chat 1-1 với trợ lý).
             if (ch.isAi || (ch.isDirect && app.users[other]?.isBot == true)) AgentContextRing(channelId: ch.id),
             // Chat với trợ lý: ⋮ mở popover kiểu app của hãng (Codex / Claude).
-            // Máy tính (khung rộng): nút ẩn / hiện cột phải + ⋮ như cũ; điện thoại: ⋮ mở trang cột phải.
+            // Máy tính: nút ẩn / hiện cột phải + ⋮ như cũ; điện thoại: ⋮ mở trang cột phải.
             if (claude || ch.isAi) ...[
-              if (_wideAgent(context)) ...[
+              if (isDesktop) ...[
                 IconButton(
-                  tooltip: _sidePanelOpen ? tr('Ẩn cột phải') : tr('Hiện cột phải'),
-                  icon: Icon(_sidePanelOpen ? Icons.view_sidebar_rounded : Icons.view_sidebar_outlined, color: pal.text),
-                  onPressed: () => setState(() => _sidePanelOpen = !_sidePanelOpen),
+                  tooltip: _sideShown(context) ? tr('Ẩn cột phải') : tr('Hiện cột phải'),
+                  icon: Icon(_sideShown(context) ? Icons.view_sidebar_rounded : Icons.view_sidebar_outlined, color: pal.text),
+                  onPressed: () => _setSide(context, !_sideShown(context)),
                 ),
                 if (claude)
                   _agentMenu(app, ch, gptStyleFor(app, ch))
@@ -1170,12 +1194,25 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
     // Chat với trợ lý trên máy tính: cột phải (phiên, ảnh / tệp / liên kết, Token MCP, thao tác).
-    if ((claude || ch.isAi) && _wideAgent(context) && _sidePanelOpen) {
-      page = Row(children: [
-        Expanded(child: page),
-        Container(width: .5, color: pal.divider),
-        SizedBox(width: 340, child: _sidePanel(app, ch)),
-      ]);
+    if ((claude || ch.isAi) && isDesktop && _sideShown(context)) {
+      page = _wideAgent(context)
+          ? Row(children: [
+              Expanded(child: page),
+              Container(width: .5, color: pal.divider),
+              SizedBox(width: 340, child: _sidePanel(app, ch)),
+            ])
+          // Khung hẹp: cột phải nổi bên phải, bấm ra ngoài thì đóng.
+          : Stack(children: [
+              page,
+              Positioned.fill(child: GestureDetector(onTap: () => _setSide(context, false), child: Container(color: Colors.black26))),
+              Positioned(
+                top: 0,
+                bottom: 0,
+                right: 0,
+                width: 340,
+                child: Material(elevation: 12, color: pal.bg, child: _sidePanel(app, ch)),
+              ),
+            ]);
     }
     // Kéo tệp từ máy tính thả vào khung chat (chat thường, chat với trợ lý, cột AI): đính kèm vào ô soạn tin.
     return FileDropZone(onFiles: (f) => _composer.currentState?.stage(f), child: page);
@@ -2450,7 +2487,7 @@ class _Bubble extends StatelessWidget {
       bottomRight: mine && last ? tailR : r,
     );
 
-    // Câu trả lời của trợ lý (chat với trợ lý): chữ đọc có chân, 16 px, giãn dòng 1.6; tin người gửi giữ nguyên.
+    // Câu trả lời của trợ lý (chat với trợ lý): Roboto 16 px, giãn dòng thoáng; tin người gửi giữ nguyên.
     final aiAnswer = claude && !mine && app.users[post.userId]?.isBot == true;
     final textStyle = aiAnswer ? aiAnswerStyle(pal.text) : TextStyle(fontSize: 17, color: pal.text, height: 1.3);
     // Bấm @tên trong tin: mở tin nhắn riêng với người đó.

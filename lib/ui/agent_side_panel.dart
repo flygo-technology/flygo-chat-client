@@ -166,13 +166,9 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
     final bypass = agentBypassOn(app, ch.id);
     final list = ListView(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), children: [
       if (bypass) _bypassBadge(app, ch, pal),
-      if (ch.isAi && ch.aiGroup != null) ..._sessions(app, ch, pal),
-      ..._media(app, pal),
-      _section(pal, Icons.hub_outlined, tr('Token MCP'), null),
-      _tokenCard(app, ch, pal),
       _section(pal, Icons.tune_rounded, tr('Thao tác'), null),
       _card(pal, Column(children: [
-        // Phiên / Phiên mới đã có ở mục Phiên phía trên.
+        // Phiên / Phiên mới đã có ở mục Phiên bên dưới.
         for (final (v, icon, label) in widget.actions.where((a) => !(ch.isAi && ch.aiGroup != null && (a.$1 == 'switch' || a.$1 == 'new'))))
           ListTile(
             dense: true,
@@ -182,6 +178,10 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
             onTap: () => widget.onAction(v),
           ),
       ])),
+      if (ch.isAi && ch.aiGroup != null) ..._sessions(app, ch, pal),
+      ..._media(app, pal),
+      _section(pal, Icons.hub_outlined, tr('Token MCP'), null),
+      _tokenCard(app, ch, pal),
     ]);
     final head = Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
