@@ -132,6 +132,7 @@ const _tileIcons = <String, IconData>{
   'translate': Icons.translate_rounded,
   'news': Icons.campaign_rounded,
   'notes': Icons.sticky_note_2_rounded,
+  'wiki': Icons.menu_book_rounded,
 };
 
 /// Màu ô của app (manifest "tile.color"), hoặc null nếu app không khai.
