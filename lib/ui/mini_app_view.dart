@@ -17,6 +17,7 @@ import '../state/app_state.dart';
 import 'bang_tin/bang_tin_page.dart' show kBangTinTab, openBangTin;
 import 'flows/flows_page.dart' show openFlowsHome;
 import 'todo/todo_page.dart' show openTodo;
+import 'wiki/wiki_page.dart' show openWiki;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -53,6 +54,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'todo') {
     tab?.onTitle?.call(app.name);
     await openTodo(context, app, noteId: path == null ? null : RegExp(r'^/n/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1));
+    return;
+  }
+  if (app.nativeScreen == 'wiki') {
+    tab?.onTitle?.call(app.name);
+    await openWiki(context, app, pageId: path == null ? null : RegExp(r'^/p/([A-Za-z0-9_-]{4,40})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == 'show') {
