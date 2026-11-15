@@ -3299,7 +3299,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     const thread = threadRoot ? (await mm.thread(threadRoot)).filter((p) => p.id !== post.id) : [];
     const rootPost = thread[0];
     const before = (await mm.channelPosts(post.channel_id, 20, rootPost?.id ?? post.id)).filter((p) => isMainPost(p) && !p.props?.flygo_agent_message?.streaming);
-    const chName = ch.type === "D" ? "tin nhắn riêng" : aiOf(ch) ? (await aiKindOf(ch)) === "project" ? `phiên "${ch.display_name}" của dự án "${await chatName(await mm.channel(aiOf(ch)!.group))}"` : outer?.dm ? `phiên riêng tách khỏi chat 1-1 "${outer.name}"` : `chat AI riêng (cột phải) gắn với nhóm "${outer?.name ?? chat}"` : `nhóm "${ch.display_name}"`;
+    const chName = ch.type === "D" ? "tin nhắn riêng" : aiOf(ch) ? (await aiKindOf(ch)) === "project" ? `phiên "${ch.display_name}" của dự án "${await projectChannelOf(ch).then((g) => g ? (g.fromRelay ? g.display_name : chatName(g)) : "?").catch(() => "?")}"` : outer?.dm ? `phiên riêng tách khỏi chat 1-1 "${outer.name}"` : `chat AI riêng (cột phải) gắn với nhóm "${outer?.name ?? chat}"` : `nhóm "${ch.display_name}"`;
     prompt = [
       forkNote,
       `Bạn đang được giao việc trong ${chName} trên Flygo Chat.`,
