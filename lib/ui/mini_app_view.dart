@@ -17,6 +17,7 @@ import '../state/app_state.dart';
 import 'bang_tin/bang_tin_page.dart' show kBangTinTab, openBangTin;
 import 'flows/flows_page.dart' show openFlowsHome;
 import 'todo/todo_page.dart' show openTodo;
+import 'forms/home_page.dart' show openForms;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -53,6 +54,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'todo') {
     tab?.onTitle?.call(app.name);
     await openTodo(context, app, noteId: path == null ? null : RegExp(r'^/n/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1));
+    return;
+  }
+  if (app.nativeScreen == 'forms') {
+    tab?.onTitle?.call(app.name);
+    await openForms(context, app, path: path);
     return;
   }
   if (app.nativeScreen == 'show') {
@@ -126,6 +132,7 @@ const _tileIcons = <String, IconData>{
   'translate': Icons.translate_rounded,
   'news': Icons.campaign_rounded,
   'notes': Icons.sticky_note_2_rounded,
+  'assignment': Icons.assignment_rounded,
 };
 
 /// Màu ô của app (manifest "tile.color"), hoặc null nếu app không khai.
