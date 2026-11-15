@@ -52,6 +52,12 @@ class ThreadViewState extends State<ThreadView> {
   final _open = <String>{};
   ComposeArgs? _inline;
   final _scroll = ScrollController();
+  // AI đọc thư: tóm tắt + soạn nháp trả lời (không bao giờ tự gửi).
+  bool _aiOpen = false, _aiBusy = false;
+  MailAiResult? _ai;
+  Object? _aiErr;
+  String _aiTone = 'polite';
+  final _aiAsk = TextEditingController();
 
   MailStore get store => widget.store;
   MailThread? get thread => _t;
@@ -69,6 +75,9 @@ class ThreadViewState extends State<ThreadView> {
       _t = null;
       _inline = null;
       _open.clear();
+      _aiOpen = false;
+      _ai = null;
+      _aiErr = null;
       _load();
     }
   }
@@ -76,6 +85,7 @@ class ThreadViewState extends State<ThreadView> {
   @override
   void dispose() {
     _scroll.dispose();
+    _aiAsk.dispose();
     super.dispose();
   }
 
@@ -139,10 +149,36 @@ class ThreadViewState extends State<ThreadView> {
       ) ??
       false;
 
-  void reply(String kind, [MailMessage? m]) {
+  /// Bật khung AI và cho AI đọc cuộc hội thoại (lần đầu: tóm tắt + bản nháp).
+  Future<void> openAi() async {
+    setState(() => _aiOpen = true);
+    if (_ai == null && !_aiBusy) await _runAi();
+    if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  }
+
+  Future<void> _runAi() async {
     final t = _t;
     if (t == null) return;
-    final args = replyArgs(kind, t, m ?? t.messages.last, store.me?.person.email ?? '');
+    setState(() {
+      _aiBusy = true;
+      _aiErr = null;
+    });
+    try {
+      final r = await store.api.ai(t.summary.id, task: store.readOnly ? 'summary' : 'draft', instruction: _aiAsk.text.trim(), tone: _aiTone);
+      if (mounted) setState(() => _ai = r);
+    } catch (e) {
+      if (mounted) setState(() => _aiErr = e);
+    }
+    if (mounted) setState(() => _aiBusy = false);
+  }
+
+  void reply(String kind, [MailMessage? m, String body = '']) {
+    final t = _t;
+    if (t == null) return;
+    var args = replyArgs(kind, t, m ?? t.messages.last, store.me?.person.email ?? '');
+    if (body.isNotEmpty) {
+      args = ComposeArgs(to: args.to, cc: args.cc, subject: args.subject, body: body, quote: args.quote, threadId: args.threadId, attachments: args.attachments, kind: args.kind);
+    }
     if (widget.inlineReply != null && widget.wide) {
       setState(() => _inline = args);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -222,6 +258,7 @@ class ThreadViewState extends State<ThreadView> {
         children: [
           const SizedBox(width: 6),
           IconButton(tooltip: 'Quay lại (u)', icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
+          _aiButton(mc),
           if (store.readOnly) ...[
             IconButton(tooltip: 'Thêm vào Lịch', icon: const Icon(Icons.event_outlined), onPressed: _toCalendar),
             IconButton(tooltip: 'Gửi vào chat', icon: const Icon(Icons.forward_to_inbox_outlined), onPressed: _toChat),
@@ -306,6 +343,7 @@ class ThreadViewState extends State<ThreadView> {
               ],
             ),
           ),
+          if (_aiOpen) Padding(padding: EdgeInsets.fromLTRB(pad, 4, 16, 12), child: _aiPanel(mc)),
           for (var i = 0; i < t.messages.length; i++) _message(t, t.messages[i], i, mc),
           if (store.readOnly)
             const SizedBox.shrink()
@@ -327,6 +365,7 @@ class ThreadViewState extends State<ThreadView> {
                   _replyBtn(Icons.reply, 'Trả lời', () => reply('reply')),
                   if (others.length > 1) _replyBtn(Icons.reply_all, 'Trả lời tất cả', () => reply('all')),
                   _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
+                  if (!_aiOpen) _replyBtn(Icons.auto_awesome, 'AI soạn trả lời', openAi),
                 ],
               ),
             ),
@@ -356,6 +395,117 @@ class ThreadViewState extends State<ThreadView> {
       MenuEntry('Trả lời', Icons.reply, () => reply('reply')),
       MenuEntry('Chuyển tiếp', Icons.forward, () => reply('fwd')),
     ]);
+  }
+
+  Widget _aiButton(MailColors mc) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Tooltip(
+          message: 'AI đọc thư và soạn nháp trả lời',
+          child: Material(
+            color: _aiOpen ? mc.accentSoft : Colors.transparent,
+            shape: StadiumBorder(side: BorderSide(color: _aiOpen ? Colors.transparent : mc.line)),
+            child: InkWell(
+              key: const ValueKey('mail-ai'),
+              customBorder: const StadiumBorder(),
+              onTap: _aiOpen ? () => setState(() => _aiOpen = false) : openAi,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.auto_awesome, size: 18, color: mc.accentText),
+                  const SizedBox(width: 6),
+                  Text('AI', style: TextStyle(fontSize: 13.5, color: mc.accentText, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  Widget _aiPanel(MailColors mc) {
+    final r = _ai;
+    final grad = mc.dark ? const [Color(0xFF1F2A44), Color(0xFF2A2140)] : const [Color(0xFFEFF4FF), Color(0xFFF6EEFF)];
+    Widget tone(String v, String l) => ChoiceChip(
+          label: Text(l),
+          selected: _aiTone == v,
+          showCheckmark: false,
+          visualDensity: VisualDensity.compact,
+          onSelected: _aiBusy ? null : (_) => setState(() => _aiTone = v),
+        );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 14),
+      decoration: BoxDecoration(gradient: LinearGradient(colors: grad), borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Icon(Icons.auto_awesome, size: 18, color: mc.accentText),
+          const SizedBox(width: 8),
+          Expanded(child: Text('AI đọc thư', style: TextStyle(fontSize: 14.5, color: mc.text, fontWeight: FontWeight.w600))),
+          if (_aiBusy) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          IconButton(tooltip: 'Đóng AI', visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _aiOpen = false)),
+        ]),
+        if (_aiErr != null) Padding(padding: const EdgeInsets.only(top: 6, right: 8), child: Text('$_aiErr', style: TextStyle(color: mc.danger, fontSize: 13))),
+        if (r == null && _aiBusy) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('Đang đọc cuộc hội thoại…', style: TextStyle(color: mc.muted, fontSize: 13))),
+        if (r != null) ...[
+          const SizedBox(height: 4),
+          Padding(padding: const EdgeInsets.only(right: 8), child: Text(r.summary, style: TextStyle(fontSize: 13.5, color: mc.text, height: 1.45))),
+          if (r.actions.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (final a in r.actions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3, right: 8),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Padding(padding: const EdgeInsets.only(top: 2), child: Icon(Icons.check_box_outline_blank, size: 15, color: mc.muted)),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(a, style: TextStyle(fontSize: 13, color: mc.text))),
+                ]),
+              ),
+          ],
+          if (!store.readOnly && r.draft.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('Bản nháp trả lời', style: TextStyle(fontSize: 12.5, color: mc.muted, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: mc.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: mc.line)),
+              child: SelectableText(r.draft, style: TextStyle(fontSize: 13.5, color: mc.text, height: 1.45)),
+            ),
+          ],
+        ],
+        if (!store.readOnly) ...[
+          const SizedBox(height: 10),
+          Wrap(spacing: 6, runSpacing: 6, children: [tone('polite', 'Lịch sự'), tone('casual', 'Thân mật'), tone('short', 'Ngắn gọn')]),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextField(
+              controller: _aiAsk,
+              enabled: !_aiBusy,
+              onSubmitted: (_) => _runAi(),
+              style: const TextStyle(fontSize: 13.5),
+              decoration: InputDecoration(
+                hintText: 'Muốn trả lời thế nào? (vd: đồng ý, hẹn gửi báo giá thứ Hai)',
+                isDense: true,
+                filled: true,
+                fillColor: mc.surface,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: mc.line)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: mc.line)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.icon(
+              onPressed: r == null || r.draft.isEmpty || _aiBusy ? null : () => reply('reply', null, r.draft),
+              icon: const Icon(Icons.edit_note, size: 18),
+              label: const Text('Dùng bản nháp'),
+            ),
+            OutlinedButton.icon(onPressed: _aiBusy ? null : _runAi, icon: const Icon(Icons.refresh, size: 18), label: Text(r == null ? 'Soạn' : 'Soạn lại')),
+          ]),
+          const SizedBox(height: 6),
+          Text('AI chỉ soạn nháp, bạn xem và sửa trước khi gửi.', style: TextStyle(fontSize: 11.5, color: mc.faint)),
+        ],
+      ]),
+    );
   }
 
   Widget _sep(MailColors mc) => Container(width: 1, height: 20, margin: const EdgeInsets.symmetric(horizontal: 6), color: mc.line);

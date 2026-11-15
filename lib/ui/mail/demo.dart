@@ -1,12 +1,14 @@
 // Thư: dữ liệu mẫu trong bộ nhớ (xem thử, chụp ảnh, test). Tên người và công ty đều là giả.
 import 'dart:io';
 
+import 'admin_api.dart';
 import 'api.dart';
 import 'model.dart';
 
 class DemoMailApi extends MailApi {
   DemoMailApi({DateTime? now, this.latency = Duration.zero}) : _now = now ?? DateTime.now() {
     _seed();
+    _seedShared();
   }
 
   final DateTime _now;
@@ -22,8 +24,23 @@ class DemoMailApi extends MailApi {
     const MailLabel('l4', 'Cá nhân', 0xFFE8710A),
     const MailLabel('l5', 'Nhà cung cấp', 0xFFD93025),
   ];
-  final _threads = <_T>[];
+  /// Thư theo từng hộp (hộp mẫu: cá nhân, hộp chung, hộp được uỷ quyền).
+  final _store = <String, List<_T>>{};
+  List<_T> get _threads => _store.putIfAbsent(_cur, () => []);
+  String get _cur => mailbox ?? user.email;
   var _seq = 1;
+
+  /// Các hộp thư người dùng mẫu mở được: của mình, hộp chung (gửi được / chỉ xem), hộp được uỷ quyền, và hộp chỉ thấy vì là quản trị.
+  static const boxes = [
+    MailboxInfo('khoa@example.com', name: 'Trần Minh Khoa', access: 'admin', via: 'owner'),
+    MailboxInfo('hotro@example.com', name: 'Hỗ trợ khách hàng', access: 'send', kind: 'shared'),
+    MailboxInfo('ketoan@example.com', name: 'Phòng Kế toán', access: 'read', kind: 'shared'),
+    MailboxInfo('trang.phan@example.com', name: 'Phan Thu Trang', access: 'send'),
+    MailboxInfo('tuyendung@example.com', name: 'Tuyển dụng', access: 'admin', kind: 'shared', via: 'admin'),
+  ];
+  MailboxInfo get _box => boxes.firstWhere((b) => b.id == _cur, orElse: () => boxes.first);
+  /// Hộp đang xem, dưới dạng người gửi ("tôi" trong danh sách).
+  MailPerson get _meP => _cur == user.email ? user : MailPerson(_box.id, _box.name, true);
 
   Future<T> _d<T>(T v) async {
     if (latency > Duration.zero) await Future<void>.delayed(latency);
@@ -51,7 +68,7 @@ class DemoMailApi extends MailApi {
   String _sig(String n) => '<p>Trân trọng,<br>$n</p>';
   MailAttachment _att(String name, int size, String type) => MailAttachment(id: 'a${_seq++}', name: name, size: size, type: type, url: 'demo://$name');
   MailMessage _m(MailPerson from, List<MailPerson>? to, Duration ago, String html, {List<MailAttachment> att = const [], List<MailPerson> cc = const []}) =>
-      MailMessage(id: 'm${_seq++}', from: from, to: to ?? const [user], cc: cc, date: _now.subtract(ago), html: html, attachments: att);
+      MailMessage(id: 'm${_seq++}', from: from, to: to ?? [_meP], cc: cc, date: _now.subtract(ago), html: html, attachments: att);
   void _t(String subject, List<MailMessage> ms, {String box = 'inbox', String cat = 'primary', List<String> labels = const [], bool starred = false, bool unread = false, bool important = false, bool draft = false}) =>
       _threads.add(_T('t${_seq++}', subject, ms, box: box, category: cat, labels: [...labels], starred: starred, unread: unread, important: important, draft: draft));
 
@@ -117,7 +134,72 @@ class DemoMailApi extends MailApi {
     _t('Mã giảm giá đã hết hạn', [_m(_shop, null, d * 6, _p(['Mã giảm giá của bạn đã hết hạn.']))], box: 'trash', cat: 'promo');
   }
 
-  bool _fromMe(_T t) => t.messages.any((m) => m.from.email == user.email);
+  bool _fromMe(_T t) => t.messages.any((m) => m.from.email == _meP.email);
+  void _seedShared() {
+    const h = Duration(hours: 1), d = Duration(days: 1);
+    const lan = MailPerson('lan.tran@khachhang.example', 'Trần Ngọc Lan'), dung = MailPerson('dung@cafe.example', 'Lý Văn Dũng');
+    const kho = MailPerson('kho@example.com', 'Kho vận'), ung = MailPerson('cv.nguyenha@ungvien.example', 'Nguyễn Hà My');
+    mailbox = 'hotro@example.com';
+    final hotro = _meP;
+    _t('WiFi khách ở quán không vào được', [
+      _m(dung, [hotro], h * .7, _p(['Chào bên hỗ trợ,', 'Từ sáng nay khách ở quán không vào được WiFi khách, bấm kết nối xong không hiện trang chào. WiFi nhân viên vẫn dùng bình thường.', 'Nhờ bên mình kiểm tra giúp sớm, chiều nay quán đông khách.', _sig('Lý Văn Dũng – Cà phê Phố Núi')])),
+    ], unread: true, important: true);
+    _t('Đổi địa chỉ xuất hoá đơn', [
+      _m(lan, [hotro], h * 3, _p(['Bên chị đổi địa chỉ trụ sở từ tháng 12, nhờ em cập nhật thông tin xuất hoá đơn giúp chị nhé.', _sig('Ngọc Lan')]), att: [_att('Giay-phep-DKKD-moi.pdf', 640000, 'application/pdf')]),
+    ], unread: true);
+    _t('Hẹn lịch bảo trì định kỳ tháng 12', [
+      _m(hotro, [lan], d * 1, _p(['Chào chị Lan, bên em xin hẹn lịch bảo trì định kỳ vào sáng thứ Bảy 05/12. Chị xác nhận giúp em nhé.'])),
+      _m(lan, [hotro], h * 20, _p(['Ok em, thứ Bảy bên chị có người trực.'])),
+    ]);
+    mailbox = 'ketoan@example.com';
+    _t('Đối chiếu công nợ tháng 10', [_m(kho, null, h * 5, _p(['Gửi phòng Kế toán bảng đối chiếu công nợ nhà cung cấp tháng 10.']), att: [_att('Doi-chieu-cong-no-T10.xlsx', 41000, 'application/vnd.ms-excel')])], unread: true);
+    _t('Hoá đơn điện tử số 0001302', [_m(_vat, null, h * 8, _p(['Hệ thống gửi Quý khách hoá đơn điện tử số <b>0001302</b>, tổng tiền 8.250.000 VND.']))], unread: true);
+    mailbox = 'trang.phan@example.com';
+    _t('Lịch gặp đối tác thứ Tư', [_m(_minh, null, h * 2, _p(['Chị Trang, bên em xin hẹn gặp chị 14h thứ Tư tại văn phòng bên chị ạ.']))], unread: true);
+    mailbox = 'tuyendung@example.com';
+    _t('Ứng tuyển vị trí Kỹ sư mạng', [_m(ung, null, h * 10, _p(['Kính gửi phòng Nhân sự, em xin gửi CV ứng tuyển vị trí Kỹ sư mạng.']), att: [_att('CV-Nguyen-Ha-My.pdf', 230000, 'application/pdf')])], unread: true);
+    mailbox = null;
+  }
+
+  late final _admin = DemoMailAdminApi(now: _now);
+  @override
+  MailAdminApi adminApi() => _admin;
+
+  @override
+  Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) async {
+    final t = _find(threadId);
+    final last = t.messages.last, who = last.from.short;
+    final body = _strip(last.html);
+    // Câu nội dung đầu tiên (bỏ lời chào / chữ ký).
+    final paras = RegExp(r'<p>(.*?)</p>', dotAll: true).allMatches(last.html).map((m) => _strip(m.group(1)!)).where((x) => x.isNotEmpty).toList();
+    final first = paras.firstWhere((x) => !RegExp(r'^(Chào|Kính gửi|Anh |Chị |Gửi )|,$|^Trân trọng').hasMatch(x) || x.length > 60,
+        orElse: () => paras.isEmpty ? body : paras.first);
+    if (latency > Duration.zero) await Future<void>.delayed(latency * 4);
+    final formal = tone != 'casual';
+    final hi = formal ? 'Chào ${last.from.email == _meP.email ? 'anh/chị' : 'anh/chị $who'},' : 'Chào $who,';
+    final draft = task == 'summary'
+        ? ''
+        : [
+            hi,
+            '',
+            if (instruction.isNotEmpty) 'Về nội dung "${t.subject}": $instruction.' else 'Cảm ơn ${formal ? 'anh/chị' : 'bạn'} đã gửi thư về "${t.subject}". Bên em đã nhận được và sẽ phản hồi chi tiết trong hôm nay.',
+            if (last.attachments.isNotEmpty) 'Em đã nhận đủ ${last.attachments.length} tệp đính kèm.',
+            '',
+            formal ? 'Trân trọng,' : 'Thân,',
+            _meP.name.isEmpty ? _meP.email : _meP.name,
+          ].join('\n');
+    return MailAiResult(
+      summary: '${last.from.display}${t.messages.length > 1 ? ' (cuộc trao đổi ${t.messages.length} thư)' : ''}: $first',
+      actions: [
+        if (body.contains(RegExp(r'trước ngày|hạn|sớm'))) 'Phản hồi đúng hạn được nêu trong thư',
+        if (last.attachments.isNotEmpty) 'Xem ${last.attachments.length} tệp đính kèm',
+        if (body.contains('?') || body.contains('nhờ') || body.contains('giúp')) 'Trả lời câu hỏi / đề nghị của $who',
+      ],
+      draft: draft,
+      model: 'demo',
+    );
+  }
+
   bool _bad(_T t) => t.box == 'spam' || t.box == 'trash';
   bool _in(_T t, String box) => switch (box) {
         'inbox' => t.box == 'inbox',
@@ -159,7 +241,7 @@ class DemoMailApi extends MailApi {
   MailThreadSummary _sum(_T t) {
     final seen = <String, MailPerson>{};
     for (final m in t.messages) {
-      seen.putIfAbsent(m.from.email, () => m.from.email == user.email ? user : m.from);
+      seen.putIfAbsent(m.from.email, () => m.from.email == _meP.email ? _meP : m.from);
     }
     final last = t.messages.last;
     return MailThreadSummary(
@@ -190,7 +272,14 @@ class DemoMailApi extends MailApi {
       );
 
   @override
-  Future<MailMe> me() => _d(const MailMe(user, mailboxes: ['khoa@example.com']));
+  Future<MailMe> me() => _d(MailMe(_meP,
+      mailboxes: [for (final b in boxes) b.id],
+      boxes: [for (final b in boxes) MailboxInfo(b.id, name: b.name, access: b.access, kind: b.kind, via: b.via, unread: _unread(b.id))],
+      access: _box.access,
+      user: user,
+      admin: true));
+
+  int _unread(String box) => (_store[box] ?? const <_T>[]).where((t) => t.box == 'inbox' && t.unread && t.category == 'primary').length;
   @override
   Future<List<MailLabel>> labels() => _d([..._labels]);
   @override
@@ -271,7 +360,7 @@ class DemoMailApi extends MailApi {
 
   @override
   Future<String> saveDraft(MailDraft d) {
-    final msg = _m(user, d.to, Duration.zero, d.html, att: d.attachments, cc: d.cc);
+    final msg = _m(_meP, d.to, Duration.zero, d.html, att: d.attachments, cc: d.cc);
     final t = d.id == null ? null : _threads.where((x) => x.draft && x.id == d.id).firstOrNull;
     if (t == null) {
       final nt = _T('t${_seq++}', d.subject.isEmpty ? '(không có tiêu đề)' : d.subject, [msg], box: 'drafts', draft: true);
@@ -292,7 +381,7 @@ class DemoMailApi extends MailApi {
   @override
   Future<void> send(MailDraft d, {String? draftId}) {
     if (draftId != null) _threads.removeWhere((t) => t.id == draftId && t.draft);
-    final msg = _m(user, d.to, Duration.zero, d.html, att: d.attachments, cc: d.cc);
+    final msg = _m(_meP, d.to, Duration.zero, d.html, att: d.attachments, cc: d.cc);
     final t = d.threadId == null ? null : _threads.where((x) => x.id == d.threadId).firstOrNull;
     if (t != null) {
       t.messages = [...t.messages, msg];

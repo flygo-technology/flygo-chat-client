@@ -15,11 +15,13 @@ import '../desk_tabs.dart' show DeskTabScope;
 import '../forward_page.dart';
 import '../calendar/calendar_entry.dart' show openCalendarCreate;
 import '../theme.dart' show toast;
+import 'admin_page.dart';
 import 'api.dart';
 import 'compose.dart';
 import 'demo.dart';
 import 'model.dart';
 import 'store.dart';
+import 'switcher.dart';
 import 'thread_view.dart';
 import 'widgets.dart';
 
@@ -558,7 +560,7 @@ class MailHomeState extends State<MailHome> {
                     const SizedBox(width: 12),
                     IconButton(tooltip: 'Phím tắt', icon: const Icon(Icons.help_outline), onPressed: _help),
                     const SizedBox(width: 4),
-                    if (store.me != null) MailAvatar(store.me!.person, size: 34),
+                    if (store.me != null) _meButton(mc, wide: true, size: 34),
                     const SizedBox(width: 16),
                   ],
                 ),
@@ -715,11 +717,42 @@ class MailHomeState extends State<MailHome> {
           ),
           if (_q.text.isNotEmpty || searching) IconButton(tooltip: 'Xoá tìm kiếm', icon: const Icon(Icons.close), onPressed: () => go(const MailView.box('inbox'))),
           IconButton(tooltip: 'Tuỳ chọn tìm kiếm', icon: const Icon(Icons.tune), onPressed: () => setState(() => _filters = !_filters)),
-          if (!wide && store.me != null) Padding(padding: const EdgeInsets.only(right: 6, left: 2), child: MailAvatar(store.me!.person, size: 32)),
+          if (!wide && store.me != null) Padding(padding: const EdgeInsets.only(right: 6, left: 2), child: _meButton(mc, wide: false, size: 32)),
         ],
       ),
     );
   }
+
+  /// Ảnh đại diện hộp đang xem, bấm để mở bộ chọn hộp thư; chấm đỏ khi hộp khác có thư chưa đọc.
+  Widget _meButton(MailColors mc, {required bool wide, required double size}) {
+    final me = store.me!;
+    final cur = me.boxes.where((b) => b.id == me.person.email).firstOrNull ?? MailboxInfo(me.person.email, name: me.person.name, access: me.access);
+    final otherUnread = me.boxes.any((b) => b.id != cur.id && b.unread > 0);
+    return Semantics(
+      button: true,
+      label: 'Hộp thư: ${cur.id}',
+      child: InkWell(
+        key: const ValueKey('mail-switcher'),
+        customBorder: const CircleBorder(),
+        onTap: () => showMailboxSwitcher(context, store, wide: wide, onAdmin: me.admin ? openAdmin : null),
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: Stack(clipBehavior: Clip.none, children: [
+            MailboxAvatar(cur, size: size),
+            if (otherUnread)
+              Positioned(
+                right: -1,
+                top: -1,
+                child: Container(width: 11, height: 11, decoration: BoxDecoration(color: mc.danger, shape: BoxShape.circle, border: Border.all(color: mc.bg, width: 2))),
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Mở Quản trị Thư (từ bộ chọn hộp thư; cùng trang với ô Quản trị ở Trang chủ).
+  void openAdmin() => Navigator.of(context).push(AppPageRoute(builder: (_) => MailAdminPage(api: store.api.adminApi())));
 
   void _search() {
     final v = _q.text.trim();

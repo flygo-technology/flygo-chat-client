@@ -164,23 +164,83 @@ class MailCounts {
       );
 }
 
+/// Một hộp thư người dùng mở được (hộp của mình, hộp dùng chung, hộp được uỷ quyền).
+class MailboxInfo {
+  const MailboxInfo(this.id, {this.name = '', this.access = 'admin', this.kind = 'personal', this.via = 'member', this.unread = 0});
+  /// Địa chỉ hộp thư (cũng là id).
+  final String id;
+  final String name;
+  /// read | send | admin
+  final String access;
+  /// personal (hộp cá nhân) | shared (hộp dùng chung)
+  final String kind;
+  /// Vì sao mở được: owner (hộp của mình) | member (được cấp quyền) | admin (quản trị Thư)
+  final String via;
+  final int unread;
+
+  factory MailboxInfo.fromJson(Map m) => MailboxInfo('${m['id'] ?? m['email'] ?? ''}'.toLowerCase(),
+      name: '${m['name'] ?? ''}',
+      access: '${m['access'] ?? 'read'}',
+      kind: '${m['kind'] ?? 'personal'}',
+      via: '${m['via'] ?? 'member'}',
+      unread: (m['unread'] as num?)?.toInt() ?? 0);
+
+  MailPerson get person => MailPerson(id, name);
+  String get display => name.isNotEmpty ? name : id;
+  bool get shared => kind == 'shared';
+}
+
+/// Tên mức quyền với hộp thư.
+String accessName(String a) => const {'read': 'Chỉ xem', 'send': 'Đọc và gửi', 'admin': 'Quản lý'}[a] ?? a;
+
 class MailMe {
-  const MailMe(this.person, {this.mailboxes = const [], this.features = const {}, this.access = 'admin'});
+  const MailMe(this.person, {this.mailboxes = const [], this.boxes = const [], this.features = const {}, this.access = 'admin', this.user, this.admin = false});
+  /// Hộp thư đang xem (địa chỉ + tên gửi đi).
   final MailPerson person;
   final List<String> mailboxes;
+  /// Mọi hộp thư người dùng mở được, kèm quyền và số thư chưa đọc (bộ chọn hộp thư).
+  final List<MailboxInfo> boxes;
   final Map<String, bool> features;
   /// Quyền với hộp thư đang xem: read (chỉ xem, hộp được uỷ quyền) | send | admin.
   final String access;
+  /// Người đang đăng nhập (khác [person] khi đang xem hộp chung); null = chính hộp đang xem.
+  final MailPerson? user;
+  /// Quản trị Thư (được cấp quyền admin của vn.flygo.mail trong Flygo ID): có mục Quản trị Thư.
+  final bool admin;
 
-  factory MailMe.fromJson(Map m) => MailMe(MailPerson('${m['email'] ?? ''}', '${m['name'] ?? ''}', true),
-      mailboxes: [for (final x in (m['mailboxes'] as List? ?? const [])) '$x'],
-      features: {for (final e in (m['features'] as Map? ?? const {}).entries) '${e.key}': e.value == true},
-      access: '${m['access'] ?? 'admin'}');
+  factory MailMe.fromJson(Map m) {
+    final mailboxes = [for (final x in (m['mailboxes'] as List? ?? const [])) '$x'];
+    final acc = m['mailbox_access'] is Map ? m['mailbox_access'] as Map : const {};
+    final u = m['user'] is Map ? m['user'] as Map : null;
+    return MailMe(MailPerson('${m['email'] ?? ''}', '${m['name'] ?? ''}', true),
+        mailboxes: mailboxes,
+        boxes: m['boxes'] is List
+            ? [for (final b in m['boxes'] as List) if (b is Map) MailboxInfo.fromJson(b)]
+            // Máy chủ cũ chỉ trả danh sách địa chỉ + quyền.
+            : [for (final id in mailboxes) MailboxInfo(id, access: '${acc[id] ?? 'read'}', via: id == '${u?['email'] ?? m['email']}' ? 'owner' : 'member')],
+        features: {for (final e in (m['features'] as Map? ?? const {}).entries) '${e.key}': e.value == true},
+        access: '${m['access'] ?? 'admin'}',
+        user: u == null ? null : MailPerson('${u['email'] ?? ''}', '${u['name'] ?? ''}', true),
+        admin: m['admin'] == true);
+  }
 
   bool get readOnly => access == 'read';
 
+  /// Người đang đăng nhập.
+  MailPerson get me => user ?? person;
+
   /// Tính năng backend có (mặc định có, trừ khi backend báo false).
   bool has(String f) => features[f] ?? true;
+}
+
+/// Kết quả AI đọc cuộc hội thoại: tóm tắt, việc cần làm, bản nháp trả lời (chữ thuần, người dùng sửa rồi mới gửi).
+class MailAiResult {
+  const MailAiResult({this.summary = '', this.actions = const [], this.draft = '', this.model = ''});
+  final String summary, draft, model;
+  final List<String> actions;
+
+  factory MailAiResult.fromJson(Map m) => MailAiResult(
+      summary: '${m['summary'] ?? ''}', draft: '${m['draft'] ?? ''}', model: '${m['model'] ?? ''}', actions: [for (final a in (m['actions'] as List? ?? const [])) '$a']);
 }
 
 class MailPage {

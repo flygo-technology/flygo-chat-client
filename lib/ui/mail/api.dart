@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../browser/flygo_id.dart';
 import '../../config.dart';
+import 'admin_api.dart';
 import 'model.dart';
 
 const kMailApp = 'vn.flygo.mail';
@@ -23,6 +24,8 @@ class MailException implements Exception {
 
 abstract class MailApi {
   bool get demo => false;
+  /// Hộp thư đang xem (người dùng có nhiều hộp: hộp chung / được uỷ quyền); null = hộp mặc định của người dùng.
+  String? mailbox;
   Future<MailMe> me();
   Future<List<MailLabel>> labels();
   Future<MailLabel> createLabel(String name, int color);
@@ -38,16 +41,22 @@ abstract class MailApi {
   Future<void> send(MailDraft d, {String? draftId});
   /// Tải tệp đính kèm về máy (thư mục tạm), trả đường dẫn tệp.
   Future<File> download(MailAttachment a);
+  /// AI đọc cuộc hội thoại: task = summary (tóm tắt + việc cần làm) | draft (thêm bản nháp trả lời theo [instruction] / [tone]).
+  /// AI chỉ soạn nháp, không bao giờ tự gửi.
+  Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) =>
+      throw MailException(501, 'Máy chủ thư chưa hỗ trợ AI');
+  /// Lớp gọi phần Quản trị Thư (chỉ người có quyền admin của vn.flygo.mail dùng được).
+  MailAdminApi adminApi() => throw MailException(501, 'Máy chủ thư chưa hỗ trợ quản trị');
 }
 
 class HttpMailApi extends MailApi {
-  HttpMailApi({required this.base, required this.id, this.mailbox, http.Client? client}) : _http = client ?? http.Client();
+  HttpMailApi({required this.base, required this.id, String? mailbox, http.Client? client}) : _http = client ?? http.Client() {
+    this.mailbox = mailbox;
+  }
 
   /// base_url của app (vd https://mail.example.com); API ở `<base>/mail/api`.
   final String base;
   final FlygoId id;
-  /// Hộp thư đang xem (người dùng có nhiều hộp: hộp chung / được uỷ quyền); null = hộp mặc định của người dùng.
-  String? mailbox;
   final http.Client _http;
 
   Future<Map<String, String>> _auth({bool refresh = false}) async => {
@@ -142,6 +151,13 @@ class HttpMailApi extends MailApi {
 
   @override
   Future<void> send(MailDraft d, {String? draftId}) async => _post('/send', {...d.toJson(), 'draftId': ?draftId});
+
+  @override
+  MailAdminApi adminApi() => HttpMailAdminApi(base: base, id: id, client: _http);
+
+  @override
+  Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) async =>
+      MailAiResult.fromJson(await _post('/ai', {'threadId': threadId, 'task': task, if (instruction.isNotEmpty) 'instruction': instruction, if (tone.isNotEmpty) 'tone': tone}) as Map);
 
   @override
   Future<File> download(MailAttachment a) async {

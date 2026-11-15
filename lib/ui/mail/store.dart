@@ -99,6 +99,21 @@ class MailStore extends ChangeNotifier {
     await load();
   }
 
+  /// Đổi sang hộp thư khác (bộ chọn hộp thư): máy chủ đổi theo X-Mailbox, mọi trạng thái màn hình làm lại từ đầu.
+  Future<void> switchMailbox(String id) async {
+    if (id == (api.mailbox ?? me?.person.email)) return;
+    api.mailbox = id;
+    view = const MailView.box('inbox');
+    category = 'primary';
+    page = 1;
+    items = [];
+    total = 0;
+    selected.clear();
+    loading = true;
+    _notify();
+    await start();
+  }
+
   Future<void> open(MailView v) async {
     if (v != view) {
       view = v;
