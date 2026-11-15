@@ -52,9 +52,13 @@ abstract final class MeetLobbyTab {
   static final _pending = <String, (MeetRoomInfo?, bool)>{};
 
   static Widget page(String arg, {bool demo = false}) {
-    final (room, fresh) = _pending[arg] ?? (null, false);
+    final p = _pending[arg];
+    final (room, fresh) = p ?? (null, false);
     final ch = arg.startsWith('ch:') ? arg.substring(3) : null;
-    return MeetLobbyPage(key: ValueKey('meet-$arg'), code: ch == null ? arg : null, channelId: ch, room: room, fresh: fresh, demo: demo);
+    // Không có trong _pending: tab không do người dùng vừa mở trong lần chạy này (vd. dựng lại từ tab đã lưu):
+    // không tự bật camera.
+    return MeetLobbyPage(
+        key: ValueKey('meet-$arg'), code: ch == null ? arg : null, channelId: ch, room: room, fresh: fresh, demo: demo, autoCamera: p != null);
   }
 }
 
@@ -66,7 +70,10 @@ class MeetLobbyPage extends StatefulWidget {
 
   /// Không mở camera / không hỏi máy chủ (thử nghiệm, ảnh chụp).
   final bool demo;
-  const MeetLobbyPage({super.key, this.code, this.room, this.channelId, this.fresh = false, this.demo = false});
+
+  /// Máy tính: bật sẵn xem trước camera (chỉ khi chính người dùng vừa mở phòng chờ).
+  final bool autoCamera;
+  const MeetLobbyPage({super.key, this.code, this.room, this.channelId, this.fresh = false, this.demo = false, this.autoCamera = true});
   @override
   State<MeetLobbyPage> createState() => _MeetLobbyPageState();
 }
@@ -78,7 +85,9 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
   String? _error;
   _Stage _stage = _Stage.loading;
   bool _mic = false;
-  bool _cam = !isDesktop ? false : true;
+  late bool _cam = isDesktop && widget.autoCamera;
+  /// Tab đang hiện (tab nền của thanh tab máy tính: không giữ camera mở).
+  bool _visible = true;
   MediaStream? _preview;
   List<MediaDeviceInfo> _mics = const [], _cams = const [];
   String? _micId = CallsClient.audioInputId, _camId = CallsClient.videoInputId;
@@ -95,10 +104,28 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
     }
     _load();
     _devices();
-    if (_cam) _openPreview();
     // Trạng thái phòng (ai đang trong đó, tới giờ chưa) làm mới mỗi 15 giây.
     _poll = Timer.periodic(const Duration(seconds: 15), (_) => _load(quiet: true));
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.demo) return;
+    final v = Visibility.of(context);
+    final first = !_started;
+    _started = true;
+    if (v == _visible && !first) return;
+    _visible = v;
+    // Camera chỉ mở khi phòng chờ đang hiện; chuyển sang tab khác thì tắt, quay lại thì mở lại (nếu đang bật).
+    if (_visible && _cam) {
+      _openPreview();
+    } else if (!_visible) {
+      _closePreview().then((_) => mounted ? setState(() {}) : null);
+    }
+  }
+
+  bool _started = false;
 
   @override
   void dispose() {
@@ -172,7 +199,7 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
           'height': {'ideal': 720},
         },
       });
-      if (!mounted || !_cam) {
+      if (!mounted || !_cam || !_visible) {
         s.getTracks().forEach((t) => t.stop());
         await s.dispose();
         return;
@@ -199,7 +226,7 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
   void _toggleCam() {
     setState(() => _cam = !_cam);
     if (widget.demo) return;
-    _cam ? _openPreview() : _closePreview().then((_) => mounted ? setState(() {}) : null);
+    _cam && _visible ? _openPreview() : _closePreview().then((_) => mounted ? setState(() {}) : null);
   }
 
   // ---------------------------------------------------------------- vào họp

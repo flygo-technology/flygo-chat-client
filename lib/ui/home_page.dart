@@ -361,7 +361,12 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Map<String, Object?> _tabsJson() => {'v': 2, 'tabs': [for (final t in _deskTabs) t.toJson()], 'current': _deskCur};
+  // Phòng chờ họp (tab 'meet') không lưu: mở lại app không tự mở phòng chờ / camera.
+  Map<String, Object?> _tabsJson() {
+    final keep = [for (final t in _deskTabs) if (t.kind != 'meet') t];
+    final cur = _deskCur < _deskTabs.length ? keep.indexOf(_deskTabs[_deskCur]) : -1;
+    return {'v': 2, 'tabs': [for (final t in keep) t.toJson()], 'current': cur < 0 ? 0 : cur};
+  }
 
   /// Đã đọc xong các tab lưu lần trước (có hay không).
   bool _tabsRestored = false;
