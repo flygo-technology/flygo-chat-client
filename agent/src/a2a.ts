@@ -17,6 +17,7 @@ export class A2AClient {
   private deniedBackoff = 60_000;
   private stopped = false;
   private card: any = {};
+  private busy: string[] = []; // phiên đang chạy (presence), gửi lại sau khi nối lại relay
   me: A2APeer | null = null;
   onSched: ((m: { cid: string; user: { id: string; username?: string }; body: any }) => void) | null = null; // app thao tác lịch hẹn qua relay
   onDirs: ((m: { cid: string; user: { id: string }; path: string }) => void) | null = null; // app chọn thư mục dự án qua relay
@@ -84,6 +85,7 @@ export class A2AClient {
       case "welcome":
         this.me = m.agent; this.deniedBackoff = 60_000; this.log(`a2a: đã nối relay (@${m.agent.username})`);
         for (const p of this.pending.values()) if (p.retry) this.send(p.retry);
+        if (this.busy.length) this.send({ t: "presence", busy: this.busy });
         return;
       case "error": this.log(`a2a: relay báo lỗi ${m.code}: ${m.message}`); return;
       case "req": this.onRequest(m.cid, m.from, m.depth, m.req); return;
@@ -136,6 +138,20 @@ export class A2AClient {
 
   list(): Promise<A2APeer[]> { return this.request({ t: "list" }, undefined, 30_000, undefined, true); }
   grant(fileId: string, to: string): Promise<{ uri: string; name: string; mimeType: string; size: number }> { return this.request({ t: "grant", file_id: fileId, to }, undefined, 30_000, undefined, true); }
+
+  /** Đồng đội trong dự án của kênh `channel` (relay kiểm bot là thành viên kênh, cùng dự án, canCall). */
+  team(channel: string): Promise<any> { return this.request({ t: "team", channel }, undefined, 30_000, undefined, true); }
+  /** Đọc / hỏi / gửi vào phiên của đồng đội cùng dự án: relay chuyển thành A2A "flygo/team" tới bot của phiên đó. */
+  teamCall(m: { channel: string; session?: string; bot?: string; op: "read" | "ask" | "post"; params?: any }, opts: { timeoutMs: number; signal?: AbortSignal }): Promise<any> {
+    return this.request({ t: "team_call", ...m }, undefined, opts.timeoutMs, opts.signal);
+  }
+  /** Báo relay các phiên (id kênh) đang chạy; chỉ gửi khi đổi. */
+  presence(busy: string[]) {
+    const b = [...new Set(busy)].sort();
+    if (b.join() === this.busy.join()) return;
+    this.busy = b;
+    this.send({ t: "presence", busy: b });
+  }
 
   /** Gọi JSON-RPC A2A tới agent `to` (id bot hoặc username). signal: huỷ cuộc gọi. */
   call(to: string, method: string, params: any, opts: { onEvent?: (e: any) => void; timeoutMs: number; signal?: AbortSignal }): Promise<any> {

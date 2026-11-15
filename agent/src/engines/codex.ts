@@ -360,9 +360,10 @@ export class CodexEngine implements Engine {
       // Phiên mới tách từ phiên cha: mang lịch sử + hướng dẫn của phiên cha, cấu hình MCP / thư mục của phiên mới.
       const r = await this.call("thread/fork", {
         threadId: input.forkFrom, cwd: input.cwd, config, excludeTurns: true,
-        approvalPolicy: "on-request", sandbox: "danger-full-access", model: input.model ?? this.cfg.codex.model ?? null,
+        approvalPolicy: input.readOnly ? "never" : "on-request", sandbox: input.readOnly ? "read-only" : "danger-full-access", model: input.model ?? this.cfg.codex.model ?? null,
       }).catch((e) => { this.log(`codex: không fork được ${input.forkFrom}: ${e.message ?? e}, mở phiên mới`); return null; });
       threadId = r?.thread?.id as string | undefined;
+      if (!threadId && input.readOnly) throw new Error("không tách được phiên để hỏi ngầm");
     }
     if (!threadId) {
       const r = await this.call("thread/start", {
@@ -483,9 +484,9 @@ export class CodexEngine implements Engine {
         // Ghi đè quyền mỗi lượt (có hiệu lực cho cả lượt sau nên luôn gửi): "luôn cho phép" -> never + toàn quyền.
         // Chế độ quyền: thủ công = chỉ đọc, mọi thay đổi xin duyệt; chấp nhận chỉnh sửa = sandbox cấu hình (mặc định);
         // lập kế hoạch = chỉ đọc (runner dặn chỉ đưa kế hoạch); tự động = Codex tự xét yêu cầu quyền (auto_review).
-        approvalPolicy: input.bypass ? "never" : "on-request",
+        approvalPolicy: input.bypass || input.readOnly ? "never" : "on-request",
         approvalsReviewer: !input.bypass && input.mode === "auto" ? "auto_review" : "user",
-        sandboxPolicy: sandboxPolicyFor(this.cfg, input),
+        sandboxPolicy: input.readOnly ? { type: "readOnly" } : sandboxPolicyFor(this.cfg, input),
       });
       turnId = tr.turn?.id ?? turnId;
       // Tin mới của người dùng trong lúc lượt đang chạy: đưa thẳng vào lượt (turn/steer) thay vì xếp hàng lượt sau.

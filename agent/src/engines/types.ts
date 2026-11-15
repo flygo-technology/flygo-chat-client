@@ -57,6 +57,7 @@ export interface TurnInput {
   extMcp?: Record<string, { url: string; headers: Record<string, string> }>; // MCP bên ngoài (Streamable HTTP) của chủ bot đang bật
   research?: boolean; // Nghiên cứu sâu: Codex bật tìm web trực tiếp (web_search = "live")
   mode?: PermMode; // chế độ quyền của lượt (thiếu = mặc định của engine: Claude thủ công, Codex chấp nhận chỉnh sửa)
+  readOnly?: boolean; // hỏi ngầm (team_ask / session_ask): sandbox chỉ đọc, không xin duyệt, mọi thay đổi bị chặn (Codex)
 }
 
 export interface TurnResult {
