@@ -34,6 +34,33 @@
     outbox.splice(0).forEach((data) => native.postMessage(data));
   })(0);
 
+  // iOS / macOS deliver every native reply to the main frame. The main frame
+  // hands replies addressed to another frame on to its same-origin
+  // descendants (they can already script each other); a cross-origin frame
+  // gets nothing, as before. Android and Windows answer the right frame.
+  const FORWARD = "__magicSignNativeForward";
+  function forwardToFrames(data) {
+    const visit = (win) => {
+      for (let index = 0; index < win.frames.length; index++) {
+        const child = win.frames[index];
+        try {
+          if (child.location.origin !== location.origin) continue;
+        } catch {
+          continue;
+        }
+        child.postMessage({ [FORWARD]: data }, location.origin);
+        visit(child);
+      }
+    };
+    visit(window);
+  }
+  if (window.top !== window) {
+    window.addEventListener("message", (event) => {
+      if (event.origin !== location.origin || event.source !== window.top || typeof event.data?.[FORWARD] !== "string") return;
+      onNative({ data: event.data[FORWARD] });
+    });
+  }
+
   /** Same rules as the server: exact origin, `https://*.example.vn` or `*`. */
   function originAllowed(origin, patterns) {
     return (patterns || []).some((pattern) => {
@@ -64,7 +91,10 @@
       return;
     }
     // Android answers this frame only; iOS answers the main frame.
-    if (message.fid && message.fid !== fid) return;
+    if (message.fid && message.fid !== fid) {
+      if (window.top === window) forwardToFrames(event.data);
+      return;
+    }
     switch (message.k) {
       case "config": {
         const flipped = message.config.enabled !== config.enabled;
