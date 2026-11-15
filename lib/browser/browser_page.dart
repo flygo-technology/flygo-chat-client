@@ -358,6 +358,20 @@ Future<(SpaceWindow?, String?)> buildFlygoSpace(
   );
 }
 
+/// UA của website trong trình duyệt ký số. Cổng thuế, hoá đơn chạy tốt nhất ở bản máy tính: Android giả Chrome trên
+/// Windows; iOS / macOS dùng UA của Safari trên Mac (cùng engine WebKit), vì UA mặc định của WKWebView không có
+/// "Safari/…" và trang dò trình duyệt theo UA (vd get_browser của MISA meInvoice) coi là trình duyệt lạ. Windows
+/// (WebView2 = Chromium) giữ UA của nó.
+String get kysoWebUserAgent {
+  if (Platform.isAndroid) {
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+  }
+  if (Platform.isIOS || Platform.isMacOS) {
+    return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+  }
+  return '';
+}
+
 /// Settings có thêm `msProfile` cho WebView đã vá (Android: WebViewCompat.setProfile, iOS 17+: data store riêng).
 class _ProfileSettings extends InAppWebViewSettings {
   _ProfileSettings(this.profile)
@@ -370,10 +384,7 @@ class _ProfileSettings extends InAppWebViewSettings {
           loadWithOverviewMode: true,
           builtInZoomControls: true,
           displayZoomControls: false,
-          // Cổng thuế, hoá đơn chạy tốt nhất ở bản máy tính.
-          userAgent: Platform.isAndroid
-              ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-              : '',
+          userAgent: kysoWebUserAgent,
           preferredContentMode: UserPreferredContentMode.DESKTOP,
           allowsBackForwardNavigationGestures: true,
           // iOS: nhấn giữ link mở menu của app (tab mới), không mở bản xem trước của Safari.

@@ -4,9 +4,9 @@
 // - Background chạy nguyên văn trong một WebView ẩn (trang background của manifest, vd engine.html), lớp chrome.*
 //   (shim.js) đứng thay API của Chrome. fetch khác origin đi qua native và bị kiểm theo api_origins / host_origins
 //   (bridge_policy.dart); WebSocket chỉ được mở tới các origin đó.
-// - Website nhận content script lúc document_start. Tin của website tới app qua web message listener
-//   "MagicSignNative" (Android / iOS / macOS), origin lấy từ WebView, không tin trang. Windows (WebView2) chưa có web
-//   message listener: lớp _winNative dựng lại MagicSignNative trên JS handler, origin lấy từ URL khung chính.
+// - Website nhận content script lúc document_start, ở mọi khung (trừ Windows). Tin của website tới app qua web message
+//   listener "MagicSignNative" (Android / iOS / macOS), origin lấy từ WebView, không tin trang. Windows (WebView2) chưa
+//   có web message listener: lớp _winNative dựng lại MagicSignNative trên JS handler, origin lấy từ URL khung chính.
 // - Hộp xác nhận (prompt.js) là trang của extension vẽ đè lên website, website không chạm được; sau đó hỏi sinh trắc.
 //
 // Mỗi (extension, máy chủ) một runtime: một engine, một storage (phiên đăng nhập trong secure storage, phần còn lại
@@ -142,6 +142,30 @@ String _mime(String path) {
   if (path.endsWith('.png')) return 'image/png';
   if (path.endsWith('.svg')) return 'image/svg+xml';
   return 'application/octet-stream';
+}
+
+/// Nhật ký chẩn đoán Ký số trên máy tính (`kyso-trace.log` trong thư mục dữ liệu app, giữ 500 dòng): cửa sổ Ký số là
+/// tiến trình riêng, stdout bị bỏ, nên lỗi "bấm ký mà không thấy gì" chỉ lần được qua tệp này. Chỉ ghi loại lệnh, địa
+/// chỉ plugin và lý do lỗi, không ghi nội dung ký hay dữ liệu trang.
+void kysoTrace(String line) {
+  debugPrint('[kyso] $line');
+  if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) return;
+  _traceQueue = _traceQueue.then((_) async {
+    try {
+      final f = File('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}kyso-trace.log');
+      final old = f.existsSync() ? f.readAsLinesSync() : const <String>[];
+      final keep = old.length >= 500 ? old.sublist(old.length - 499) : old;
+      f.writeAsStringSync('${[...keep, '${DateTime.now().toIso8601String()} pid=$pid $line'].join('\n')}\n');
+    } catch (_) {}
+  });
+}
+
+Future<void> _traceQueue = Future.value();
+
+/// Địa chỉ plugin để ghi nhật ký: bỏ query (có thể chứa dữ liệu).
+String _traceUrl(Object? url) {
+  final u = Uri.tryParse('${url ?? ''}');
+  return u == null ? '?' : '${u.scheme}://${u.host}:${u.port}${u.path}';
 }
 
 /// Một khung của website đang nói chuyện với app.
@@ -304,7 +328,7 @@ class KysoHost {
         _engineView = controller;
         controller.addJavaScriptHandler(handlerName: 'ms', callback: (args) => _fromEngine(args));
       },
-      onConsoleMessage: (_, message) => debugPrint('[kyso engine] ${message.message}'),
+      onConsoleMessage: (_, message) => kysoTrace('engine: ${message.message}'),
     );
     await _engine!.run();
     await _engineReady.future.timeout(const Duration(seconds: 20), onTimeout: () {
@@ -361,14 +385,15 @@ class KysoHost {
         forMainFrameOnly: true,
       );
 
-  /// inject.js + page-bridge.js cho website. iOS / macOS chỉ trả lời web message ở khung chính; Windows dùng JS
-  /// handler, cũng chỉ khung chính.
+  /// inject.js + page-bridge.js cho website, mọi khung như extension trong Chrome / Electron (trang ký có thể nằm
+  /// trong iframe). iOS / macOS trả lời web message ở khung chính, page-bridge của khung chính chuyển tiếp cho iframe
+  /// cùng origin. Windows dùng JS handler, chỉ khung chính.
   List<UserScript> websiteScripts() => [
         for (final source in _pageScripts)
           UserScript(
             source: source,
             injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-            forMainFrameOnly: !Platform.isAndroid,
+            forMainFrameOnly: Platform.isWindows,
           ),
       ];
 
@@ -573,7 +598,11 @@ class KysoHost {
         if (!_engineReady.isCompleted) _engineReady.complete();
         return true;
       case 'port.post':
-        _ports[call['port']]?.send({'k': 'port', 'message': call['message']});
+        final message = call['message'];
+        if (message is Map && (message['t'] == 'ws_closed' || message['t'] == 'ws_opened' || message['error'] != null)) {
+          kysoTrace('port ${call['port']} ${message['t']} ${message['code'] ?? ''} ${message['reason'] ?? message['error'] ?? ''}');
+        }
+        _ports[call['port']]?.send({'k': 'port', 'message': message});
         return true;
       case 'port.disconnect':
         final frame = _ports.remove(call['port']);
@@ -581,7 +610,12 @@ class KysoHost {
         return true;
       case 'tabs.sendMessage':
         final tab = tabs[call['tabId']];
-        if (tab?.prompt == null) return false;
+        final type = call['message'] is Map ? (call['message'] as Map)['t'] : null;
+        if (tab?.prompt == null) {
+          kysoTrace('tab ${call['tabId']}: không có hộp ký để nhận $type');
+          return false;
+        }
+        if (type == 'magic-sign:prompt') kysoTrace('tab ${tab!.id}: mở hộp ký');
         await tab!.prompt!.callAsyncJavaScript(
           functionBody: 'await window.__ms.message(message, sender); return true;',
           arguments: {'message': _lockToken(tab, call['message']), 'sender': _appSender(kysoAppBase)},
@@ -618,6 +652,7 @@ class KysoHost {
   Future<Map<String, dynamic>> _biometric({bool remember = false}) async {
     if (_remembered) return {'ok': true};
     final result = await _checkOwner();
+    kysoTrace('xác nhận chủ máy: ${result['ok'] == true ? 'được' : result['error']}');
     if (result['ok'] == true && remember) _rememberUntil = DateTime.now().add(const Duration(seconds: 60));
     return result;
   }
@@ -828,6 +863,10 @@ class KysoHost {
       case 'hello':
         frame.send({'k': 'config', 'config': _pageConfig(), 'changed': false});
       case 'port':
+        final inner = message['message'];
+        if (inner is Map && (inner['t'] == 'ws_open' || inner['t'] == 'http')) {
+          kysoTrace('tab ${tab.id} ${isMainFrame ? 'main' : 'iframe'} $origin ${inner['t']} ${inner['method'] ?? ''} ${_traceUrl(inner['url'])}');
+        }
         // Giữ thứ tự của trang: mở port trước tin đầu tiên.
         final current = frame;
         _portQueue = _portQueue.then((_) async {
@@ -838,7 +877,7 @@ class KysoHost {
             await _engineCall("window.__ms.connect(id, 'magic-sign', sender);", {'id': id, 'sender': sender});
           }
           await _engineCall('window.__ms.portMessage(id, message);', {'id': current.port, 'message': message['message']});
-        }).catchError((Object error) => debugPrint('[kyso port] $error'));
+        }).catchError((Object error) => kysoTrace('port lỗi: $error'));
       case 'web':
         final request = Map<String, dynamic>.from(message['message'] as Map? ?? const {});
         if (!manifest.messages.contains(request['t'])) return;
