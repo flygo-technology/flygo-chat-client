@@ -1048,7 +1048,8 @@ async function teamTool(op: string, a: any): Promise<string> {
       step(title, "done", detail ? `${detail}\n\n${clip(text, 1500)}` : undefined);
       return { ok: true, text, from: String(r?.bot ?? who) };
     } catch (e: any) {
-      const msg = String(e?.message ?? e);
+      const raw = String(e?.message ?? e);
+      const msg = e?.code === -32601 || /không hỗ trợ/.test(raw) ? `${raw} (runner của đồng đội này còn cũ, cần bản có tool đồng đội: 0.6.93 trở lên)` : raw;
       step(`${title} (lỗi)`, "error", msg.slice(0, 300));
       return { ok: false, text: msg, from: who };
     } finally {

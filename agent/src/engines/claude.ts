@@ -131,7 +131,11 @@ export class ClaudeEngine implements Engine {
   async inventory(): Promise<EngineInventory> {
     return {
       skills: this.initSkills.map((name) => ({ name, description: "" })),
-      models: CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
+      // Claude Code trỏ sang endpoint tương thích (ANTHROPIC_BASE_URL, vd. DeepSeek) với claude.models trong cấu hình: báo đúng
+      // các model đó, không báo model Anthropic (app sẽ cho chọn model mà endpoint không có).
+      models: this.cfg.claude.models?.length && process.env.ANTHROPIC_BASE_URL && !/(^|\.)anthropic\.com(:|\/|$)/.test(new URL(process.env.ANTHROPIC_BASE_URL, "http://x").host)
+        ? this.cfg.claude.models.map((id) => ({ id, efforts: this.cfg.claude.efforts?.length ? this.cfg.claude.efforts : CLAUDE_EFFORTS, defaultEffort: this.cfg.claude.effort ?? "medium", isDefault: id === this.cfg.claude.model }))
+        : CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
     };
   }
   constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void) {}
