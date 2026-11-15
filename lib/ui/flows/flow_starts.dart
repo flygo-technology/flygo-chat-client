@@ -31,7 +31,11 @@ const startTypes = <(String, IconData, String)>[
   ('watch', Icons.radar_outlined, 'Dữ liệu ứng dụng thoả điều kiện (tồn kho thấp, quá hạn...)'),
   ('flow', Icons.alt_route_rounded, 'Được bước "Bắt đầu quy trình khác" mở'),
   ('email', Icons.mail_outline_rounded, 'Có email mới gửi tới hộp thư'),
+  ('form', Icons.assignment_outlined, 'Có người nộp Biểu mẫu (app Biểu mẫu)'),
 ];
+
+/// Loại thêm được từ trình soạn ("form" do app Biểu mẫu tạo, chỉ hiện / sửa tên).
+Iterable<(String, IconData, String)> get pickableStartTypes => startTypes.where((t) => t.$1 != 'form');
 
 String startTypeLabel(String type) => switch (type) {
       'manual' => tr('Bấm thủ công'),
@@ -46,6 +50,7 @@ String startTypeLabel(String type) => switch (type) {
       'watch' => tr('Theo dõi điều kiện'),
       'flow' => tr('Được quy trình khác gọi'),
       'email' => tr('Email đến'),
+      'form' => tr('Nộp biểu mẫu'),
       _ => tr('Bắt đầu'),
     };
 
@@ -55,7 +60,7 @@ IconData startIcon(String type) => startTypes.where((t) => t.$1 == type).firstOr
 const singleStartTypes = {'manual', 'webhook', 'public_form', 'flow', 'email'};
 
 /// Luồng tạo ra không có ai điền form: cần nguồn cho trường bắt buộc, đứng tên một người.
-bool startAutomatic(String type) => !const {'manual', 'message_action', 'public_form', 'flow'}.contains(type);
+bool startAutomatic(String type) => !const {'manual', 'message_action', 'public_form', 'form', 'flow'}.contains(type);
 
 const _weekdayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
@@ -128,6 +133,9 @@ String startSummary(Map s, AppState app, {List visibleTo = const []}) {
       return '${s['label'] ?? ''}'.ifEmptyOr(tr('Tạo tiến trình từ tin này'));
     case 'public_form':
       return tr('Link / mã QR');
+    case 'form':
+      final forms = s['forms'] as List? ?? const [];
+      return forms.isEmpty ? tr('Mọi biểu mẫu') : tr('Biểu mẫu {0}', [forms.join(', ')]);
     case 'date_due':
       return tr('Trước {0} ngày · {1}', [s['days_before'] ?? 0, '${s['tool'] ?? ''}'.ifEmptyOr(tr('chưa chọn công cụ'))]);
     case 'watch':
@@ -271,7 +279,7 @@ class StartTypeSheet extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
           child: Text(tr('Thêm cách bắt đầu'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: pal.text)),
         ),
-        for (final (type, icon, desc) in startTypes)
+        for (final (type, icon, desc) in pickableStartTypes)
           Builder(builder: (context) {
             final off = singleStartTypes.contains(type) && have.contains(type);
             return ListTile(

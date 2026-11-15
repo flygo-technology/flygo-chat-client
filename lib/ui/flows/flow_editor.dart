@@ -2313,7 +2313,7 @@ class _InsertSheetState extends State<_InsertSheet> {
       }
     }
     final have = {for (final x in widget.starts) if (x is Map) '${x['type']}'};
-    final startItems = [for (final t in startTypes) if (_match(startTypeLabel(t.$1), tr(t.$3))) t];
+    final startItems = [for (final t in pickableStartTypes) if (_match(startTypeLabel(t.$1), tr(t.$3))) t];
     final sections = <Widget>[
       if (startItems.isNotEmpty)
         _group(pal, 'start', Icons.play_circle_outline_rounded, kGroupStart, tr('Bắt đầu'), [
