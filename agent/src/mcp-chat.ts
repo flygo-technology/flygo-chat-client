@@ -621,12 +621,16 @@ const CALLEE_TOOLS = [
 ];
 
 // Tool của Flygo Gateway (runner giữ vé, xem gateway.ts): tên dạng <app>__<tool>, gộp sau tool của bot.
-const gatewayKinds = new Map<string, string>(); // tên tool -> read | write (theo _meta của gateway)
+const gatewayKinds = new Map<string, string>(); // tên tool -> read | write | write_free (theo _meta của gateway)
 async function gatewayTools(): Promise<any[]> {
   if (A2A_ROLE === "callee" || !RUNNER || !RUN_KEY) return [];
   const r = await runner("/gateway/tools", {}).catch(() => ({ tools: [] }));
   const tools = Array.isArray(r.tools) ? r.tools : [];
-  for (const t of tools) gatewayKinds.set(t.name, String(t._meta?.["vn.flygo/kind"] ?? "write"));
+  // write_free: tool ghi mà manifest của app đặt approval "none" (vd Báo cáo: AI ghi thẳng vào app, không hỏi duyệt từng lần).
+  for (const t of tools) {
+    const kind = String(t._meta?.["vn.flygo/kind"] ?? "write");
+    gatewayKinds.set(t.name, kind === "write" && t._meta?.["vn.flygo/approval"] === "none" ? "write_free" : kind);
+  }
   return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }: any) => ({ name, ...(title ? { title } : {}), description, inputSchema, ...(outputSchema ? { outputSchema } : {}), ...(annotations ? { annotations } : {}) }));
 }
 
@@ -984,7 +988,8 @@ async function callTool(req: any): Promise<any> {
   const a = (req.params.arguments ?? {}) as any;
   if (gatewayKinds.has(req.params.name) || (/^[a-z0-9_]+__[A-Za-z0-9_.-]+$/.test(req.params.name) && RUN_KEY)) {
     if (A2A_ROLE === "callee") throw new Error(`tool không dùng được khi làm việc được nhờ: ${req.params.name}`);
-    // Tool ghi của app (theo manifest) xin người giao việc duyệt như tool ghi khác; tool đọc gọi thẳng. Gateway kiểm quyền theo vé.
+    // Tool ghi của app (theo manifest) xin người giao việc duyệt như tool ghi khác; tool đọc và tool ghi approval "none" gọi thẳng.
+    // Gateway vẫn kiểm quyền theo vé.
     if ((gatewayKinds.get(req.params.name) ?? "write") === "write") {
       const r = await fetch(`${RUNNER}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, tool_name: `mcp__flygo_chat__${req.params.name}`, input: a }) })
         .then((x) => x.json()).catch(() => ({ allow: false }));
