@@ -40,7 +40,7 @@ Future<void> openTodo(BuildContext context, MiniApp app, {String? noteId}) async
 }
 
 class TodoHome extends StatefulWidget {
-  const TodoHome({super.key, required this.store, this.title = 'Todo', this.openNoteId, this.ownsStore = true});
+  const TodoHome({super.key, required this.store, this.title = 'Công việc', this.openNoteId, this.ownsStore = true});
   final TodoStore store;
   final String title;
   final String? openNoteId;
@@ -582,10 +582,14 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
             decoration: BoxDecoration(color: const Color(0xFFE8A100), borderRadius: BorderRadius.circular(9)),
             child: const Icon(Icons.sticky_note_2_rounded, color: Colors.white, size: 22),
           ),
-          Text(_sectionTitle, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
-          const SizedBox(width: 20),
+          // Điện thoại: tên dài hơn ("Công việc") co lại, cắt "…" thay vì tràn ra các nút bên phải.
+          if (wide)
+            Text(_sectionTitle, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500))
+          else
+            Expanded(child: Text(_sectionTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500))),
+          if (wide) const SizedBox(width: 20),
         ],
-        if (wide || _searching) Expanded(child: search) else const Spacer(),
+        if (wide || _searching) Expanded(child: search),
       ]),
       actions: [
         if (!wide && !_searching) IconButton(tooltip: tr('Tìm kiếm'), icon: const Icon(Icons.search_rounded), onPressed: () => setState(() => _searching = true)),

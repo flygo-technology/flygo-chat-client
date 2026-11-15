@@ -225,7 +225,7 @@ void main() {
   group('Tab Bạn', () {
     test('Trợ lý và Bot ở nhóm Cá nhân, không còn Hẹn giờ / Tự động hoá', () {
       final g = youAppGroups(desktop: true);
-      expect(g.map((e) => e.$1), ['Công việc', 'Cá nhân']);
+      expect(g.map((e) => e.$1), ['Văn phòng', 'Cá nhân']);
       final personal = g[1].$2;
       expect(personal, containsAll(['assistants', 'bots', 'mcp']));
       expect(personal.indexOf('assistants'), lessThan(personal.indexOf('language')));

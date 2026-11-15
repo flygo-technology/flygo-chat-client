@@ -50,7 +50,7 @@ class TodoApi {
     try {
       j = Map<String, dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)) as Map);
     } catch (_) {}
-    if (res.statusCode >= 400) throw TodoException(res.statusCode, '${j['error'] ?? 'Todo trả lỗi ${res.statusCode}'}');
+    if (res.statusCode >= 400) throw TodoException(res.statusCode, '${j['error'] ?? 'Công việc trả lỗi ${res.statusCode}'}');
     return j;
   }
 

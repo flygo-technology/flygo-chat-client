@@ -50,6 +50,7 @@ const Map<String, String> ko = {
   'Cài đặt cuộc trò chuyện': '대화 설정',
   'Có {0} tin hẹn giờ chờ gửi': '보낼 예약 메시지 {0}개',
   'Công việc': '할 일',
+  'Văn phòng': '오피스',
   'Cần cho phép dùng micro để ghi âm.': '녹음하려면 마이크 권한을 허용해야 해요.',
   'Cắt / Xoay': '자르기 / 회전',
   'Của tôi': '내 할 일',

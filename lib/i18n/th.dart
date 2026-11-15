@@ -50,6 +50,7 @@ const Map<String, String> th = {
   'Cài đặt cuộc trò chuyện': 'ตั้งค่าแชท',
   'Có {0} tin hẹn giờ chờ gửi': 'มีข้อความตั้งเวลา {0} รายการรอส่ง',
   'Công việc': 'งาน',
+  'Văn phòng': 'สำนักงาน',
   'Cần cho phép dùng micro để ghi âm.': 'ต้องอนุญาตให้ใช้ไมโครโฟนเพื่อบันทึกเสียง',
   'Cắt / Xoay': 'ครอบตัด / หมุน',
   'Của tôi': 'ของฉัน',

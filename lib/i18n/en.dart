@@ -52,6 +52,7 @@ const Map<String, String> en = {
   'Cài đặt cuộc trò chuyện': 'Chat settings',
   'Có {0} tin hẹn giờ chờ gửi': '{0} scheduled messages pending',
   'Công việc': 'Tasks',
+  'Văn phòng': 'Office',
   'Cần cho phép dùng micro để ghi âm.': 'Microphone access is required to record voice messages.',
   'Cắt / Xoay': 'Crop / Rotate',
   'Của tôi': 'Mine',

@@ -184,7 +184,8 @@ void main() {
     expect(find.text('Kế hoạch tuần 46'), findsOneWidget);
     expect(find.text('Hoá đơn tháng 10'), findsNothing);
     expect(find.text('Chỉ xem'), findsOneWidget);
-    expect(find.text('Công việc'), findsNWidgets(2));
+    // Tên app (tiêu đề trang) và nhãn "Công việc" của ghi chú mẫu.
+    expect(find.text('Công việc'), findsNWidgets(3));
     expect(t.getTopLeft(find.text('Kế hoạch tuần 46')).dy, lessThan(t.getTopLeft(find.text('Đi chợ')).dy));
     await shot(t, 'todo-1-dien-thoai-sang');
     // Tick ngay trên thẻ: gửi PUT.
