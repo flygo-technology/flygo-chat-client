@@ -418,7 +418,7 @@ class _EditionPageState extends State<EditionPage> {
           group.add(blocks[i]);
           i++;
         }
-        children.add(_grid(kpiCols, [for (final k in group) KpiTile(block: k, prev: prevKpi[k['id']] as num?, onTap: () => showSourceSheet(context, k))]));
+        children.add(_grid(group.length < kpiCols && group.length >= 2 ? group.length : kpiCols, [for (final k in group) KpiTile(block: k, prev: prevKpi[k['id']] as num?, onTap: () => showSourceSheet(context, k))]));
       } else {
         children.add(BlockView(block: b, onSource: () => showSourceSheet(context, b)));
         i++;
