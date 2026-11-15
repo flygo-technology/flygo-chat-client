@@ -67,7 +67,7 @@ void main() {
       debugDisableShadows = false;
       final api = DemoMailApi();
       final store = MailStore(api);
-      await app(t, const Size(1440, 900), b, MailHome(store: store, title: 'Flygo Mail', ownsStore: false));
+      await app(t, const Size(1440, 900), b, MailHome(store: store, title: 'Mail', ownsStore: false));
       await t.tap(find.byKey(const ValueKey('mail-switcher')).first);
       await save(t, 'desktop-$th-1-switcher');
       await t.tap(find.text('Hỗ trợ khách hàng').first);
@@ -105,7 +105,7 @@ void main() {
       debugDisableShadows = false;
       final api = DemoMailApi();
       final store = MailStore(api);
-      await app(t, const Size(390, 844), b, MailHome(store: store, title: 'Flygo Mail', ownsStore: false), ratio: 2);
+      await app(t, const Size(390, 844), b, MailHome(store: store, title: 'Mail', ownsStore: false), ratio: 2);
       await t.tap(find.byKey(const ValueKey('mail-switcher')).first);
       await save(t, 'phone-$th-1-switcher');
       await t.tapAt(const Offset(195, 830));

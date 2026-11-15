@@ -251,10 +251,12 @@ class MailPage {
 }
 
 class MailDraft {
-  MailDraft({this.id, this.to = const [], this.cc = const [], this.bcc = const [], this.subject = '', this.html = '', this.attachments = const [], this.threadId});
+  MailDraft({this.id, this.to = const [], this.cc = const [], this.bcc = const [], this.subject = '', this.html = '', this.text, this.attachments = const [], this.threadId});
   String? id, threadId;
   List<MailPerson> to, cc, bcc;
   String subject, html;
+  /// Bản chữ thuần gửi kèm (null = máy chủ tự tạo từ HTML).
+  String? text;
   List<MailAttachment> attachments;
 
   Map<String, dynamic> toJson() => {
@@ -264,6 +266,7 @@ class MailDraft {
         'bcc': [for (final p in bcc) p.toJson()],
         'subject': subject,
         'html': html,
+        'text': ?text,
         'attachments': [for (final a in attachments) a.toJson()],
         if (threadId != null) 'threadId': threadId,
       };

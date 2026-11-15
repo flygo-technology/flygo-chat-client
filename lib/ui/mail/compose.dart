@@ -1,6 +1,6 @@
 // Thư: soạn thư. Máy tính: khung nổi góc dưới bên phải (thu nhỏ / phóng to); điện thoại: trang toàn màn hình.
-// Người nhận dạng thẻ, gợi ý từ danh bạ thư; định dạng cơ bản (đậm / nghiêng / gạch chân / danh sách), tệp đính kèm,
-// tự lưu bản nháp, Ctrl+Enter để gửi.
+// Người nhận dạng thẻ, gợi ý từ danh bạ thư; định dạng (đậm / nghiêng / gạch chân / gạch ngang / màu chữ / link /
+// danh sách / danh sách số / trích dẫn, dán giữ định dạng), tệp đính kèm, tự lưu bản nháp, Ctrl+Enter để gửi.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -9,66 +9,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../common.dart' show pickFilesOrReport;
+import '../todo/look.dart' show kTextColors;
 import '../todo/model.dart' show TRun;
-import '../todo/rich.dart' show RichController;
 import 'api.dart';
 import 'html_view.dart';
 import 'model.dart';
+import 'rich.dart';
 import 'widgets.dart';
 
 /// Dữ liệu mở khung soạn (thư mới, trả lời, chuyển tiếp, mở bản nháp).
 class ComposeArgs {
-  const ComposeArgs({this.to = const [], this.cc = const [], this.subject = '', this.body = '', this.quote, this.threadId, this.draftId, this.attachments = const [], this.kind = 'new'});
+  const ComposeArgs({this.to = const [], this.cc = const [], this.subject = '', this.body = '', this.quote, this.threadId, this.draftId, this.attachments = const [], this.kind = 'new', this.runs});
   final List<MailPerson> to, cc;
   final String subject;
-  /// Nội dung có sẵn (chữ thuần, vd mở lại bản nháp).
+  /// Nội dung có sẵn (chữ thuần, vd thư AI soạn).
   final String body;
+  /// Nội dung có định dạng (mở lại bản nháp); có thì dùng thay [body].
+  final List<TRun>? runs;
   /// HTML trích dẫn thư cũ, nối vào cuối khi gửi.
   final String? quote;
   final String? threadId, draftId;
   final List<MailAttachment> attachments;
   /// new | reply | all | fwd | draft
   final String kind;
-}
-
-/// Chuyển chữ có định dạng của khung soạn sang HTML thư. Dòng bắt đầu bằng "• " là danh sách.
-String runsToHtml(List<TRun> runs) {
-  String esc(String s) => const HtmlEscape(HtmlEscapeMode.element).convert(s);
-  final lines = <List<TRun>>[[]];
-  for (final r in runs) {
-    final parts = r.x.split('\n');
-    for (var i = 0; i < parts.length; i++) {
-      if (i > 0) lines.add([]);
-      if (parts[i].isNotEmpty) lines.last.add(TRun(parts[i], r.f));
-    }
-  }
-  String inline(List<TRun> rs) => rs.map((r) {
-        var s = esc(r.x);
-        if (r.f.b) s = '<b>$s</b>';
-        if (r.f.i) s = '<i>$s</i>';
-        if (r.f.u) s = '<u>$s</u>';
-        if (r.f.s) s = '<s>$s</s>';
-        if (r.f.a != null) s = '<a href="${esc(r.f.a!)}">$s</a>';
-        return s;
-      }).join();
-  final out = StringBuffer();
-  var inList = false;
-  for (final l in lines) {
-    final text = l.map((r) => r.x).join();
-    final bullet = text.startsWith('• ');
-    if (bullet && !inList) out.write('<ul>');
-    if (!bullet && inList) out.write('</ul>');
-    inList = bullet;
-    if (bullet) {
-      final rest = [...l];
-      if (rest.isNotEmpty) rest[0] = TRun(rest[0].x.replaceFirst('• ', ''), rest[0].f);
-      out.write('<li>${inline(rest)}</li>');
-    } else {
-      out.write(text.isEmpty ? '<div><br></div>' : '<div>${inline(l)}</div>');
-    }
-  }
-  if (inList) out.write('</ul>');
-  return out.toString();
 }
 
 class ComposeController extends ChangeNotifier {
@@ -79,14 +42,14 @@ class ComposeController extends ChangeNotifier {
         draftId = args.draftId,
         showCc = args.cc.isNotEmpty,
         subject = TextEditingController(text: args.subject),
-        body = RichController([TRun(args.body)]);
+        body = MailRichController(args.runs ?? [TRun(args.body)]);
 
   final MailApi api;
   final ComposeArgs args;
   final List<MailPerson> to, cc, bcc = [];
   final List<MailAttachment> attachments;
   final TextEditingController subject;
-  final RichController body;
+  final MailRichController body;
   String? draftId;
   bool showCc, showBcc = false, minimized = false, maximized = false, sending = false, quoteShown = false;
   String savedNote = '';
@@ -118,9 +81,15 @@ class ComposeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  String html() => runsToHtml(body.runs) + (args.quote ?? '');
+  String html() => composeHtml(body.runs) + (args.quote ?? '');
 
-  MailDraft draft() => MailDraft(id: draftId, to: to, cc: cc, bcc: bcc, subject: subject.text.trim(), html: html(), attachments: attachments, threadId: args.threadId);
+  /// Bản chữ thuần gửi kèm bản HTML.
+  String text() {
+    final q = args.quote;
+    return composeText(body.runs) + (q == null ? '' : '\n\n${htmlToText(q).split('\n').map((l) => l.isEmpty ? '>' : '> $l').join('\n')}');
+  }
+
+  MailDraft draft() => MailDraft(id: draftId, to: to, cc: cc, bcc: bcc, subject: subject.text.trim(), html: html(), text: text(), attachments: attachments, threadId: args.threadId);
 
   Future<void> save() async {
     if (!_dirty || _closed || isEmpty) return;
@@ -288,23 +257,108 @@ class _ComposeBodyState extends State<ComposeBody> {
     widget.onClosed('Đã huỷ bản nháp');
   }
 
-  void _bullet() {
+  Future<void> _link() async {
     final b = c.body;
-    final t = b.text, sel = b.selection;
-    final at = sel.isValid ? sel.start : t.length;
-    final lineStart = t.lastIndexOf('\n', at - 1) + 1;
-    final start = lineStart == 0 ? 1 : lineStart; // bỏ ký tự rỗng đầu ô
-    if (t.startsWith('• ', start)) {
-      b.value = TextEditingValue(text: t.replaceRange(start, start + 2, ''), selection: TextSelection.collapsed(offset: (at - 2).clamp(1, t.length - 2)));
+    final sel = b.selection;
+    final has = sel.isValid && !sel.isCollapsed;
+    final url = TextEditingController(text: b.current.a ?? '');
+    final label = TextEditingController();
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Chèn liên kết'),
+        content: SizedBox(
+          width: 380,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (!has) TextField(controller: label, decoration: const InputDecoration(labelText: 'Chữ hiển thị')),
+            TextField(
+              controller: url,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Địa chỉ (https://… hoặc email)'),
+              onSubmitted: (_) => Navigator.pop(ctx, true),
+            ),
+          ]),
+        ),
+        actions: [
+          if (b.current.a != null) TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Bỏ liên kết')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Huỷ')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('OK')),
+        ],
+      ),
+    );
+    if (r == null) return;
+    b.selection = sel;
+    if (r == false) {
+      b.setLink(null);
     } else {
-      b.value = TextEditingValue(text: t.replaceRange(start, start, '• '), selection: TextSelection.collapsed(offset: at + 2));
+      var u = url.text.trim();
+      if (u.isEmpty) return;
+      if (!RegExp(r'^(https?:|mailto:)', caseSensitive: false).hasMatch(u)) u = u.contains('@') && !u.contains('/') ? 'mailto:$u' : 'https://$u';
+      if (has) {
+        b.setLink(u);
+      } else {
+        final t = label.text.trim().isEmpty ? url.text.trim() : label.text.trim();
+        b.insertRuns([TRun(t, b.current.copyWith(a: u))]);
+      }
     }
     c.changed();
+    _bodyFocus.requestFocus();
+  }
+
+  Widget _colorBtn() {
+    final mc = MailColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cur = kTextColors[c.body.current.fg];
+    return PopupMenuButton<String>(
+      tooltip: 'Màu chữ',
+      onSelected: (v) {
+        c.body.setColor(v.isEmpty ? null : v);
+        c.changed();
+        _bodyFocus.requestFocus();
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          enabled: false,
+          child: Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final k in ['', ...kTextColors.keys])
+              InkWell(
+                key: ValueKey('mail-color-$k'),
+                onTap: () => Navigator.pop(context, k),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: k.isEmpty ? null : (dark ? kTextColors[k]!.$2 : kTextColors[k]!.$1),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: mc.muted.withValues(alpha: .5)),
+                  ),
+                  child: k.isEmpty ? Icon(Icons.format_color_reset, size: 15, color: mc.muted) : null,
+                ),
+              ),
+          ]),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(Icons.format_color_text, size: 19, color: cur == null ? null : (dark ? cur.$2 : cur.$1)),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final mc = MailColors.of(context);
+    c.body
+      ..dark = Theme.of(context).brightness == Brightness.dark
+      ..accent = mc.accent
+      ..muted = mc.muted;
+    final mac = Theme.of(context).platform == TargetPlatform.macOS;
+    SingleActivator key(LogicalKeyboardKey k, {bool shift = false}) => SingleActivator(k, control: !mac, meta: mac, shift: shift);
+    void fmt(VoidCallback f) {
+      f();
+      c.changed();
+    }
+
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.enter, control: true): _send,
@@ -344,7 +398,20 @@ class _ComposeBodyState extends State<ComposeBody> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              TextField(
+              CallbackShortcuts(
+                bindings: {
+                  key(LogicalKeyboardKey.keyB): () => fmt(() => c.body.toggle('b')),
+                  key(LogicalKeyboardKey.keyI): () => fmt(() => c.body.toggle('i')),
+                  key(LogicalKeyboardKey.keyU): () => fmt(() => c.body.toggle('u')),
+                  key(LogicalKeyboardKey.keyX, shift: true): () => fmt(() => c.body.toggle('s')),
+                  key(LogicalKeyboardKey.keyK): _link,
+                  key(LogicalKeyboardKey.keyV): () => c.body.paste(),
+                  key(LogicalKeyboardKey.digit7, shift: true): () => fmt(() => c.body.setLineKind('ol')),
+                  key(LogicalKeyboardKey.digit8, shift: true): () => fmt(() => c.body.setLineKind('ul')),
+                  key(LogicalKeyboardKey.digit9, shift: true): () => fmt(() => c.body.setLineKind('quote')),
+                },
+                child: TextField(
+                key: const ValueKey('mail-body'),
                 controller: c.body,
                 focusNode: _bodyFocus,
                 autofocus: c.to.isNotEmpty,
@@ -353,7 +420,7 @@ class _ComposeBodyState extends State<ComposeBody> {
                 keyboardType: TextInputType.multiline,
                 decoration: InputDecoration(isDense: true, border: InputBorder.none, hintText: c.args.quote == null ? 'Nội dung thư' : null),
                 style: TextStyle(fontSize: 14.5, height: 1.5, color: mc.text),
-              ),
+              )),
               if (c.args.quote != null)
                 c.quoteShown
                     ? Padding(padding: const EdgeInsets.only(top: 8), child: MailHtml(c.args.quote!))
@@ -408,7 +475,15 @@ class _ComposeBodyState extends State<ComposeBody> {
                 _fbtn(Icons.format_bold, 'Đậm (Ctrl+B)', c.body.current.b, () => c.body.toggle('b')),
                 _fbtn(Icons.format_italic, 'Nghiêng (Ctrl+I)', c.body.current.i, () => c.body.toggle('i')),
                 _fbtn(Icons.format_underlined, 'Gạch chân (Ctrl+U)', c.body.current.u, () => c.body.toggle('u')),
-                _fbtn(Icons.format_list_bulleted, 'Danh sách dấu đầu dòng', false, _bullet),
+                _fbtn(Icons.strikethrough_s, 'Gạch ngang (Ctrl+Shift+X)', c.body.current.s, () => c.body.toggle('s')),
+                _colorBtn(),
+                _sep(),
+                _fbtn(Icons.link, 'Chèn liên kết (Ctrl+K)', c.body.current.a != null, _link, mark: false),
+                _sep(),
+                _fbtn(Icons.format_list_numbered, 'Danh sách số (Ctrl+Shift+7)', c.body.currentKind == 'ol', () => c.body.setLineKind('ol')),
+                _fbtn(Icons.format_list_bulleted, 'Danh sách dấu đầu dòng (Ctrl+Shift+8)', c.body.currentKind == 'ul', () => c.body.setLineKind('ul')),
+                _fbtn(Icons.format_quote, 'Trích dẫn (Ctrl+Shift+9)', c.body.currentKind == 'quote', () => c.body.setLineKind('quote')),
+                _sep(),
                 _fbtn(Icons.format_clear, 'Xoá định dạng', false, c.body.clearFormat),
               ]),
             ),
@@ -437,7 +512,9 @@ class _ComposeBodyState extends State<ComposeBody> {
 
   Widget _ccBtn(String t, VoidCallback f) => InkWell(onTap: f, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4), child: Text(t, style: TextStyle(color: MailColors.of(context).muted, fontSize: 13))));
 
-  Widget _fbtn(IconData i, String tip, bool on, VoidCallback f) => IconButton(
+  Widget _sep() => Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 4), color: MailColors.of(context).muted.withValues(alpha: .35));
+
+  Widget _fbtn(IconData i, String tip, bool on, VoidCallback f, {bool mark = true}) => IconButton(
         tooltip: tip,
         visualDensity: VisualDensity.compact,
         iconSize: 19,
@@ -445,7 +522,7 @@ class _ComposeBodyState extends State<ComposeBody> {
         style: IconButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
         onPressed: () {
           f();
-          c.changed();
+          if (mark) c.changed();
         },
         icon: Icon(i),
       );
@@ -721,6 +798,7 @@ ComposeArgs draftArgs(MailThread t) {
     cc: m.cc,
     subject: t.summary.subject == '(không có tiêu đề)' ? '' : t.summary.subject,
     body: htmlToText(m.html),
+    runs: htmlToRuns(m.html),
     attachments: m.attachments,
     draftId: t.summary.id,
     kind: 'draft',

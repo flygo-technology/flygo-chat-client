@@ -692,10 +692,10 @@ class WikiHomeState extends State<WikiHome> {
                     onPressed: () =>
                         newFolder(_view == _View.folder && store.canIn(_folder, 'manage') && _folder != WikiStore.staff ? _folder : WikiStore.root),
                   ),
-                IconButton.filled(
+                IconButton(
                   key: const ValueKey('wiki-new-page'),
                   tooltip: tr('Trang mới'),
-                  icon: const Icon(Icons.add_rounded),
+                  icon: Icon(Icons.add_rounded, color: pal.sub),
                   onPressed: () => newPage(),
                 ),
                 if (Navigator.of(context).canPop())

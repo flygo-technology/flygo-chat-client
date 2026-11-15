@@ -8,8 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
+import 'package:flygo_chat/ui/mail/rich.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
 import 'package:flygo_chat/ui/theme.dart';
+import 'package:flygo_chat/ui/todo/model.dart';
 
 Future<void> _fonts() async {
   final dir = '${Platform.environment['FLUTTER_ROOT'] ?? '${Platform.environment['HOME']}/tools/flutter'}/bin/cache/artifacts/material_fonts';
@@ -51,7 +53,7 @@ void main() {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: buildTheme(b),
-        home: MailHome(store: store, title: 'Flygo Mail', ownsStore: false),
+        home: MailHome(store: store, title: 'Mail', ownsStore: false),
       ),
     ));
     for (var i = 0; i < 5; i++) {
@@ -82,6 +84,20 @@ void main() {
       await t.pump(const Duration(milliseconds: 100));
       await t.enterText(find.byType(TextField).last, 'Cảm ơn chị, em xác nhận lịch 9h thứ Năm.');
       await t.tap(find.text('Soạn thư').first);
+      await t.pump(const Duration(milliseconds: 100));
+      // Nội dung có định dạng để thấy thanh công cụ soạn thảo.
+      final body = t.widget<TextField>(find.byKey(const ValueKey('mail-body')).last).controller! as MailRichController;
+      body.setBody([
+        TRun('Cảm ơn chị, em '),
+        TRun('xác nhận', const TFmt(b: true)),
+        TRun(' lịch '),
+        TRun('9h thứ Năm', const TFmt(fg: 'red')),
+        TRun('. Tài liệu ở '),
+        TRun('đây', const TFmt(a: 'https://example.com')),
+        TRun(':\n1. Báo cáo quý\n2. Kế hoạch tháng 12\n• Ghi chú: '),
+        TRun('mang laptop', const TFmt(i: true)),
+        TRun('\n> Họp ở phòng lớn tầng 3'),
+      ]);
       await t.pump(const Duration(milliseconds: 100));
       await save(t, 'desktop-$th-4-reply-compose');
       await t.tap(find.byTooltip('Quay lại (u)'));

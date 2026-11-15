@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/api/mini_apps.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart' show isMailDemo;
@@ -5,13 +6,14 @@ import 'package:flygo_chat/ui/mail/compose.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/html_view.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
+import 'package:flygo_chat/ui/mail/rich.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
 import 'package:flygo_chat/ui/mail/widgets.dart';
 import 'package:flygo_chat/ui/todo/model.dart';
 
 void main() {
   test('chế độ demo theo manifest', () {
-    MiniApp app(Map<String, dynamic> j) => MiniApp.fromJson({'id': 'vn.flygo.mail', 'name': 'Flygo Mail', ...j});
+    MiniApp app(Map<String, dynamic> j) => MiniApp.fromJson({'id': 'vn.flygo.mail', 'name': 'Mail', ...j});
     expect(isMailDemo(app({'base_url': 'https://mail.example.com', 'features': {'demo': true}})), isTrue);
     expect(isMailDemo(app({'base_url': 'demo:'})), isTrue);
     expect(isMailDemo(app({'base_url': 'https://mail.example.com'})), isFalse);
@@ -31,12 +33,60 @@ void main() {
   });
 
   group('HTML', () {
-    test('runsToHtml: định dạng, danh sách, thoát ký tự', () {
-      final h = runsToHtml([TRun('Chào '), TRun('chị', const TFmt(b: true)), TRun(' <Hà>\n• một\n• hai\nhết')]);
+    test('composeHtml: định dạng, danh sách, trích dẫn, thoát ký tự', () {
+      final h = composeHtml([
+        TRun('Chào '),
+        TRun('chị', const TFmt(b: true)),
+        TRun(' <Hà> '),
+        TRun('đỏ', const TFmt(fg: 'red')),
+        TRun(' '),
+        TRun('web', const TFmt(a: 'https://example.com/?a=1&b="2"')),
+        TRun('\n• một\n• hai\n1. ba\n2. bốn\n> trích\nhết'),
+      ]);
       expect(h, contains('<b>chị</b>'));
       expect(h, contains('&lt;Hà&gt;'));
-      expect(h, contains('<ul><li>một</li><li>hai</li></ul>'));
-      expect(h, contains('<div>hết</div>'));
+      expect(h, contains('<span style="color:#c5221f">đỏ</span>'));
+      expect(h, contains('<a href="https://example.com/?a=1&amp;b=&quot;2&quot;">web</a>'));
+      expect(h, contains('<ul><li>một</li><li>hai</li></ul><ol><li>ba</li><li>bốn</li></ol>'));
+      expect(h, contains('<blockquote'));
+      expect(h, contains('<div>trích</div></blockquote><div>hết</div>'));
+    });
+    test('composeText: bản chữ thuần kèm theo', () {
+      final t = composeText([TRun('Xem '), TRun('đây', const TFmt(a: 'https://example.com')), TRun('\n• một\n2. hai\n> trích')]);
+      expect(t, 'Xem đây <https://example.com>\n- một\n2. hai\n> trích');
+    });
+    test('htmlToRuns: dán giữ định dạng cơ bản', () {
+      final r = htmlToRuns('<meta charset="utf-8"><p>A <strong>B</strong> <span style="color: rgb(197, 34, 31)">C</span> <a href="https://x.vn">D</a></p>'
+          '<ul><li>một</li><li>hai</li></ul><ol><li>ba</li></ol><blockquote>trích</blockquote><script>x</script>');
+      final text = r.map((e) => e.x).join();
+      expect(text, 'A B C D\n• một\n• hai\n1. ba\n> trích');
+      expect(r.firstWhere((e) => e.x == 'B').f.b, isTrue);
+      expect(r.firstWhere((e) => e.x == 'C').f.fg, 'red');
+      expect(r.firstWhere((e) => e.x == 'D').f.a, 'https://x.vn');
+      // Đọc lại HTML của chính khung soạn ra đúng chữ ban đầu.
+      final src = [TRun('Đoạn '), TRun('đậm', const TFmt(b: true)), TRun('\n• một\n1. hai\n> trích')];
+      expect(htmlToRuns(composeHtml(src)).map((e) => e.x).join(), 'Đoạn đậm\n• một\n1. hai\n> trích');
+    });
+    test('MailRichController: Enter nối tiếp danh sách, Enter ở mục trống thì thoát', () {
+      final c = MailRichController([TRun('1. một')]);
+      String type(String s) {
+        final at = c.selection.isValid ? c.selection.start : c.text.length;
+        c.value = TextEditingValue(text: c.text.replaceRange(at, at, s), selection: TextSelection.collapsed(offset: at + s.length));
+        return c.body;
+      }
+
+      c.selection = TextSelection.collapsed(offset: c.text.length);
+      expect(type('\n'), '1. một\n2. ');
+      expect(type('hai'), '1. một\n2. hai');
+      type('\n');
+      expect(type('\n'), '1. một\n2. hai\n');
+      c.setLineKind('ul');
+      expect(c.body, '1. một\n2. hai\n• ');
+      c.selection = const TextSelection(baseOffset: 1, extentOffset: 10);
+      c.setLineKind('quote');
+      expect(c.body, '> một\n> hai\n• ');
+      c.setLineKind('quote');
+      expect(c.body, 'một\nhai\n• ');
     });
     test('htmlToText bỏ thẻ, giữ xuống dòng', () {
       expect(htmlToText('<p>A <b>B</b></p><p>C<br>D</p><style>x{}</style>'), 'A B\nC\nD');

@@ -117,14 +117,37 @@ class EventDraft {
 }
 
 /// Mở trình sửa. [event] = lần xảy ra đang sửa (null = sự kiện mới). Trả true nếu đã lưu.
-Future<bool?> openEditor(BuildContext context, CalStore store, {CEvent? event, EventDraft? draft, String? mmToken}) =>
-    Navigator.of(context).push<bool>(AppPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => EventEditor(store: store, event: event, draft: draft ?? (event != null ? EventDraft.fromEvent(event) : EventDraft.blank(store)), mmToken: mmToken)));
+/// Màn hình rộng: hộp thoại giữa màn hình; điện thoại: trang toàn màn hình.
+Future<bool?> openEditor(BuildContext context, CalStore store, {CEvent? event, EventDraft? draft, String? mmToken}) {
+  final d = draft ?? (event != null ? EventDraft.fromEvent(event) : EventDraft.blank(store));
+  if (calWide(context)) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) {
+        final size = MediaQuery.sizeOf(c);
+        return Dialog(
+          clipBehavior: Clip.antiAlias,
+          insetPadding: const EdgeInsets.all(24),
+          backgroundColor: Pal.of(c).bg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SizedBox(
+            width: (size.width - 48).clamp(0, 1080).toDouble(),
+            height: (size.height * .88).clamp(0, 860).toDouble(),
+            child: EventEditor(store: store, event: event, draft: d, mmToken: mmToken, dialog: true),
+          ),
+        );
+      },
+    );
+  }
+  return Navigator.of(context).push<bool>(AppPageRoute(fullscreenDialog: true, builder: (_) => EventEditor(store: store, event: event, draft: d, mmToken: mmToken)));
+}
 
 class EventEditor extends StatefulWidget {
-  const EventEditor({super.key, required this.store, required this.draft, this.event, this.mmToken});
+  const EventEditor({super.key, required this.store, required this.draft, this.event, this.mmToken, this.dialog = false});
   final CalStore store;
+  /// Đang nằm trong hộp thoại (màn hình rộng): lề hẹp hơn, tiêu đề co theo chỗ.
+  final bool dialog;
   final EventDraft draft;
   final CEvent? event;
   /// Token chat để tạo phòng Họp (null = không tạo được).
@@ -854,14 +877,19 @@ class _EventEditorState extends State<EventEditor> {
             child: Row(children: [
               IconButton(key: const ValueKey('ed-close'), tooltip: tr('Đóng'), icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
               const SizedBox(width: 12),
-              ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: SizedBox(width: 640, child: _titleField())),
-              const Spacer(),
+              if (widget.dialog)
+                Expanded(child: _titleField())
+              else ...[
+                ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: SizedBox(width: 640, child: _titleField())),
+                const Spacer(),
+              ],
+              if (widget.dialog) const SizedBox(width: 16),
               _saveButton(),
             ]),
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(64, 16, 32, 32),
+              padding: widget.dialog ? const EdgeInsets.fromLTRB(28, 16, 24, 24) : const EdgeInsets.fromLTRB(64, 16, 32, 32),
               child: Align(
                 alignment: Alignment.topLeft,
                 child: ConstrainedBox(
@@ -876,8 +904,8 @@ class _EventEditorState extends State<EventEditor> {
                         if (_tab == 0) ..._details() else Padding(padding: const EdgeInsets.only(top: 14), child: _findTime()),
                       ]),
                     ),
-                    const SizedBox(width: 32),
-                    SizedBox(width: 330, child: _guestsPanel()),
+                    SizedBox(width: widget.dialog ? 24 : 32),
+                    SizedBox(width: widget.dialog ? 300 : 330, child: _guestsPanel()),
                   ]),
                 ),
               ),
