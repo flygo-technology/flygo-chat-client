@@ -154,6 +154,11 @@ class LiveKitMedia implements CallMedia {
         if (e.publication.source == lk.TrackSource.microphone && !e.publication.muted) _emit('user_unmuted', e.participant);
       })
       ..on<lk.TrackMutedEvent>((e) {
+        // Chủ phòng tắt mic của mình (relay gọi API của SFU): màn hình cập nhật nút mic.
+        if (e.participant is lk.LocalParticipant) {
+          if (e.publication.source == lk.TrackSource.microphone) onEvent?.call('self_muted', const {});
+          return;
+        }
         if (e.participant is! lk.RemoteParticipant) return;
         switch (e.publication.source) {
           case lk.TrackSource.microphone:

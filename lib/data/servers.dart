@@ -115,7 +115,9 @@ class ServerList {
     final body = jsonEncode({
       'current': cur,
       if (noDefault) 'no_default': true,
-      if (legacyMainServer.isNotEmpty) 'main_key': legacyMainServer,
+      // Luôn ghi (kể cả rỗng): thiếu khoá này thì lần đọc sau coi máy chủ đầu danh sách là 'main' và tìm phiên ở chỗ
+      // khác (máy mới cài đăng nhập lần đầu bị đăng xuất khi mở lại app / mở cửa sổ cuộc gọi riêng).
+      'main_key': legacyMainServer,
       'items': [for (final e in items) e.toJson()],
     });
     final tmp = File('${f.path}.tmp');
