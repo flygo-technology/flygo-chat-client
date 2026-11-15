@@ -565,6 +565,8 @@ async function aiKindOf(ch: any): Promise<"dm" | "project" | "group" | null> {
   const ai = aiOf(ch);
   if (!ai) return null;
   const g = await mm.channel(ai.group).catch(() => null);
+  // Bot không ở trong kênh dự án (app chỉ thêm bot vào phiên của nó): hỏi relay (token quản trị) phiên thuộc dự án nào.
+  if (!g && (await teamOf(ch.id, false, 3_000))?.project?.id === ai.group) return "project";
   return g?.type === "D" ? "dm" : isProject(g) ? "project" : "group";
 }
 /** Kênh D là chat 1-1 giữa `owner` và bot này (tên kênh D = "<id>__<id>"). */
@@ -990,7 +992,10 @@ async function projectChannelOf(ch: any): Promise<any | null> {
   const ai = aiOf(ch);
   if (!ai) return null;
   const g = await mm.channel(ai.group).catch(() => null);
-  return g && isProject(g) ? g : null;
+  if (g) return isProject(g) ? g : null;
+  // Bot không ở trong kênh dự án: thông tin dự án lấy từ relay (thấy được bằng token quản trị).
+  const t = await teamOf(ch.id);
+  return t?.project?.id === ai.group ? { id: t.project.id, name: t.project.channel, display_name: t.project.name, team_id: t.project.team_id, purpose: "", fromRelay: t.project } : null;
 }
 const sessTitle = (ch: any) => String(ch?.display_name ?? "").replace(/^AI · [^·]+ · /, "");
 const pick = (a: any, keys: string[]) => Object.fromEntries(keys.filter((k) => a?.[k] !== undefined).map((k) => [k, a[k]]));
@@ -1009,7 +1014,7 @@ async function teamTool(op: string, a: any): Promise<string> {
     const lines = [
       `Dự án "${p.display_name}" · id ${p.id} · kênh ${p.name}`,
       `Chủ dự án: ${ou ? `${ou.nickname || [ou.first_name, ou.last_name].filter(Boolean).join(" ") || ou.username} (@${ou.username})` : owner || "?"}`,
-      `Thư mục gắn của dự án: ${(await boundProject(p)) ?? "(chưa gắn: mỗi phiên làm trong thư mục riêng)"}`,
+      `Thư mục gắn của dự án: ${(p.fromRelay ? p.fromRelay.path : await boundProject(p).catch(() => null)) ?? "(chưa gắn: mỗi phiên làm trong thư mục riêng)"}`,
       `Phiên này: "${sessTitle(ch)}" · id ${ch.id} · bot @${BOT_NAME} (${engineLabel(ENGINE)}) · thư mục làm việc trên máy ${MY_HOST}: ${ctx.dir}`,
     ];
     if (t?.members?.length) lines.push(`Thành viên: ${t.members.map((m: any) => `${m.is_bot ? "🤖 " : ""}${m.name} (@${m.username})${m.owner ? " · chủ dự án" : ""}`).join(", ")}`);
