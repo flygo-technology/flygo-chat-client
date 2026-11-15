@@ -195,13 +195,15 @@ class MiniAppsSection extends StatefulWidget {
   final Set<String>? only;
   /// Bỏ các app này (đã hiện ở mục khác).
   final Set<String> except;
+  /// App native (manifest native.screen) thuộc mục "Chính" (Sếp, 2026-11-15): có [only] thì thêm vào, không thì bỏ ra.
+  final bool nativeInMain;
   /// Vẫn gọi [section] khi không có app nào (mục ghép với các ô khác, như "Chính").
   final bool showEmpty;
   /// Các app đặt riêng ở đầu (vd Bảng tin ngay sau "Dự án AI"): có [split] thì gọi split(tiêu đề, ô đầu, ô còn lại) thay [section].
   final List<String> lead;
   final Widget Function(String title, List<Widget> lead, List<Widget> rest)? split;
   const MiniAppsSection(
-      {super.key, required this.section, required this.tile, this.only, this.except = const {}, this.showEmpty = false,
+      {super.key, required this.section, required this.tile, this.only, this.except = const {}, this.nativeInMain = false, this.showEmpty = false,
       this.lead = const [], this.split});
   @override
   State<MiniAppsSection> createState() => _MiniAppsSectionState();
@@ -253,7 +255,14 @@ class _MiniAppsSectionState extends State<MiniAppsSection> with WidgetsBindingOb
 
   @override
   Widget build(BuildContext context) {
-    final apps = [for (final a in _apps) if ((widget.only == null || widget.only!.contains(a.id)) && !widget.except.contains(a.id)) a];
+    final native = widget.nativeInMain;
+    final apps = [
+      for (final a in _apps)
+        if ((widget.only == null || widget.only!.contains(a.id) || (native && a.nativeScreen != null)) &&
+            !widget.except.contains(a.id) &&
+            !(native && widget.only == null && a.nativeScreen != null))
+          a
+    ];
     if (apps.isEmpty && !widget.showEmpty) return const SizedBox.shrink();
     Widget tileOf(MiniApp a) => widget.tile(
         a.iconIsUrl ? MiniAppIcon(a, size: 62, radius: 18) : miniAppTileColor(a) != null ? MiniAppIcon(a, size: 34) : MiniAppIcon(a),

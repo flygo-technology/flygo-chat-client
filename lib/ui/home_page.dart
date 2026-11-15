@@ -118,6 +118,7 @@ Widget brandIcon(String id, double size, Color color) =>
 /// Bảng tin: ô riêng ngay sau "Dự án AI" ở mục Chính (Sếp, 2026-11-10); Todo ngay sau Bảng tin (Sếp, 2026-11-11).
 const kLeadMiniApps = ['vn.flygo.bangtin', 'vn.flygo.todo'];
 /// Teable, Multica, Nebula, Codex nằm ở mục Ứng dụng (Sếp, 2026-11-10). Dịch thuật ở mục Chính (Sếp, 2026-11-14).
+/// Mọi app native (native.screen: Lịch, Thư, Wiki, Biểu mẫu, Drive, Báo cáo…) cũng ở mục Chính (Sếp, 2026-11-15).
 const kMainMiniApps = {'vn.flygo.bangtin', 'vn.flygo.todo', 'vn.flygo.show', 'vn.flygo.dich'};
 
 /// Thứ tự các app nhóm Công việc ở mục Chính (Sếp 10/11); app khác của nhóm (nếu có) đứng sau.
@@ -1220,6 +1221,7 @@ class _HomePageState extends State<HomePage> {
         MiniAppsSection(
           key: ValueKey('main-$kServerUrl'),
           only: kMainMiniApps,
+          nativeInMain: true,
           showEmpty: true,
           tile: miniTile,
           lead: kLeadMiniApps,
@@ -1240,7 +1242,7 @@ class _HomePageState extends State<HomePage> {
           ]),
         ),
         // Ứng dụng (mini app của máy chủ, trừ các ô đã ở mục Chính) ngay sau Chính (Sếp, 2026-11-10).
-        MiniAppsSection(key: ValueKey('tab-$kServerUrl'), section: grid, tile: miniTile, except: kMainMiniApps),
+        MiniAppsSection(key: ValueKey('tab-$kServerUrl'), section: grid, tile: miniTile, except: kMainMiniApps, nativeInMain: true),
         // Ký số sau Ứng dụng (mỗi công ty một ô).
         for (final (title, ids) in youAppGroups(desktop: isDesktop).where((g) => g.$1 == tr('Ký số')))
           section(title, [for (final id in ids) if (items[id] != null) asTab(id, items[id]!)]),
