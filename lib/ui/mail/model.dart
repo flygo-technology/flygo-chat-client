@@ -165,14 +165,19 @@ class MailCounts {
 }
 
 class MailMe {
-  const MailMe(this.person, {this.mailboxes = const [], this.features = const {}});
+  const MailMe(this.person, {this.mailboxes = const [], this.features = const {}, this.access = 'admin'});
   final MailPerson person;
   final List<String> mailboxes;
   final Map<String, bool> features;
+  /// Quyền với hộp thư đang xem: read (chỉ xem, hộp được uỷ quyền) | send | admin.
+  final String access;
 
   factory MailMe.fromJson(Map m) => MailMe(MailPerson('${m['email'] ?? ''}', '${m['name'] ?? ''}', true),
       mailboxes: [for (final x in (m['mailboxes'] as List? ?? const [])) '$x'],
-      features: {for (final e in (m['features'] as Map? ?? const {}).entries) '${e.key}': e.value == true});
+      features: {for (final e in (m['features'] as Map? ?? const {}).entries) '${e.key}': e.value == true},
+      access: '${m['access'] ?? 'admin'}');
+
+  bool get readOnly => access == 'read';
 
   /// Tính năng backend có (mặc định có, trừ khi backend báo false).
   bool has(String f) => features[f] ?? true;

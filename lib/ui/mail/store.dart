@@ -51,6 +51,8 @@ class MailStore extends ChangeNotifier {
 
   bool get categories => (me?.has('categories') ?? true) && view == const MailView.box('inbox');
   bool get hasSelection => selected.isNotEmpty;
+  /// Chỉ được xem hộp thư này: không soạn / không đổi trạng thái (máy chủ cũng chặn).
+  bool get readOnly => me?.readOnly ?? false;
   MailLabel? labelById(String id) => labels.where((l) => l.id == id).firstOrNull;
 
   String get title => switch (view) {
@@ -210,6 +212,7 @@ class MailStore extends ChangeNotifier {
   /// Áp thay đổi (cập nhật ngay trên danh sách rồi gọi máy chủ). Trả lại hàm hoàn tác (null nếu không hoàn tác được).
   Future<Future<void> Function()?> apply(List<String> ids, MailChange change, {List<MailThreadSummary> extra = const []}) async {
     if (ids.isEmpty) return null;
+    if (readOnly) throw MailException(403, 'Bạn chỉ có quyền xem hộp thư này');
     final targets = [...items.where((t) => ids.contains(t.id)), ...extra.where((t) => !items.contains(t))];
     final before = {for (final t in targets) t.id: t.snapshot()};
     for (final t in targets) {
@@ -247,6 +250,7 @@ class MailStore extends ChangeNotifier {
   }
 
   Future<Future<void> Function()?> act(MailAction a, List<String> ids, {List<MailThreadSummary> extra = const []}) async {
+    if (readOnly) throw MailException(403, 'Bạn chỉ có quyền xem hộp thư này');
     if (a == MailAction.forever) {
       await api.remove(ids);
       items.removeWhere((t) => ids.contains(t.id));
@@ -269,7 +273,7 @@ class MailStore extends ChangeNotifier {
   /// Đọc thư: tải chi tiết và đánh dấu đã đọc.
   Future<MailThread> openThread(String id) async {
     final t = await api.thread(id);
-    if (t.summary.unread) {
+    if (t.summary.unread && !readOnly) {
       t.summary.unread = false;
       byId(id)?.unread = false;
       api.modify([id], const MailChange(unread: false)).then((c) {

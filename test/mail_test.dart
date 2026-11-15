@@ -63,6 +63,16 @@ void main() {
       expect((await api.list(box: 'drafts')).items.single.draft, isTrue);
     });
 
+    test('chỉ xem: không đổi trạng thái, mở thư không đánh dấu đã đọc', () async {
+      final store = MailStore(_ReadOnlyDemo());
+      await store.start();
+      expect(store.readOnly, isTrue);
+      final t = store.items.firstWhere((x) => x.unread);
+      await expectLater(store.act(MailAction.archive, [t.id]), throwsA(isA<Exception>()));
+      final th = await store.openThread(t.id);
+      expect(th.summary.unread, isTrue);
+    });
+
     test('lưu trữ rồi hoàn tác', () async {
       final store = MailStore(DemoMailApi());
       await store.start();
@@ -110,4 +120,9 @@ void main() {
       expect((await api.list(box: 'drafts')).items.where((t) => t.id == id), isEmpty);
     });
   });
+}
+
+class _ReadOnlyDemo extends DemoMailApi {
+  @override
+  Future<MailMe> me() async => const MailMe(DemoMailApi.user, access: 'read');
 }

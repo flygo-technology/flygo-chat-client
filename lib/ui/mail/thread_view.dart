@@ -13,8 +13,10 @@ import 'widgets.dart';
 class MailHooks {
   /// Tạo sự kiện Lịch từ thư (mở trình soạn sự kiện có sẵn dữ liệu, người dùng bấm Lưu).
   static Future<void> Function(BuildContext context, {required String title, required List<String> guestEmails, required String description})? createEvent;
+
   /// Gửi tóm tắt thư vào một cuộc trò chuyện.
   static Future<void> Function(BuildContext context, String text)? sendToChat;
+
   /// Mở / chia sẻ tệp đã tải về máy.
   static Future<void> Function(BuildContext context, String path, MailAttachment a) openFile = (context, path, a) async {
     await openLocalFile(path, mime: a.type.isEmpty ? null : a.type, title: a.name);
@@ -29,11 +31,14 @@ class ThreadView extends StatefulWidget {
   final MailStore store;
   final String threadId;
   final VoidCallback onBack;
+
   /// Mở khung soạn (điện thoại: trang mới; máy tính: trả lời ngay dưới thư nếu [inlineReply] null).
   final void Function(ComposeArgs args) onCompose;
+
   /// Sang thư mới hơn (-1) / cũ hơn (+1) trong danh sách.
   final void Function(int delta)? onStep;
   final bool wide;
+
   /// Máy tính: khung trả lời ngay dưới thư.
   final Widget Function(ComposeArgs args, VoidCallback done)? inlineReply;
 
@@ -93,11 +98,13 @@ class ThreadViewState extends State<ThreadView> {
   void _snack(String m, {Future<void> Function()? undo}) {
     final ms = ScaffoldMessenger.maybeOf(context);
     ms?.hideCurrentSnackBar();
-    ms?.showSnackBar(SnackBar(
-      content: Text(m),
-      duration: Duration(seconds: undo == null ? 4 : 8),
-      action: undo == null ? null : SnackBarAction(label: 'Hoàn tác', onPressed: () => undo()),
-    ));
+    ms?.showSnackBar(
+      SnackBar(
+        content: Text(m),
+        duration: Duration(seconds: undo == null ? 4 : 8),
+        action: undo == null ? null : SnackBarAction(label: 'Hoàn tác', onPressed: () => undo()),
+      ),
+    );
   }
 
   Future<void> act(MailAction a) async {
@@ -124,7 +131,10 @@ class ThreadViewState extends State<ThreadView> {
         builder: (ctx) => AlertDialog(
           title: const Text('Xoá vĩnh viễn?'),
           content: const Text('Cuộc hội thoại này sẽ bị xoá vĩnh viễn và không thể khôi phục.'),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Xoá vĩnh viễn'))],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Xoá vĩnh viễn')),
+          ],
         ),
       ) ??
       false;
@@ -146,10 +156,16 @@ class ThreadViewState extends State<ThreadView> {
   Future<void> _labels(BuildContext anchor) async {
     final t = _t;
     if (t == null) return;
-    await showLabelMenu(anchor, store, [t.summary.id], extra: [t.summary], onDone: (m, undo) {
-      _snack(m, undo: undo);
-      setState(() {});
-    });
+    await showLabelMenu(
+      anchor,
+      store,
+      [t.summary.id],
+      extra: [t.summary],
+      onDone: (m, undo) {
+        _snack(m, undo: undo);
+        setState(() {});
+      },
+    );
   }
 
   Future<void> _openAttachment(MailAttachment a) async {
@@ -167,7 +183,9 @@ class ThreadViewState extends State<ThreadView> {
     final t = _t;
     if (t == null) return;
     final me = store.me?.person.email;
-    final guests = {for (final m in t.messages) ...[m.from, ...m.to, ...m.cc]}.map((p) => p.email).where((e) => e != me).toList();
+    final guests = {
+      for (final m in t.messages) ...[m.from, ...m.to, ...m.cc],
+    }.map((p) => p.email).where((e) => e != me).toList();
     final text = htmlToText(t.messages.last.html);
     final desc = '${text.length > 600 ? '${text.substring(0, 600)}…' : text}\n\nMở thư: ${mailLink(t.summary.id)}';
     final hook = MailHooks.createEvent;
@@ -200,91 +218,127 @@ class ThreadViewState extends State<ThreadView> {
     final tr = s?.box == 'trash', sp = s?.box == 'spam';
     final bar = SizedBox(
       height: widget.wide ? 48 : 56,
-      child: Row(children: [
-        const SizedBox(width: 6),
-        IconButton(tooltip: 'Quay lại (u)', icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
-        if (tr) ...[
-          IconButton(tooltip: 'Chuyển đến Hộp thư đến', icon: const Icon(Icons.move_to_inbox_outlined), onPressed: () => act(MailAction.restore)),
-          IconButton(tooltip: 'Xoá vĩnh viễn', icon: const Icon(Icons.delete_forever_outlined), onPressed: () => act(MailAction.forever)),
-        ] else if (sp)
-          TextButton(onPressed: () => act(MailAction.notSpam), child: const Text('Không phải thư rác'))
-        else ...[
-          if (s?.box == 'inbox')
-            IconButton(tooltip: 'Lưu trữ (e)', icon: const Icon(Icons.archive_outlined), onPressed: () => act(MailAction.archive))
-          else
-            IconButton(tooltip: 'Chuyển đến Hộp thư đến', icon: const Icon(Icons.move_to_inbox_outlined), onPressed: () => act(MailAction.restore)),
-          IconButton(tooltip: 'Báo cáo thư rác', icon: const Icon(Icons.report_gmailerrorred_outlined), onPressed: () => act(MailAction.spam)),
-          IconButton(tooltip: 'Xoá (#)', icon: const Icon(Icons.delete_outline), onPressed: () => act(MailAction.trash)),
+      child: Row(
+        children: [
+          const SizedBox(width: 6),
+          IconButton(tooltip: 'Quay lại (u)', icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
+          if (store.readOnly) ...[
+            IconButton(tooltip: 'Thêm vào Lịch', icon: const Icon(Icons.event_outlined), onPressed: _toCalendar),
+            IconButton(tooltip: 'Gửi vào chat', icon: const Icon(Icons.forward_to_inbox_outlined), onPressed: _toChat),
+          ] else ...[
+            if (tr) ...[
+              IconButton(tooltip: 'Chuyển đến Hộp thư đến', icon: const Icon(Icons.move_to_inbox_outlined), onPressed: () => act(MailAction.restore)),
+              IconButton(tooltip: 'Xoá vĩnh viễn', icon: const Icon(Icons.delete_forever_outlined), onPressed: () => act(MailAction.forever)),
+            ] else if (sp)
+              TextButton(onPressed: () => act(MailAction.notSpam), child: const Text('Không phải thư rác'))
+            else ...[
+              if (s?.box == 'inbox')
+                IconButton(tooltip: 'Lưu trữ (e)', icon: const Icon(Icons.archive_outlined), onPressed: () => act(MailAction.archive))
+              else
+                IconButton(tooltip: 'Chuyển đến Hộp thư đến', icon: const Icon(Icons.move_to_inbox_outlined), onPressed: () => act(MailAction.restore)),
+              IconButton(tooltip: 'Báo cáo thư rác', icon: const Icon(Icons.report_gmailerrorred_outlined), onPressed: () => act(MailAction.spam)),
+              IconButton(tooltip: 'Xoá (#)', icon: const Icon(Icons.delete_outline), onPressed: () => act(MailAction.trash)),
+            ],
+            _sep(mc),
+            IconButton(tooltip: 'Đánh dấu là chưa đọc', icon: const Icon(Icons.mark_email_unread_outlined), onPressed: () => act(MailAction.unread)),
+            if (widget.wide) ...[
+              Builder(
+                builder: (b) => IconButton(tooltip: 'Nhãn', icon: const Icon(Icons.label_outline), onPressed: () => _labels(b)),
+              ),
+              IconButton(tooltip: 'Thêm vào Lịch', icon: const Icon(Icons.event_outlined), onPressed: _toCalendar),
+              IconButton(tooltip: 'Gửi vào chat', icon: const Icon(Icons.forward_to_inbox_outlined), onPressed: _toChat),
+            ],
+            Builder(
+              builder: (b) => IconButton(tooltip: 'Thao tác khác', icon: const Icon(Icons.more_vert), onPressed: () => _more(b)),
+            ),
+          ],
+          const Spacer(),
+          if (idx >= 0 && widget.wide) Text('${(store.page - 1) * store.size + idx + 1} trong tổng số ${store.total}', style: TextStyle(fontSize: 12, color: mc.muted)),
+          if (idx >= 0 && widget.onStep != null) ...[
+            IconButton(tooltip: 'Mới hơn (k)', icon: const Icon(Icons.chevron_left), onPressed: idx > 0 ? () => widget.onStep!(-1) : null),
+            IconButton(tooltip: 'Cũ hơn (j)', icon: const Icon(Icons.chevron_right), onPressed: idx < store.items.length - 1 ? () => widget.onStep!(1) : null),
+          ],
+          const SizedBox(width: 6),
         ],
-        _sep(mc),
-        IconButton(tooltip: 'Đánh dấu là chưa đọc', icon: const Icon(Icons.mark_email_unread_outlined), onPressed: () => act(MailAction.unread)),
-        if (widget.wide) ...[
-          Builder(builder: (b) => IconButton(tooltip: 'Nhãn', icon: const Icon(Icons.label_outline), onPressed: () => _labels(b))),
-          IconButton(tooltip: 'Thêm vào Lịch', icon: const Icon(Icons.event_outlined), onPressed: _toCalendar),
-          IconButton(tooltip: 'Gửi vào chat', icon: const Icon(Icons.forward_to_inbox_outlined), onPressed: _toChat),
-        ],
-        Builder(
-          builder: (b) => IconButton(
-            tooltip: 'Thao tác khác',
-            icon: const Icon(Icons.more_vert),
-            onPressed: () => _more(b),
-          ),
-        ),
-        const Spacer(),
-        if (idx >= 0 && widget.wide) Text('${(store.page - 1) * store.size + idx + 1} trong tổng số ${store.total}', style: TextStyle(fontSize: 12, color: mc.muted)),
-        if (idx >= 0 && widget.onStep != null) ...[
-          IconButton(tooltip: 'Mới hơn (k)', icon: const Icon(Icons.chevron_left), onPressed: idx > 0 ? () => widget.onStep!(-1) : null),
-          IconButton(tooltip: 'Cũ hơn (j)', icon: const Icon(Icons.chevron_right), onPressed: idx < store.items.length - 1 ? () => widget.onStep!(1) : null),
-        ],
-        const SizedBox(width: 6),
-      ]),
+      ),
     );
     Widget body;
     if (_err != null) {
-      body = Center(child: Text('$_err', style: TextStyle(color: mc.muted)));
+      body = Center(
+        child: Text('$_err', style: TextStyle(color: mc.muted)),
+      );
     } else if (t == null) {
       body = const Center(child: CircularProgressIndicator());
     } else {
       final pad = widget.wide ? 72.0 : 16.0;
       final last = t.messages.last;
       final others = {last.from.email, ...last.to.map((p) => p.email), ...last.cc.map((p) => p.email)}..remove(store.me?.person.email);
-      body = ListView(controller: _scroll, padding: const EdgeInsets.only(bottom: 48), children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(pad, 16, 16, 8),
-          child: Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            Text(t.summary.subject, style: TextStyle(fontSize: widget.wide ? 22 : 20, color: mc.text, height: 1.3)),
-            if (kMailBoxes.contains(t.summary.box) && t.summary.box != 'all')
-              LabelChip(MailStore.boxName(t.summary.box), mc.muted, onRemove: () => act(t.summary.box == 'inbox' ? MailAction.archive : MailAction.restore)),
-            for (final id in t.summary.labels)
-              if (store.labelById(id) case final l?)
-                LabelChip(l.name, Color(l.color), onRemove: () async {
-                  final undo = await store.apply([t.summary.id], MailChange(removeLabels: [id]), extra: [t.summary]);
-                  _snack('Đã gỡ nhãn "${l.name}"', undo: undo);
-                  setState(() {});
-                }),
-          ]),
-        ),
-        for (var i = 0; i < t.messages.length; i++) _message(t, t.messages[i], i, mc),
-        if (_inline != null && widget.inlineReply != null)
+      body = ListView(
+        controller: _scroll,
+        padding: const EdgeInsets.only(bottom: 48),
+        children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(widget.wide ? 72 : 0, 8, widget.wide ? 24 : 0, 0),
-            child: widget.inlineReply!(_inline!, () {
-              setState(() => _inline = null);
-              _load();
-            }),
-          )
-        else
-          Padding(
-            padding: EdgeInsets.fromLTRB(pad, 16, 16, 0),
-            child: Wrap(spacing: 12, runSpacing: 8, children: [
-              _replyBtn(Icons.reply, 'Trả lời', () => reply('reply')),
-              if (others.length > 1) _replyBtn(Icons.reply_all, 'Trả lời tất cả', () => reply('all')),
-              _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
-            ]),
+            padding: EdgeInsets.fromLTRB(pad, 16, 16, 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  t.summary.subject,
+                  style: TextStyle(fontSize: widget.wide ? 22 : 20, color: mc.text, height: 1.3),
+                ),
+                if (kMailBoxes.contains(t.summary.box) && t.summary.box != 'all')
+                  LabelChip(MailStore.boxName(t.summary.box), mc.muted, onRemove: store.readOnly ? null : () => act(t.summary.box == 'inbox' ? MailAction.archive : MailAction.restore)),
+                for (final id in t.summary.labels)
+                  if (store.labelById(id) case final l?)
+                    LabelChip(
+                      l.name,
+                      Color(l.color),
+                      onRemove: store.readOnly
+                          ? null
+                          : () async {
+                              final undo = await store.apply([t.summary.id], MailChange(removeLabels: [id]), extra: [t.summary]);
+                              _snack('Đã gỡ nhãn "${l.name}"', undo: undo);
+                              setState(() {});
+                            },
+                    ),
+              ],
+            ),
           ),
-      ]);
+          for (var i = 0; i < t.messages.length; i++) _message(t, t.messages[i], i, mc),
+          if (store.readOnly)
+            const SizedBox.shrink()
+          else if (_inline != null && widget.inlineReply != null)
+            Padding(
+              padding: EdgeInsets.fromLTRB(widget.wide ? 72 : 0, 8, widget.wide ? 24 : 0, 0),
+              child: widget.inlineReply!(_inline!, () {
+                setState(() => _inline = null);
+                _load();
+              }),
+            )
+          else
+            Padding(
+              padding: EdgeInsets.fromLTRB(pad, 16, 16, 0),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  _replyBtn(Icons.reply, 'Trả lời', () => reply('reply')),
+                  if (others.length > 1) _replyBtn(Icons.reply_all, 'Trả lời tất cả', () => reply('all')),
+                  _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
+                ],
+              ),
+            ),
+        ],
+      );
     }
-    return Column(children: [bar, Expanded(child: body)]);
+    return Column(
+      children: [
+        bar,
+        Expanded(child: body),
+      ],
+    );
   }
 
   void _more(BuildContext b) {
@@ -307,11 +361,11 @@ class ThreadViewState extends State<ThreadView> {
   Widget _sep(MailColors mc) => Container(width: 1, height: 20, margin: const EdgeInsets.symmetric(horizontal: 6), color: mc.line);
 
   Widget _replyBtn(IconData i, String t, VoidCallback f) => OutlinedButton.icon(
-        onPressed: f,
-        icon: Icon(i, size: 18),
-        label: Text(t),
-        style: OutlinedButton.styleFrom(shape: const StadiumBorder(), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
-      );
+    onPressed: f,
+    icon: Icon(i, size: 18),
+    label: Text(t),
+    style: OutlinedButton.styleFrom(shape: const StadiumBorder(), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
+  );
 
   Widget _message(MailThread t, MailMessage m, int i, MailColors mc) {
     final open = _open.contains(m.id) || t.messages.length == 1;
@@ -319,64 +373,109 @@ class ThreadViewState extends State<ThreadView> {
     final from = mine ? (store.me?.person ?? m.from) : m.from;
     final toTxt = 'đến ${[...m.to, ...m.cc].map((p) => p.email == store.me?.person.email ? 'tôi' : p.short).join(', ')}';
     return Container(
-      decoration: BoxDecoration(border: i == 0 ? null : Border(top: BorderSide(color: mc.line))),
+      decoration: BoxDecoration(
+        border: i == 0 ? null : Border(top: BorderSide(color: mc.line)),
+      ),
       padding: EdgeInsets.fromLTRB(widget.wide ? 16 : 12, 14, widget.wide ? 24 : 12, open ? 8 : 14),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        MailAvatar(from, size: 40),
-        SizedBox(width: widget.wide ? 16 : 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            InkWell(
-              onTap: t.messages.length > 1 ? () => setState(() => open ? _open.remove(m.id) : _open.add(m.id)) : null,
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text.rich(TextSpan(children: [
-                      TextSpan(text: from.display, style: TextStyle(fontWeight: FontWeight.w700, color: mc.text)),
-                      if (widget.wide) TextSpan(text: '  <${m.from.email}>', style: TextStyle(fontSize: 12, color: mc.muted)),
-                    ]), overflow: TextOverflow.ellipsis),
-                    if (open)
-                      Text(toTxt, style: TextStyle(fontSize: 12, color: mc.muted), overflow: TextOverflow.ellipsis)
-                    else
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(htmlToText(m.html).replaceAll('\n', ' '), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: mc.muted)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          MailAvatar(from, size: 40),
+          SizedBox(width: widget.wide ? 16 : 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                InkWell(
+                  onTap: t.messages.length > 1 ? () => setState(() => open ? _open.remove(m.id) : _open.add(m.id)) : null,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: from.display,
+                                    style: TextStyle(fontWeight: FontWeight.w700, color: mc.text),
+                                  ),
+                                  if (widget.wide)
+                                    TextSpan(
+                                      text: '  <${m.from.email}>',
+                                      style: TextStyle(fontSize: 12, color: mc.muted),
+                                    ),
+                                ],
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (open)
+                              Text(
+                                toTxt,
+                                style: TextStyle(fontSize: 12, color: mc.muted),
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            else
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  htmlToText(m.html).replaceAll('\n', ' '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: mc.muted),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                  ]),
-                ),
-                Text(fmtMessageDate(m.date, relative: widget.wide), style: TextStyle(fontSize: 12, color: mc.muted)),
-                if (open) ...[
-                  IconButton(tooltip: 'Trả lời', visualDensity: VisualDensity.compact, iconSize: 18, onPressed: () => reply('reply', m), icon: const Icon(Icons.reply)),
-                  Builder(
-                    builder: (b) => IconButton(
-                      tooltip: 'Thêm',
-                      visualDensity: VisualDensity.compact,
-                      iconSize: 18,
-                      onPressed: () => showAnchoredMenu(b, [
-                        MenuEntry('Trả lời', Icons.reply, () => reply('reply', m)),
-                        MenuEntry('Trả lời tất cả', Icons.reply_all, () => reply('all', m)),
-                        MenuEntry('Chuyển tiếp', Icons.forward, () => reply('fwd', m)),
-                      ]),
-                      icon: const Icon(Icons.more_vert),
-                    ),
+                      Text(
+                        fmtMessageDate(m.date, relative: widget.wide),
+                        style: TextStyle(fontSize: 12, color: mc.muted),
+                      ),
+                      if (open && !store.readOnly) ...[
+                        IconButton(tooltip: 'Trả lời', visualDensity: VisualDensity.compact, iconSize: 18, onPressed: () => reply('reply', m), icon: const Icon(Icons.reply)),
+                        Builder(
+                          builder: (b) => IconButton(
+                            tooltip: 'Thêm',
+                            visualDensity: VisualDensity.compact,
+                            iconSize: 18,
+                            onPressed: () => showAnchoredMenu(b, [
+                              MenuEntry('Trả lời', Icons.reply, () => reply('reply', m)),
+                              MenuEntry('Trả lời tất cả', Icons.reply_all, () => reply('all', m)),
+                              MenuEntry('Chuyển tiếp', Icons.forward, () => reply('fwd', m)),
+                            ]),
+                            icon: const Icon(Icons.more_vert),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
+                ),
+                if (open) ...[
+                  const SizedBox(height: 10),
+                  MailHtml(m.html, style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text)),
+                  if (m.attachments.isNotEmpty) ...[
+                    Divider(color: mc.line, height: 24),
+                    Text(
+                      '${m.attachments.length} tệp đính kèm',
+                      style: TextStyle(fontWeight: FontWeight.w500, color: mc.text),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [for (final a in m.attachments) _AttachmentCard(a, onOpen: () => _openAttachment(a), phone: !widget.wide)],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                 ],
-              ]),
-            ),
-            if (open) ...[
-              const SizedBox(height: 10),
-              MailHtml(m.html, style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text)),
-              if (m.attachments.isNotEmpty) ...[
-                Divider(color: mc.line, height: 24),
-                Text('${m.attachments.length} tệp đính kèm', style: TextStyle(fontWeight: FontWeight.w500, color: mc.text)),
-                const SizedBox(height: 10),
-                Wrap(spacing: 12, runSpacing: 12, children: [for (final a in m.attachments) _AttachmentCard(a, onOpen: () => _openAttachment(a), phone: !widget.wide)]),
-                const SizedBox(height: 8),
               ],
-            ],
-          ]),
-        ),
-      ]),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -396,32 +495,45 @@ class _AttachmentCard extends StatelessWidget {
       message: a.name,
       child: Material(
         color: mc.surface2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: mc.line)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: mc.line),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onOpen,
           child: SizedBox(
             width: w,
             height: 116,
-            child: Column(children: [
-              Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: a.kind == 'img' ? const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF9EC5FF), Color(0xFFD6B4FF)])) : null,
-                  child: Icon(a.kind == 'img' ? Icons.image_outlined : icon, size: 40, color: a.kind == 'img' ? Colors.white : color),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    decoration: a.kind == 'img' ? const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF9EC5FF), Color(0xFFD6B4FF)])) : null,
+                    child: Icon(a.kind == 'img' ? Icons.image_outlined : icon, size: 40, color: a.kind == 'img' ? Colors.white : color),
+                  ),
                 ),
-              ),
-              Container(
-                color: mc.surface,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                child: Row(children: [
-                  Icon(icon, size: 16, color: color),
-                  const SizedBox(width: 6),
-                  Expanded(child: Text(a.name, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: mc.text))),
-                  Text(fmtSize(a.size), style: TextStyle(fontSize: 11, color: mc.muted)),
-                ]),
-              ),
-            ]),
+                Container(
+                  color: mc.surface,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 16, color: color),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          a.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: mc.text),
+                        ),
+                      ),
+                      Text(fmtSize(a.size), style: TextStyle(fontSize: 11, color: mc.muted)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -453,12 +565,22 @@ Future<void> showAnchoredMenu(BuildContext anchor, List<MenuEntry> entries) asyn
         PopupMenuItem(
           value: k,
           height: 40,
-          child: Row(children: [
-            if (entries[k].color != null)
-              Container(width: 12, height: 12, margin: const EdgeInsets.only(right: 12), decoration: BoxDecoration(color: entries[k].color, borderRadius: BorderRadius.circular(4)))
-            else if (entries[k].icon != null) ...[Icon(entries[k].icon, size: 18), const SizedBox(width: 12)],
-            Flexible(child: Text(entries[k].title)),
-          ]),
+          child: Row(
+            children: [
+              if (entries[k].color != null)
+                Container(
+                  width: 12,
+                  height: 12,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(color: entries[k].color, borderRadius: BorderRadius.circular(4)),
+                )
+              else if (entries[k].icon != null) ...[
+                Icon(entries[k].icon, size: 18),
+                const SizedBox(width: 12),
+              ],
+              Flexible(child: Text(entries[k].title)),
+            ],
+          ),
         ),
     ],
   );
@@ -466,8 +588,13 @@ Future<void> showAnchoredMenu(BuildContext anchor, List<MenuEntry> entries) asyn
 }
 
 /// Menu gắn / gỡ nhãn cho các cuộc hội thoại [ids]; có ô tìm nhãn và "Tạo nhãn mới".
-Future<void> showLabelMenu(BuildContext anchor, MailStore store, List<String> ids,
-    {List<MailThreadSummary> extra = const [], required void Function(String message, Future<void> Function()? undo) onDone}) async {
+Future<void> showLabelMenu(
+  BuildContext anchor,
+  MailStore store,
+  List<String> ids, {
+  List<MailThreadSummary> extra = const [],
+  required void Function(String message, Future<void> Function()? undo) onDone,
+}) async {
   final threads = [...store.items.where((t) => ids.contains(t.id)), ...extra.where((t) => !store.items.contains(t))];
   final picked = await showDialog<Object>(
     context: anchor,
@@ -479,25 +606,47 @@ Future<void> showLabelMenu(BuildContext anchor, MailStore store, List<String> id
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(autofocus: true, decoration: const InputDecoration(hintText: 'Tìm nhãn', isDense: true), onChanged: (v) => set(() => q = v.toLowerCase())),
+              child: TextField(
+                autofocus: true,
+                decoration: const InputDecoration(hintText: 'Tìm nhãn', isDense: true),
+                onChanged: (v) => set(() => q = v.toLowerCase()),
+              ),
             ),
             for (final l in store.labels.where((l) => l.name.toLowerCase().contains(q)))
-              Builder(builder: (_) {
-                final n = threads.where((t) => t.labels.contains(l.id)).length;
-                final all = threads.isNotEmpty && n == threads.length;
-                return SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, l),
-                  child: Row(children: [
-                    Icon(all ? Icons.check_box : n > 0 ? Icons.indeterminate_check_box : Icons.check_box_outline_blank, size: 20),
-                    const SizedBox(width: 12),
-                    Container(width: 12, height: 12, decoration: BoxDecoration(color: Color(l.color), borderRadius: BorderRadius.circular(4))),
-                    const SizedBox(width: 10),
-                    Text(l.name),
-                  ]),
-                );
-              }),
+              Builder(
+                builder: (_) {
+                  final n = threads.where((t) => t.labels.contains(l.id)).length;
+                  final all = threads.isNotEmpty && n == threads.length;
+                  return SimpleDialogOption(
+                    onPressed: () => Navigator.pop(ctx, l),
+                    child: Row(
+                      children: [
+                        Icon(
+                          all
+                              ? Icons.check_box
+                              : n > 0
+                              ? Icons.indeterminate_check_box
+                              : Icons.check_box_outline_blank,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(color: Color(l.color), borderRadius: BorderRadius.circular(4)),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(l.name),
+                      ],
+                    ),
+                  );
+                },
+              ),
             const Divider(),
-            SimpleDialogOption(onPressed: () => Navigator.pop(ctx, 'new'), child: const Row(children: [Icon(Icons.add, size: 20), SizedBox(width: 12), Text('Tạo nhãn mới')])),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 'new'),
+              child: const Row(children: [Icon(Icons.add, size: 20), SizedBox(width: 12), Text('Tạo nhãn mới')]),
+            ),
           ],
         ),
       );
@@ -511,7 +660,11 @@ Future<void> showLabelMenu(BuildContext anchor, MailStore store, List<String> id
     onDone('Đã gắn nhãn "${l.name}"', undo);
   } else if (picked is MailLabel) {
     final has = threads.isNotEmpty && threads.every((t) => t.labels.contains(picked.id));
-    final undo = await store.apply(ids, has ? MailChange(removeLabels: [picked.id]) : MailChange(addLabels: [picked.id]), extra: extra);
+    final undo = await store.apply(
+      ids,
+      has ? MailChange(removeLabels: [picked.id]) : MailChange(addLabels: [picked.id]),
+      extra: extra,
+    );
     onDone(has ? 'Đã gỡ nhãn "${picked.name}"' : 'Đã gắn nhãn "${picked.name}"', undo);
   }
 }
@@ -524,23 +677,43 @@ Future<MailLabel?> showNewLabelDialog(BuildContext context, MailStore store) asy
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, set) => AlertDialog(
         title: const Text('Nhãn mới'),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(controller: ctl, autofocus: true, maxLength: 40, decoration: const InputDecoration(labelText: 'Tên nhãn'), onSubmitted: (_) => Navigator.pop(ctx, true)),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, children: [
-            for (final c in kLabelSwatches)
-              InkWell(
-                customBorder: const CircleBorder(),
-                onTap: () => set(() => color = c),
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(color: Color(c), shape: BoxShape.circle, border: c == color ? Border.all(width: 3, color: Theme.of(ctx).colorScheme.onSurface) : null),
-                ),
-              ),
-          ]),
-        ]),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Tạo'))],
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: ctl,
+              autofocus: true,
+              maxLength: 40,
+              decoration: const InputDecoration(labelText: 'Tên nhãn'),
+              onSubmitted: (_) => Navigator.pop(ctx, true),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final c in kLabelSwatches)
+                  InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => set(() => color = c),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: Color(c),
+                        shape: BoxShape.circle,
+                        border: c == color ? Border.all(width: 3, color: Theme.of(ctx).colorScheme.onSurface) : null,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Tạo')),
+        ],
       ),
     ),
   );
