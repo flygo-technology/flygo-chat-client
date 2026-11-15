@@ -88,6 +88,14 @@ void main() {
       c.setLineKind('quote');
       expect(c.body, 'một\nhai\n• ');
     });
+    test('decodeMimeWords: RFC 2047 B/Q, từ liền nhau, Latin-1', () {
+      expect(decodeMimeWords('=?UTF-8?B?QmEgRMawxqFuZyBWxINu?='), 'Ba Dương Văn');
+      expect(decodeMimeWords('=?UTF-8?Q?Nguy=E1=BB=85n_V=C4=83n?= A'), 'Nguyễn Văn A');
+      expect(decodeMimeWords('=?UTF-8?B?xJA=?= =?UTF-8?B?4bqhaQ==?='), 'Đại');
+      expect(decodeMimeWords('=?iso-8859-1?q?caf=E9?='), 'café');
+      expect(decodeMimeWords('Thư thường'), 'Thư thường');
+      expect(MailPerson.fromJson({'email': 'a@b.vn', 'name': '=?utf-8?b?RMawxqFuZyBWxINuIEJh?='}).name, 'Dương Văn Ba');
+    });
     test('htmlToText bỏ thẻ, giữ xuống dòng', () {
       expect(htmlToText('<p>A <b>B</b></p><p>C<br>D</p><style>x{}</style>'), 'A B\nC\nD');
     });

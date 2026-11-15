@@ -1,11 +1,13 @@
 // Thư (vn.flygo.mail): kiểu dữ liệu theo hợp đồng API của backend thư (docs/flygo-mail/API.md ở repo backend).
 
+import 'dart:convert';
+
 class MailPerson {
   const MailPerson(this.email, [this.name = '', this.me = false]);
   final String email, name;
   final bool me;
 
-  factory MailPerson.fromJson(Map m) => MailPerson('${m['email'] ?? ''}', '${m['name'] ?? ''}', m['me'] == true);
+  factory MailPerson.fromJson(Map m) => MailPerson('${m['email'] ?? ''}', decodeMimeWords('${m['name'] ?? ''}'), m['me'] == true);
   Map<String, dynamic> toJson() => {'email': email, 'name': name};
 
   /// Tên hiển thị đầy đủ (không có tên thì là địa chỉ).
@@ -102,7 +104,7 @@ class MailThreadSummary {
 
   factory MailThreadSummary.fromJson(Map m) => MailThreadSummary(
         id: '${m['id']}',
-        subject: '${m['subject'] ?? ''}',
+        subject: decodeMimeWords('${m['subject'] ?? ''}'),
         snippet: '${m['snippet'] ?? ''}',
         date: DateTime.fromMillisecondsSinceEpoch((m['date'] as num?)?.toInt() ?? 0),
         count: (m['count'] as num?)?.toInt() ?? 1,
@@ -351,4 +353,64 @@ class MailQuery {
     r.words = words.join(' ');
     return r;
   }
+}
+
+/// Giải mã "encoded-word" RFC 2047 (=?UTF-8?B?...?= / =?...?Q?...?=) còn sót trong tên, tiêu đề. Máy chủ đã giải mã;
+/// đây là lớp dự phòng cho máy chủ cũ. Các từ liền nhau cùng bảng mã ghép byte trước khi giải mã (ký tự nhiều byte bị
+/// cắt đôi giữa hai từ vẫn đúng). Hỗ trợ UTF-8 và Latin-1; bảng mã khác đọc như UTF-8.
+String decodeMimeWords(String s) {
+  if (!s.contains('=?')) return s;
+  final re = RegExp(r'=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=');
+  final out = StringBuffer();
+  var last = 0;
+  String? cs;
+  final bytes = <int>[];
+  void flush() {
+    if (cs == null) return;
+    final c = cs!.split('*').first.toLowerCase();
+    out.write(c == 'iso-8859-1' || c == 'latin1' || c == 'us-ascii' ? latin1.decode(bytes, allowInvalid: true) : utf8.decode(bytes, allowMalformed: true));
+    bytes.clear();
+    cs = null;
+  }
+
+  for (final m in re.allMatches(s)) {
+    final between = s.substring(last, m.start);
+    if (!(cs != null && between.trim().isEmpty)) {
+      flush();
+      out.write(between);
+    }
+    final c = m.group(1)!.toLowerCase();
+    List<int> b;
+    try {
+      if (m.group(2)!.toUpperCase() == 'B') {
+        final t = m.group(3)!.replaceAll(RegExp(r'[^A-Za-z0-9+/]'), '');
+        b = base64.decode(t.padRight((t.length + 3) ~/ 4 * 4, '='));
+      } else {
+        b = [];
+        final t = m.group(3)!;
+        for (var i = 0; i < t.length; i++) {
+          if (t[i] == '_') {
+            b.add(0x20);
+          } else if (t[i] == '=' && i + 2 < t.length && int.tryParse(t.substring(i + 1, i + 3), radix: 16) != null) {
+            b.add(int.parse(t.substring(i + 1, i + 3), radix: 16));
+            i += 2;
+          } else {
+            b.add(t.codeUnitAt(i) & 0xff);
+          }
+        }
+      }
+    } catch (_) {
+      flush();
+      out.write(m.group(0));
+      last = m.end;
+      continue;
+    }
+    if (cs != c) flush();
+    cs = c;
+    bytes.addAll(b);
+    last = m.end;
+  }
+  flush();
+  out.write(s.substring(last));
+  return out.toString();
 }
