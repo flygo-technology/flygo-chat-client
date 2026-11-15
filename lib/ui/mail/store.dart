@@ -1,7 +1,11 @@
 // Thư: trạng thái màn hình (mục đang xem, danh sách, chọn nhiều, đếm chưa đọc) và các thao tác có hoàn tác.
+// Realtime: [startLive] nghe kênh `/mail/api/live`; thư mới / đổi trạng thái từ máy khác thì tải lại lặng lẽ.
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'api.dart';
+import 'live.dart';
 import 'model.dart';
 
 /// Mục đang xem: một hộp (inbox…), một nhãn, hoặc kết quả tìm kiếm.
@@ -49,6 +53,19 @@ class MailStore extends ChangeNotifier {
   final selected = <String>{};
   bool _disposed = false;
 
+  MailLive? _live;
+  Timer? _reloadT, _meT;
+  final _remote = StreamController<Set<String>>.broadcast();
+
+  /// Cuộc hội thoại vừa đổi ở nơi khác (thư mới, đọc / gắn sao / nhãn từ máy khác): màn hình đang mở nó tự tải lại.
+  Stream<Set<String>> get remoteThreads => _remote.stream;
+
+  /// Kênh realtime đang nối được.
+  bool get live => _live?.up ?? false;
+
+  /// Địa chỉ hộp đang xem.
+  String get mailboxId => (api.mailbox ?? me?.person.email ?? '').toLowerCase();
+
   bool get categories => (me?.has('categories') ?? true) && view == const MailView.box('inbox');
   bool get hasSelection => selected.isNotEmpty;
   /// Chỉ được xem hộp thư này: không soạn / không đổi trạng thái (máy chủ cũng chặn).
@@ -81,7 +98,87 @@ class MailStore extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    stopLive();
+    _remote.close();
     super.dispose();
+  }
+
+  /// Nghe kênh realtime trong lúc màn hình Thư mở ([connector] để test).
+  void startLive({MailLiveConnector? connector}) {
+    if (_live != null) return;
+    _live = MailLive(target: api.liveTarget, onEvent: onLive, connector: connector)..start();
+  }
+
+  void stopLive() {
+    _live?.stop();
+    _live = null;
+    _reloadT?.cancel();
+    _meT?.cancel();
+  }
+
+  /// App vừa mở lại (từ nền): nối lại ngay và tải lại.
+  void resumed() {
+    _live?.kick();
+    _reloadSoon();
+    _meSoon();
+  }
+
+  void onLive(MailLiveEvent e) {
+    if (_disposed) return;
+    switch (e.type) {
+      case 'mail':
+        if (e.mailbox == mailboxId) {
+          _reloadSoon();
+          if (e.threads.isNotEmpty && !_remote.isClosed) _remote.add(e.threads.toSet());
+        }
+        // Số thư chưa đọc của các hộp khác (chấm đỏ trên ảnh đại diện, bộ chọn hộp thư).
+        if (e.mailbox != mailboxId || e.isNew) _meSoon();
+      case 'boxes':
+        _meSoon(fast: true);
+      case 'resync' || 'poll':
+        _reloadSoon();
+        _meSoon();
+    }
+  }
+
+  void _reloadSoon() {
+    _reloadT?.cancel();
+    _reloadT = Timer(const Duration(milliseconds: 250), () {
+      if (_disposed || me == null) return;
+      load(quiet: true);
+    });
+  }
+
+  void _meSoon({bool fast = false}) {
+    _meT?.cancel();
+    _meT = Timer(Duration(milliseconds: fast ? 150 : 900), refreshMe);
+  }
+
+  /// Tải lại danh sách hộp thư (sau khi quản trị tạo / xoá hộp, đổi quyền). Hộp đang xem bị thu quyền thì về hộp mặc định.
+  Future<void> refreshMe() async {
+    if (_disposed) return;
+    try {
+      final m = await api.me();
+      if (_disposed) return;
+      final lost = api.mailbox != null && m.boxes.isNotEmpty && !m.boxes.any((b) => b.id == api.mailbox!.toLowerCase());
+      me = m;
+      _notify();
+      if (lost) {
+        api.mailbox = null;
+        view = const MailView.box('inbox');
+        category = 'primary';
+        page = 1;
+        items = [];
+        selected.clear();
+        await start();
+      }
+    } catch (_) {}
+  }
+
+  /// Báo thư mới của hộp đang xem qua tin nhắn chat khi app Thư đóng.
+  Future<void> setNotify(bool on) async {
+    await api.setNotify(on);
+    await refreshMe();
   }
 
   Future<void> start() async {

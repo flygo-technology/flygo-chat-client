@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../browser/flygo_id.dart';
 import '../../config.dart';
 import 'admin_api.dart';
+import 'live.dart';
 import 'model.dart';
 
 const kMailApp = 'vn.flygo.mail';
@@ -45,6 +46,10 @@ abstract class MailApi {
   /// AI chỉ soạn nháp, không bao giờ tự gửi.
   Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) =>
       throw MailException(501, 'Máy chủ thư chưa hỗ trợ AI');
+  /// Kênh realtime (null = backend không có: màn hình tự tải lại định kỳ).
+  Future<MailLiveTarget?> liveTarget({bool refresh = false}) async => null;
+  /// Bật / tắt báo thư mới của hộp đang xem qua tin nhắn chat khi app Thư đóng.
+  Future<void> setNotify(bool on) => throw MailException(501, 'Máy chủ thư chưa hỗ trợ báo qua chat');
   /// Lớp gọi phần Quản trị Thư (chỉ người có quyền admin của vn.flygo.mail dùng được).
   MailAdminApi adminApi() => throw MailException(501, 'Máy chủ thư chưa hỗ trợ quản trị');
 }
@@ -154,6 +159,17 @@ class HttpMailApi extends MailApi {
 
   @override
   MailAdminApi adminApi() => HttpMailAdminApi(base: base, id: id, client: _http);
+
+  @override
+  Future<MailLiveTarget?> liveTarget({bool refresh = false}) async {
+    final u = _uri('/live');
+    final h = await _auth(refresh: refresh)
+      ..remove('X-Mailbox');
+    return MailLiveTarget(u.replace(scheme: u.scheme == 'http' ? 'ws' : 'wss'), h);
+  }
+
+  @override
+  Future<void> setNotify(bool on) async => _json(await _send('PUT', _uri('/notify'), body: {'enabled': on}));
 
   @override
   Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) async =>

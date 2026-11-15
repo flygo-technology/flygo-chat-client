@@ -196,7 +196,7 @@ class MailboxInfo {
 String accessName(String a) => const {'read': 'Chỉ xem', 'send': 'Đọc và gửi', 'admin': 'Quản lý'}[a] ?? a;
 
 class MailMe {
-  const MailMe(this.person, {this.mailboxes = const [], this.boxes = const [], this.features = const {}, this.access = 'admin', this.user, this.admin = false});
+  const MailMe(this.person, {this.mailboxes = const [], this.boxes = const [], this.features = const {}, this.access = 'admin', this.user, this.admin = false, this.notify = false});
   /// Hộp thư đang xem (địa chỉ + tên gửi đi).
   final MailPerson person;
   final List<String> mailboxes;
@@ -209,6 +209,8 @@ class MailMe {
   final MailPerson? user;
   /// Quản trị Thư (được cấp quyền admin của vn.flygo.mail trong Flygo ID): có mục Quản trị Thư.
   final bool admin;
+  /// Người dùng đã bật báo thư mới của hộp đang xem qua tin nhắn chat (khi đóng app Thư).
+  final bool notify;
 
   factory MailMe.fromJson(Map m) {
     final mailboxes = [for (final x in (m['mailboxes'] as List? ?? const [])) '$x'];
@@ -223,7 +225,8 @@ class MailMe {
         features: {for (final e in (m['features'] as Map? ?? const {}).entries) '${e.key}': e.value == true},
         access: '${m['access'] ?? 'admin'}',
         user: u == null ? null : MailPerson('${u['email'] ?? ''}', '${u['name'] ?? ''}', true),
-        admin: m['admin'] == true);
+        admin: m['admin'] == true,
+        notify: m['notify'] == true);
   }
 
   bool get readOnly => access == 'read';
@@ -233,6 +236,9 @@ class MailMe {
 
   /// Tính năng backend có (mặc định có, trừ khi backend báo false).
   bool has(String f) => features[f] ?? true;
+
+  /// Hộp đang xem trong danh sách [boxes] (máy chủ cũ không có thì dựng từ [person]).
+  MailboxInfo get current => boxes.where((b) => b.id == person.email.toLowerCase()).firstOrNull ?? MailboxInfo(person.email.toLowerCase(), name: person.name, access: access, via: 'owner');
 }
 
 /// Kết quả AI đọc cuộc hội thoại: tóm tắt, việc cần làm, bản nháp trả lời (chữ thuần, người dùng sửa rồi mới gửi).

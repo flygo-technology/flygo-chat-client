@@ -94,8 +94,11 @@ class MailboxSwitcher extends StatelessWidget {
 
   static const _groups = [('owner', 'Hộp thư của tôi'), ('member', 'Được chia sẻ với tôi'), ('admin', 'Hộp khác (quyền quản trị)')];
 
+  // Bộ chọn mở trong hộp thoại riêng: tự vẽ lại khi danh sách hộp thư đổi (realtime / vừa quản trị xong).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => _build(context));
+
+  Widget _build(BuildContext context) {
     final mc = MailColors.of(context);
     final me = store.me;
     if (me == null) return const SizedBox.shrink();
@@ -141,6 +144,23 @@ class MailboxSwitcher extends StatelessWidget {
                     icon: const Icon(Icons.admin_panel_settings_outlined, size: 18),
                     label: const Text('Quản trị Thư'),
                     style: OutlinedButton.styleFrom(shape: const StadiumBorder(), side: BorderSide(color: mc.faint), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
+                  ),
+                ),
+              ],
+              if (me.features['notify'] == true && !store.api.demo) ...[
+                const SizedBox(height: 10),
+                Container(
+                  decoration: BoxDecoration(color: mc.surface, borderRadius: BorderRadius.circular(20)),
+                  child: SwitchListTile(
+                    key: const ValueKey('mail-notify'),
+                    value: me.notify,
+                    onChanged: (v) => store.setNotify(v).catchError((Object e) {
+                      if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e')));
+                    }),
+                    secondary: const Icon(Icons.notifications_active_outlined),
+                    title: const Text('Báo thư mới qua tin nhắn', style: TextStyle(fontSize: 14)),
+                    subtitle: Text('Khi app Thư đang đóng, bot Thư nhắn riêng cho bạn', style: TextStyle(fontSize: 12, color: mc.muted)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   ),
                 ),
               ],

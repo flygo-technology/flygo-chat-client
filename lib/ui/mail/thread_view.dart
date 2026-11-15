@@ -1,5 +1,6 @@
 // Thư: xem một cuộc hội thoại. Thư cũ thu gọn (bấm để mở), thư cuối mở sẵn; tệp đính kèm dạng thẻ (mở / chia sẻ);
 // Trả lời / Trả lời tất cả / Chuyển tiếp; thêm vào Lịch, gửi vào chat.
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../open_file.dart' show openLocalFile;
@@ -62,10 +63,16 @@ class ThreadViewState extends State<ThreadView> {
   MailStore get store => widget.store;
   MailThread? get thread => _t;
 
+  StreamSubscription<Set<String>>? _remote;
+
   @override
   void initState() {
     super.initState();
     _load();
+    // Thư mới trong cuộc hội thoại / đổi trạng thái từ máy khác: tải lại tại chỗ.
+    _remote = store.remoteThreads.listen((ids) {
+      if (ids.contains(widget.threadId) && mounted) _load();
+    });
   }
 
   @override
@@ -84,6 +91,7 @@ class ThreadViewState extends State<ThreadView> {
 
   @override
   void dispose() {
+    _remote?.cancel();
     _scroll.dispose();
     _aiAsk.dispose();
     super.dispose();

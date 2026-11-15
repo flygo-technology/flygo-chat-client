@@ -100,7 +100,7 @@ class MailHome extends StatefulWidget {
   State<MailHome> createState() => MailHomeState();
 }
 
-class MailHomeState extends State<MailHome> {
+class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
   final _scaffold = GlobalKey<ScaffoldState>();
   final _q = TextEditingController();
   final _qFocus = FocusNode();
@@ -120,11 +120,19 @@ class MailHomeState extends State<MailHome> {
     store.addListener(_changed);
     if (widget.initialView != null) store.view = widget.initialView!;
     store.start();
+    if (widget.ownsStore) store.startLive();
+    WidgetsBinding.instance.addObserver(this);
     _threadId = widget.openThreadId;
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) store.resumed();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     store.removeListener(_changed);
     if (widget.ownsStore) store.dispose();
     for (final c in composers) {
@@ -565,10 +573,6 @@ class MailHomeState extends State<MailHome> {
                     const SizedBox(width: 12),
                     IconButton(tooltip: 'Menu chính', icon: const Icon(Icons.menu), onPressed: () => setState(() => _railOpen = !_railOpen)),
                     const SizedBox(width: 8),
-                    if (Navigator.of(context).canPop()) ...[
-                      IconButton(tooltip: 'Đóng Thư', icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).maybePop()),
-                      const SizedBox(width: 4),
-                    ],
                     SizedBox(
                       width: 232,
                       child: Align(alignment: Alignment.centerLeft, child: _brand(mc)),
@@ -757,7 +761,7 @@ class MailHomeState extends State<MailHome> {
       child: InkWell(
         key: const ValueKey('mail-switcher'),
         customBorder: const CircleBorder(),
-        onTap: () => showMailboxSwitcher(context, store, wide: wide, onAdmin: me.admin ? openAdmin : null),
+        onTap: () => _switcher(wide: wide),
         child: Padding(
           padding: const EdgeInsets.all(3),
           child: Stack(clipBehavior: Clip.none, children: [
@@ -774,8 +778,74 @@ class MailHomeState extends State<MailHome> {
     );
   }
 
-  /// Mở Quản trị Thư (từ bộ chọn hộp thư; cùng trang với ô Quản trị ở Trang chủ).
-  void openAdmin() => Navigator.of(context).push(AppPageRoute(builder: (_) => MailAdminPage(api: store.api.adminApi())));
+  void _switcher({required bool wide}) {
+    store.refreshMe();
+    showMailboxSwitcher(context, store, wide: wide, onAdmin: store.me?.admin == true ? openAdmin : null);
+  }
+
+  /// Mở Quản trị Thư (từ bộ chọn hộp thư; cùng trang với ô Quản trị ở Trang chủ). Quay lại thì tải lại danh sách hộp thư
+  /// (hộp vừa tạo / xoá, quyền vừa đổi); kênh realtime cũng báo khi đổi từ nơi khác.
+  Future<void> openAdmin() async {
+    await Navigator.of(context).push(AppPageRoute(builder: (_) => MailAdminPage(api: store.api.adminApi())));
+    await store.refreshMe();
+  }
+
+  /// Dòng đầu danh sách thư: đang xem hộp nào (kèm quyền nếu không phải hộp của mình) + nút xem hộp thư khác.
+  /// Điện thoại: địa chỉ một dòng riêng (không bị cắt), loại hộp + quyền ở dòng nhỏ bên dưới.
+  Widget _mailboxBar(MailColors mc, {required bool wide}) {
+    final me = store.me;
+    if (me == null) return const SizedBox.shrink();
+    final cur = me.current;
+    final others = me.boxes.where((b) => b.id != cur.id).toList();
+    final otherUnread = others.fold(0, (n, b) => n + b.unread);
+    final notOwn = cur.shared || cur.via != 'owner' || cur.access == 'read';
+    return Container(
+      key: const ValueKey('mail-current-box'),
+      padding: EdgeInsets.fromLTRB(16, wide ? 8 : 4, wide ? 10 : 8, wide ? 2 : 0),
+      child: Row(
+        children: [
+          MailboxAvatar(cur, size: wide ? 22 : 30),
+          const SizedBox(width: 8),
+          if (wide) ...[
+            Flexible(
+              child: Text.rich(
+                TextSpan(children: [
+                  if (cur.shared || cur.via != 'owner') TextSpan(text: cur.shared ? 'Hộp chung ' : 'Hộp ', style: TextStyle(color: mc.muted)),
+                  TextSpan(text: cur.id, style: TextStyle(color: mc.text, fontWeight: FontWeight.w600)),
+                ]),
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13.5),
+              ),
+            ),
+            if (notOwn) ...[const SizedBox(width: 8), AccessChip(cur.access, small: true)],
+            const SizedBox(width: 4),
+          ] else
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Text(cur.id, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: mc.text, fontWeight: FontWeight.w600)),
+                if (notOwn)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(children: [
+                      Text(cur.shared ? 'Hộp chung' : 'Được chia sẻ', style: TextStyle(fontSize: 11.5, color: mc.muted)),
+                      const SizedBox(width: 6),
+                      AccessChip(cur.access, small: true),
+                    ]),
+                  ),
+              ]),
+            ),
+          if (others.isNotEmpty || me.admin)
+            TextButton.icon(
+              key: const ValueKey('mail-other-boxes'),
+              onPressed: () => _switcher(wide: wide),
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10)),
+              icon: Badge(isLabelVisible: otherUnread > 0, smallSize: 8, backgroundColor: mc.danger, child: const Icon(Icons.swap_horiz, size: 18)),
+              label: const Text('Xem hòm thư khác'),
+            ),
+        ],
+      ),
+    );
+  }
 
   void _search() {
     final v = _q.text.trim();
@@ -798,7 +868,7 @@ class MailHomeState extends State<MailHome> {
       return Positioned.fill(child: Material(color: mc.surface, child: panel));
     }
     return Positioned(
-      left: (_railOpen ? 256 : 72) + 0.0 + (Navigator.of(context).canPop() ? 48 : 0) + 8,
+      left: (_railOpen ? 256 : 72) + 0.0 + 8,
       top: 58,
       width: 680,
       child: Material(elevation: 10, borderRadius: BorderRadius.circular(8), color: mc.surface, child: panel),
@@ -1046,7 +1116,7 @@ class MailHomeState extends State<MailHome> {
     final from = store.total == 0 ? 0 : (store.page - 1) * store.size + 1;
     final to = (store.page * store.size).clamp(0, store.total);
     final v = store.view;
-    final children = <Widget>[];
+    final children = <Widget>[_mailboxBar(mc, wide: wide)];
     if (wide) {
       children.add(
         SizedBox(
