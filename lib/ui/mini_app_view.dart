@@ -18,6 +18,7 @@ import 'bang_tin/bang_tin_page.dart' show kBangTinTab, openBangTin;
 import 'flows/flows_page.dart' show openFlowsHome;
 import 'todo/todo_page.dart' show openTodo;
 import 'mail/mail_page.dart' show openMail;
+import 'wiki/wiki_page.dart' show openWiki;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -59,6 +60,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'mail') {
     tab?.onTitle?.call(app.name);
     await openMail(context, app, threadId: path == null ? null : RegExp(r'^/t/([A-Za-z0-9_.@-]{6,200})').firstMatch(path)?.group(1));
+    return;
+  }
+  if (app.nativeScreen == 'wiki') {
+    tab?.onTitle?.call(app.name);
+    await openWiki(context, app, pageId: path == null ? null : RegExp(r'^/p/([A-Za-z0-9_-]{4,40})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == 'show') {
@@ -132,6 +138,7 @@ const _tileIcons = <String, IconData>{
   'translate': Icons.translate_rounded,
   'news': Icons.campaign_rounded,
   'notes': Icons.sticky_note_2_rounded,
+  'wiki': Icons.menu_book_rounded,
 };
 
 /// Màu ô của app (manifest "tile.color"), hoặc null nếu app không khai.
