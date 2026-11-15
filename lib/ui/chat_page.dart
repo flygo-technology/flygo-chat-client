@@ -73,6 +73,7 @@ import 'bang_tin/dm_link.dart' show BangTinOpenButton, bangTinPostOf;
 import 'todo/dm_link.dart' show TodoOpenButton, todoNoteOf;
 import 'mail/dm_link.dart' show MailOpenButton, mailThreadOf;
 import 'forms/dm_link.dart' show FormsOpenButton, formsFormOf;
+import 'reports/dm_link.dart' show ReportsOpenButton, reportsLinkOf;
 import 'bank_card.dart' show BankTxnCard, bankTxnOf;
 import 'flygo_card.dart' show FlygoCard, flygoCardOf;
 import 'desk_tabs.dart' show DeskTab, openTabHook;
@@ -2839,6 +2840,7 @@ class _Bubble extends StatelessWidget {
       if (!hidden)
         if (mailThreadOf(post) case (final tid, final mb)?) MailOpenButton(threadId: tid, mailbox: mb),
       if (!hidden && formsFormOf(post) != null) FormsOpenButton(formId: formsFormOf(post)!),
+      if (!hidden && reportsLinkOf(post) != null) ReportsOpenButton(link: reportsLinkOf(post)!),
       // Gợi ý trả lời trong cuộc họp (runner: props.flygo_meet_suggestion): đưa lên màn hình / đọc cho cả phòng.
       if (post.props['flygo_meet_suggestion'] is Map) _MeetSuggestionActions(app: app, s: (post.props['flygo_meet_suggestion'] as Map).cast<String, dynamic>()),
       // Tách / chuyển phiên AI (runner 0.6.60: props.flygo_session_handoff): nút mở phiên mới / xem phiên cũ.

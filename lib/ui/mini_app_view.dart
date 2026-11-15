@@ -22,6 +22,7 @@ import 'wiki/wiki_page.dart' show openWiki;
 import 'forms/home_page.dart' show openForms;
 import 'drive/api.dart' show kDriveScreen;
 import 'drive/drive_page.dart' show openDrive;
+import 'reports/reports_page.dart' show openReports;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -78,6 +79,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'forms') {
     tab?.onTitle?.call(app.name);
     await openForms(context, app, path: path);
+    return;
+  }
+  if (app.nativeScreen == 'reports') {
+    tab?.onTitle?.call(app.name);
+    await openReports(context, app, path: path);
     return;
   }
   if (app.nativeScreen == 'show') {
