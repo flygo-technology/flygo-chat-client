@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 
 import 'auth/auth_service.dart';
 import 'calls/call_service.dart';
+import 'calls/calls_client.dart' show CallsClient;
 import 'agent/agent_service.dart';
 import 'push/push_service.dart';
 import 'update/updater.dart';
@@ -112,6 +113,11 @@ Future<void> main(List<String> args) async {
     kWindowCallVideo = args.contains('--call-video');
     kWindowCallMeeting = args.contains('--call-meeting');
     kWindowCallMeetingPost = args.where((a) => a.startsWith('--call-meeting-post=')).map((a) => a.substring(20)).firstOrNull;
+    kWindowCallMic = args.contains('--call-mic');
+    kWindowCallCam = args.contains('--call-cam');
+    kWindowCallPresent = args.contains('--call-present');
+    kWindowCallAin = args.where((a) => a.startsWith('--call-ain=')).map((a) => a.substring(11)).firstOrNull;
+    kWindowCallVin = args.where((a) => a.startsWith('--call-vin=')).map((a) => a.substring(11)).firstOrNull;
   }
   // Cửa sổ điều khiển máy tính từ xa (máy tính): tiến trình riêng chỉ có trang điều khiển.
   _rcJob = kWindowChannel == null ? rcWindowArgsParse(args) : null;
@@ -873,6 +879,11 @@ class _CallWindowState extends State<CallWindow> {
     RemoteControlService.instance.addListener(_onCall);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       WindowToFront.activate();
+      if (kWindowCallMeeting && (kWindowCallMic || kWindowCallCam || kWindowCallPresent || kWindowCallAin != null || kWindowCallVin != null)) {
+        widget.app.calls.joinPrefs = MeetJoinPrefs(mic: kWindowCallMic, cam: kWindowCallCam, present: kWindowCallPresent);
+        CallsClient.audioInputId = kWindowCallAin;
+        CallsClient.videoInputId = kWindowCallVin;
+      }
       await widget.app.calls.startCall(kWindowChannel!, video: kWindowCallVideo, meeting: kWindowCallMeeting, meetingPost: kWindowCallMeetingPost);
       _started = true;
       _onCall();

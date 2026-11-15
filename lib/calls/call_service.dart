@@ -93,6 +93,10 @@ class CallService extends ChangeNotifier {
   Future<MeetingInfo?> Function(String channelId)? createMeeting;
   /// Người tạo bấm "Kết thúc": ghi vào thẻ cuộc họp (máy mọi người nhận tin sửa và rời cuộc họp).
   Future<void> Function(String postId)? closeMeeting;
+  /// Phòng chờ của app Họp: mic / camera lúc vào cuộc họp kế tiếp (dùng một lần).
+  MeetJoinPrefs? joinPrefs;
+  /// Vào từ nút "Trình bày" của phòng chờ: màn hình cuộc họp mở chọn màn hình chia sẻ ngay khi vào (dùng một lần).
+  bool presentOnJoin = false;
   /// Cuộc gọi đến là gọi video.
   bool incomingVideo = false;
   /// Cuộc gọi đến là cuộc gọi nhóm (tin `flygo_call_ring` trong nhóm/kênh).
@@ -155,6 +159,25 @@ class CallService extends ChangeNotifier {
   /// Hẹn giờ của cuộc gọi 1-1 (kiểm thử thay được).
   @visibleForTesting
   DirectSchedule? directSchedule;
+
+  /// Kiểm thử / ảnh xem trước: đặt sẵn một cuộc họp đang diễn ra với những người [people] (không nối máy chủ).
+  @visibleForTesting
+  void debugMeeting(String channel, List<CallParticipant> people, {MeetingInfo? info, bool muted = true}) {
+    channelId = channel;
+    meeting = true;
+    meetingInfo = info;
+    callerId = info?.creatorId;
+    phase = CallPhase.active;
+    startedAt = DateTime.now().subtract(const Duration(minutes: 27, seconds: 14));
+    this.muted = muted;
+    _people
+      ..clear()
+      ..addEntries([for (final p in people) MapEntry(p.sessionId, p)]);
+    remoteUsers
+      ..clear()
+      ..addAll(people.map((p) => p.userId));
+    notifyListeners();
+  }
 
   void _newDirect(String ch, {required bool outgoing, bool video = false}) {
     direct?.dispose();
@@ -321,9 +344,15 @@ class CallService extends ChangeNotifier {
             if (video) '--call-video',
             if (meeting) '--call-meeting',
             if (meetingPost != null) '--call-meeting-post=$meetingPost',
+            if (meeting && joinPrefs?.mic == true) '--call-mic',
+            if (meeting && joinPrefs?.cam == true) '--call-cam',
+            if (meeting && joinPrefs?.present == true) '--call-present',
+            if (meeting && CallsClient.audioInputId != null) '--call-ain=${CallsClient.audioInputId}',
+            if (meeting && CallsClient.videoInputId != null) '--call-vin=${CallsClient.videoInputId}',
             if (kServerUrl.isNotEmpty) '--server=$kServerUrl',
           ],
           mode: ProcessStartMode.detached);
+      joinPrefs = null;
       return;
     }
     _wantVideo = video && !meeting;
@@ -1040,10 +1069,14 @@ class CallService extends ChangeNotifier {
     // Cuộc họp: ai vào cũng tắt sẵn mic và camera, muốn nói / hiện hình thì tự bật. Gọi 1-1 / gọi nhóm như gọi điện
     // thường: mic bật, gọi video thì bật camera.
     if (ch != null && meeting) {
-      muted = true;
-      _wantVideo = false;
+      // Vào từ phòng chờ của app Họp: theo lựa chọn mic / camera ở đó (không báo "đã tắt tự động").
+      final pre = joinPrefs;
+      joinPrefs = null;
+      muted = !(pre?.mic ?? false);
+      _wantVideo = pre?.cam ?? false;
+      presentOnJoin = pre?.present ?? false;
       incomingVideo = false;
-      autoMutedNotice = true;
+      autoMutedNotice = pre == null;
     }
     final video = _wantVideo;
     _wantVideo = false;

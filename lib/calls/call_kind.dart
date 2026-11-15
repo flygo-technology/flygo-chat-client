@@ -25,12 +25,22 @@ CallKind? callKindOfTitle(Map<String, dynamic> props) {
 /// Thẻ cuộc họp (props `flygo_meeting`) bản mới: chỉ kết thúc khi người tạo bấm "Kết thúc" (ghi `ended_at`).
 const kMeetingVersion = 2;
 
-/// Cuộc họp của một thẻ trong chat.
+/// Cuộc họp của một thẻ trong chat. [code]: mã phòng của app Họp (thẻ tạo từ app Họp / Lịch), null = thẻ tạo trong chat.
 class MeetingInfo {
   final String postId;
   final String creatorId;
   final String title;
-  const MeetingInfo({required this.postId, required this.creatorId, required this.title});
+  final String? code;
+  const MeetingInfo({required this.postId, required this.creatorId, required this.title, this.code});
+}
+
+/// Lựa chọn ở phòng chờ của cuộc họp: bật sẵn mic / camera khi vào (mặc định cuộc họp tắt cả hai).
+class MeetJoinPrefs {
+  final bool mic;
+  final bool cam;
+  /// "Trình bày": vào là mở chọn màn hình để chia sẻ (máy tính).
+  final bool present;
+  const MeetJoinPrefs({this.mic = false, this.cam = false, this.present = false});
 }
 
 /// Thẻ cuộc họp đã được người tạo kết thúc.

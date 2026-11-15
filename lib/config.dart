@@ -40,6 +40,10 @@ bool kWindowAddServer = false;
 bool kWindowCallVideo = false, kWindowCallMeeting = false;
 /// Cửa sổ riêng của cuộc họp: thẻ cuộc họp vừa bấm "Tham gia" (`--call-meeting-post=<id tin>`).
 String? kWindowCallMeetingPost;
+/// Cửa sổ riêng của cuộc họp mở từ phòng chờ của app Họp: bật sẵn mic / camera (`--call-mic` / `--call-cam`) và
+/// micro / camera đã chọn (`--call-ain=` / `--call-vin=`).
+bool kWindowCallMic = false, kWindowCallCam = false, kWindowCallPresent = false;
+String? kWindowCallAin, kWindowCallVin;
 /// Cửa sổ điều khiển máy tính từ xa (`--rc=<kênh>` kèm `--rc-user=` / `--rc-sid=` / `--rc-device=`, máy tính):
 /// kWindowChannel là kênh (có thể trống với máy tính của chính mình). Đóng phiên thì đóng cửa sổ.
 bool kWindowRc = false;

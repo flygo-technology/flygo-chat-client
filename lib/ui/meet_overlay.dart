@@ -14,6 +14,7 @@ import 'package:webview_windows/webview_windows.dart' as win;
 
 import '../calls/meet_room.dart';
 import 'markdown_view.dart';
+import 'common.dart' show hhmm;
 
 // Giao diện phòng họp trên màn hình cuộc gọi: sân khấu trình chiếu (trợ lý AI / chủ phòng điều khiển), web chia sẻ
 // đồng bộ cuộn / bấm, cảm xúc bay lên, bình luận nổi và bảng bình luận.
@@ -611,7 +612,7 @@ class _CommentsTickerState extends State<CommentsTicker> {
               decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(14)),
               child: RichText(
                 text: TextSpan(children: [
-                  TextSpan(text: '${c.bot ? '✨ ' : ''}${c.name}: ', style: const TextStyle(color: Color(0xFF8AB4F8), fontWeight: FontWeight.w700, fontSize: 14)),
+                  TextSpan(text: '${c.bot ? '✨ ' : ''}${c.name}: ', style: const TextStyle(color: Color(0xFF7FB6FF), fontWeight: FontWeight.w700, fontSize: 14)),
                   TextSpan(text: c.text, style: const TextStyle(color: Colors.white, fontSize: 14)),
                 ]),
               ),
@@ -620,74 +621,101 @@ class _CommentsTickerState extends State<CommentsTicker> {
       );
 }
 
-/// Bảng bình luận của cuộc họp.
+/// Bảng bình luận của cuộc họp (điện thoại: bảng dưới; máy tính: cột "Tin nhắn trong cuộc họp" bên phải).
 Future<void> showMeetComments(BuildContext context, MeetRoom room) => showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      backgroundColor: const Color(0xFF202124),
-      builder: (ctx) {
-        final ctl = TextEditingController();
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-          child: SizedBox(
-            height: MediaQuery.sizeOf(ctx).height * .6,
-            child: ListenableBuilder(
-              listenable: room,
-              builder: (ctx, _) => Column(children: [
-                Text(tr('Bình luận'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
-                Expanded(
-                  child: room.comments.isEmpty
-                      ? Center(child: Text(tr('Chưa có bình luận.'), style: const TextStyle(color: Colors.white54)))
-                      : ListView(reverse: true, padding: const EdgeInsets.all(14), children: [
-                          for (final c in room.comments.reversed)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: RichText(
-                                text: TextSpan(children: [
-                                  TextSpan(text: '${c.bot ? '✨ ' : ''}${c.name}\n', style: const TextStyle(color: Color(0xFF8AB4F8), fontWeight: FontWeight.w700)),
-                                  TextSpan(text: c.text, style: const TextStyle(color: Colors.white, fontSize: 15)),
-                                ]),
-                              ),
-                            ),
-                        ]),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: Row(children: [
-                    Expanded(
-                      child: TextField(
-                        controller: ctl,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          hintText: tr('Viết bình luận…'),
-                          hintStyle: const TextStyle(color: Colors.white54),
-                          filled: true,
-                          fillColor: const Color(0xFF303134),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        ),
-                        onSubmitted: (v) {
-                          if (v.trim().isEmpty) return;
-                          room.comment(v.trim());
-                          ctl.clear();
-                        },
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.send_rounded, color: Color(0xFF8AB4F8)),
-                      onPressed: () {
-                        if (ctl.text.trim().isEmpty) return;
-                        room.comment(ctl.text.trim());
-                        ctl.clear();
-                      },
-                    ),
-                  ]),
-                ),
-              ]),
-            ),
-          ),
-        );
-      },
+      backgroundColor: const Color(0xFF1F2228),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: SizedBox(
+          height: MediaQuery.sizeOf(ctx).height * .6,
+          child: Column(children: [
+            Text(tr('Tin nhắn trong cuộc họp'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
+            Expanded(child: MeetCommentsView(room: room)),
+          ]),
+        ),
+      ),
     );
+
+/// Danh sách bình luận + ô viết của cuộc họp. Bình luận lưu vào luồng của cuộc họp trong nhóm chat.
+class MeetCommentsView extends StatefulWidget {
+  final MeetRoom room;
+  const MeetCommentsView({super.key, required this.room});
+  @override
+  State<MeetCommentsView> createState() => _MeetCommentsViewState();
+}
+
+class _MeetCommentsViewState extends State<MeetCommentsView> {
+  final _ctl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final v = _ctl.text.trim();
+    if (v.isEmpty) return;
+    widget.room.comment(v);
+    _ctl.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: widget.room,
+        builder: (ctx, _) {
+          final room = widget.room;
+          return Column(children: [
+            Expanded(
+              child: room.comments.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(tr('Chưa có tin nhắn. Tin nhắn được lưu vào luồng của cuộc họp trong nhóm chat.'),
+                            textAlign: TextAlign.center, style: const TextStyle(color: Colors.white54)),
+                      ),
+                    )
+                  : ListView(reverse: true, padding: const EdgeInsets.all(14), children: [
+                      for (final c in room.comments.reversed)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text.rich(
+                            TextSpan(children: [
+                              TextSpan(text: '${c.bot ? '✨ ' : ''}${c.name}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5)),
+                              if (c.at > 0)
+                                TextSpan(
+                                    text: '  ${hhmm(DateTime.fromMillisecondsSinceEpoch(c.at))}\n',
+                                    style: const TextStyle(color: Colors.white54, fontSize: 12))
+                              else
+                                const TextSpan(text: '\n'),
+                              TextSpan(text: c.text, style: const TextStyle(color: Colors.white, fontSize: 14.5, height: 1.35)),
+                            ]),
+                          ),
+                        ),
+                    ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: TextField(
+                controller: _ctl,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: tr('Gửi tin nhắn cho mọi người'),
+                  hintStyle: const TextStyle(color: Colors.white54),
+                  filled: true,
+                  fillColor: const Color(0xFF2A2F37),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  suffixIcon: IconButton(icon: const Icon(Icons.send_rounded, color: Color(0xFF4C9BFF)), onPressed: _send),
+                ),
+                onSubmitted: (_) => _send(),
+              ),
+            ),
+          ]);
+        },
+      );
+}

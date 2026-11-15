@@ -130,7 +130,7 @@ class AppState extends ChangeNotifier {
   // ---------------------------------------------------------------- cuộc họp (thẻ flygo_meeting)
   MeetingInfo _meetingOf(MmPost p) {
     final m = (p.props['flygo_meeting'] as Map).cast<String, dynamic>();
-    return MeetingInfo(postId: p.id, creatorId: '${m['created_by'] ?? p.userId}', title: '${m['title'] ?? ''}');
+    return MeetingInfo(postId: p.id, creatorId: '${m['created_by'] ?? p.userId}', title: '${m['title'] ?? ''}', code: m['code'] as String?);
   }
 
   /// Thẻ cuộc họp của kênh: [postId] là thẻ vừa bấm "Tham gia"; không có thì lấy thẻ đang mở gần nhất (đọc thêm tin

@@ -54,6 +54,13 @@ class MeetAsk {
   const MeetAsk(this.kind, this.from);
 }
 
+/// Người xin vào phòng họp có mã (app Họp, phòng chỉ dành cho người được mời): chủ phòng cho vào / từ chối.
+class MeetKnock {
+  final String req, userId, name, code;
+  final DateTime at;
+  MeetKnock(this.req, this.userId, this.name, this.code) : at = DateTime.now();
+}
+
 /// Bộ hiệu ứng âm cho cuộc họp (manifest.json cùng thư mục).
 String get kSfxBase => '${staticBase('flygo-update')}/sfx';
 
@@ -84,9 +91,14 @@ class MeetRoom extends ChangeNotifier {
       required this.onMuteMe,
       this.onLowerHandMe,
       this.persistComment,
-      this.starter = false}) {
-    _connect();
+      this.starter = false,
+      bool connect = true}) {
+    if (connect) _connect();
   }
+
+  /// Kiểm thử / ảnh xem trước: đưa một sự kiện của trạm vào như vừa nhận.
+  @visibleForTesting
+  void debugApply(Map<String, dynamic> m) => _apply(m, live: false);
 
   WebSocket? _ws;
   Timer? _retry;
@@ -106,6 +118,9 @@ class MeetRoom extends ChangeNotifier {
   Map<String, dynamic>? stage;
   String? caption;
   final asks = StreamController<MeetAsk>.broadcast();
+  /// Người đang xin vào (chỉ chủ phòng trả lời được; trạm bỏ yêu cầu sau 90 giây).
+  final knocks = <MeetKnock>[];
+  final _knockTimers = <Timer>[];
   /// Bình luận mới (để hiện nổi trên màn hình cuộc gọi).
   final newComments = StreamController<MeetComment>.broadcast();
 
@@ -123,14 +138,16 @@ class MeetRoom extends ChangeNotifier {
       options: const {AVAudioSessionOptions.defaultToSpeaker, AVAudioSessionOptions.mixWithOthers, AVAudioSessionOptions.allowBluetooth},
     ),
   );
-  final _tts = AudioPlayer()..setAudioContext(_ctx);
+  // Tạo khi có giọng đọc đầu tiên (cuộc họp không có trợ lý thì không mở trình phát).
+  AudioPlayer? _ttsPlayer;
+  AudioPlayer get _tts => _ttsPlayer ??= AudioPlayer()..setAudioContext(_ctx);
   /// Mình tắt tiếng cuộc họp: giọng đọc, hiệu ứng của sân khấu đều im (âm lượng trạm đặt vẫn được nhớ).
   bool silent = false;
   final _volume = <AudioPlayer, double>{};
 
   void setSilent(bool v) {
     silent = v;
-    for (final p in [_tts]) {
+    for (final p in [?_ttsPlayer]) {
       p.setVolume(v ? 0 : (_volume[p] ?? 1)).catchError((_) {});
     }
     notifyListeners();
@@ -233,6 +250,19 @@ class MeetRoom extends ChangeNotifier {
         } else if (m['existing'] == true || threadRoot == null) {
           threadRoot = r;
         }
+      case 'knock':
+        final req = '${m['req'] ?? ''}';
+        if (req.isNotEmpty && !knocks.any((k) => k.req == req)) {
+          knocks.add(MeetKnock(req, '${m['user_id'] ?? ''}', '${m['name'] ?? ''}', '${m['code'] ?? ''}'));
+          _knockTimers.add(Timer(const Duration(seconds: 90), () {
+            if (_closed) return;
+            knocks.removeWhere((k) => k.req == req);
+            notifyListeners();
+          }));
+          if (live && host) playSfx('ting');
+        }
+      case 'knock_done':
+        knocks.removeWhere((k) => k.req == m['req']);
       case 'lower_hand':
         if (m['user_id'] == myId) onLowerHandMe?.call();
       case 'star':
@@ -358,8 +388,11 @@ class MeetRoom extends ChangeNotifier {
   void dispose() {
     _closed = true;
     _retry?.cancel();
+    for (final t in _knockTimers) {
+      t.cancel();
+    }
     _ws?.close();
-    _tts.dispose();
+    _ttsPlayer?.dispose();
     webClicks.close();
     asks.close();
     newComments.close();

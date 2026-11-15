@@ -127,9 +127,13 @@ class CallsClient {
 
   /// [video]: mở camera ngay và gửi kèm trong offer đầu tiên (không phải thương lượng lại).
   /// [muted]: vào lại cuộc gọi (sau khi rớt mạng) mà mic đang tắt.
+  /// Micro / camera chọn ở phòng chờ của cuộc họp (máy tính); null = mặc định của máy.
+  static String? audioInputId;
+  static String? videoInputId;
+
   Future<void> start({bool video = false, bool muted = false}) async {
     _local = await navigator.mediaDevices.getUserMedia({
-      'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true},
+      'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true, 'deviceId': ?audioInputId},
       'video': false,
     });
     _startMuted = muted;
@@ -272,7 +276,7 @@ class CallsClient {
   Future<MediaStream> _openCamera(bool front) => navigator.mediaDevices.getUserMedia({
         'audio': false,
         'video': {
-          'facingMode': front ? 'user' : 'environment',
+          if (front && videoInputId != null) 'deviceId': videoInputId else 'facingMode': front ? 'user' : 'environment',
           'width': {'ideal': 640},
           'height': {'ideal': 480},
           'frameRate': {'ideal': 30},
