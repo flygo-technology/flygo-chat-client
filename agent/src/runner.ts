@@ -29,6 +29,7 @@ import { collectRange, pageEntries, parseAgyDb, parseClaudeJsonl, parseCodexRoll
 import { botHome, claudeSkillsDir, deleteSkill, listSkills, memoryPath, readRole, readSkill, roleLine, roleSlug, saveSkill, setRole, skillDoc, skillFilesOf, skillName, type SkillFile } from "./skills";
 import pkg from "../package.json";
 import { formatTeam, resultText, teamDescriptor, teamSummary, untrusted } from "./team";
+import { tagBridge, tagDenied, type TagBridge } from "./tag-bridge";
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { MM, defuseMentions, type Post } from "./mm";
@@ -494,9 +495,9 @@ const http = Bun.serve({
       const r = await postOp(await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
       return Response.json({ text: r });
     }
-    if ((url.pathname.startsWith("/session/") || url.pathname.startsWith("/cc/")) && req.method === "POST") { // hỏi phiên khác
+    if (url.pathname.startsWith("/session/") && req.method === "POST") { // hỏi phiên khác (cc_* đã bỏ ở 0.6.95)
       const [, kind, op] = url.pathname.split("/");
-      const r = await (kind === "session" ? sessionTool : ccTool)(op, await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
+      const r = await sessionTool(op, await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
       return Response.json({ text: r });
     }
     if (url.pathname === "/report_out" && req.method === "POST") {
@@ -822,9 +823,11 @@ async function taggedAgents(message: string): Promise<{ id: string; username: st
 }
 
 // -- phía chủ trì --
-interface OrchRun { card: RunCard; dir: string; root: string; channelId: string; signal: AbortSignal; calls: number; chat: string; waiting: Map<string, number>; assigner?: string; runId?: string; title?: string; bridged?: boolean }
+interface OrchRun { tag?: TagBridge; card: RunCard; dir: string; root: string; channelId: string; signal: AbortSignal; calls: number; chat: string; waiting: Map<string, number>; assigner?: string; runId?: string; title?: string; bridged?: boolean }
 const orchRuns = new Map<string, OrchRun>(); // run key -> lượt chat đang chạy
 
+// 0.6.95: list_agents / agent_sessions / agent_transcript đã bỏ; runner cũ / phiên cũ gọi tới thì báo rõ.
+const A2A_REMOVED = "Tool này đã bỏ. Cùng dự án: dùng team_list / team_ask / team_session_read / team_post. Khác dự án / chat / app: chỉ nhờ được agent mà người dùng TAG (hoặc gắn phiên) trong tin, bằng ask_agent.";
 async function a2aTool(name: string, a: any): Promise<string> {
   if (name === "return_files") return a2aReturnFiles(a);
   const ctx = orchRuns.get(a.key);
@@ -832,22 +835,16 @@ async function a2aTool(name: string, a: any): Promise<string> {
   if (name === "ask_agent" && ctx.bridged) return "Phiên này đang làm việc được nhờ qua A2A thì không nhờ tiếp phiên / agent khác (giới hạn độ sâu 1). Trả lời bên nhờ trước.";
   const selfBot = String(a.bot ?? "").replace(/^@/, "").trim();
   if (name === "ask_agent" && (selfBot === BOT_NAME || selfBot === BOT_ID)) return askOwnSession(ctx, a);
+  if (name !== "ask_agent") return A2A_REMOVED;
   if (!a2a?.online) return "Chưa nối được relay A2A nên chưa nhờ được agent khác.";
-  const peers = await a2a.list();
-  if (name === "list_agents") {
-    if (!peers.length) return "Không có agent nào khác đang trực tuyến mà bạn được phép nhờ.";
-    return peers.map((p) => {
-      const ext = p.card?.capabilities?.extensions?.find((e: any) => String(e.uri).includes("agent-options"))?.params;
-      return `- @${p.username} (${p.name})${ext ? ` — ${ext.engine}, ${ext.default?.model ?? ""}` : ""}, chủ: ${p.owner_name}${p.card?.description ? `. ${oneLine(p.card.description, 160)}` : ""}`;
-    }).join("\n");
-  }
-  if (name === "agent_sessions" || name === "agent_transcript") return readPeerSessions(ctx, name, a, peers);
-  if (name !== "ask_agent") return `Không có tool ${name}.`;
   const bot = String(a.bot ?? "").replace(/^@/, "").trim();
-  const peer = peers.find((p) => p.username === bot || p.id === bot);
-  if (!peer) return `Không thấy @${bot} trực tuyến, hoặc bạn không được phép nhờ agent đó. Dùng list_agents để xem các agent nhờ được.`;
-  const n = ++ctx.calls; // không giới hạn số lần; chống vòng lặp ở phía được nhờ (phiên đang chờ chính bên nhờ)
   const session = String(a.session ?? "").trim();
+  const u = await userByName(bot).catch(() => null) ?? (/^[a-z0-9]{26}$/.test(bot) ? await mm.user(bot).catch(() => null) : null);
+  if (!u?.is_bot) return `Không thấy agent @${bot}.`;
+  const deny = tagDenied(ctx.tag, u, session);
+  if (deny) return deny;
+  const peer = { id: u.id as string, username: u.username as string };
+  const n = ++ctx.calls; // không giới hạn số lần; chống vòng lặp ở phía được nhờ (phiên đang chờ chính bên nhờ)
   const message = String(a.message ?? "");
   const parts: any[] = [{ kind: "text", text: message }];
   if (a.data && typeof a.data === "object") parts.push({ kind: "data", data: a.data });
@@ -868,7 +865,7 @@ async function a2aTool(name: string, a: any): Promise<string> {
   ctx.waiting.set(peer.id, (ctx.waiting.get(peer.id) ?? 0) + 1);
   try {
     await a2a.call(peer.id, "message/stream", {
-      message: { kind: "message", role: "user", messageId: crypto.randomUUID(), contextId, parts, metadata: { "x-flygo": { chat: ctx.chat, ...(session ? { session } : {}), from_root: ctx.root, from_title: `${ctx.chat} · ${ctx.title ?? ""}` } } },
+      message: { kind: "message", role: "user", messageId: crypto.randomUUID(), contextId, parts, metadata: { "x-flygo": { chat: ctx.chat, tag_post: ctx.tag!.post, ...(session ? { session } : {}), from_root: ctx.root, from_title: `${ctx.chat} · ${ctx.title ?? ""}` } } },
       configuration: { blocking: true, acceptedOutputModes: ["text/plain", "application/json", "*/*"] },
     }, {
       timeoutMs: cfg.a2a.timeoutSec * 1000, signal: ctx.signal,
@@ -916,6 +913,8 @@ async function askOwnSession(ctx: OrchRun, a: any): Promise<string> {
   const message = String(a.message ?? "");
   if (!session) return `@${BOT_NAME} là chính bạn. Muốn nói với một phiên khác của mình thì truyền session=<session> (trong mục "Phiên được gắn vào tin này").`;
   if (!ctx.assigner || !cfg.ownerUserIds.includes(ctx.assigner)) return "Chỉ chủ bot mới nối được hai phiên của bot này.";
+  const deny = tagDenied(ctx.tag, { id: BOT_ID, username: BOT_NAME }, session);
+  if (deny) return deny;
   const n = ++ctx.calls;
   const sid = `a2a-${n}-${crypto.randomUUID().slice(0, 6)}`;
   const key = bridgeKey(session);
@@ -936,40 +935,6 @@ async function askOwnSession(ctx: OrchRun, a: any): Promise<string> {
   if (!ok) return `Nhờ phiên ${target || session} không thành (${r.state}): ${r.text}`;
   ctx.card.step({ id: `${sid}-a`, kind: "message", title: `Phiên "${target || session}" trả lời: ${oneLine(r.text, 80)}`, status: "done", detail: r.text });
   return `Phiên "${target || session}" trả lời:\n${r.text}`;
-}
-
-/** agent_sessions / agent_transcript: hỏi runner của bot khác CÙNG CHỦ danh sách / bản ghi phiên AI của chủ với bot đó
- *  (A2A flygo/sessions, flygo/transcript, 0.6.79). Bot kia đọc trên máy của nó (bản ghi engine) và che bí mật trước khi trả. */
-async function readPeerSessions(ctx: OrchRun, name: string, a: any, peers: A2APeer[]): Promise<string> {
-  if (!isOwner(ctx.assigner ?? "")) return "Chỉ chủ bot mới đọc được phiên của agent khác.";
-  const bot = String(a.bot ?? "").replace(/^@/, "").trim();
-  const peer = peers.find((p) => p.username === bot || p.id === bot);
-  if (!peer) return `Không thấy @${bot} trực tuyến. Dùng list_agents để xem các agent đang trực tuyến.`;
-  if (!cfg.ownerUserIds.includes(peer.owner_id)) return `@${peer.username} không cùng chủ với bot này nên không đọc phiên của nó được.`;
-  const session = String(a.session ?? "").trim();
-  if (name === "agent_transcript" && !session) return "Thiếu session (lấy id bằng agent_sessions).";
-  const params: Record<string, any> = name === "agent_sessions" ? {} : { session };
-  if (name === "agent_transcript") for (const k of ["part", "max_chars", "before_entry", "from_entry", "source", "engine_session"]) if (a[k] !== undefined) params[k] = a[k];
-  const sid = `peer-${crypto.randomUUID().slice(0, 8)}`;
-  const title = name === "agent_sessions" ? `Xem các phiên của @${peer.username}` : `Đọc bản ghi phiên ${session} của @${peer.username}`;
-  ctx.card.step({ id: sid, kind: "tool", title, label: clip(title, 60), status: "running" });
-  try {
-    const r = await a2a!.call(peer.id, name === "agent_sessions" ? "flygo/sessions" : "flygo/transcript", params, { timeoutMs: 90_000, signal: ctx.signal });
-    const out = String(r?.text ?? "").trim();
-    ctx.card.step({ id: sid, kind: "tool", title, status: "done" });
-    return out || "(trống)";
-  } catch (e: any) {
-    const msg = String(e?.message ?? e);
-    ctx.card.step({ id: sid, kind: "tool", title: `${title} (lỗi)`, status: "error", detail: msg.slice(0, 300) });
-    return `Không đọc được từ @${peer.username}: ${msg}${/không hỗ trợ|-32601/.test(msg) ? " (runner của agent đó cần 0.6.79 trở lên)" : ""}`;
-  }
-}
-
-/** Phiên AI của `owner` với bot này ở mọi team (bên được hỏi qua A2A không có kênh "đang ở"). */
-async function ownerSessions(owner: string) {
-  const teams = await mm.api<any[]>("GET", `/users/${BOT_ID}/teams`).catch(() => [] as any[]);
-  const all = (await Promise.all(teams.map((t: any) => botChannels(t.id, true)))).flat();
-  return all.filter((c: any) => aiOf(c)?.owner === owner && !isArchived(c)).sort((x: any, y: any) => (y.last_post_at ?? 0) - (x.last_post_at ?? 0));
 }
 
 // ---- đồng đội trong dự án (agent team, 0.6.93): project_info / team_list / team_session_read / team_ask / team_post ----
@@ -1204,6 +1169,11 @@ function onA2ACancel(cid: string) {
   t?.ac.abort();
 }
 
+/** Bên gọi là bot flygo-agent (relay cũ không đánh dấu is_agent): xem mô tả bot trên máy chủ chat. */
+async function agentCaller(from: A2APeer): Promise<boolean> {
+  const u = await mm.user(from.id).catch(() => null as any);
+  return !u || (!!u.is_bot && /\[flygo-agent/i.test(u.bot_description ?? ""));
+}
 function onA2ARequest(cid: string, from: A2APeer, _depth: number, req: { method: string; params: any }) {
   const P = req.params ?? {};
   const fail = (code: number, message: string) => a2a!.done(cid, undefined, { code, message });
@@ -1213,6 +1183,13 @@ function onA2ARequest(cid: string, from: A2APeer, _depth: number, req: { method:
     case "tasks/cancel": { const t = mine(P.id); if (!t) return fail(-32001, "task không tồn tại"); t.ac.abort(); return a2a!.done(cid, t.task); }
     case "message/send": case "message/stream": {
       const msg = P.message;
+      // 0.6.95: bot flygo-agent khác chỉ nhờ được khi relay xác nhận cùng dự án hoặc người dùng đã tag bot này (relay cũ: chặn).
+      if (from.is_bot && from.is_agent !== false && !["project", "tag"].includes(String(from.a2a_auth ?? ""))) {
+        const no = () => fail(-32003, `@${BOT_NAME} chỉ nhận việc từ agent cùng dự án, hoặc khi người dùng tag @${BOT_NAME} trong tin`);
+        if (from.is_agent) return no();
+        agentCaller(from).then((ag) => (ag ? no() : onA2ARequest(cid, { ...from, is_agent: false }, _depth, req)));
+        return;
+      }
       if (!Array.isArray(msg?.parts) || !msg.parts.length) return fail(-32602, "thiếu message.parts");
       if (isPaused()) return fail(-32003, `@${BOT_NAME} đang tạm tắt, chưa nhận việc.`);
       const task = { kind: "task", id: crypto.randomUUID(), contextId: String(msg.contextId || crypto.randomUUID()), status: { state: "submitted", timestamp: iso() }, history: [msg], artifacts: [] as any[] };
@@ -1232,19 +1209,8 @@ function onA2ARequest(cid: string, from: A2APeer, _depth: number, req: { method:
       return;
     }
     case "flygo/team": { teamServe(cid, from, _depth, P).catch((e) => fail(-32000, String(e?.message ?? e))); return; }
-    case "flygo/sessions": case "flygo/transcript": { // bot cùng chủ đọc phiên AI của chủ với bot này (agent_sessions / agent_transcript)
-      const owner = from.owner_id;
-      if (!from.is_bot || !isOwner(owner)) return fail(-32003, "chỉ agent cùng chủ mới đọc được phiên của bot này");
-      log(`a2a: @${from.username} đọc ${req.method === "flygo/sessions" ? "danh sách phiên" : `bản ghi phiên ${String(P.session ?? "")}`}`);
-      ownerSessions(owner).then(async (list) => {
-        if (req.method === "flygo/transcript") return a2a!.done(cid, { text: await transcriptTool(P, list, "") });
-        if (!list.length) return a2a!.done(cid, { text: `@${BOT_NAME} không có phiên AI nào với chủ.` });
-        const groupName = async (id: string) => (await mm.channel(id).catch(() => null as any))?.display_name ?? id;
-        const rows = await Promise.all(list.slice(0, 40).map(async (c: any) => `- "${c.display_name}" · id ${c.id} · gắn với "${await groupName(aiOf(c)!.group)}" · tin cuối ${c.last_post_at ? new Date(c.last_post_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) : "—"}${running.has(mainKey(c.id)) ? " · đang chạy" : ""}`));
-        return a2a!.done(cid, { text: `Các phiên AI của Sếp với @${BOT_NAME} (${ENGINE}):\n${rows.join("\n")}` });
-      }).catch((e) => fail(-32000, String(e?.message ?? e)));
-      return;
-    }
+    // 0.6.95: đọc phiên của bot khác ngoài dự án đã bỏ (đồng đội cùng dự án đọc bằng flygo/team). Relay mới cũng chặn.
+    case "flygo/sessions": case "flygo/transcript": return fail(-32003, A2A_REMOVED);
     default: return fail(-32601, `method ${req.method} không hỗ trợ`);
   }
 }
@@ -1275,6 +1241,13 @@ async function askApprovalDM(req: ApprovalRequest, from: A2APeer, signal: AbortS
   return d === "accept" || d === "always" ? "accept" : "decline";
 }
 
+/** Cầu nối người dùng mở trong tin (bot được @tag + phiên được gắn). Chỉ tin của người (không phải bot) mới mở cầu nối. */
+async function tagBridgeOf(post: Post): Promise<TagBridge | undefined> {
+  if (!post?.id || !post.message && !post.props?.flygo_a2a_peers) return undefined;
+  const author = await mm.user(post.user_id).catch(() => null as any);
+  if (!author || author.is_bot) return undefined;
+  return tagBridge(post.id, await taggedAgents(post.message ?? ""), post.props, { id: BOT_ID, username: BOT_NAME });
+}
 /** props.flygo_a2a_peers: phiên (chat AI) người dùng gắn vào tin — của bot khác cùng chủ hoặc phiên khác của chính bot này.
  *  Gắn phiên = mở cầu nối: hai phiên nói thẳng với nhau qua ask_agent(bot, message, session), hiện ở cả hai chat. */
 function a2aPeersNote(post: Post): string {
@@ -2521,8 +2494,8 @@ async function postOp(a: any): Promise<string> {
 //     session_ask KHÔNG đăng gì vào app: chạy thẳng CLI nối tiếp phiên engine của phiên đích (claude -p --resume, chỉ tool
 //     đọc, trong thư mục làm việc của phiên đó), xếp hàng cùng các lượt của phiên đó, rồi trả câu trả lời về phiên hỏi.
 //     Phiên đích vẫn nhớ đã được hỏi (nằm trong phiên engine) nhưng chat của nó trên app không hiện gì.
-// (b) phiên Claude Code trên cùng máy với runner (~/.claude/sessions/*.json): cc_list / cc_read / cc_ask. cc_ask hỏi trên
-//     một bản sao của phiên (claude -p --resume … --fork-session, không lưu), phiên gốc không nhận tin và không hiện gì.
+//     session_ask chỉ tới phiên CÙNG DỰ ÁN với phiên hỏi, hoặc phiên được gắn vào tin đang xử lý (0.6.95).
+// Phiên Claude Code trên máy (cc_list / cc_read / cc_ask, Remote Control): đã bỏ hẳn ở 0.6.95 theo yêu cầu của Sếp.
 const textOf = (p: Post) => (p.message ?? "").replace(/\s+/g, " ").trim();
 async function mySessions(owner: string, here: string) {
   const ch = await mm.channel(here).catch(() => null as any);
@@ -2552,8 +2525,11 @@ async function sessionTool(op: string, a: any): Promise<string> {
   if (op === "ask") {
     const msg = String(a.message ?? "").trim();
     if (!msg) return "Thiếu câu hỏi.";
-    const wait = Math.min(Math.max(Number(a.wait_sec) || 300, 30), 1200) * 1000;
     const from = await mm.channel(here).catch(() => null as any);
+    const proj = from ? (await projectChannelOf(from).catch(() => null))?.id : null;
+    const attached = orchRuns.get(String(a.key ?? ""))?.tag?.sessions.some((x) => x.session === target.id && (x.bot === BOT_ID || x.bot === BOT_NAME));
+    if (!attached && !(proj && aiOf(target)?.group === proj)) return `Phiên "${target.display_name}" không cùng dự án với phiên này nên không hỏi được (chỉ đọc bằng session_read). Muốn hai phiên nói chuyện: gắn phiên đó vào tin.`;
+    const wait = Math.min(Math.max(Number(a.wait_sec) || 300, 30), 1200) * 1000;
     const r = await quietAsk(target, `phiên «${from?.display_name ?? "khác"}» của Sếp`, msg, wait);
     if (!r) return `Phiên "${target.display_name}" chạy bằng ${getSession(mainKey(target.id))?.engine ?? ENGINE}, chưa hỏi ngầm được; dùng session_read để đọc tin của nó.`;
     return r.ok ? `Phiên "${target.display_name}" trả lời:\n${r.text}` : `Phiên "${target.display_name}" chưa trả lời được: ${r.text}.`;
@@ -2561,42 +2537,9 @@ async function sessionTool(op: string, a: any): Promise<string> {
   return "Không rõ thao tác.";
 }
 
-const ccDir = join(homedir(), ".claude");
-function ccSessions() {
-  const out: any[] = [];
-  for (const f of (() => { try { return readdirSync(join(ccDir, "sessions")); } catch { return []; } })()) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const s = JSON.parse(readFileSync(join(ccDir, "sessions", f), "utf8"));
-      try { process.kill(Number(s.pid), 0); } catch { continue; } // tiến trình đã tắt
-      if (s.name && s.kind !== "print") out.push(s);
-    } catch {}
-  }
-  return out.sort((x, y) => String(x.name).localeCompare(String(y.name)));
-}
-function ccTranscript(s: any): string | null {
-  const dir = join(ccDir, "projects", String(s.cwd ?? "").replace(/[^a-zA-Z0-9]/g, "-"));
-  const direct = join(dir, `${s.sessionId}.jsonl`);
-  if (existsSync(direct)) return direct;
-  // Phiên chạy bằng --resume giữ tệp cũ: lấy tệp mới ghi gần nhất trong thư mục của phiên mà tiến trình này đang mở.
-  try { return readdirSync(dir).filter((f) => f.endsWith(".jsonl")).map((f) => join(dir, f)).sort((x, y) => statSync(y).mtimeMs - statSync(x).mtimeMs)[0] ?? null; } catch { return null; }
-}
-function ccMessages(file: string, after = 0) {
-  const out: { at: number; role: string; text: string }[] = [];
-  for (const line of readFileSync(file, "utf8").split("\n")) {
-    if (!line) continue;
-    let r: any; try { r = JSON.parse(line); } catch { continue; }
-    const at = Date.parse(r.timestamp ?? "") || 0;
-    if (at <= after || (r.type !== "user" && r.type !== "assistant")) continue;
-    const c = r.message?.content;
-    const text = typeof c === "string" ? c : Array.isArray(c) ? c.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("\n") : "";
-    if (text.trim()) out.push({ at, role: r.type, text: text.trim() });
-  }
-  return out;
-}
 // ---- bản ghi phiên (session_transcript, 0.6.73; chỉ chủ bot) ----
 // (a) kênh phiên AI trên Flygo Chat thành bản ghi (lượt người dùng / trợ lý, thẻ bước tóm tắt);
-// (b) bản ghi của engine trên máy này: Claude Code jsonl, Codex rollout, Antigravity .db; cc:<tên> = phiên Claude Code trên máy.
+// (b) bản ghi của engine trên máy này: Claude Code jsonl, Codex rollout, Antigravity .db (chỉ phiên của bot này).
 // Đầu ra luôn qua redact (che token / khoá / mật khẩu); phân trang theo mục (from_entry / before_entry) và max_chars.
 function engineTranscriptFile(engine: string, id: string): string | null {
   if (!id || /[\\/]/.test(id)) return null;
@@ -2635,17 +2578,11 @@ async function transcriptTool(a: any, list: any[], here: string): Promise<string
   const part = a.part === "all" ? "all" : "last";
   const maxChars = Math.min(Math.max(Number(a.max_chars) || 20_000, 2000), 100_000);
   let entries: Entry[] | null = null, title = "", source = "", other = "";
-  if (spec.startsWith("cc:")) {
-    const s = ccSessions().find((x) => x.name === spec.slice(3));
-    if (!s) return `Không có phiên Claude Code "${spec.slice(3)}" đang chạy trên máy ${MY_HOST} (dùng cc_list).`;
-    const file = ccTranscript(s);
-    if (!file) return "Không tìm thấy tệp bản ghi của phiên này.";
-    entries = parseClaudeJsonl(readFileSync(file, "utf8"));
-    title = `phiên Claude Code "${s.name}"`; source = `bản ghi Claude Code ${file}`;
-  } else {
+  if (spec.startsWith("cc:")) return "Đọc phiên Claude Code trên máy (cc:) đã bị tắt.";
+  {
     const id = !spec || /^(here|current|đây|hiện tại)$/i.test(spec) ? here : spec;
     const ch = id === here ? await mm.channel(here).catch(() => null as any) : list.find((c: any) => c.id === id);
-    if (!ch) return "Không thấy phiên này trong các phiên AI của Sếp (dùng session_list để lấy id; \"here\" = phiên hiện tại; cc:<tên> = phiên Claude Code trên máy).";
+    if (!ch) return "Không thấy phiên này trong các phiên AI của Sếp (dùng session_list để lấy id; \"here\" = phiên hiện tại).";
     title = `phiên "${ch.display_name || ch.name}"${ch.id === here ? " (phiên hiện tại)" : ""}`;
     const want = a.source === "chat" || a.source === "engine" ? a.source : "auto";
     const rows = db.query("SELECT * FROM sessions WHERE channel_id = ? AND session_id != '' ORDER BY updated_at DESC").all(ch.id) as Session[];
@@ -2687,42 +2624,6 @@ async function transcriptTool(a: any, list: any[], here: string): Promise<string
     pg.last < pg.total - 1 ? `tiếp: session_transcript(session="${spec || "here"}", part="all", from_entry=${pg.last + 1})` : "",
   ].filter(Boolean).join(" · ");
   return [`Bản ghi ${title} — mục ${pg.first}–${pg.last} / ${pg.total} · nguồn: ${source} (đã che token / khoá / mật khẩu)`, other, pg.text, hints ? `(${hints}; export=true để xuất cả bản ghi ra tệp)` : ""].filter(Boolean).join("\n");
-}
-
-async function ccTool(op: string, a: any): Promise<string> {
-  if (!isOwner(String(a.owner ?? ""))) return "Chỉ chủ bot mới xem / hỏi được các phiên Claude Code trên máy.";
-  const list = ccSessions();
-  if (op === "list") return list.length ? list.map((s) => `- ${s.name} · ${s.status ?? "?"} · thư mục ${s.cwd}`).join("\n") + `\n(máy ${MY_HOST})` : `Máy ${MY_HOST} không có phiên Claude Code nào đang chạy.`;
-  const s = list.find((x) => x.name === String(a.name ?? ""));
-  if (!s) return `Không có phiên "${a.name}" trên máy ${MY_HOST} (dùng cc_list).`;
-  const file = ccTranscript(s);
-  if (op === "read") {
-    if (!file) return "Không đọc được lịch sử phiên.";
-    const n = Math.min(Math.max(Number(a.limit) || 12, 1), 60);
-    return `Phiên "${s.name}" (${s.status ?? "?"}):\n` + ccMessages(file).slice(-n).map((m) => `[${new Date(m.at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}] ${m.role === "user" ? "Người dùng" : "Claude"}: ${m.text.slice(0, 1200)}`).join("\n");
-  }
-  if (op === "ask") {
-    const msg = String(a.message ?? "").trim();
-    if (!msg) return "Thiếu nội dung.";
-    if (!file) return "Không tìm thấy lịch sử của phiên này.";
-    const wait = Math.min(Math.max(Number(a.wait_sec) || 300, 30), 1200) * 1000;
-    // Tách một bản sao của phiên (--fork-session, không lưu) để hỏi: đủ ngữ cảnh của phiên đó, chỉ đọc, phiên gốc không
-    // nhận tin nào và không hiện gì.
-    const sid = basename(file, ".jsonl");
-    // --setting-sources "": không nạp quyền của dự án đích, bản sao chỉ có tool đọc.
-    const proc = spawn([resolveBin(cfg.claude.bin), "-p", "--resume", sid, "--fork-session", "--no-session-persistence", "--output-format", "text",
-      "--setting-sources", "", "--strict-mcp-config", "--allowedTools", "Read", "Grep", "Glob", "LS"],
-      { cwd: String(s.cwd || homedir()), stdout: "pipe", stderr: "pipe", stdin: "pipe", env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } });
-    proc.stdin.write(`[Câu hỏi từ trợ lý @${BOT_NAME} (Flygo Chat) thay Sếp — hỏi trên một bản sao của phiên này, không gửi vào phiên. Chỉ đọc, không thay đổi gì; trả lời ngắn gọn dựa trên những gì phiên này đã biết / đã làm.]\n\n${msg}`);
-    proc.stdin.end();
-    const timer = setTimeout(() => proc.kill(), wait);
-    const out = (await new Response(proc.stdout).text()).trim();
-    const err = (await new Response(proc.stderr).text()).trim();
-    clearTimeout(timer);
-    await proc.exited;
-    return out ? `Phiên "${s.name}" trả lời:\n${out.slice(0, 8000)}` : `Phiên "${s.name}" chưa trả lời được${err ? `: ${err.slice(0, 300)}` : " (quá giờ)"}.`;
-  }
-  return "Không rõ thao tác.";
 }
 
 async function reportOut(a: any): Promise<string> {
@@ -2847,21 +2748,19 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
     `  · trên tin: chat_react / chat_unreact(post_id, emoji) · chat_pin / chat_unpin (duyệt) · chat_ack(post_id) · chat_mark_read(chat) · chat_remind_me(post_id, at, for?)`,
     `  · quản lý (duyệt): chat_create(name, members, private?) · chat_add_members · chat_remove_member (chủ bot) · chat_rename · chat_set_purpose · thread_create_private(post_id, members) · thread_close / thread_reopen${owner ? " · user_set_status(text, emoji?, expires?) (trạng thái của bot)" : ""}`,
     `  · chỉ đọc / gửi ra chat khác khi việc cần; gửi thay người giao việc thì nói rõ đã gửi gì, ở đâu (kèm link).`,
-    `- session_list() · session_read(session_id) · session_ask(session_id, message): xem / hỏi các phiên AI khác của Sếp với bot này (chỉ chủ bot; hỏi thẳng, không hiện trong chat của phiên đó)`,
-    `- session_transcript(session, part?, max_chars?, source?, export?): đọc bản ghi đầy đủ của một phiên (session_id, "here" = phiên này, cc:<tên> = phiên Claude Code trên máy): bản ghi của engine trên máy (lời người dùng, trả lời, tool + kết quả) hoặc tin trên Flygo Chat (source="chat"); phân trang bằng before_entry / from_entry; đã che token / khoá (chỉ chủ bot)`,
+    `- session_list() · session_read(session_id) · session_ask(session_id, message): xem / hỏi các phiên AI khác của Sếp với bot này (chỉ chủ bot; session_ask chỉ tới phiên cùng dự án hoặc phiên được gắn vào tin; hỏi thẳng, không hiện trong chat của phiên đó)`,
+    `- session_transcript(session, part?, max_chars?, source?, export?): đọc bản ghi đầy đủ của một phiên (session_id, "here" = phiên này): bản ghi của engine trên máy (lời người dùng, trả lời, tool + kết quả) hoặc tin trên Flygo Chat (source="chat"); phân trang bằng before_entry / from_entry; đã che token / khoá (chỉ chủ bot)`,
     ai ? `- session_rename(name) · session_fork(title, note?, project_id?) · session_new(title, handoff{goal, done, remaining, files, cautions}, start?, project_id?): quản lý phiên AI này. Đổi tên khi chủ đề đã khác tên phiên. Tách (fork, nhớ hết ngữ cảnh) khi muốn thử một hướng khác / làm song song một nhánh mà không làm rối phiên này. Phiên mới (sạch ngữ cảnh, kèm bàn giao; phiên này được đánh dấu xong) khi phiên đã quá dài hoặc việc sang chủ đề mới; start=true để làm tiếp ngay ở đó. Tách / phiên mới cần người giao việc duyệt; nên hỏi hoặc đề xuất trước khi tự làm.` : "",
     owner ? `- project_list() · project_create(name, path?) · project_rename(project_id, name): dự án trợ lý của chủ bot (tab Agents); tạo dự án cần duyệt. Tạo phiên trong dự án bằng session_new / session_fork với project_id.` : "",
     ai ? `- spawn_task(title, prompt): giao một việc độc lập, tốn thời gian cho phiên con chạy ngầm (song song, không chờ); prompt phải đủ ngữ cảnh vì phiên con không thấy cuộc trò chuyện này; xong phiên con tự báo kết quả về đây; tối đa 5 việc ngầm cùng lúc` : "",
     `- update_plan(items | advance | done, start) · wrap_up(recap, ask?, actions?, blocked?): việc có từ 3 bước trở lên thì lập kế hoạch bằng update_plan ngay đầu lượt và advance mỗi khi xong một bước (app hiện checklist dưới thẻ); cuối lượt gọi wrap_up một lần với tóm tắt ngắn, cần Sếp quyết định thì kèm ask + 2–4 nút actions và không hỏi lại trong câu trả lời`,
-    `- agent_sessions(bot) · agent_transcript(bot, session, part?, max_chars?, source?): xem danh sách / đọc bản ghi các phiên AI của Sếp với agent KHÁC cùng chủ (vd. phiên chat với @ba-codex trong mục Dự án); agent kia đọc trên máy của nó, đã che bí mật (chỉ chủ bot, agent kia phải trực tuyến)`,
     owner ? desktopPersona(desktopMcp(cfg), MY_HOST) : "",
     owner ? `- browser_extension_setup(): Sếp muốn agent dùng chính Chrome của Sếp mà chưa có server MCP "chrome" thì gọi tool này: tự cài tiện ích Playwright MCP Bridge (Sếp chỉ bấm Thêm một lần) và tự lấy token cho các lần sau` : "",
     owner ? `- browser_token_set(token): Sếp gửi PLAYWRIGHT_MCP_EXTENSION_TOKEN (từ tiện ích Playwright MCP Bridge) thì lưu ngay bằng tool này để lần sau nối Chrome thật của Sếp tự động; không nhắc lại token trong câu trả lời` : "",
     `- file_read(path, offset?, limit?) · file_write(path, content, append?) · file_copy(from, to, overwrite?) · file_move(from, to, overwrite?) · file_trash(path | paths) · run_command(command, cwd?, timeout_sec?): đọc / ghi / chép / chuyển tệp và chạy lệnh trên máy ${MY_HOST} (đổi gì cũng cần duyệt). XOÁ tệp luôn bằng file_trash (vào thùng rác, khôi phục được), KHÔNG dùng rm / del / Remove-Item`,
-    `- cc_list() · cc_read(name) · cc_ask(name, message): xem / hỏi các phiên Claude Code đang chạy trên máy ${MY_HOST} (chỉ chủ bot; hỏi trên bản sao, không hiện trong phiên đó)`,
     `- chat_send_bilingual(text, lang, translation, translation_lang): gửi tin song ngữ (như nút Dịch AI của app, có nút cờ đổi bản gốc / bản dịch) khi được bảo gửi song ngữ hoặc nhắn cho người nói tiếng khác; tự dịch rồi truyền cả hai bản`,
     o.report ? `- chat_report_out(message, files?, lang?, translation?, translation_lang?): báo cáo ra ${n ? `${isAi ? "chat chính của nhóm" : `tầng ${n - 1}`} "${chain[n - 1].name}"` : "chat chính của nhóm"}, chỉ khi được yêu cầu; kèm lang + translation + translation_lang để gửi song ngữ (có nút cờ)` : "",
-    a2a ? `- list_agents() · ask_agent(bot, message, files?, data?): nhờ agent khác qua A2A` : "",
+    a2a ? `- Bot khác: CÙNG DỰ ÁN thì dùng team_list / team_ask / team_session_read / team_post. Khác dự án / chat / app: chỉ khi người dùng TAG agent đó (hoặc gắn phiên của nó) trong tin đang xử lý mới nhờ được, bằng ask_agent(bot, message, session?, files?, data?); không tag thì không tự tìm hay hỏi agent khác` : "",
     `- schedule_create(title, prompt, kind, at? | repeat?, target?) · schedule_list() · schedule_update(id, …) · schedule_delete(id): lịch hẹn — bot tự chạy prompt vào giờ hẹn ở chỗ này (hoặc target), kết quả hiện ở đó. Giờ theo Asia/Ho_Chi_Minh. Tạo khi người dùng muốn việc lặp lại / làm vào giờ nào đó ("mỗi sáng 8h…", "5 giờ chiều mai nhắc…").`,
     `- Giao việc / theo dõi việc (to-do): dùng các tool của ứng dụng Todo (hiện trong danh sách tool của app, do Flygo Gateway cấp — tên dạng vn_flygo_todo__…) để tạo / xem / cập nhật việc; thao tác ghi cần người giao việc duyệt.`,
     `- skill_list() · skill_read(name)${owner ? ` · skill_save(name, description, content, files?) · skill_delete(name) · role_set(text): sửa kỹ năng / vai trò của bot (người giao việc là chủ bot; lưu/xoá cần duyệt, có hiệu lực từ lượt sau)` : " (chỉ chủ bot sửa được kỹ năng / vai trò)"}`,
@@ -3405,7 +3304,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   askByKey.set(runId, askQ);
   skillRuns.set(runId, { assigner: post.user_id, ask, dir });
   schedRuns.set(runId, { assigner: post.user_id, channel_id: post.channel_id, root_id: threadRoot });
-  orchRuns.set(runId, { card, dir, root, channelId: post.channel_id, signal: ac.signal, calls: 0, chat, waiting: new Map(), assigner: post.user_id, runId, title: threadTitle, bridged: !!out?.bridged });
+  const tag = await tagBridgeOf(post).catch(() => undefined);
+  orchRuns.set(runId, { tag, card, dir, root, channelId: post.channel_id, signal: ac.signal, calls: 0, chat, waiting: new Map(), assigner: post.user_id, runId, title: threadTitle, bridged: !!out?.bridged });
   // "Luôn cho phép" đang bật: không lặp bước trong mỗi thẻ (chỉ hiện ở lượt bật); app hiện huy hiệu theo props.flygo_bypass.
   const bypass = isBypass(root);
   card.bypassOf = () => isBypass(root);
