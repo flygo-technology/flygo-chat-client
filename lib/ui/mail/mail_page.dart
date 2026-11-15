@@ -16,6 +16,7 @@ import '../forward_page.dart';
 import '../theme.dart' show toast;
 import 'api.dart';
 import 'compose.dart';
+import 'demo.dart';
 import 'model.dart';
 import 'store.dart';
 import 'thread_view.dart';
@@ -30,9 +31,16 @@ Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, Stri
   final tab = DeskTabScope.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
-    final id = await FlygoId.current(state.token);
-    if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
-    final store = MailStore(HttpMailApi(base: app.baseUrl, id: id, mailbox: mailbox));
+    final MailApi api;
+    // Xem thử khi chưa có máy chủ thư: app đăng ký với base_url "demo:" hoặc tính năng "demo" dùng dữ liệu mẫu.
+    if (isMailDemo(app)) {
+      api = DemoMailApi();
+    } else {
+      final id = await FlygoId.current(state.token);
+      if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
+      api = HttpMailApi(base: app.baseUrl, id: id, mailbox: mailbox);
+    }
+    final store = MailStore(api);
     installMailHooks();
     await nav.push(AppPageRoute(builder: (_) => MailHome(store: store, title: app.name, openThreadId: threadId)));
     tab?.onTitle?.call(null);
@@ -40,6 +48,9 @@ Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, Stri
     messenger.showSnackBar(toast(Text('$e')));
   }
 }
+
+/// App Thư chạy bằng dữ liệu mẫu (base_url "demo:" hoặc features.demo = true).
+bool isMailDemo(MiniApp app) => app.baseUrl.startsWith('demo:') || app.feature('demo');
 
 /// Gắn móc nối mặc định: gửi vào chat bằng trang Chuyển tiếp của app. (Lịch gắn khi nhánh Lịch đã gộp.)
 void installMailHooks() {

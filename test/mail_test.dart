@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/api/mini_apps.dart';
+import 'package:flygo_chat/ui/mail/mail_page.dart' show isMailDemo;
 import 'package:flygo_chat/ui/mail/compose.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/html_view.dart';
@@ -8,6 +10,13 @@ import 'package:flygo_chat/ui/mail/widgets.dart';
 import 'package:flygo_chat/ui/todo/model.dart';
 
 void main() {
+  test('chế độ demo theo manifest', () {
+    MiniApp app(Map<String, dynamic> j) => MiniApp.fromJson({'id': 'vn.flygo.mail', 'name': 'Flygo Mail', ...j});
+    expect(isMailDemo(app({'base_url': 'https://mail.example.com', 'features': {'demo': true}})), isTrue);
+    expect(isMailDemo(app({'base_url': 'demo:'})), isTrue);
+    expect(isMailDemo(app({'base_url': 'https://mail.example.com'})), isFalse);
+  });
+
   group('MailQuery', () {
     test('parse và build giữ nguyên toán tử', () {
       final q = MailQuery.parse('from:"Thu Hà" has:attachment hợp đồng is:unread newer_than:7d label:Kế');
