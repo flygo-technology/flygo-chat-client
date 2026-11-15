@@ -10,24 +10,30 @@ import 'package:record/record.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../api/mini_apps.dart';
 import '../api/stt.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'common.dart';
+import 'drive/api.dart' show kDriveApp;
 import 'theme.dart';
 import 'package:flygo_chat/ui/app_route.dart';
 
-enum AttachAction { file, task, video, photo, gallery, voice, location, liveLocation, poll, checklist, meeting, paste, screenshot }
+enum AttachAction { file, drive, task, video, photo, gallery, voice, location, liveLocation, poll, checklist, meeting, paste, screenshot }
 
 /// Thao tác không có khi chat với trợ lý AI.
 const agentHiddenActions = {AttachAction.video, AttachAction.location, AttachAction.liveLocation, AttachAction.poll, AttachAction.meeting};
 
 /// Bảng "+" ở ô soạn tin: lưới các thao tác đính kèm. [agent]: chat với trợ lý (ẩn quay video, vị trí, bình chọn, cuộc họp).
 /// [pasteImage]: bộ nhớ tạm đang có ảnh (hiện ô "Dán ảnh" đầu tiên).
+/// Người dùng có app Drive (đã tải danh sách app): hiện ô "Drive" (đính kèm từ Drive).
+bool get hasDrive => MiniApps.cached.any((a) => a.id == kDriveApp);
+
 Future<AttachAction?> showAttachPanel(BuildContext context, {bool agent = false, bool pasteImage = false}) {
   final all = <(AttachAction, IconData, String, Color)>[
     if (pasteImage) (AttachAction.paste, Icons.content_paste_rounded, tr('Dán ảnh'), const Color(0xFF00897B)),
     (AttachAction.file, Icons.insert_drive_file, tr('Chọn file'), const Color(0xFF7F66FF)),
+    if (hasDrive) (AttachAction.drive, Icons.add_to_drive_rounded, 'Drive', const Color(0xFF1F6FEB)),
     (AttachAction.video, Icons.videocam, 'Quay video', const Color(0xFFD3396D)),
     (AttachAction.photo, Icons.photo_camera, tr('Chụp ảnh'), const Color(0xFFFA6533)),
     (AttachAction.gallery, Icons.photo_library, tr('Thư viện'), const Color(0xFF1F7AEC)),

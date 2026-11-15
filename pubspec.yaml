@@ -89,6 +89,7 @@ dependencies:
   network_info_plus: ^8.2.2
   # Thư (lib/ui/mail): đọc HTML của thư để vẽ bằng widget (đã có sẵn qua phụ thuộc gián tiếp).
   html: ^0.15.6
+  pdfrx: ^2.12.1
 dependency_overrides:
   # Bản vá từ app Magic Sign (third_party/README.md): AGP 9 và profile msProfile.
   flutter_inappwebview_android:

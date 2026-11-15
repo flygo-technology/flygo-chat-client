@@ -20,6 +20,8 @@ import 'todo/todo_page.dart' show openTodo;
 import 'mail/mail_page.dart' show openMail;
 import 'wiki/wiki_page.dart' show openWiki;
 import 'forms/home_page.dart' show openForms;
+import 'drive/api.dart' show kDriveScreen;
+import 'drive/drive_page.dart' show openDrive;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -51,6 +53,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'bang_tin') {
     tab?.onTitle?.call(app.name);
     await openBangTin(context, app, postId: path == null ? null : RegExp(r'^/p/([A-Za-z0-9_-]{6,32})').firstMatch(path)?.group(1));
+    return;
+  }
+  if (app.nativeScreen == kDriveScreen) {
+    tab?.onTitle?.call(app.name);
+    await openDrive(context, app, path: path != null && path.startsWith('/my/') ? Uri.decodeComponent(path.substring(3)) : null);
     return;
   }
   if (app.nativeScreen == 'todo') {
@@ -269,7 +276,9 @@ class MiniAppPage extends StatefulWidget {
   final Future<Uri> url;
   /// Trang là nội dung của cửa sổ riêng (lib/ui/mini_app_windows.dart): không có thanh tiêu đề, đóng bằng cửa sổ.
   final bool inWindow;
-  const MiniAppPage({super.key, required this.app, required this.url, this.inWindow = false});
+  /// Tiêu đề thay cho tên app (vd tên tệp khi Drive mở OnlyOffice).
+  final String? title;
+  const MiniAppPage({super.key, required this.app, required this.url, this.inWindow = false, this.title});
   @override
   State<MiniAppPage> createState() => _MiniAppPageState();
 }
@@ -480,7 +489,7 @@ class _MiniAppPageState extends State<MiniAppPage> {
           title: Row(children: [
             MiniAppIcon(_app, size: 26),
             const SizedBox(width: 10),
-            Flexible(child: Text(_app.name, overflow: TextOverflow.ellipsis)),
+            Flexible(child: Text(widget.title ?? _app.name, overflow: TextOverflow.ellipsis)),
           ]),
           actions: [
             if (_app.feature('tv_code'))

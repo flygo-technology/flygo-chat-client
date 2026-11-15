@@ -89,6 +89,7 @@ import 'meeting.dart';
 import 'urgent_alert.dart';
 import 'status_ui.dart';
 import 'theme.dart';
+import 'drive/pickers.dart' show pickFromDrive;
 import '../remote/rc_service.dart' show kRcLogProp, rcLogText;
 import 'package:flygo_chat/ui/app_route.dart';
 
@@ -5850,9 +5851,10 @@ class _ComposerState extends State<_Composer> {
     final box = btn.findRenderObject() as RenderBox;
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
-    const items = [
-      (AttachAction.screenshot, Icons.screenshot_monitor_rounded, 'Chụp màn hình', Color(0xFF00897B)),
-      (AttachAction.file, Icons.description, 'Tài liệu', Color(0xFF7F66FF)),
+    final items = [
+      (AttachAction.screenshot, Icons.screenshot_monitor_rounded, 'Chụp màn hình', const Color(0xFF00897B)),
+      (AttachAction.file, Icons.description, 'Tài liệu', const Color(0xFF7F66FF)),
+      if (hasDrive) (AttachAction.drive, Icons.add_to_drive_rounded, 'Drive', const Color(0xFF1F6FEB)),
       (AttachAction.gallery, Icons.photo_library, 'Ảnh và video', Color(0xFF1F7AEC)),
       (AttachAction.voice, Icons.mic, 'Ghi âm', Color(0xFFFA6533)),
       (AttachAction.location, Icons.location_on, 'Vị trí hiện tại', Color(0xFF00A884)),
@@ -6058,6 +6060,15 @@ class _ComposerState extends State<_Composer> {
     switch (a) {
       case AttachAction.file:
         await _pickDocuments();
+      case AttachAction.drive:
+        final r = await pickFromDrive(context);
+        if (r == null || !mounted) return;
+        if (r.files.isNotEmpty) _stageFiles(r.files);
+        if (r.text.isNotEmpty) {
+          _ctl.text = _ctl.text.trim().isEmpty ? r.text : '${_ctl.text.trimRight()}\n${r.text}';
+          _ctl.selection = TextSelection.collapsed(offset: _ctl.text.length);
+          _focus.requestFocus();
+        }
       case AttachAction.task:
         await Navigator.of(context).push(AppPageRoute(builder: (_) => CreateTaskPage(channelId: widget.channelId)));
       case AttachAction.video:
