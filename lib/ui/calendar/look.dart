@@ -211,7 +211,7 @@ ButtonStyle calPrimary(BuildContext c) => FilledButton.styleFrom(
       foregroundColor: Colors.white,
       shape: const StadiumBorder(),
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-      textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+      textStyle: (Theme.of(c).textTheme.labelLarge ?? const TextStyle()).copyWith(fontWeight: FontWeight.w600, fontSize: 14),
     );
 
 // ------------------------------------------------------------ khung nổi
@@ -248,6 +248,8 @@ class _AnchorDelegate extends SingleChildLayoutDelegate {
 
   @override
   Offset getPositionForChild(Size size, Size child) {
+    // Không có chỗ bấm (mở từ tin nhắn): giữa màn hình.
+    if (anchor == Rect.zero) return Offset((size.width - child.width) / 2, ((size.height - child.height) / 2).clamp(16, double.infinity));
     var x = anchor.right + 12;
     if (x + child.width > size.width - 16) x = anchor.left - child.width - 12;
     if (x < 16) x = (size.width - child.width) / 2;

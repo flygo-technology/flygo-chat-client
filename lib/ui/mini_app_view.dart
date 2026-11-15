@@ -17,6 +17,7 @@ import '../state/app_state.dart';
 import 'bang_tin/bang_tin_page.dart' show kBangTinTab, openBangTin;
 import 'flows/flows_page.dart' show openFlowsHome;
 import 'todo/todo_page.dart' show openTodo;
+import 'calendar/calendar_page.dart' show openCalendar;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -53,6 +54,12 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'todo') {
     tab?.onTitle?.call(app.name);
     await openTodo(context, app, noteId: path == null ? null : RegExp(r'^/n/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1));
+    return;
+  }
+  if (app.nativeScreen == 'calendar') {
+    tab?.onTitle?.call(app.name);
+    final m = path == null ? null : RegExp(r'^/e/([A-Za-z0-9_-]{6,40})(?:\?rid=([0-9T:-]{10,16}))?').firstMatch(path);
+    await openCalendar(context, app, eventId: m?.group(1), rid: m?.group(2) == null ? null : Uri.decodeComponent(m!.group(2)!));
     return;
   }
   if (app.nativeScreen == 'show') {
