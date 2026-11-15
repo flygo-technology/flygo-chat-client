@@ -850,7 +850,7 @@ async function a2aTool(name: string, a: any): Promise<string> {
   if (a.data && typeof a.data === "object") parts.push({ kind: "data", data: a.data });
   const sendErrors: string[] = [];
   for (const f of Array.isArray(a.files) ? a.files : []) {
-    try { parts.push(await toFilePart(a2a, mm, cfg.botToken, async () => ctx.channelId, insideDir(ctx.dir, String(f)), peer.id)); }
+    try { parts.push(await toFilePart(a2a, mm, cfg.botToken, async () => ctx.channelId, insideDir(ctx.dir, String(f)), peer.id, ctx.tag?.post)); }
     catch (e: any) { sendErrors.push(`${f}: ${e?.message ?? e}`); }
   }
   if (sendErrors.length) { ctx.calls--; return `Chưa nhờ @${peer.username} vì không gửi được tệp:\n- ${sendErrors.join("\n- ")}`; }

@@ -138,7 +138,7 @@ export class A2AClient {
   }
 
   list(): Promise<A2APeer[]> { return this.request({ t: "list" }, undefined, 30_000, undefined, true); }
-  grant(fileId: string, to: string): Promise<{ uri: string; name: string; mimeType: string; size: number }> { return this.request({ t: "grant", file_id: fileId, to }, undefined, 30_000, undefined, true); }
+  grant(fileId: string, to: string, tagPost?: string): Promise<{ uri: string; name: string; mimeType: string; size: number }> { return this.request({ t: "grant", file_id: fileId, to, ...(tagPost ? { tag_post: tagPost } : {}) }, undefined, 30_000, undefined, true); }
 
   /** Đồng đội trong dự án của kênh `channel` (relay kiểm bot là thành viên kênh, cùng dự án, canCall). */
   team(channel: string): Promise<any> { return this.request({ t: "team", channel }, undefined, 30_000, undefined, true); }
