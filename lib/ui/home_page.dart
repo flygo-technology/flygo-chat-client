@@ -73,6 +73,11 @@ import '../kyso/kyso_api.dart';
 import '../browser/browser_page.dart' show KysoHomePage;
 import 'package:flygo_chat/ui/app_route.dart';
 
+/// Tiêu đề nhóm Tổ chức / Danh bạ / Ủy quyền / Lịch sử cuộc gọi / Máy tính. Trước là "Công việc"; đổi thành "Văn phòng"
+/// khi app Todo đổi tên thành "Công việc" (Sếp, 2026-11-15), để không có hai nhãn "Công việc". Mọi chỗ so nhóm này
+/// dùng hàm này, không so với chữ.
+String youWorkGroupTitle() => tr('Văn phòng');
+
 /// Các nhóm ô ở tab Bạn (Apps): (tiêu đề đã dịch, mã các ô theo thứ tự). Trợ lý và Bot nằm trong nhóm "Cá nhân";
 /// Hẹn giờ đã chuyển sang tab Agents nên không còn ở đây. Nhóm rỗng không hiện (kể cả tiêu đề).
 @visibleForTesting
@@ -85,7 +90,7 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         else if (KysoApi.available.value)
           'kyso',
       ]),
-      (tr('Công việc'), [
+      (youWorkGroupTitle(), [
         'contacts', 'org', 'delegations', 'calls', 'computers',
       ]),
       (tr('Cá nhân'), [
@@ -1236,7 +1241,7 @@ class _HomePageState extends State<HomePage> {
             // Họp (app họp video kiểu quen thuộc, lib/ui/meet/) ngay sau Bảng tin / Todo (Sếp, 2026-11-15).
             if (items['meet'] != null) tile(asTab('meet', items['meet']!)),
             // Tổ chức và Quy trình nằm ở mục Quản trị (Sếp, 2026-11-10).
-            for (final id in _workAppOrder(youAppGroups(desktop: isDesktop).where((g) => g.$1 == tr('Công việc')).expand((g) => g.$2)).where((id) => id != 'org'))
+            for (final id in _workAppOrder(youAppGroups(desktop: isDesktop).where((g) => g.$1 == youWorkGroupTitle()).expand((g) => g.$2)).where((id) => id != 'org'))
               if (items[id] != null) tile(asTab(id, items[id]!)),
             appTile(brandIcon('zalo', 34, Colors.white), const Color(0xFF0068FF), 'Zalo', 0, () => onLaunch('zalo')),
             appTile(brandIcon('wechat', 34, Colors.white), const Color(0xFF07C160), 'WeChat', 0, () => onLaunch('wechat')),
@@ -1289,7 +1294,7 @@ class _HomePageState extends State<HomePage> {
           },
         ),
         // Quản trị ở cuối, ngay trước Cá nhân (Sếp, 2026-11-10).
-        for (final (title, ids) in youAppGroups(desktop: isDesktop).where((g) => g.$1 != tr('Ký số') && g.$1 != tr('Công việc'))) ...[
+        for (final (title, ids) in youAppGroups(desktop: isDesktop).where((g) => g.$1 != tr('Ký số') && g.$1 != youWorkGroupTitle())) ...[
           if (title == tr('Cá nhân')) ...[
           grid(tr('Quản trị'), [
               if (items['org'] != null) tile(asTab('org', items['org']!)),
@@ -1373,8 +1378,8 @@ class _HomePageState extends State<HomePage> {
       const Padding(padding: EdgeInsets.symmetric(horizontal: 4), child: StatusSection(plain: true)),
       for (final (title, ids) in youAppGroups(desktop: isDesktop)) ...[
         section(title, [for (final id in ids) ?items[id]]),
-        // Mini app của máy chủ (registry) ngay sau nhóm Công việc, ẩn khi không có.
-        if (title == tr('Công việc')) MiniAppsSection(key: ValueKey(kServerUrl), section: grid, tile: miniTile, except: {...kLeadMiniApps}),
+        // Mini app của máy chủ (registry) ngay sau nhóm Văn phòng, ẩn khi không có.
+        if (title == youWorkGroupTitle()) MiniAppsSection(key: ValueKey(kServerUrl), section: grid, tile: miniTile, except: {...kLeadMiniApps}),
       ],
       // Xoá tài khoản / Đăng xuất: nút nhỏ căn giữa ở cuối trang, phải BẤM GIỮ để tránh bấm nhầm.
       // Cửa sổ riêng không đăng xuất (phiên dùng chung với cửa sổ chính).

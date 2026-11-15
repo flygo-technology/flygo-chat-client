@@ -27,7 +27,7 @@ class TodoOpenButton extends StatelessWidget {
       final apps = await MiniApps.list(context.read<AppState>().token);
       final app = apps.where((a) => a.id == kTodoApp).firstOrNull;
       if (!context.mounted) return;
-      if (app == null) throw StateError(tr('Bạn chưa được dùng Todo trên máy chủ này'));
+      if (app == null) throw StateError(tr('Bạn chưa được dùng app Công việc trên máy chủ này'));
       await openTodo(context, app, noteId: noteId);
     } catch (e) {
       messenger.showSnackBar(toast(Text('$e')));
@@ -41,7 +41,7 @@ class TodoOpenButton extends StatelessWidget {
           style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact, foregroundColor: Pal.of(context).accentText),
           onPressed: () => _open(context),
           icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
-          label: Text(tr('Mở ghi chú trong Todo')),
+          label: Text(tr('Mở ghi chú trong Công việc')),
         ),
       );
 }

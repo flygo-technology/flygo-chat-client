@@ -36,6 +36,20 @@ Future<bool> translateInfo() async {
   }
 }
 
+/// Mã các ngôn ngữ dịch vụ dịch của máy chủ chat nhận (`langs` của `GET <trạm>/translate/info`); lỗi: danh sách rỗng.
+Future<List<String>> translateLangs() async {
+  try {
+    final r = await http
+        .get(Uri.parse('${pushUrlFor(kServerUrl)}/translate/info'), headers: {'User-Agent': kUserAgent})
+        .timeout(const Duration(seconds: 10));
+    final j = jsonDecode(utf8.decode(r.bodyBytes));
+    if (r.statusCode != 200 || j is! Map || j['langs'] is! List) return const [];
+    return [for (final c in j['langs'] as List) if ('$c'.isNotEmpty) '$c'];
+  } catch (_) {
+    return const [];
+  }
+}
+
 /// Dịch [text] sang ngôn ngữ [to] (vi, en, ko, ja, th, zh…) bằng bot dịch dùng chung của máy chủ chat: trạm đẩy
 /// (`POST /translate`, xác thực bằng phiên máy chủ chat; chỉ dùng trạm của chính máy chủ đang chat) chuyển cho dịch vụ dịch
 /// chạy cách ly. Trạm lỗi / không gọi được thì máy tính thử runner trợ lý AI của mình trên máy này (nếu có).

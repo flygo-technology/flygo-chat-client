@@ -50,6 +50,7 @@ const Map<String, String> ja = {
   'Cài đặt cuộc trò chuyện': 'トーク設定',
   'Có {0} tin hẹn giờ chờ gửi': '送信待ちの予約メッセージが{0}件あります',
   'Công việc': 'タスク',
+  'Văn phòng': 'オフィス',
   'Cần cho phép dùng micro để ghi âm.': '録音するにはマイクへのアクセスを許可してください。',
   'Cắt / Xoay': '切り抜き / 回転',
   'Của tôi': '自分',
