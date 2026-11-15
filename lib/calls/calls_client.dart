@@ -8,6 +8,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 
 import '../config.dart';
+import 'call_media.dart';
 
 const callsPluginId = 'com.$kPluginVendor.calls';
 const callsEventPrefix = 'custom_$callsPluginId';
@@ -34,7 +35,7 @@ const _wsResumeWindow = Duration(seconds: 9);
 /// data channel trước khi gửi offer để SFU không gửi offer của nó cùng lúc (va chạm offer làm
 /// SFU bỏ offer của mình và kẹt luôn phiên: mất hình cả hai chiều). Loại track của người khác
 /// lấy từ bảng `MediaMap` (mid → loại, phiên người gửi) SFU gửi qua data channel.
-class CallsClient {
+class CallsClient implements CallMedia {
   final String token;
   final String channelId;
   /// Tiêu đề cuộc gọi khi mình tạo cuộc gọi mới (gọi 1-1 video: có dấu 📹 để bên kia biết là gọi video).
@@ -117,10 +118,12 @@ class CallsClient {
   });
 
   /// Id phiên của mình trong cuộc gọi (= connection_id của WebSocket riêng khi tham gia).
+  @override
   String get sessionId => _originalConnId.isNotEmpty ? _originalConnId : _connId;
 
   MediaStream? _video;
   RTCRtpSender? _videoSender;
+  @override
   MediaStream? get localVideo => _video;
 
   bool get muted => !(_local?.getAudioTracks().firstOrNull?.enabled ?? false);
@@ -131,6 +134,7 @@ class CallsClient {
   static String? audioInputId;
   static String? videoInputId;
 
+  @override
   Future<void> start({bool video = false, bool muted = false}) async {
     _local = await navigator.mediaDevices.getUserMedia({
       'audio': {'echoCancellation': true, 'noiseSuppression': true, 'autoGainControl': true, 'deviceId': ?audioInputId},
@@ -290,6 +294,7 @@ class CallsClient {
   }
 
   /// Gửi một lệnh của plugin Calls (raise_hand, unraise_hand, react…).
+  @override
   void action(String action, [Map<String, dynamic>? data]) => _send(action, data);
 
   void _send(String action, [Map<String, dynamic>? data, bool binary = false]) {
@@ -797,6 +802,7 @@ class CallsClient {
 
   /// Bật camera: lần đầu thêm luồng video (1 Mbps, 30 khung hình/giây như web client) và thương
   /// lượng lại; các lần sau chỉ thay track. Báo `video_on` kèm id luồng.
+  @override
   Future<MediaStream?> startVideo({bool front = true}) async {
     if (_closed) return null;
     final stream = await _openCamera(front);
@@ -824,6 +830,7 @@ class CallsClient {
     return stream;
   }
 
+  @override
   Future<void> stopVideo() async {
     await _videoSender?.replaceTrack(null);
     for (final t in _video?.getTracks() ?? <MediaStreamTrack>[]) {
@@ -834,6 +841,7 @@ class CallsClient {
     _send('video_off');
   }
 
+  @override
   Future<void> switchCamera() async {
     final t = _video?.getVideoTracks().firstOrNull;
     if (t != null) await Helper.switchCamera(t);
@@ -848,6 +856,7 @@ class CallsClient {
   /// Chia sẻ màn hình như client chính thức: báo `screen_on` kèm id luồng (SFU nhận ra đây là track
   /// màn hình), rồi thêm track (1 Mbps, 10 khung hình/giây) và thương lượng lại có giữ khoá tín hiệu.
   /// Luồng do bên gọi giữ (vào lại cuộc gọi thì chia sẻ tiếp), client không tự dừng.
+  @override
   Future<void> startScreen(MediaStream stream) async {
     final pc = _pc;
     if (_closed || pc == null || _screen != null) return;
@@ -869,6 +878,7 @@ class CallsClient {
     _renegotiate();
   }
 
+  @override
   Future<void> stopScreen() async {
     final sender = _screenSender;
     final had = _screen != null;
@@ -888,6 +898,7 @@ class CallsClient {
     if (had) _send('screen_off');
   }
 
+  @override
   void setMuted(bool mute) {
     for (final t in _local?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       t.enabled = !mute;
@@ -901,6 +912,7 @@ class CallsClient {
     onClosed(reason);
   }
 
+  @override
   Future<void> leave() async {
     if (_closed) return;
     if (_screen != null) _send('screen_off');
@@ -911,6 +923,7 @@ class CallsClient {
 
   /// Bỏ phiên này để vào lại cuộc gọi bằng phiên mới (mạng rớt quá lâu): không gửi `leave`
   /// (máy chủ tự bỏ phiên cũ sau ~10 giây), không dừng luồng chia sẻ màn hình (bên gọi giữ).
+  @override
   void abandon() {
     if (_closed) return;
     _screen = null;

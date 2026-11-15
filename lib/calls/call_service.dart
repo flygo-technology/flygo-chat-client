@@ -15,10 +15,20 @@ import '../config.dart';
 import '../push/push_service.dart';
 import 'call_kind.dart';
 export 'call_kind.dart';
+import 'call_media.dart';
 import 'calls_client.dart';
 import 'direct_call.dart';
+import 'livekit_media.dart';
 
 enum CallPhase { idle, incoming, outgoing, connecting, active, ended }
+
+/// Máy chủ từ chối cho vào cuộc gọi (vd. cuộc họp đã kết thúc, chưa được cho vào): hiện nguyên lý do.
+class CallJoinError implements Exception {
+  final String message;
+  const CallJoinError(this.message);
+  @override
+  String toString() => message;
+}
 
 /// Một người (một phiên Calls) khác trong cuộc gọi.
 class CallParticipant {
@@ -113,7 +123,11 @@ class CallService extends ChangeNotifier {
   final Map<String, CallParticipant> _people = {};
   /// Mình đang nói (máy chủ báo `user_voice_on` cho phiên của mình).
   bool meSpeaking = false;
-  CallsClient? _client;
+  CallMedia? _client;
+  /// Cuộc gọi hiện tại đi qua LiveKit SFU tự host (cuộc họp trong kênh chat, khi relay bật LiveKit); không thì plugin Calls.
+  bool liveKit = false;
+  /// Relay cho mình quyền chủ phòng LiveKit (tắt mic / mời ra bắt buộc ở SFU).
+  bool _lkHost = false;
   Timer? _noAnswer;
   Timer? _ringBuzz;
   // Giữ tham chiếu để luồng âm thanh phía xa không bị thu hồi.
@@ -467,6 +481,13 @@ class CallService extends ChangeNotifier {
 
   /// Số người khác đang trong cuộc gọi của kênh (null nếu không đọc được).
   Future<int?> _othersInCall(String ch) async {
+    if (!isDm(ch)) {
+      final ids = await _lkParticipants(ch);
+      if (ids != null && (ids.isNotEmpty || !await _callsActive(ch))) {
+        _setOngoing(ch, ids);
+        return ids.where((u) => u != myId()).length;
+      }
+    }
     try {
       final r = (await api.get('/plugins/$callsPluginId/$ch') as Map).cast<String, dynamic>();
       final call = (r['call'] as Map?)?.cast<String, dynamic>();
@@ -479,6 +500,67 @@ class CallService extends ChangeNotifier {
       return ids.where((u) => u != myId()).length;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Có cuộc gọi Calls đang mở ở kênh (cuộc gọi cũ trước khi chuyển sang LiveKit).
+  Future<bool> _callsActive(String ch) async {
+    try {
+      final r = (await api.get('/plugins/$callsPluginId/$ch') as Map).cast<String, dynamic>();
+      final call = (r['call'] as Map?)?.cast<String, dynamic>();
+      return call != null && ((call['end_at'] as num?) ?? 0) == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Những người đang trong phòng LiveKit của kênh (null: relay chưa bật LiveKit / lỗi).
+  Future<Set<String>?> _lkParticipants(String ch) async {
+    try {
+      await discoverPush(kServerUrl);
+      final r = await http.get(Uri.parse('$kPushUrl/meet/livekit/channel/$ch'), headers: _pushHeaders).timeout(const Duration(seconds: 6));
+      if (r.statusCode != 200) return null;
+      final j = (jsonDecode(r.body) as Map).cast<String, dynamic>();
+      return {
+        for (final p in (j['participants'] as List? ?? const []))
+          if (p is Map && p['user_id'] is String) p['user_id'] as String,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Map<String, String> get _pushHeaders => {
+        'Authorization': 'Bearer ${api.token}',
+        'X-MM-Server': kServerUrl,
+        'Content-Type': 'application/json',
+        'User-Agent': kUserAgent,
+      };
+
+  /// Token vào phòng LiveKit của cuộc họp: phòng họp có mã thì qua sổ phòng (kiểm huỷ / kết thúc), không thì theo kênh.
+  /// Null: relay chưa bật LiveKit (dùng plugin Calls như cũ).
+  Future<({String url, String token, bool host})?> _lkToken(String ch) async {
+    await discoverPush(kServerUrl);
+    final code = meetingInfo?.code;
+    final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/token' : '/meet/livekit/channel/$ch/token';
+    final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders).timeout(const Duration(seconds: 10));
+    if (r.statusCode == 501 || r.statusCode == 404) return null;
+    final j = (jsonDecode(r.body) as Map).cast<String, dynamic>();
+    if (r.statusCode != 200) throw CallJoinError(j['error'] as String? ?? 'HTTP ${r.statusCode}');
+    return (url: j['url'] as String, token: j['token'] as String, host: j['host'] == true);
+  }
+
+  /// Chủ phòng: tắt mic / mời ra, làm ở SFU (relay kiểm quyền).
+  Future<void> _lkModerate(Map<String, dynamic> body) async {
+    final ch = channelId;
+    if (ch == null) return;
+    final code = meetingInfo?.code;
+    final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/moderate' : '/meet/livekit/channel/$ch/moderate';
+    try {
+      final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: jsonEncode(body)).timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) debugPrint('[livekit] moderate: ${r.statusCode} ${r.body}');
+    } catch (e) {
+      debugPrint('[livekit] moderate: $e');
     }
   }
 
@@ -657,9 +739,11 @@ class CallService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[calls] close meeting: $e');
     }
-    try {
-      await api.post('/plugins/$callsPluginId/calls/$ch/end', null);
-    } catch (_) {}
+    if (!liveKit) {
+      try {
+        await api.post('/plugins/$callsPluginId/calls/$ch/end', null);
+      } catch (_) {}
+    }
     await _hangUp(tr('Cuộc họp đã kết thúc'), signal: false);
   }
 
@@ -704,6 +788,13 @@ class CallService extends ChangeNotifier {
   /// Đọc trạng thái cuộc gọi của kênh (`GET /plugins/<id plugin Calls>/<kênh>`), cập nhật danh sách
   /// người tham gia và trả về số người khác đang trong cuộc gọi (null nếu không đọc được).
   Future<int?> _syncState(String ch) async {
+    if (liveKit) {
+      // Người tham gia đến từ sự kiện của phòng LiveKit; ở đây chỉ đếm.
+      if (channelId != ch || !busy) return null;
+      final ids = {myId(), ...remoteUsers};
+      _setOngoing(ch, ids);
+      return remoteUsers.length;
+    }
     try {
       final r = (await api.get('/plugins/$callsPluginId/$ch') as Map).cast<String, dynamic>();
       if (channelId != ch || !busy) return null;
@@ -740,6 +831,8 @@ class CallService extends ChangeNotifier {
   /// Lấy id luồng của cuộc gọi đang diễn ra ở kênh hiện tại (đọc lại từ máy chủ nếu chưa có).
   Future<String?> threadIdOf() async {
     if (callThreadId != null || channelId == null) return callThreadId;
+    // LiveKit: không có tin cuộc gọi của Calls; bình luận lưu vào luồng của thẻ cuộc họp.
+    if (liveKit) return callThreadId = meetingInfo?.postId;
     try {
       final r = (await api.get('/plugins/$callsPluginId/$channelId') as Map).cast<String, dynamic>();
       final call = (r['call'] as Map?)?.cast<String, dynamic>();
@@ -968,6 +1061,7 @@ class CallService extends ChangeNotifier {
   Future<void> hostMuteOthers() async {
     final ch = channelId;
     if (ch == null) return;
+    if (liveKit) return _lkModerate({'action': 'mute_all'});
     try {
       await api.post('/plugins/$callsPluginId/calls/$ch/host/mute-others', {});
     } catch (e) {
@@ -979,6 +1073,7 @@ class CallService extends ChangeNotifier {
   Future<void> hostMute(String userId) async {
     final ch = channelId;
     if (ch == null) return;
+    if (liveKit) return _lkModerate({'action': 'mute', 'user_id': userId});
     for (final p in _people.values.where((p) => p.userId == userId)) {
       try {
         await api.post('/plugins/$callsPluginId/calls/$ch/host/mute', {'session_id': p.sessionId});
@@ -1095,12 +1190,22 @@ class CallService extends ChangeNotifier {
       await _connect(video: video);
     } catch (e, st) {
       debugPrint('[calls] join failed: $e\n$st');
-      _end(tr('Không bắt đầu được cuộc gọi. Kiểm tra quyền micro và kết nối mạng.'));
+      _end(e is CallJoinError ? e.message : tr('Không bắt đầu được cuộc gọi. Kiểm tra quyền micro và kết nối mạng.'));
     }
   }
 
   /// Tạo phiên Calls mới và vào cuộc gọi của kênh hiện tại (lần đầu hoặc vào lại sau khi rớt mạng).
   Future<void> _connect({required bool video, bool rejoin = false}) async {
+    // Cuộc họp trong kênh chat (không phải tin riêng): LiveKit nếu relay bật; máy chủ chat bản không bản quyền chặn
+    // cuộc gọi Calls ngoài tin riêng.
+    final ch = channelId;
+    final lkt = meeting && ch != null && !isDm(ch) ? await _lkToken(ch) : null;
+    if (!busy) return;
+    liveKit = lkt != null;
+    if (lkt != null) {
+      _lkHost = lkt.host;
+      return _connectLiveKit(lkt.url, lkt.token, video: video, rejoin: rejoin);
+    }
     final servers = await _iceServers();
     if (!busy) return;
     late final CallsClient c;
@@ -1162,6 +1267,63 @@ class CallService extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> _connectLiveKit(String url, String token, {required bool video, required bool rejoin}) async {
+    late final LiveKitMedia c;
+    c = LiveKitMedia(
+      url: url,
+      token: token,
+      onConnected: () {
+        if (_client != c) return;
+        if (phase == CallPhase.connecting) {
+          phase = CallPhase.active;
+          startedAt = DateTime.now();
+        }
+        if (rejoin) {
+          debugPrint('[livekit] rejoined');
+          _stopReconnect();
+          // Kết nối cũ đã dừng luồng màn hình: mở lại màn hình đang chia sẻ trên kết nối mới.
+          final src = _screenSource, old = localScreen;
+          if (src != null && old != null) {
+            localScreen = null;
+            _shareLiveKit(c, src);
+          }
+        }
+        _startWatch();
+        notifyListeners();
+      },
+      onRemoteTrack: _onRemoteTrack,
+      onRemoteTrackEnded: _onRemoteTrackEnded,
+      onEvent: (ev, data) {
+        if (_client == c) _onPeerEvent(ev, data);
+      },
+      onHealth: (ok) {
+        if (_client == c) _setHealthy(ok);
+      },
+      onLost: () {
+        if (_client == c) _rejoin();
+      },
+      onClosed: (reason) {
+        if (_client != c) return;
+        if (reconnecting) {
+          _client = null;
+          _retryRejoin();
+          return;
+        }
+        _end(reason);
+      },
+    );
+    _client = c;
+    await c.start(video: video, muted: muted);
+    if (_client == c && c.localVideo != null) {
+      localVideo = c.localVideo;
+      camera = true;
+      notifyListeners();
+    }
+  }
+
+  /// Mình có quyền chủ phòng (tắt mic / mời ra) trong cuộc họp LiveKit hiện tại.
+  bool get liveKitHost => liveKit && _lkHost;
 
   // ---------------------------------------------------------------- nối lại khi rớt mạng
 
@@ -1273,6 +1435,7 @@ class CallService extends ChangeNotifier {
     if (c == null || localScreen != null) return null;
     if (!screenAllowed) return tr('Máy chủ không cho phép chia sẻ màn hình');
     if (_people.values.any((p) => p.screen)) return tr('Người khác đang chia sẻ màn hình');
+    if (c is LiveKitMedia) return _shareLiveKit(c, sourceId);
     MediaStream stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
@@ -1308,10 +1471,35 @@ class CallService extends ChangeNotifier {
     return null;
   }
 
+  /// Màn hình đang chia sẻ qua LiveKit (để chia sẻ tiếp khi vào lại cuộc họp).
+  String? _screenSource;
+
+  Future<String?> _shareLiveKit(LiveKitMedia c, String sourceId) async {
+    MediaStream? stream;
+    try {
+      stream = await c.shareScreen(sourceId);
+    } catch (e) {
+      debugPrint('[livekit] share screen: $e');
+    }
+    if (_client != c || !busy) {
+      await c.stopScreen().catchError((_) {});
+      return null;
+    }
+    if (stream == null) return tr('Không chia sẻ được màn hình. Kiểm tra quyền ghi màn hình của ứng dụng.');
+    _screenSource = sourceId;
+    localScreen = stream;
+    stream.getVideoTracks().firstOrNull?.onEnded = () {
+      if (localScreen == stream) stopScreenShare();
+    };
+    notifyListeners();
+    return null;
+  }
+
   Future<void> stopScreenShare() async {
     final s = localScreen;
     if (s == null) return;
     localScreen = null;
+    _screenSource = null;
     notifyListeners();
     try {
       await _client?.stopScreen();
@@ -1330,6 +1518,8 @@ class CallService extends ChangeNotifier {
 
   void _reset() {
     _stopReconnect();
+    liveKit = false;
+    _lkHost = false;
     callThreadId = null;
     muted = false;
     deafened = false;
