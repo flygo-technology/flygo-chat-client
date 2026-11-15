@@ -349,7 +349,6 @@ class CallService extends ChangeNotifier {
   ///   "Tham gia" (không có thì lấy thẻ đang mở của kênh, chưa có thì tạo thẻ mới do mình tạo).
   Future<void> startCall(String channel, {bool video = false, bool meeting = false, String? meetingPost}) async {
     if (busy) return;
-    final small = isDirectOrGroup(channel);
     if (isDm(channel)) meeting = false;
     // Máy tính: cuộc họp / gọi nhóm mở trong cửa sổ riêng (tiến trình app khác), cửa sổ chính vẫn dùng bình thường.
     if (isDesktop && !isChildWindow && !isDm(channel)) {
@@ -401,7 +400,8 @@ class CallService extends ChangeNotifier {
       notifyListeners();
     }
     // Gọi nhóm: chỉ đổ chuông khi chưa có ai trong cuộc gọi (nhóm tin riêng thì máy chủ chat tự đổ chuông).
-    var ring = !meeting && !small;
+    // Nhóm tin riêng cũng đổ chuông bằng tin này: gọi nhóm đi qua LiveKit, máy chủ chat không đổ chuông.
+    var ring = !meeting && !isDm(channel);
     if (ring && ((await _othersInCall(channel)) ?? 0) > 0) ring = false;
     if (channelId != channel || !busy) return;
     // Tiêu đề cuộc gọi (plugin Calls ghi vào tin cuộc gọi khi tạo): dấu 📹 = gọi video (máy bên kia và trạm đẩy đổ
@@ -541,7 +541,7 @@ class CallService extends ChangeNotifier {
   /// Null: relay chưa bật LiveKit (dùng plugin Calls như cũ).
   Future<({String url, String token, bool host})?> _lkToken(String ch) async {
     await discoverPush(kServerUrl);
-    final code = meetingInfo?.code;
+    final code = meeting ? meetingInfo?.code : null;
     final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/token' : '/meet/livekit/channel/$ch/token';
     final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders).timeout(const Duration(seconds: 10));
     if (r.statusCode == 501 || r.statusCode == 404) return null;
@@ -586,7 +586,7 @@ class CallService extends ChangeNotifier {
   /// Có tin `flygo_call_ring` của người khác trong nhóm/kênh: đổ chuông như cuộc gọi đến
   /// (AppState đã bỏ qua nhóm đang tắt tiếng / tắt thông báo).
   void ringFromPost(String ch, String caller, {bool video = false}) {
-    if (busy || caller == myId() || isDirectOrGroup(ch)) return;
+    if (busy || caller == myId() || isDm(ch)) return;
     channelId = ch;
     callerId = caller;
     meeting = false;
@@ -935,6 +935,13 @@ class CallService extends ChangeNotifier {
   /// Sự kiện trạng thái người tham gia (từ WebSocket chính hoặc WebSocket riêng của cuộc gọi;
   /// nhận trùng cũng không sao).
   void _onPeerEvent(String ev, Map<String, dynamic> data) {
+    if (ev == 'user_joined' && liveKit && phase == CallPhase.outgoing && (data['user_id'] as String? ?? '') != myId()) {
+      // Gọi nhóm qua LiveKit: có người vào là đã kết nối.
+      _noAnswer?.cancel();
+      _hangSoon?.cancel();
+      phase = CallPhase.active;
+      startedAt ??= DateTime.now();
+    }
     if (ev == 'self_muted') {
       // LiveKit: chủ phòng tắt mic của mình.
       if (!muted) {
@@ -1205,10 +1212,10 @@ class CallService extends ChangeNotifier {
 
   /// Tạo phiên Calls mới và vào cuộc gọi của kênh hiện tại (lần đầu hoặc vào lại sau khi rớt mạng).
   Future<void> _connect({required bool video, bool rejoin = false}) async {
-    // Cuộc họp trong kênh chat (không phải tin riêng): LiveKit nếu relay bật; máy chủ chat bản không bản quyền chặn
-    // cuộc gọi Calls ngoài tin riêng.
+    // Cuộc họp / gọi nhóm (mọi cuộc gọi không phải tin riêng 1-1): LiveKit nếu relay bật; máy chủ chat bản không bản
+    // quyền chặn cuộc gọi Calls ngoài tin riêng.
     final ch = channelId;
-    final lkt = meeting && ch != null && !isDm(ch) ? await _lkToken(ch) : null;
+    final lkt = ch != null && !isDm(ch) ? await _lkToken(ch) : null;
     if (!busy) return;
     liveKit = lkt != null;
     if (lkt != null) {

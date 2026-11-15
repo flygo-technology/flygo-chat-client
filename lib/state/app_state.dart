@@ -3766,7 +3766,8 @@ class AppState extends ChangeNotifier {
   /// Gọi thoại / video trong nhóm/kênh: tin `flygo_call_ring` của người khác đổ chuông như cuộc gọi đến,
   /// trừ nhóm đang tắt tiếng hoặc tắt thông báo, tin cũ, hay cửa sổ phụ (máy chủ khác).
   void _ringFromPost(MmPost p, MmChannel c) {
-    if (isChildWindow || c.isDirect || c.isGroupDm || p.rootId.isNotEmpty) return;
+    // Nhóm tin riêng cũng đổ chuông bằng tin này (gọi nhóm qua LiveKit, máy chủ chat không đổ chuông).
+    if (isChildWindow || c.isDirect || p.rootId.isNotEmpty) return;
     if (isMuted(c.id) || notifyLevel(c.id) == 'none') return;
     if (DateTime.now().millisecondsSinceEpoch - p.createAt > 45000) return;
     calls.ringFromPost(c.id, p.userId, video: p.callRingVideo);
