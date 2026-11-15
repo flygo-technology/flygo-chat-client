@@ -397,7 +397,7 @@ Widget _appBar(BuildContext c, String title, {List<Widget> actions = const [], W
             ],
           ),
         ),
-        if (bottom != null) bottom,
+        ?bottom,
       ],
     ),
   );
