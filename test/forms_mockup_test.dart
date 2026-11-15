@@ -1788,5 +1788,6 @@ void main() {
     await shot(t, '14-public-desktop', desk, (c) => fillScreen(c, public: true, desktop: true));
     await shot(t, '15-public-phone', phone, (c) => fillScreen(c, public: true));
     await shot(t, '16-public-phone-dark', phone, (c) => fillScreen(c, public: true), dark: true);
-  });
+    // Chỉ để chụp ảnh duyệt thiết kế: không có MK_OUT thì không nạp font thật, chữ đo khác nên bỏ qua.
+  }, skip: out == null);
 }
