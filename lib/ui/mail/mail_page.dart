@@ -603,8 +603,9 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
                     ),
                     Expanded(
                       child: Container(
-                        margin: const EdgeInsets.only(right: 16, bottom: 16),
-                        decoration: BoxDecoration(color: mc.surface, borderRadius: BorderRadius.circular(16)),
+                        // Tách khỏi cột trái: khoảng cách + viền mảnh (Sếp, 2026-11-15: danh sách bị dính vào sidebar).
+                        margin: const EdgeInsets.only(left: 8, right: 16, bottom: 16),
+                        decoration: BoxDecoration(color: mc.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: mc.line)),
                         clipBehavior: Clip.antiAlias,
                         child: _threadId != null
                             ? ThreadView(
