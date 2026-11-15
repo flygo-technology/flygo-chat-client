@@ -17,6 +17,9 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    // Ô chọn tệp trong webview mini app (Drive: Tải tệp lên): macos/Runner/WebViewFilePanel.swift.
+    WebViewFilePanel.install()
+
     // Số tin chưa đọc trên biểu tượng ở Dock (Dart: lib/ui/app_badge.dart).
     let badge = FlutterMethodChannel(name: "flygo/badge", binaryMessenger: flutterViewController.engine.binaryMessenger)
     badge.setMethodCallHandler { call, result in
