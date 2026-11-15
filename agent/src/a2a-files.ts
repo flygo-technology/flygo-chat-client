@@ -40,14 +40,14 @@ export async function uploadLarge(mm: MM, token: string, channelId: string, path
   }
 }
 
-/** FilePart cho tệp `path` gửi tới agent `toId`. Tệp lớn tải lên kênh `uploadChannel`. */
-export async function toFilePart(a2a: A2AClient, mm: MM, token: string, uploadChannel: () => Promise<string>, path: string, toId: string) {
+/** FilePart cho tệp `path` gửi tới agent `toId`. Tệp lớn tải lên kênh `uploadChannel`; `tagPost`: tin tag mở cầu nối (relay kiểm). */
+export async function toFilePart(a2a: A2AClient, mm: MM, token: string, uploadChannel: () => Promise<string>, path: string, toId: string, tagPost?: string) {
   const f = Bun.file(path);
   const name = basename(path), mimeType = f.type || "application/octet-stream";
   if (f.size > MAX_FILE) throw new Error(`${name}: ${f.size}B vượt giới hạn 100MB`);
   if (f.size <= INLINE_MAX) return { kind: "file", file: { name, mimeType, bytes: Buffer.from(await f.arrayBuffer()).toString("base64") } };
   const fileId = await uploadLarge(mm, token, await uploadChannel(), path);
-  const g = await a2a.grant(fileId, toId);
+  const g = await a2a.grant(fileId, toId, tagPost);
   return { kind: "file", file: { name, mimeType, uri: g.uri }, metadata: { size: f.size } };
 }
 

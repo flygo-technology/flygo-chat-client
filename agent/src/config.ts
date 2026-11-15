@@ -68,7 +68,7 @@ export interface Config {
   a2a: {
     enabled: boolean; // mặc định bật
     relay: string; // mặc định wss://push.<tên miền của serverUrl>/a2a/connect (trạm của chính máy chủ bot)
-    maxCalls: number; // số lần ask_agent tối đa mỗi lượt (5)
+    maxCalls: number; // số lần ask_agent tối đa mỗi lượt (5); ask_agent chỉ tới agent được tag (0.6.95)
     timeoutSec: number; // chờ một agent tối đa (900)
     /** Đồng đội trong dự án (team_list / team_ask…): mặc định bật; false = bot này rút khỏi đội (không hiện, không gọi được). */
     team?: boolean;
@@ -99,7 +99,7 @@ const defaults: Omit<Config, "serverUrl" | "botToken" | "ownerUserIds" | "engine
   },
   claude: {
     bin: "claude",
-    allowedTools: ["Read", "Grep", "Glob", "LS", "TodoWrite", "WebSearch", "WebFetch", "mcp__flygo_chat__chat_thread", "mcp__flygo_chat__chat_history", "mcp__flygo_chat__chat_search", "mcp__flygo_chat__chat_info", "mcp__flygo_chat__chat_files", "mcp__flygo_chat__chat_read_file", "mcp__flygo_chat__chat_send_files", "mcp__flygo_chat__chat_send_bilingual", "mcp__flygo_chat__session_list", "mcp__flygo_chat__session_read", "mcp__flygo_chat__session_ask", "mcp__flygo_chat__cc_list", "mcp__flygo_chat__cc_read", "mcp__flygo_chat__cc_ask", "mcp__flygo_chat__project_info", "mcp__flygo_chat__team_list", "mcp__flygo_chat__team_session_read", "mcp__flygo_chat__team_ask", "mcp__flygo_chat__team_post", "mcp__flygo_chat__file_read"],
+    allowedTools: ["Read", "Grep", "Glob", "LS", "TodoWrite", "WebSearch", "WebFetch", "mcp__flygo_chat__chat_thread", "mcp__flygo_chat__chat_history", "mcp__flygo_chat__chat_search", "mcp__flygo_chat__chat_info", "mcp__flygo_chat__chat_files", "mcp__flygo_chat__chat_read_file", "mcp__flygo_chat__chat_send_files", "mcp__flygo_chat__chat_send_bilingual", "mcp__flygo_chat__session_list", "mcp__flygo_chat__session_read", "mcp__flygo_chat__session_ask", "mcp__flygo_chat__project_info", "mcp__flygo_chat__team_list", "mcp__flygo_chat__team_session_read", "mcp__flygo_chat__team_ask", "mcp__flygo_chat__team_post", "mcp__flygo_chat__file_read"],
     // Cấm hẳn (không hiện thẻ duyệt): xoá đệ quy, đọc khoá/token. ssh/scp/sudo/git push: không cấm, hỏi duyệt từng lần như lệnh khác.
     deny: [
       // Xoá tệp luôn qua file_trash (thùng rác, khôi phục được), không rm (Sếp, 2026-11-10).

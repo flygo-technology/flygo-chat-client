@@ -2,8 +2,10 @@
 // Tools: chat_thread, chat_history, chat_search, approve (dùng cho --permission-prompt-tool của Claude).
 // Kênh bí mật lồng nhau: các tool đọc nhận thêm `channel` ("parent" / "top" / số tầng / id kênh) để ĐỌC các tầng trên
 // (chỉ tổ tiên của kênh hiện tại, bot phải là thành viên); không đọc kênh anh em / kênh con, không ghi lên trên.
-// A2A: A2A_ROLE=orchestrator -> thêm list_agents / ask_agent; A2A_ROLE=callee (đang làm việc được agent khác nhờ)
-// -> chỉ approve + return_files (không đọc/gửi chat, không nhờ tiếp agent khác).
+// A2A (0.6.95, luật của Sếp): cùng dự án -> bot luôn gọi nhau được qua team_*; khác dự án / chat / app -> chỉ khi người dùng
+// TAG bot kia (hoặc gắn phiên của nó) trong tin đang xử lý: ask_agent (A2A_ROLE=orchestrator) chỉ tới đúng bot / phiên đó, relay
+// kiểm lại tin tag. Đã bỏ list_agents / agent_sessions / agent_transcript và cc_* (tắt truy cập phiên Claude Code trên máy).
+// A2A_ROLE=callee (đang làm việc được nhờ: Flow Bot / người gọi qua relay) -> chỉ approve + return_files.
 // Giao việc / theo dõi việc (to-do): dùng các tool của ứng dụng Todo do Flygo Gateway cấp (không còn tool Boards).
 // Bộ công cụ chat (0.6.61): chat_list / chat_unread / chat_send / chat_poll / thread_close… ở MỌI chat trong phạm vi của bot —
 // runner xử lý (POST /chat_op/<tool>, chat-ops.ts), kể cả chat_history / chat_thread / chat_search khi có tham số `chat`.
@@ -518,40 +520,16 @@ const runner = async (path: string, body: any) => {
 };
 const A2A_TOOLS = [
   {
-    name: "agent_sessions",
-    description: "Liệt kê các PHIÊN AI của Sếp với một agent KHÁC cùng chủ (vd. @ba-codex): chat AI riêng / phiên trong mục Dự án, kèm id, nhóm gắn, tin cuối, đang chạy hay không. Agent kia tự trả lời qua A2A (cần đang trực tuyến). Dùng trước agent_transcript. Chỉ chủ bot.",
-    inputSchema: { type: "object", properties: { bot: { type: "string", description: "username agent, vd. ba-codex" } }, required: ["bot"] },
-  },
-  {
-    name: "agent_transcript",
-    description: "ĐỌC BẢN GHI (transcript) một phiên AI của agent KHÁC cùng chủ, vd. phiên Sếp chat với @ba-codex trong mục Dự án: agent kia đọc trên máy của nó rồi trả về qua A2A. Mặc định là bản ghi của engine (lời người dùng, câu trả lời, lời gọi tool và kết quả theo thứ tự); source=\"chat\" để đọc tin trên Flygo Chat. session = id từ agent_sessions (hoặc session trong mục \"Phiên được gắn vào tin này\"). part=last (mặc định) | all; max_chars mặc định 20000 (tối đa 100000); before_entry / from_entry để sang trang. Token / khoá / mật khẩu được che. Chỉ đọc, không hiện gì trong phiên đó. Chỉ chủ bot.",
-    inputSchema: { type: "object", properties: {
-      bot: { type: "string", description: "username agent, vd. ba-codex" },
-      session: { type: "string", description: "session id (từ agent_sessions)" },
-      part: { type: "string", enum: ["last", "all"] },
-      max_chars: { type: "number" },
-      before_entry: { type: "number" },
-      from_entry: { type: "number" },
-      source: { type: "string", enum: ["auto", "engine", "chat"] },
-      engine_session: { type: "string", description: "kênh có nhiều phiên engine: id phiên engine cần đọc" },
-    }, required: ["bot", "session"] },
-  },
-  {
-    name: "list_agents",
-    description: "Liệt kê các agent AI khác (bot Flygo) đang trực tuyến mà bạn được phép nhờ qua A2A: tên, mô tả, engine, chủ.",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
     name: "ask_agent",
-    description: "Nhờ một agent AI khác (vd. @ba-codex) làm việc qua A2A rồi chờ kết quả. Agent đó làm bằng quyền và máy của nó, không thấy nhóm chat: hãy gửi đủ ngữ cảnh. Dùng khi tin nhắn tag nhiều agent và bạn là agent chủ trì, hoặc khi tin gắn phiên của agent khác / phiên khác của chính bạn (tham số session: cầu nối hai phiên, hiện ở cả hai chat). Tệp gửi kèm phải nằm trong thư mục làm việc; tệp agent trả về được lưu vào thư mục làm việc.",
+    description: "Nhờ một agent AI khác làm việc qua A2A rồi chờ kết quả — CHỈ với agent được TAG trong tin đang xử lý, hoặc phiên được gắn vào tin (mục \"Phiên được gắn vào tin này\"). Agent không được tag thì không nhờ được; đồng đội cùng dự án dùng team_ask / team_post. Agent kia làm bằng quyền và máy của nó, không thấy nhóm chat: gửi đủ ngữ cảnh. Tệp gửi kèm phải nằm trong thư mục làm việc; tệp agent trả về được lưu vào thư mục làm việc.",
     inputSchema: {
       type: "object",
       properties: {
-        bot: { type: "string", description: "username agent, vd. ba-codex" },
+        bot: { type: "string", description: "username agent được tag, vd. ba-codex" },
         message: { type: "string", description: "việc nhờ, viết đủ ngữ cảnh" },
         files: { type: "array", items: { type: "string" }, description: "đường dẫn tệp gửi kèm (tuỳ chọn)" },
         data: { type: "object", description: "dữ liệu có cấu trúc gửi kèm (tuỳ chọn)" },
-        session: { type: "string", description: "nói thẳng với một phiên có sẵn (session trong mục \"Phiên được gắn vào tin này\"); bot = chính bạn khi đó là phiên khác của bạn; chỉ cùng chủ" },
+        session: { type: "string", description: "nói thẳng với một phiên được gắn vào tin (mục \"Phiên được gắn vào tin này\"); bot = chính bạn khi đó là phiên khác của bạn" },
       },
       required: ["bot", "message"],
     },
@@ -818,9 +796,9 @@ const CHAT_TOOLS = [
     },
     {
       name: "session_transcript",
-      description: "ĐỌC BẢN GHI (transcript) ĐẦY ĐỦ của một phiên AI: session = session_id (từ session_list), \"here\" = phiên hiện tại, hoặc cc:<tên> = phiên Claude Code trên máy (cc_list). Mặc định đọc bản ghi của engine nếu phiên chạy trên máy này (Claude Code jsonl / Codex rollout / Antigravity): lời người dùng, câu trả lời, lời gọi tool và kết quả theo thứ tự; source=\"chat\" để đọc tin trên Flygo Chat (lượt người dùng / trợ lý, thẻ bước tóm tắt). part=last (mặc định: các mục cuối) | all (từ from_entry); max_chars mặc định 20000 (tối đa 100000); before_entry / from_entry để sang trang; export=true ghi cả bản ghi ra tệp trong thư mục làm việc. Token / khoá / mật khẩu được che. Chỉ chủ bot.",
+      description: "ĐỌC BẢN GHI (transcript) ĐẦY ĐỦ của một phiên AI: session = session_id (từ session_list) hoặc \"here\" = phiên hiện tại. Mặc định đọc bản ghi của engine nếu phiên chạy trên máy này (Claude Code jsonl / Codex rollout / Antigravity): lời người dùng, câu trả lời, lời gọi tool và kết quả theo thứ tự; source=\"chat\" để đọc tin trên Flygo Chat (lượt người dùng / trợ lý, thẻ bước tóm tắt). part=last (mặc định: các mục cuối) | all (từ from_entry); max_chars mặc định 20000 (tối đa 100000); before_entry / from_entry để sang trang; export=true ghi cả bản ghi ra tệp trong thư mục làm việc. Token / khoá / mật khẩu được che. Chỉ chủ bot.",
       inputSchema: { type: "object", properties: {
-        session: { type: "string", description: "session_id | here | cc:<tên>" },
+        session: { type: "string", description: "session_id | here" },
         part: { type: "string", enum: ["last", "all"] },
         max_chars: { type: "number" },
         before_entry: { type: "number", description: "part=last: lấy các mục trước mục này" },
@@ -832,23 +810,8 @@ const CHAT_TOOLS = [
     },
     {
       name: "session_ask",
-      description: "HỎI một phiên AI khác của Sếp: chạy thẳng nối tiếp phiên làm việc của phiên đó (đủ ngữ cảnh của nó, chỉ đọc), KHÔNG hiện gì trong chat của phiên đó trên app; câu trả lời trả về đây. Dùng khi Sếp bảo hỏi phiên khác / việc nằm ở phiên khác. Chờ tối đa wait_sec (mặc định 300).",
+      description: "HỎI một phiên AI khác của Sếp với bot này TRONG CÙNG DỰ ÁN với phiên hiện tại (phiên khác dự án / không thuộc dự án: chỉ hỏi được khi phiên đó được gắn vào tin; không thì chỉ session_read): chạy thẳng nối tiếp phiên làm việc của phiên đó (đủ ngữ cảnh của nó, chỉ đọc), KHÔNG hiện gì trong chat của phiên đó trên app; câu trả lời trả về đây. Dùng khi Sếp bảo hỏi phiên khác / việc nằm ở phiên khác. Chờ tối đa wait_sec (mặc định 300).",
       inputSchema: { type: "object", properties: { session_id: { type: "string" }, message: { type: "string" }, wait_sec: { type: "number" } }, required: ["session_id", "message"] },
-    },
-    {
-      name: "cc_list",
-      description: "Liệt kê các phiên CLAUDE CODE đang chạy trên cùng máy với bot (tên, rảnh / đang làm, thư mục). Chỉ chủ bot.",
-      inputSchema: { type: "object", properties: {} },
-    },
-    {
-      name: "cc_read",
-      description: "ĐỌC lịch sử gần đây của một phiên Claude Code trên máy (biết nó đang làm gì). name lấy từ cc_list. Cả bản ghi (kèm tool, phân trang): session_transcript(session=\"cc:<name>\").",
-      inputSchema: { type: "object", properties: { name: { type: "string" }, limit: { type: "number", description: "số tin (mặc định 12, tối đa 60)" } }, required: ["name"] },
-    },
-    {
-      name: "cc_ask",
-      description: "HỎI một phiên Claude Code trên máy: hỏi trên một bản sao của phiên đó (đủ ngữ cảnh, chỉ đọc), phiên gốc không nhận tin và không hiện gì; câu trả lời trả về đây (tối đa wait_sec, mặc định 300).",
-      inputSchema: { type: "object", properties: { name: { type: "string" }, message: { type: "string" }, wait_sec: { type: "number" } }, required: ["name", "message"] },
     },
     {
       name: "project_info",
@@ -1066,8 +1029,8 @@ async function callTool(req: any): Promise<any> {
     return text(r.text ?? JSON.stringify(r));
   }
   switch (req.params.name) {
-    case "list_agents": case "ask_agent": case "return_files": case "agent_sessions": case "agent_transcript": {
-      if (req.params.name !== "return_files" && A2A_ROLE !== "orchestrator") throw new Error("A2A không bật cho phiên này");
+    case "ask_agent": case "return_files": {
+      if (req.params.name === "ask_agent" && A2A_ROLE !== "orchestrator") throw new Error("A2A không bật cho phiên này");
       const r = await runner(`/a2a/${req.params.name}`, a).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
       return text(r.text ?? JSON.stringify(r));
     }
@@ -1084,7 +1047,7 @@ async function callTool(req: any): Promise<any> {
       const r = await runner(`/ref/${req.params.name.slice(4)}`, a).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
       return text(r.text ?? JSON.stringify(r));
     }
-    case "session_list": case "session_read": case "session_ask": case "session_transcript": case "cc_list": case "cc_read": case "cc_ask": {
+    case "session_list": case "session_read": case "session_ask": case "session_transcript": {
       const [kind, op] = String(req.params.name).split("_");
       const r = await runner(`/${kind}/${op}`, { ...a, owner: OWNER_ID, channel: CHANNEL }).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
       return text(r.text ?? JSON.stringify(r));

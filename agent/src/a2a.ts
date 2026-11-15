@@ -5,7 +5,8 @@
 
 const PART = 200_000;
 
-export interface A2APeer { id: string; username: string; name: string; server: string; is_bot: boolean; owner_id: string; owner_name: string; card?: any }
+// is_agent / a2a_auth: relay (0.6.95+) đánh dấu bên gọi là bot flygo-agent và vì sao được gọi ("project" cùng dự án, "tag" người dùng tag).
+export interface A2APeer { id: string; username: string; name: string; server: string; is_bot: boolean; owner_id: string; owner_name: string; card?: any; is_agent?: boolean; a2a_auth?: string }
 export type A2AHandler = (cid: string, from: A2APeer, depth: number, req: { jsonrpc: string; id: any; method: string; params: any }) => void;
 
 export class A2AClient {
@@ -137,7 +138,7 @@ export class A2AClient {
   }
 
   list(): Promise<A2APeer[]> { return this.request({ t: "list" }, undefined, 30_000, undefined, true); }
-  grant(fileId: string, to: string): Promise<{ uri: string; name: string; mimeType: string; size: number }> { return this.request({ t: "grant", file_id: fileId, to }, undefined, 30_000, undefined, true); }
+  grant(fileId: string, to: string, tagPost?: string): Promise<{ uri: string; name: string; mimeType: string; size: number }> { return this.request({ t: "grant", file_id: fileId, to, ...(tagPost ? { tag_post: tagPost } : {}) }, undefined, 30_000, undefined, true); }
 
   /** Đồng đội trong dự án của kênh `channel` (relay kiểm bot là thành viên kênh, cùng dự án, canCall). */
   team(channel: string): Promise<any> { return this.request({ t: "team", channel }, undefined, 30_000, undefined, true); }
