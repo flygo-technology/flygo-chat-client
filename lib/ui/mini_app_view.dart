@@ -23,6 +23,7 @@ import 'forms/home_page.dart' show openForms;
 import 'drive/api.dart' show kDriveScreen;
 import 'drive/drive_page.dart' show openDrive;
 import 'reports/reports_page.dart' show openReports;
+import 'calendar/calendar_page.dart' show openCalendar;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -84,6 +85,12 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'reports') {
     tab?.onTitle?.call(app.name);
     await openReports(context, app, path: path);
+    return;
+  }
+  if (app.nativeScreen == 'calendar') {
+    tab?.onTitle?.call(app.name);
+    final m = path == null ? null : RegExp(r'^/e/([A-Za-z0-9_-]{6,40})(?:\?rid=([0-9T:-]{10,16}))?').firstMatch(path);
+    await openCalendar(context, app, eventId: m?.group(1), rid: m?.group(2) == null ? null : Uri.decodeComponent(m!.group(2)!));
     return;
   }
   if (app.nativeScreen == 'show') {

@@ -13,6 +13,7 @@ import '../../state/app_state.dart';
 import '../app_route.dart';
 import '../desk_tabs.dart' show DeskTabScope;
 import '../forward_page.dart';
+import '../calendar/calendar_entry.dart' show openCalendarCreate;
 import '../theme.dart' show toast;
 import 'api.dart';
 import 'compose.dart';
@@ -56,9 +57,11 @@ Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, Stri
 /// App Thư chạy bằng dữ liệu mẫu (base_url "demo:" hoặc features.demo = true).
 bool isMailDemo(MiniApp app) => app.baseUrl.startsWith('demo:') || app.feature('demo');
 
-/// Gắn móc nối mặc định: gửi vào chat bằng trang Chuyển tiếp của app. (Lịch gắn khi nhánh Lịch đã gộp.)
+/// Gắn móc nối mặc định: gửi vào chat bằng trang Chuyển tiếp của app, tạo sự kiện bằng app Lịch.
 void installMailHooks() {
   MailHooks.sendToChat ??= (context, text) => Navigator.of(context).push(AppPageRoute(builder: (_) => ForwardPage.share(sharedText: text)));
+  MailHooks.createEvent ??= (context, {required title, required guestEmails, required description}) =>
+      openCalendarCreate(context, title: title, guestEmails: guestEmails, description: description);
 }
 
 class MailHome extends StatefulWidget {
