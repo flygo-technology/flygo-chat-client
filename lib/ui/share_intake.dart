@@ -9,6 +9,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../state/app_state.dart';
+import 'attach_panel.dart' show hasDrive;
+import 'drive/pickers.dart' show ShareTargetPage;
+import 'drive/session.dart' show DriveSession;
 import 'forward_page.dart';
 
 /// Nội dung nhận được: tệp trên máy (đường dẫn) và chữ (chữ / link được chia sẻ, chú thích kèm theo).
@@ -76,6 +79,13 @@ class ShareIntake with WidgetsBindingObserver {
       return;
     }
     _pending = null;
-    nav.push(MaterialPageRoute(builder: (_) => ForwardPage.share(localPaths: p.paths, sharedText: p.text)));
+    _open(nav, _session.value!, p);
+  }
+
+  /// Có Drive và có tệp: màn chọn "Gửi vào chat" / "Lưu vào Drive"; không thì màn "Gửi tới…" như cũ.
+  Future<void> _open(NavigatorState nav, AppState state, SharedPayload p) async {
+    final drive = p.paths.isNotEmpty && hasDrive ? await DriveSession.current(state).catchError((_) => null) : null;
+    nav.push(MaterialPageRoute(
+        builder: (_) => drive == null ? ForwardPage.share(localPaths: p.paths, sharedText: p.text) : ShareTargetPage(paths: p.paths, text: p.text, session: drive)));
   }
 }

@@ -35,6 +35,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        DriveUploadService.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         // Khoá thiết bị gắn vân tay cho "Thiết bị" / xác thực từ xa (Dart: lib/security/device_key.dart).
         DeviceKey(this, flutterEngine.dartExecutor.binaryMessenger)
         // Nhận chia sẻ từ app khác (ShareIn.kt): lần mở app bằng "Chia sẻ" và các lần sau khi app đang chạy (onNewIntent).
