@@ -410,7 +410,7 @@ Widget _tabs(BuildContext c, List<String> tabs, int sel) {
     children: [
       for (var i = 0; i < tabs.length; i++)
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          padding: EdgeInsets.symmetric(horizontal: tabs.length > 3 ? 12 : 18, vertical: 10),
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: i == sel ? _theme : Colors.transparent, width: 3)),
           ),
@@ -816,7 +816,7 @@ Widget builderScreen(BuildContext c, {bool desktop = true}) {
   ];
   return Column(
     children: [
-      _appBar(c, _formTitle, back: !desktop, actions: actions, bottom: _tabs(c, ['Câu hỏi', 'Câu trả lời  128', 'Cài đặt'], 0)),
+      _appBar(c, _formTitle, back: !desktop, actions: actions, bottom: _tabs(c, ['Câu hỏi', 'Câu trả lời  128', 'Tự động hoá', 'Cài đặt'], 0)),
       Expanded(
         child: Container(
           color: _tint(_theme, p.bg != Colors.white),
@@ -1189,7 +1189,7 @@ Widget responsesScreen(BuildContext c, {bool desktop = true}) {
           _icon(c, Icons.visibility_outlined),
           if (desktop) ...[const SizedBox(width: 8), _btn('Gửi', icon: Icons.send), const SizedBox(width: 8)] else _icon(c, Icons.send_outlined),
         ],
-        bottom: _tabs(c, ['Câu hỏi', 'Câu trả lời  128', 'Cài đặt'], 1),
+        bottom: _tabs(c, ['Câu hỏi', 'Câu trả lời  128', 'Tự động hoá', 'Cài đặt'], 1),
       ),
       Expanded(
         child: Container(
@@ -1452,7 +1452,7 @@ Widget settingsScreen(BuildContext c) {
           _btn('Gửi', icon: Icons.send),
           const SizedBox(width: 8),
         ],
-        bottom: _tabs(c, ['Câu hỏi', 'Câu trả lời  128', 'Cài đặt'], 2),
+        bottom: _tabs(c, ['Câu hỏi', 'Câu trả lời  128', 'Tự động hoá', 'Cài đặt'], 2),
       ),
       Expanded(
         child: Container(
@@ -1533,6 +1533,204 @@ Widget settingsScreen(BuildContext c) {
   );
 }
 
+/// Tự động hoá: tạo quy trình Flows mới ngay từ biểu mẫu (bước Bắt đầu = biểu mẫu này).
+Widget automationScreen(BuildContext c, {bool desktop = true}) {
+  final p = Pal.of(c);
+  Widget node(IconData i, Color col, String title, String sub, {Widget? extra}) => Container(
+    margin: const EdgeInsets.symmetric(vertical: 2),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: p.bg == Colors.white ? Colors.white : p.surface,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: p.divider),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(color: _tint(col, p.bg != Colors.white), borderRadius: BorderRadius.circular(9)),
+          child: Icon(i, size: 19, color: col),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _t(c, title, w: FontWeight.w600),
+              const SizedBox(height: 2),
+              _sub(c, sub),
+              if (extra != null) ...[const SizedBox(height: 8), extra],
+            ],
+          ),
+        ),
+        Icon(Icons.more_vert, size: 18, color: p.sub),
+      ],
+    ),
+  );
+  Widget link({String? label}) => SizedBox(
+    height: label == null ? 22 : 34,
+    child: Row(
+      children: [
+        const SizedBox(width: 30),
+        Container(width: 2, color: p.divider),
+        if (label != null) ...[const SizedBox(width: 10), _pill(c, label, icon: Icons.alt_route)],
+      ],
+    ),
+  );
+  Widget add() => Padding(
+    padding: const EdgeInsets.only(left: 18, top: 2, bottom: 2),
+    child: Row(
+      children: [
+        Icon(Icons.add_circle, size: 26, color: _theme),
+        const SizedBox(width: 8),
+        _t(c, 'Thêm bước', size: 13, color: _theme, w: FontWeight.w600),
+      ],
+    ),
+  );
+  final flow = Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: _t(c, 'Xử lý phản hồi khách hàng', size: 18, w: FontWeight.w600)),
+                _pill(c, 'Đang bật', icon: Icons.circle, fg: const Color(0xFF2E9D57)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            _sub(c, 'Quy trình Flows tạo từ biểu mẫu này · 31 luồng · lỗi 0'),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _pill(c, 'Thêm quy trình mới', icon: Icons.add, bg: p.chipSelBg, fg: p.chipSelFg),
+                _pill(c, 'Từ mẫu: Duyệt đăng ký / Giao việc / Báo khẩn', icon: Icons.auto_awesome_motion_outlined),
+                _pill(c, 'Mở trong Flows (nâng cao)', icon: Icons.open_in_new),
+                _pill(c, 'Chạy thử với câu trả lời #37', icon: Icons.play_arrow_outlined),
+              ],
+            ),
+          ],
+        ),
+      ),
+      node(
+        Icons.assignment_outlined,
+        _theme,
+        'Khi có câu trả lời',
+        'Biểu mẫu này · mỗi câu trả lời tạo 1 luồng; câu hỏi là form.ten_khach, form.sdt, form.diem…',
+      ),
+      link(),
+      node(
+        Icons.call_split,
+        const Color(0xFF5B6CC4),
+        'Điều kiện',
+        'Mức độ hài lòng ≤ 2',
+        extra: Wrap(spacing: 6, children: [_pill(c, 'Đúng » nhánh trái'), _pill(c, 'Sai » kết thúc')]),
+      ),
+      link(label: 'Đúng'),
+      node(
+        Icons.chat_bubble_outline,
+        const Color(0xFFE4A11B),
+        'Nhắn vào nhóm CSKH',
+        '"Khách {{form.ten_khach}} ({{form.sdt}}) chấm {{form.diem}}/5 — cần gọi lại"',
+      ),
+      link(),
+      node(
+        Icons.person_pin_circle_outlined,
+        const Color(0xFFD9534F),
+        'Giao việc cho trưởng ca CSKH',
+        'Form việc: Kết quả gọi lại, Ghi chú · nhắc sau 4 giờ, leo thang sau 1 ngày',
+      ),
+      link(),
+      node(Icons.how_to_reg_outlined, const Color(0xFF2E7D32), 'Duyệt: Trưởng phòng CSKH', 'Chỉ khi đề xuất bồi hoàn > 0 · Duyệt / Từ chối / Trả lại'),
+      link(),
+      node(Icons.check_box_outlined, const Color(0xFF8E9AAF), 'Tạo việc Todo', 'Cho người đã gọi lại: "Theo dõi khách {{form.ten_khach}} sau 7 ngày"'),
+      link(),
+      add(),
+    ],
+  );
+  final palette = _Card(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _t(c, 'Bước có thể thêm', size: 15, w: FontWeight.w600),
+        const SizedBox(height: 8),
+        for (final b in [
+          (Icons.call_split, 'Điều kiện / rẽ nhánh'),
+          (Icons.how_to_reg_outlined, 'Duyệt (1 người / nhiều người)'),
+          (Icons.person_pin_circle_outlined, 'Giao việc kèm form'),
+          (Icons.chat_bubble_outline, 'Nhắn chat / nhóm'),
+          (Icons.check_box_outlined, 'Tạo việc Todo'),
+          (Icons.mail_outline, 'Gửi email'),
+          (Icons.description_outlined, 'Tạo tài liệu từ mẫu'),
+          (Icons.auto_awesome_outlined, 'AI: phân loại, tóm tắt, trả lời'),
+          (Icons.extension_outlined, 'Gọi công cụ MCP'),
+          (Icons.schedule, 'Chờ / hẹn giờ'),
+          (Icons.webhook_outlined, 'Gọi HTTP (webhook ra)'),
+        ])
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                Icon(b.$1, size: 18, color: p.sub),
+                const SizedBox(width: 10),
+                _t(c, b.$2, size: 13.5),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+  return Column(
+    children: [
+      _appBar(
+        c,
+        _formTitle,
+        back: !desktop,
+        actions: [
+          if (desktop) ...[
+            _icon(c, Icons.palette_outlined),
+            _icon(c, Icons.visibility_outlined),
+            const SizedBox(width: 8),
+            _btn('Gửi', icon: Icons.send),
+            const SizedBox(width: 8),
+          ] else
+            _icon(c, Icons.send_outlined),
+        ],
+        bottom: _tabs(c, desktop ? ['Câu hỏi', 'Câu trả lời  128', 'Tự động hoá', 'Cài đặt'] : ['Câu hỏi', 'Trả lời', 'Tự động hoá', 'Cài đặt'], 2),
+      ),
+      Expanded(
+        child: Container(
+          color: _tint(_theme, p.bg != Colors.white),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(vertical: 16, horizontal: desktop ? 0 : 10),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: desktop ? 1040 : 760),
+                child: desktop
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: flow),
+                          const SizedBox(width: 16),
+                          SizedBox(width: 280, child: palette),
+                        ],
+                      )
+                    : flow,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 void main() {
   final out = Platform.environment['MK_OUT'];
 
@@ -1579,6 +1777,8 @@ void main() {
     await shot(t, '05-builder-desktop-dark', desk, (c) => builderScreen(c), dark: true);
     await shot(t, '06-share-desktop', desk, (c) => Stack(children: [builderScreen(c), shareDialog(c)]));
     await shot(t, '07-settings-desktop', desk, (c) => settingsScreen(c));
+    await shot(t, '17-automation-desktop', desk, (c) => automationScreen(c));
+    await shot(t, '18-automation-phone', const Size(412, 1300), (c) => automationScreen(c, desktop: false));
     await shot(t, '08-fill-phone', phone, (c) => fillScreen(c));
     await shot(t, '09-fill-phone-dark', phone, (c) => fillScreen(c), dark: true);
     await shot(t, '10-done-phone', const Size(412, 420), (c) => doneScreen(c));
