@@ -10,9 +10,9 @@ import '../../calls/meet_rooms.dart';
 import '../../config.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
-import '../app_route.dart';
 import '../call_screen.dart' show CallVideo;
 import '../common.dart';
+import '../desk_tabs.dart';
 import '../theme.dart';
 import 'meet_home.dart';
 
@@ -22,17 +22,40 @@ import 'meet_home.dart';
 
 /// Mở phòng chờ của mã [code] (hoặc của nhóm chat [channelId] khi máy chủ chưa có phòng họp có mã).
 /// [fresh]: phòng vừa tạo (mình là người tạo, không cần hỏi máy chủ).
+///
+/// Máy tính có thanh tab: phòng chờ mở thành một tab riêng (cả khung tab, không phải hộp nổi bị cắt). Điện thoại / cửa
+/// sổ không có thanh tab: trang toàn màn hình.
 Future<void> openMeetLobby(BuildContext context, String? code, {MeetRoomInfo? room, String? channelId, bool fresh = false}) {
   final calls = context.read<AppState>().calls;
   if (calls.busy) {
     meetToast(context, tr('Bạn đang trong một cuộc gọi khác.'));
     return Future.value();
   }
+  final open = openTabHook;
+  if (isDesktop && open != null && (code != null || channelId != null)) {
+    final arg = code ?? 'ch:$channelId';
+    MeetLobbyTab._pending[arg] = (room, fresh);
+    open(DeskTab('meet', arg: arg));
+    return Future.value();
+  }
   return Navigator.of(context, rootNavigator: true).push(
-    AppPageRoute(
+    MaterialPageRoute(
       builder: (_) => MeetLobbyPage(code: code, room: room, channelId: channelId, fresh: fresh),
     ),
   );
+}
+
+/// Phòng chờ trong một tab máy tính (`DeskTab('meet', arg: mã | ch:<kênh>)`).
+abstract final class MeetLobbyTab {
+  /// Thông tin phòng đã có sẵn khi mở tab (phòng vừa tạo, phòng chọn từ danh sách), theo [DeskTab.arg].
+  /// Giữ lại (không xoá khi dựng) vì tab dựng lại nhiều lần; mở lại cùng mã thì ghi đè.
+  static final _pending = <String, (MeetRoomInfo?, bool)>{};
+
+  static Widget page(String arg, {bool demo = false}) {
+    final (room, fresh) = _pending[arg] ?? (null, false);
+    final ch = arg.startsWith('ch:') ? arg.substring(3) : null;
+    return MeetLobbyPage(key: ValueKey('meet-$arg'), code: ch == null ? arg : null, channelId: ch, room: room, fresh: fresh, demo: demo);
+  }
 }
 
 class MeetLobbyPage extends StatefulWidget {
@@ -60,6 +83,7 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
   List<MediaDeviceInfo> _mics = const [], _cams = const [];
   String? _micId = CallsClient.audioInputId, _camId = CallsClient.videoInputId;
   Timer? _poll;
+  String? _tabTitle;
 
   @override
   void initState() {
@@ -218,22 +242,43 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
     CallsClient.videoInputId = _camId;
     calls.joinPrefs = MeetJoinPrefs(mic: _mic, cam: _cam, present: present);
     if (!mounted) return;
-    Navigator.of(context).pop();
+    // Trong tab máy tính: đóng tab phòng chờ (cuộc họp mở ở cửa sổ riêng); trang toàn màn hình thì đóng trang.
+    final tab = DeskTabScope.of(context)?.onClose;
+    if (tab != null) {
+      tab();
+    } else {
+      Navigator.of(context).pop();
+    }
     await calls.startCall(channel, meeting: true);
   }
 
   // ---------------------------------------------------------------- giao diện
+  // Bố cục theo chỗ thật có (tab, ô chia, cửa sổ hẹp), không theo cả cửa sổ: đủ rộng thì hai cột (xem trước | tham gia),
+  // hẹp hơn thì cột tham gia xuống dưới phần xem trước, không bao giờ bị cắt.
+  static const _sideW = 330.0, _gap = 48.0, _pad = 32.0, _minPreview = 440.0;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) => _build(context, box.maxWidth));
+
+  Widget _build(BuildContext context, double width) {
     final pal = Pal.of(context);
     final app = context.watch<AppState>();
-    final wide = MediaQuery.sizeOf(context).width >= 900;
+    final previewW = (width - 2 * _pad - _gap - _sideW).clamp(0.0, 760.0);
+    final wide = previewW >= _minPreview;
+    // Một cột trên màn rộng (cửa sổ / ô chia hẹp): phần xem trước 16:9, nút rộng vừa phải.
+    final roomy = width >= 600;
     final me = app.me?.displayName ?? '';
     final title =
         _room?.title ?? (widget.channelId != null && app.channels[widget.channelId] != null ? app.channelTitle(app.channels[widget.channelId]!) : '');
+    // Trong tab máy tính: tên cuộc họp làm tiêu đề tab.
+    if (title.isNotEmpty && title != _tabTitle) {
+      _tabTitle = title;
+      final onTitle = DeskTabScope.of(context)?.onTitle;
+      if (onTitle != null) WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? onTitle(title) : null);
+    }
 
     final preview = AspectRatio(
-      aspectRatio: wide ? 16 / 9 : 3 / 4,
+      aspectRatio: roomy ? 16 / 9 : 3 / 4,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Stack(
@@ -400,7 +445,7 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
           const Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator())
         else ...[
           SizedBox(
-            width: wide ? 230 : double.infinity,
+            width: roomy ? 260 : double.infinity,
             height: 48,
             child: FilledButton(
               key: const ValueKey('lobby-join'),
@@ -411,7 +456,7 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
           if (CallService.canShareScreen && !knock) ...[
             const SizedBox(height: 10),
             SizedBox(
-              width: wide ? 230 : double.infinity,
+              width: roomy ? 260 : double.infinity,
               height: 46,
               child: OutlinedButton.icon(
                 onPressed: canEnter ? () => _enter(present: true) : null,
@@ -446,16 +491,16 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
         child: wide
             ? Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+                  padding: const EdgeInsets.symmetric(horizontal: _pad, vertical: 24),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       SizedBox(
-                        width: 720,
+                        width: previewW,
                         child: Column(mainAxisSize: MainAxisSize.min, children: [preview, devices]),
                       ),
-                      const SizedBox(width: 56),
-                      SizedBox(width: 340, child: side),
+                      const SizedBox(width: _gap),
+                      SizedBox(width: _sideW, child: side),
                     ],
                   ),
                 ),
@@ -463,11 +508,13 @@ class _MeetLobbyPageState extends State<MeetLobbyPage> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 480),
-                    child: Center(child: preview),
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: roomy ? 400 : 480, maxWidth: 640),
+                      child: preview,
+                    ),
                   ),
-                  devices,
+                  Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: devices)),
                   const SizedBox(height: 20),
                   side,
                 ],

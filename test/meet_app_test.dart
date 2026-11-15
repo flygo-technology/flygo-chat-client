@@ -15,6 +15,7 @@ import 'package:flygo_chat/config.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
+import 'package:flygo_chat/ui/desk_tabs.dart';
 import 'package:flygo_chat/ui/meet/meet_home.dart';
 import 'package:flygo_chat/ui/meet/meet_lobby.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -274,6 +275,43 @@ void main() {
     expect(find.text('Xin tham gia'), findsOneWidget);
   });
 
+  testWidgets('phòng chờ co giãn theo chỗ có (tab, ô chia, hộp hẹp): cột tham gia không bị cắt', (t) async {
+    debugIsDesktop = true;
+    // Tab máy tính ở cửa sổ 1280×800 / 1440×900 (trừ thanh tab), hộp nổi cũ 980×810, ô chia đôi, cửa sổ hẹp.
+    for (final (name, size) in [
+      ('d2-lobby-1280', const Size(1280, 758)),
+      ('d2-lobby-1440', const Size(1440, 858)),
+      ('d2-lobby-980', const Size(980, 810)),
+      ('d2-lobby-split', const Size(700, 800)),
+      ('d2-lobby-narrow', const Size(480, 800)),
+    ]) {
+      await show(t, name, size, MeetLobbyPage(key: ValueKey(name), code: rooms[0].code, room: rooms[0], demo: true));
+      for (final k in [find.byKey(const ValueKey('lobby-join')), find.text('Trình bày'), find.text('Sẵn sàng tham gia?')]) {
+        final r = t.getRect(k);
+        expect(r.left >= 0 && r.right <= size.width, isTrue, reason: '$name: $k nằm ngoài khung ($r)');
+      }
+    }
+  });
+
+  testWidgets('máy tính có thanh tab: phòng chờ mở thành tab riêng, không đẩy trang hay hộp nổi', (t) async {
+    debugIsDesktop = true;
+    final opened = <DeskTab>[];
+    openTabHook = opened.add;
+    addTearDown(() => openTabHook = null);
+    await show(t, 'x', const Size(1280, 800), Builder(builder: (c) => TextButton(onPressed: () => openMeetLobby(c, rooms[0].code, room: rooms[0]), child: const Text('mở'))));
+    await t.tap(find.text('mở'));
+    await t.pump();
+    expect(opened.single.kind, 'meet');
+    expect(opened.single.arg, rooms[0].code);
+    // Không còn trang / hộp nổi nào được đẩy lên.
+    expect(find.byType(MeetLobbyPage), findsNothing);
+    // Nội dung tab: phòng chờ với thông tin phòng đã có, tiêu đề tab theo tên cuộc họp.
+    String? title;
+    await show(t, 'd2-lobby-tab', const Size(1280, 758), DeskTabScope(onTitle: (v) => title = v, onClose: () {}, child: MeetLobbyTab.page(rooms[0].code, demo: true)));
+    expect(find.text('4 người đang trong cuộc họp'), findsOneWidget);
+    expect(title, 'Giao ban kỹ thuật');
+  });
+
   group('màn cuộc họp', () {
     MeetRoom room() {
       final r = MeetRoom(channelId: _ch, token: 't', server: '', myId: _me, onMuteMe: () {}, connect: false);
@@ -353,6 +391,43 @@ void main() {
       expect(find.textContaining('abc-mnop-xyz'), findsWidgets);
       await t.pump(const Duration(milliseconds: 300));
       await snap(t, 'd5-call-info');
+      await t.pumpWidget(const SizedBox.shrink());
+      app.calls.debugMeeting(_ch, const []);
+    });
+
+    testWidgets('máy tính: cột bên phải ở các cỡ cửa sổ (1280×800, 1440×900, nửa màn hình)', (t) async {
+      debugIsDesktop = true;
+      CallScreen.debugRoom = (_) => room();
+      for (final (name, size) in [('d6-call-1280', const Size(1280, 800)), ('d6-call-1440', const Size(1440, 900)), ('d6-call-split', const Size(720, 900))]) {
+        app.calls.debugMeeting(
+          _ch,
+          people(),
+          info: const MeetingInfo(postId: 'p', creatorId: _me, title: 'Giao ban kỹ thuật', code: 'abc-mnop-xyz'),
+        );
+        await show(t, name, size, CallScreen(key: ValueKey(name)));
+        await t.tap(find.byTooltip('Mọi người'));
+        await t.pump(const Duration(milliseconds: 300));
+        expect(find.text('TRONG CUỘC HỌP · 5'), findsOneWidget);
+        await t.pump(const Duration(milliseconds: 300));
+        await snap(t, '$name-people');
+        await t.pumpWidget(const SizedBox.shrink());
+      }
+      app.calls.debugMeeting(_ch, const []);
+    });
+
+    testWidgets('đang vào / không vào được cuộc họp: giao diện cuộc họp, không phải màn gọi điện', (t) async {
+      debugIsDesktop = true;
+      CallScreen.debugRoom = (_) => room();
+      app.calls.debugMeeting(_ch, const [], info: const MeetingInfo(postId: 'p', creatorId: _me, title: 'Giao ban kỹ thuật', code: 'abc-mnop-xyz'));
+      app.calls.phase = CallPhase.connecting;
+      await show(t, 'd7-joining', const Size(1280, 800), const CallScreen());
+      expect(find.text('Đang vào cuộc họp…'), findsOneWidget);
+      expect(find.text('Cuộc họp nội bộ Flygo Chat'), findsNothing);
+      app.calls
+        ..endReason = 'Máy chủ chat chưa cho phép gọi nhóm và họp (chỉ gọi riêng 1-1). Hãy báo quản trị máy chủ.'
+        ..phase = CallPhase.ended;
+      await show(t, 'd7-join-failed', const Size(1280, 800), const CallScreen(key: ValueKey('failed')));
+      expect(find.textContaining('chưa cho phép gọi nhóm'), findsOneWidget);
       await t.pumpWidget(const SizedBox.shrink());
       app.calls.debugMeeting(_ch, const []);
     });

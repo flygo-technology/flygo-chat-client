@@ -286,30 +286,95 @@ class _CallScreenState extends State<CallScreen> {
       canPop: !call.busy,
       child: call.phase == CallPhase.active
           ? (isDesktop && _panel != _MeetPanel.none && call.channelId != null
-              ? ColoredBox(
-                  color: _meetBg,
-                  child: Row(children: [
-                    Expanded(child: _meet(app, call, title, status)),
-                    if (_panel == _MeetPanel.ai)
-                      SizedBox(
-                        width: 440,
-                        child: Material(
-                          // Trợ lý của cuộc họp = phiên AI của luồng bình luận cuộc họp (cùng phiên với nút ✨ trong luồng).
-                          child: AiPanel(
-                              groupId: call.channelId!,
-                              thread: _room?.threadRoot ?? call.callThreadId,
-                              onClose: () => setState(() => _panel = _MeetPanel.none)),
-                        ),
-                      )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(0, 16, 16, 100),
-                        child: SizedBox(width: 360, child: _sidePanel(app, call)),
+              ? LayoutBuilder(builder: (context, box) {
+                  final ai = _panel == _MeetPanel.ai;
+                  final panel = ai
+                      ? SizedBox(
+                          width: 440,
+                          child: Material(
+                            // Trợ lý của cuộc họp = phiên AI của luồng bình luận cuộc họp (cùng phiên với nút ✨ trong luồng).
+                            child: AiPanel(
+                                groupId: call.channelId!,
+                                thread: _room?.threadRoot ?? call.callThreadId,
+                                onClose: () => setState(() => _panel = _MeetPanel.none)),
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 16, 16, 100),
+                          child: SizedBox(width: 360, child: _sidePanel(app, call)),
+                        );
+                  // Cửa sổ hẹp (nửa màn hình): cột nổi trên cuộc họp, để lưới video và thanh nút giữ đủ rộng
+                  // (chia đôi thì thanh nút bị thu nhỏ tới mức không bấm được).
+                  if (box.maxWidth - (ai ? 440 : 376) < 760) {
+                    return Stack(children: [
+                      Positioned.fill(child: _meet(app, call, title, status)),
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        bottom: ai ? 88 : 0,
+                        child: ConstrainedBox(constraints: BoxConstraints(maxWidth: box.maxWidth), child: panel),
                       ),
-                  ]),
-                )
+                    ]);
+                  }
+                  return ColoredBox(
+                    color: _meetBg,
+                    child: Row(children: [Expanded(child: _meet(app, call, title, status)), panel]),
+                  );
+                })
               : _meet(app, call, title, status))
-          : _ringing(app, call, ch?.otherUserId(app.me?.id ?? ''), title, status, meeting),
+          : meeting
+              ? _meetWaiting(call, title, status)
+              : _ringing(app, call, ch?.otherUserId(app.me?.id ?? ''), title, status, meeting),
+    );
+  }
+
+  /// Cuộc họp đang vào / không vào được: cùng giao diện của cuộc họp (không phải màn gọi điện).
+  Widget _meetWaiting(CallService call, String title, String status) {
+    final failed = call.phase == CallPhase.ended;
+    final code = call.meetingInfo?.code;
+    return Scaffold(
+      backgroundColor: _meetBg,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(failed ? Icons.error_outline_rounded : Icons.video_call_rounded, size: 56, color: failed ? _red : _blue),
+                  const SizedBox(height: 20),
+                  Text(
+                    title.isEmpty ? tr('Cuộc họp') : title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
+                  ),
+                  if (code != null) ...[
+                    const SizedBox(height: 6),
+                    Text(code, style: const TextStyle(color: Colors.white54, fontSize: 14)),
+                  ],
+                  const SizedBox(height: 24),
+                  if (!failed) ...[
+                    const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3, color: _blue)),
+                    const SizedBox(height: 16),
+                    Text(tr('Đang vào cuộc họp…'), style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                  ] else
+                    Text(status, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.4)),
+                  const SizedBox(height: 28),
+                  if (!failed)
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white38)),
+                      onPressed: () => call.hangUp(),
+                      icon: const Icon(Icons.close_rounded),
+                      label: Text(tr('Hủy')),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 

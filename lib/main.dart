@@ -890,10 +890,25 @@ class _CallWindowState extends State<CallWindow> {
     });
   }
 
+  /// Đã vào được cuộc họp (ít nhất một lần).
+  bool _joined = false;
+
+  /// Không vào được cuộc họp: lý do (cửa sổ giữ lại để người dùng đọc, bấm Đóng mới thoát).
+  String? _failed;
+
   void _onCall() {
+    final calls = widget.app.calls;
+    if (calls.phase == CallPhase.active) _joined = true;
     // Đang cho người khác điều khiển máy mình (mời từ cuộc họp này): giữ cửa sổ tới khi hết phiên.
     final rc = RemoteControlService.instance;
-    if (_started && !widget.app.calls.busy && !rc.busy) exit(0);
+    if (_started && !calls.busy && !rc.busy) {
+      // Không vào được (máy chủ từ chối, mạng...): trước đây cửa sổ đóng ngay nên không thấy lỗi.
+      if (!_joined && !calls.endedByMe && calls.endReason != null) {
+        _failed ??= calls.endReason;
+      } else {
+        exit(0);
+      }
+    }
     if (mounted) setState(() {});
   }
 
@@ -908,17 +923,33 @@ class _CallWindowState extends State<CallWindow> {
   Widget build(BuildContext context) {
     final rc = RemoteControlService.instance;
     final sharing = _started && !widget.app.calls.busy && rc.busy;
+    final failed = _failed;
     return Scaffold(
       backgroundColor: const Color(0xFF202124),
       body: Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(sharing ? tr('{0} đang điều khiển máy của bạn', [rc.peerName]) : tr('Đang vào cuộc họp…'),
-              style: const TextStyle(color: Colors.white70, fontSize: 16)),
-          if (sharing) ...[
-            const SizedBox(height: 16),
-            FilledButton(onPressed: () => rc.stop(), child: Text(tr('Dừng'))),
-          ],
-        ]),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (failed != null && !sharing) ...[
+              const Icon(Icons.error_outline_rounded, size: 48, color: Color(0xFFE5484D)),
+              const SizedBox(height: 16),
+              Text(tr('Không vào được cuộc họp'), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Text(failed, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.4)),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(onPressed: () => exit(0), child: Text(tr('Đóng'))),
+            ] else
+              Text(sharing ? tr('{0} đang điều khiển máy của bạn', [rc.peerName]) : tr('Đang vào cuộc họp…'),
+                  style: const TextStyle(color: Colors.white70, fontSize: 16)),
+            if (sharing) ...[
+              const SizedBox(height: 16),
+              FilledButton(onPressed: () => rc.stop(), child: Text(tr('Dừng'))),
+            ],
+          ]),
+        ),
       ),
     );
   }

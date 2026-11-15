@@ -67,6 +67,8 @@ class CallService extends ChangeNotifier {
   String? channelId;
   String? callerId;
   String? endReason;
+  /// Chính mình bấm gác máy / huỷ (không phải lỗi).
+  bool endedByMe = false;
   bool muted = false;
   /// Tắt tiếng cuộc gọi phía mình: không nghe ai (giọng nói, âm thanh chia sẻ màn hình). Sân khấu họp (giọng đọc,
   /// nhạc của slide) do màn hình cuộc gọi tắt theo.
@@ -615,6 +617,7 @@ class CallService extends ChangeNotifier {
     final d = direct;
     // Gọi 1-1: DirectCall quyết định lý do (huỷ / gác máy / từ chối) rồi gọi lại _hangUp.
     if (d != null && !d.isEnded && reason == null) return d.hangUp();
+    if (reason == null) endedByMe = true;
     return _hangUp(reason ?? tr('Cuộc gọi đã kết thúc'));
   }
 
@@ -1335,6 +1338,7 @@ class CallService extends ChangeNotifier {
     localVideo = null;
     startedAt = null;
     endReason = null;
+    endedByMe = false;
     meSpeaking = false;
     remoteUsers.clear();
     _people.clear();

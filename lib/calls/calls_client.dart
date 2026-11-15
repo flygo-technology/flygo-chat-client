@@ -342,7 +342,11 @@ class CallsClient {
       _joinAcked = true;
       await _initPeer();
     } else if (ev == '${callsEventPrefix}_error') {
-      _fail(tr('Máy chủ từ chối cuộc gọi: {0}', [data['data']]));
+      final why = '${data['data'] ?? ''}';
+      // Plugin Calls không có giấy phép chỉ cho gọi trong tin riêng: gọi nhóm / cuộc họp bị từ chối.
+      _fail(why.contains('unlicensed')
+          ? tr('Máy chủ chat chưa cho phép gọi nhóm và họp (chỉ gọi riêng 1-1). Hãy báo quản trị máy chủ.')
+          : tr('Máy chủ từ chối cuộc gọi: {0}', [why]));
     } else if (ev == '${callsEventPrefix}_signal') {
       _onSignal(data['data'] as String);
     } else if (ev.startsWith(callsEventPrefix)) {

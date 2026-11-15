@@ -7,11 +7,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
+import '../../calls/meet_rooms.dart' show parseMeetCode;
 import '../../config.dart' show serverKey;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../app_route.dart';
 import '../desk_tabs.dart' show DeskTabScope;
+import '../meet/meet_lobby.dart' show openMeetLobby;
 import '../theme.dart';
 import 'agenda_view.dart';
 import 'api.dart';
@@ -227,6 +229,9 @@ class CalendarHomeState extends State<CalendarHome> with WidgetsBindingObserver 
   Future<void> _join(CEvent e) async {
     final c = e.conference;
     if (c == null) return;
+    // Phòng của app Họp: mở phòng chờ ngay trong app (tab riêng trên máy tính), không mở trình duyệt.
+    final hop = c.provider == 'hop' ? parseMeetCode(c.code.isNotEmpty ? c.code : c.url) : null;
+    if (hop != null) return openMeetLobby(context, hop);
     if (c.url.isEmpty) return _toast(tr('Mã họp: {0}', [c.code]));
     try {
       await launchUrl(Uri.parse(c.url), mode: LaunchMode.externalApplication);

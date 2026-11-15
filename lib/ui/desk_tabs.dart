@@ -15,7 +15,9 @@ import 'theme.dart';
 /// - `agents`: Trợ lý;
 /// - `flows`: Quy trình;
 /// - `app`: một ứng dụng của trang Bạn ([arg] = id trong youAppGroups, vd `contacts`);
-/// - `flow`: một quy trình như một ứng dụng riêng ([arg] = "id\ttên\tbiểu tượng").
+/// - `flow`: một quy trình như một ứng dụng riêng ([arg] = "id\ttên\tbiểu tượng");
+/// - `meet`: phòng chờ một cuộc họp của app Họp ([arg] = mã họp, hoặc `ch:<id kênh>` khi họp trong nhóm chat).
+///   Không lưu lại khi mở lại app (không có trong [kinds]).
 class DeskTab {
   final String id;
   String kind;
@@ -48,7 +50,10 @@ class DeskTabScope extends InheritedWidget {
 
   /// Biến tab này thành ứng dụng [appId] (`chat`, `agents`, `flows`, id trang Bạn).
   final void Function(String appId)? onLaunch;
-  const DeskTabScope({super.key, this.onTitle, this.onLaunch, required super.child});
+
+  /// Đóng tab này (vd phòng chờ họp sau khi vào cuộc họp ở cửa sổ riêng).
+  final VoidCallback? onClose;
+  const DeskTabScope({super.key, this.onTitle, this.onLaunch, this.onClose, required super.child});
   static DeskTabScope? of(BuildContext context) => context.getInheritedWidgetOfExactType<DeskTabScope>();
   @override
   bool updateShouldNotify(DeskTabScope old) => false;

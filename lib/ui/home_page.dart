@@ -4,7 +4,7 @@ import 'dart:io' show Platform;
 import '../i18n/i18n.dart';
 import '../calls/meet_rooms.dart' show parseMeetCode;
 import 'meet/meet_home.dart';
-import 'meet/meet_lobby.dart' show openMeetLobby;
+import 'meet/meet_lobby.dart' show MeetLobbyTab, openMeetLobby;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
@@ -388,7 +388,7 @@ class _HomePageState extends State<HomePage> {
   void _openTab(DeskTab t) {
     if (!mounted) return;
         // Chat / luồng / Bảng tin đã có tab thì chuyển sang tab đó, không mở thêm.
-    if (t.kind == 'conv' || t.kind == 'thread' || (t.kind == 'app' && t.arg == kBangTinTab)) {
+    if (t.kind == 'conv' || t.kind == 'thread' || t.kind == 'meet' || (t.kind == 'app' && t.arg == kBangTinTab)) {
       final i = _deskTabs.indexWhere((x) => x.kind == t.kind && x.arg == t.arg);
       if (i >= 0) return _selectDeskTab(i);
     }
@@ -1906,6 +1906,8 @@ class _HomePageState extends State<HomePage> {
         return DeskTabLabel(Text(emoji.isEmpty ? '📋' : emoji, style: const TextStyle(fontSize: 14)), parts.length > 1 ? parts[1] : tr('Quy trình'));
             case 'app' when t.arg == kBangTinTab:
         return DeskTabLabel(icon(Icons.newspaper_rounded, const Color(0xFFE8833A)), tr('Bảng tin'), badge: BangTinService.instance.badge);
+      case 'meet':
+        return DeskTabLabel(icon(Icons.video_call_rounded, kMeetColor), _tabTitles[t.id] ?? tr('Họp'));
       case 'app' when t.arg == 'zalo' || t.arg == 'wechat':
         return DeskTabLabel(brandIcon(t.arg!, 16, t.arg == 'zalo' ? const Color(0xFF0068FF) : const Color(0xFF07C160)), t.arg == 'zalo' ? 'Zalo' : 'WeChat');
       case 'app':
@@ -1945,6 +1947,8 @@ class _HomePageState extends State<HomePage> {
               left: (ctx, open, sel) => _LiteChatList(onOpen: open, selectedId: sel)),
       'thread' => _SplitTab(onChat: onChat, initialThread: t.arg),
       'app' => _ColumnNavigator(navKey: _tabNav(t), root: _appPage(t.arg ?? '', app)),
+      // Phòng chờ cuộc họp: cả tab (không phải hộp nổi), vào họp thì cuộc họp mở cửa sổ riêng và tab tự đóng.
+      'meet' => _ColumnNavigator(navKey: _tabNav(t), root: MeetLobbyTab.page(t.arg ?? '')),
       'flow' => _ColumnNavigator(
           navKey: _tabNav(t),
           root: Builder(builder: (_) {
@@ -1973,6 +1977,7 @@ class _HomePageState extends State<HomePage> {
     return DeskTabScope(
       onTitle: (title) => setState(() => title == null ? _tabTitles.remove(t.id) : _tabTitles[t.id] = title),
       onLaunch: (id) => _launchInTab(t, id),
+      onClose: () => _closeDeskTab(_deskTabs.indexOf(t)),
       child: body,
     );
   }
