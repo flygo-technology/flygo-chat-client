@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import '../i18n/i18n.dart';
+import '../calls/meet_rooms.dart' show parseMeetCode;
+import 'meet/meet_home.dart';
+import 'meet/meet_lobby.dart' show openMeetLobby;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
@@ -124,7 +127,7 @@ List<String> _workAppOrder(Iterable<String> ids) {
   return [...order.where(all.contains), ...all.where((id) => !order.contains(id))];
 }
 
-const kDeskTabApps = {'zalo', 'wechat', 'wallpaper', 'devices', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
+const kDeskTabApps = {'meet', 'zalo', 'wechat', 'wallpaper', 'devices', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
 
 /// Màn hình chính. Màn hình rộng (máy tính) chia hai cột, vùng nội dung chia được tới 4 ô; màn hình hẹp
 /// (điện thoại) có thanh tab nổi ở dưới như WhatsApp iOS.
@@ -844,6 +847,12 @@ class _HomePageState extends State<HomePage> {
 
   /// Link Boards của máy chủ đang dùng: mở màn hình gốc của app (thẻ, bảng, hoặc danh sách bảng), không mở web.
   bool _openInternalLink(Uri u) {
+    // Link mời họp của máy chủ đang dùng (<máy chủ>/__apps/hop/<mã>): mở phòng chờ của app Họp.
+    final hop = u.host == Uri.parse(kServerUrl).host && u.path.contains('/hop/') ? parseMeetCode(u.path) : null;
+    if (hop != null && mounted) {
+      openMeetLobby(context, hop);
+      return true;
+    }
     // Permalink tin nhắn của máy chủ đang dùng (vd. "Tin nhắn gốc" trong việc tạo từ chat): mở chat và cuộn tới tin.
     final pl = permalinkPostId(u, kServerUrl);
     if (pl != null && mounted) {
@@ -1004,6 +1013,8 @@ class _HomePageState extends State<HomePage> {
       // Ủy quyền (trước ở trang Quy trình): ủy quyền đang có, gửi đơn xin ủy quyền.
       'delegations': (Icons.assignment_ind_rounded, const Color(0xFFE08A1E), tr('Ủy quyền'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => FlowDelegationsPage(app: app)))),
+      'meet': (Icons.video_call_rounded, kMeetColor, tr('Họp'), 0,
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const MeetHomePage()))),
       'calls': (Icons.call_rounded, const Color(0xFFE53935), tr('Lịch sử cuộc gọi'), app.missedCalls, () {
         app.markCallsSeen();
         _push(nav, tr('Lịch sử cuộc gọi'), (ctx) => CallHistoryView(header: const SizedBox.shrink(), onOpen: (id) => openChat(ctx, id)));
@@ -1218,6 +1229,8 @@ class _HomePageState extends State<HomePage> {
             tile((Icons.chat_bubble_rounded, const Color(0xFF25A244), tr('Chat'), app.chats.where((c) => c.unread > 0).length, () => onLaunch('chat'))),
             if (app.hasUsableAgents) tile((Icons.auto_awesome_rounded, const Color(0xFFD97757), tr('Dự án AI'), app.agentUnread, () => onLaunch('agents'))),
             ...leads,
+            // Họp (app họp video kiểu quen thuộc, lib/ui/meet/) ngay sau Bảng tin / Todo (Sếp, 2026-11-15).
+            if (items['meet'] != null) tile(asTab('meet', items['meet']!)),
             // Tổ chức và Quy trình nằm ở mục Quản trị (Sếp, 2026-11-10).
             for (final id in _workAppOrder(youAppGroups(desktop: isDesktop).where((g) => g.$1 == tr('Công việc')).expand((g) => g.$2)).where((id) => id != 'org'))
               if (items[id] != null) tile(asTab(id, items[id]!)),
@@ -1965,7 +1978,7 @@ class _HomePageState extends State<HomePage> {
     final pal = Pal.of(context);
     final page = _appPageBody(id, app);
     // Ứng dụng mở thành tab: nội dung rộng tối đa 920px ở giữa (Tổ chức hai cột và Hình nền toàn màn hình thì để rộng).
-        if (id == 'org' || id == 'wallpaper' || id == 'users' || id == kBangTinTab) return page;
+        if (id == 'org' || id == 'wallpaper' || id == 'users' || id == 'meet' || id == kBangTinTab) return page;
     return ColoredBox(
       color: pal.bg,
       child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 920), child: page)),
@@ -1982,6 +1995,7 @@ class _HomePageState extends State<HomePage> {
       'org' => FlowsOrgPage(app: app, api: FlowsApi(app.token)),
       'delegations' => FlowDelegationsPage(app: app),
       'calls' => titled(tr('Lịch sử cuộc gọi'), CallHistoryView(header: const SizedBox.shrink(), onOpen: _open)),
+      'meet' => const MeetHomePage(),
       'computers' => titled(tr('Máy tính'), const RcDevicesPage()),
       'settings' => Scaffold(backgroundColor: pal.bg, body: ProfileView(onLogout: _confirmLogout, onSwitchServer: _switchServer)),
       'assistants' => const AgentPage(),
