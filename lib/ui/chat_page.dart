@@ -85,7 +85,7 @@ import 'tasks/quick_add.dart' show taskPropsOf;
 import 'tasks/task_chat.dart' show TaskPostCard;
 import 'location.dart';
 import '../calls/meet_room.dart';
-import '../calls/call_kind.dart' show CallKind;
+import '../calls/call_kind.dart' show CallKind, meetingOpen;
 import '../calls/direct_call.dart' show DirectOutcome, callPropsVideo;
 import 'meeting.dart';
 import 'urgent_alert.dart';
@@ -3733,7 +3733,12 @@ class _OngoingCallBannerState extends State<_OngoingCallBanner> {
     final inThis = calls.busy && calls.channelId == ch.id;
     if (people == null || people.isEmpty || inThis) return const SizedBox.shrink();
     final call = app.postsOf(ch.id).lastWhere((p) => p.isCall && p.callEnd == null, orElse: () => MmPost(const <String, dynamic>{}));
-    final meeting = !ch.isDirect && call.raw.isNotEmpty && app.callKind(call) == CallKind.meeting;
+    // Cuộc họp qua LiveKit không có tin cuộc gọi của Calls: nhận ra bằng thẻ cuộc họp đang mở của kênh.
+    final now = DateTime.now();
+    final meeting = !ch.isDirect &&
+        (call.raw.isNotEmpty
+            ? app.callKind(call) == CallKind.meeting
+            : app.postsOf(ch.id).any((p) => p.props['flygo_meeting'] is Map && meetingOpen((p.props['flygo_meeting'] as Map).cast<String, dynamic>(), now)));
     final label = ch.isDirect
         ? tr('Cuộc gọi đang diễn ra')
         : meeting
