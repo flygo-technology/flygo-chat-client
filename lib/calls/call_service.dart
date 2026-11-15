@@ -935,6 +935,15 @@ class CallService extends ChangeNotifier {
   /// Sự kiện trạng thái người tham gia (từ WebSocket chính hoặc WebSocket riêng của cuộc gọi;
   /// nhận trùng cũng không sao).
   void _onPeerEvent(String ev, Map<String, dynamic> data) {
+    if (ev == 'self_muted') {
+      // LiveKit: chủ phòng tắt mic của mình.
+      if (!muted) {
+        muted = true;
+        PushService.reportMute(true);
+        notifyListeners();
+      }
+      return;
+    }
     final sid = data['session_id'] as String? ?? '';
     final uid = (data['user_id'] ?? data['userID']) as String? ?? '';
     if (ev == 'call_state') {
