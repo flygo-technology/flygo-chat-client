@@ -55,19 +55,26 @@ class MarkdownView extends StatelessWidget {
     return nodes.length == 1 && nodes.first is md.Element && (nodes.first as md.Element).tag == 'p';
   }
 
+  static bool _isHeading(md.Node n) => n is md.Element && const {'h1', 'h2', 'h3', 'h4'}.contains(n.tag);
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
     final nodes = _parse(text);
     final blocks = <Widget>[];
+    final heads = <bool>[];
     for (var i = 0; i < nodes.length; i++) {
       final last = i == nodes.length - 1;
       final w = _block(context, pal, nodes[i], last ? trailingSpace : 0);
-      if (w != null) blocks.add(w);
+      if (w != null) {
+        blocks.add(w);
+        heads.add(_isHeading(nodes[i]));
+      }
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
       for (var i = 0; i < blocks.length; i++) ...[
-        if (i > 0) SizedBox(height: _reading ? 11 : 6),
+        // Câu trả lời AI: dãn rộng như app Claude (Sếp, 2026-11-15); tiêu đề cách đoạn trên thêm một chút.
+        if (i > 0) SizedBox(height: _reading ? (heads[i] ? 22 : 16) : 6),
         blocks[i],
       ],
     ]);
@@ -169,7 +176,7 @@ class MarkdownView extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (var i = 0; i < items.length; i++)
           Padding(
-            padding: EdgeInsets.only(top: _reading ? 4 : 2),
+            padding: EdgeInsets.only(top: _reading ? 7 : 2),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(
                 width: _reading ? (ordered ? 28 : 22) : (ordered ? 24 : 16),
