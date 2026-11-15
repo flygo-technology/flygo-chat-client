@@ -56,6 +56,29 @@ Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, Stri
   }
 }
 
+/// Mở Quản trị Thư (ô "Thư" ở mục Quản trị của Trang chủ: Flygo ID /v1/me/admin trả native "mail-admin").
+Future<void> openMailAdmin(BuildContext context) async {
+  final state = context.read<AppState>();
+  final nav = Navigator.of(context);
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    var app = MiniApps.cached.where((a) => a.id == kMailApp).firstOrNull;
+    app ??= (await MiniApps.list(state.token)).where((a) => a.id == kMailApp).firstOrNull;
+    if (app == null) throw StateError(tr('Bạn chưa được cấp app Thư'));
+    final MailApi api;
+    if (isMailDemo(app)) {
+      api = DemoMailApi();
+    } else {
+      final id = await FlygoId.current(state.token);
+      if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
+      api = HttpMailApi(base: app.baseUrl, id: id);
+    }
+    await nav.push(AppPageRoute(builder: (_) => MailAdminPage(api: api.adminApi())));
+  } catch (e) {
+    messenger.showSnackBar(toast(Text('$e')));
+  }
+}
+
 /// App Thư chạy bằng dữ liệu mẫu (base_url "demo:" hoặc features.demo = true).
 bool isMailDemo(MiniApp app) => app.baseUrl.startsWith('demo:') || app.feature('demo');
 

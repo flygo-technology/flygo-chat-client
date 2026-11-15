@@ -1963,12 +1963,13 @@ class _LimitsSectionState extends State<LimitsSection> {
       ),
     );
     final custom = s.mailboxes.where((b) => b.limitHour != null || b.limitDay != null || b.quotaMb != null).toList();
+    final month = s.monthSent;
     return ListView(
       padding: EdgeInsets.fromLTRB(wide ? 24 : 16, 0, wide ? 24 : 16, 32),
       children: [
         _Head(title: 'Giới hạn gửi', wide: wide, flush: true, sub: 'Chặn hộp thư bị lộ mật khẩu gửi thư rác hàng loạt và giữ chi phí trong tầm kiểm soát.'),
         _Card(
-          title: 'Cả hệ thống tháng này',
+          title: month == null ? 'Cả hệ thống' : 'Cả hệ thống tháng này',
           icon: Icons.insights_outlined,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1977,23 +1978,25 @@ class _LimitsSectionState extends State<LimitsSection> {
                 children: [
                   Expanded(
                     child: Text(
-                      '${_num.format(s.monthSent)} / ${_num.format(free)} thư miễn phí',
+                      month == null ? 'Hôm nay đã gửi ${_num.format(s.usedToday)} thư' : '${_num.format(month)} / ${_num.format(free)} thư miễn phí',
                       style: TextStyle(fontSize: 14, color: mc.text, fontWeight: FontWeight.w500),
                     ),
                   ),
-                  Text('Hôm nay: ${_num.format(s.usedToday)}', style: TextStyle(fontSize: 13, color: mc.muted)),
+                  if (month != null) Text('Hôm nay: ${_num.format(s.usedToday)}', style: TextStyle(fontSize: 13, color: mc.muted)),
                 ],
               ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                  value: (s.monthSent / free).clamp(0, 1),
-                  minHeight: 6,
-                  backgroundColor: mc.line,
-                  color: s.monthSent > free * .9 ? mc.danger : mc.accent,
+              if (month != null) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: (month / free).clamp(0, 1),
+                    minHeight: 6,
+                    backgroundColor: mc.line,
+                    color: month > free * .9 ? mc.danger : mc.accent,
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: 6),
               Text('Quá mức miễn phí: khoảng 0,35 USD / 1.000 thư (Cloudflare Email Service).', style: TextStyle(fontSize: 12, color: mc.faint)),
             ],

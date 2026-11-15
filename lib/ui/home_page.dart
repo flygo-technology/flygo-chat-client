@@ -65,6 +65,7 @@ import 'bang_tin/bang_tin_page.dart' show BangTinTab, bangTinApp, kBangTinTab;
 import 'bang_tin/bang_tin_service.dart' show BangTinService;
 import 'desk_tabs.dart';
 import 'devices_page.dart';
+import 'mail/mail_page.dart' show openMailAdmin;
 import 'users_admin_page.dart';
 import 'wallpaper.dart';
 import '../browser/runtime.dart' show kKysoExtensionId;
@@ -307,7 +308,7 @@ class _HomePageState extends State<HomePage> {
       if (mounted && ok != _usersAdmin) setState(() => _usersAdmin = ok);
     });
     id.myAdmin().then((apps) {
-      if (mounted) setState(() => _adminApps = [for (final a in apps) if (a['url'] is String && a['native'] == null) a]);
+      if (mounted) setState(() => _adminApps = [for (final a in apps) if ((a['url'] is String && a['native'] == null) || a['native'] == 'mail-admin') a]);
     }).catchError((_) {
       _adminAskedFor = null;
     });
@@ -322,6 +323,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openAdmin(Map<String, dynamic> a) async {
     if (a['app'] == kKysoExtensionId) return KysoApi.openAdmin(context);
+    if (a['native'] == 'mail-admin') return openMailAdmin(context);
     final u = Uri.tryParse('${a['url']}');
     if (u != null) await launchUrl(u, mode: LaunchMode.externalApplication);
   }
@@ -1297,8 +1299,8 @@ class _HomePageState extends State<HomePage> {
                     // Máy tính: mở thành tab mới (danh sách + chi tiết hai cột); điện thoại: mở trang.
                     () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => UsersAdminPage(id: KysoApi.flygoId!)))),
               for (final a in _adminApps)
-                appTile(const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 32),
-                    a['app'] == kKysoExtensionId ? const Color(0xFF7C3AED) : const Color(0xFF475569), _adminLabel(a), 0, () => _openAdmin(a)),
+                appTile(Icon(a['native'] == 'mail-admin' ? Icons.mark_email_read_rounded : Icons.admin_panel_settings_rounded, color: Colors.white, size: 32),
+                    a['app'] == kKysoExtensionId ? const Color(0xFF7C3AED) : a['native'] == 'mail-admin' ? const Color(0xFF1E7BFF) : const Color(0xFF475569), _adminLabel(a), 0, () => _openAdmin(a)),
             ]),
           ],
           // "Cập nhật" đã có trong thẻ người dùng (Kiểm tra cập nhật). Điện thoại: ô "Hồ sơ" (ảnh của mình) mở trang hồ sơ

@@ -1,6 +1,6 @@
 // Quản trị Thư (vn.flygo.mail): tên miền, hộp thư (cá nhân / dùng chung / nhóm), bí danh, thành viên + quyền,
 // nhận mọi địa chỉ (catch-all) và quy tắc chuyển tiếp, giới hạn gửi / dung lượng, nhật ký quản trị.
-// Máy chủ: <base_url>/api/v1/admin/* của Worker thư, chỉ cho người có quyền admin app vn.flygo.mail trong Flygo ID.
+// Máy chủ: <base_url>/mail/api/admin/* của Worker thư, chỉ cho người có quyền admin app vn.flygo.mail trong Flygo ID.
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -147,15 +147,16 @@ class MaAudit {
 
 /// Toàn bộ cấu hình quản trị (một lần tải).
 class MaState {
-  MaState({this.domains = const [], this.mailboxes = const [], this.aliases = const [], this.rules = const [], MaLimits? limits, this.usedToday = 0, this.monthSent = 0})
+  MaState({this.domains = const [], this.mailboxes = const [], this.aliases = const [], this.rules = const [], MaLimits? limits, this.usedToday = 0, this.monthSent})
       : limits = limits ?? MaLimits();
   List<MaDomain> domains;
   List<MaMailbox> mailboxes;
   List<MaAlias> aliases;
   List<MaRule> rules;
   MaLimits limits;
-  /// Số thư cả hệ thống đã gửi hôm nay / tháng này.
-  int usedToday, monthSent;
+  /// Số thư cả hệ thống đã gửi hôm nay / tháng này (null: máy chủ chưa đếm theo tháng).
+  int usedToday;
+  int? monthSent;
 
   factory MaState.fromJson(Map m) => MaState(
         domains: [for (final d in (m['domains'] as List? ?? const [])) MaDomain.fromJson(d as Map)],
@@ -164,7 +165,7 @@ class MaState {
         rules: [for (final d in (m['rules'] as List? ?? const [])) MaRule.fromJson(d as Map)],
         limits: m['limits'] is Map ? MaLimits.fromJson(m['limits'] as Map) : null,
         usedToday: (m['sent_today'] as num?)?.toInt() ?? 0,
-        monthSent: (m['sent_month'] as num?)?.toInt() ?? 0,
+        monthSent: (m['sent_month'] as num?)?.toInt(),
       );
 
   MaMailbox? box(String id) => mailboxes.where((b) => b.id == id).firstOrNull;
@@ -199,7 +200,7 @@ class HttpMailAdminApi extends MailAdminApi {
   final http.Client _http;
 
   Future<dynamic> _call(String method, String path, [Object? body, bool retried = false]) async {
-    final req = http.Request(method, Uri.parse('${base.replaceAll(RegExp(r'/+$'), '')}/api/v1/admin$path'))
+    final req = http.Request(method, Uri.parse('${base.replaceAll(RegExp(r'/+$'), '')}/mail/api/admin$path'))
       ..headers.addAll({
         'Authorization': 'Bearer ${await id.ticket(kMailApp, refresh: retried).timeout(const Duration(seconds: 25))}',
         'User-Agent': kUserAgent,
