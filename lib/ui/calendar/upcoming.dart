@@ -1,0 +1,337 @@
+// Lịch: sự kiện sắp tới trong 7 ngày, đếm ngược trực tiếp ("còn 2 giờ 15 phút"). Máy tính: dưới thẻ người dùng ở Trang
+// chủ (tối đa 3 sự kiện). Điện thoại: dải gọn ở đầu Trang chủ (sự kiện gần nhất + số sự kiện còn lại). Bấm → mở sự kiện
+// trong Lịch. Ẩn khi người dùng không được dùng Lịch, không có sự kiện nào, hoặc tải lỗi. Tải lại mỗi 5 phút, khi app
+// quay lại, khi danh sách app đổi và sau khi đóng Lịch.
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+
+import '../../api/mini_apps.dart';
+import '../../browser/flygo_id.dart';
+import '../../i18n/i18n.dart';
+import '../../state/app_state.dart';
+import '../theme.dart';
+import 'api.dart';
+import 'calendar_page.dart' show openCalendar;
+import 'look.dart';
+import 'model.dart';
+import 'tz.dart';
+
+const kUpcomingWindow = Duration(days: 7);
+
+/// Dữ liệu đã tải: app Lịch, các lần xảy ra trong khoảng hôm qua → 8 ngày tới, múi giờ của người dùng trong Lịch.
+class UpcomingData {
+  const UpcomingData({this.app, required this.events, this.tz = kDefaultTz});
+  final MiniApp? app;
+  final List<CEvent> events;
+  final String tz;
+}
+
+final _client = http.Client();
+
+Future<UpcomingData?> _load(String token) async {
+  final apps = await MiniApps.list(token);
+  final app = apps.where((a) => a.id == kCalApp).firstOrNull;
+  if (app == null) return null;
+  final id = await FlygoId.current(token);
+  if (id == null) return null;
+  final api = CalApi(base: app.baseUrl, id: id, client: _client);
+  final now = DateTime.now();
+  // Ngày theo giờ máy, nới một ngày mỗi đầu để múi giờ của Lịch khác giờ máy vẫn đủ.
+  final (me, events) = await (
+    api.me(),
+    api.events(from: fmtDate(DateTime.utc(now.year, now.month, now.day - 1)), to: fmtDate(DateTime.utc(now.year, now.month, now.day + 8))),
+  ).wait;
+  final tz = '${(me['settings'] as Map?)?['tz'] ?? kDefaultTz}';
+  return UpcomingData(app: app, events: events, tz: tz.isEmpty ? kDefaultTz : tz);
+}
+
+/// Nguồn dữ liệu (kiểm thử thay được). null = không dùng được Lịch.
+@visibleForTesting
+Future<UpcomingData?> Function(String token) upcomingLoader = _load;
+
+/// Các sự kiện của mình (mình tổ chức hoặc được mời, chưa từ chối) chưa kết thúc và bắt đầu trong [within] tới.
+/// Bỏ ngày lễ, lịch người khác chỉ đăng ký xem, sự kiện chỉ thấy bận, sự kiện đã huỷ.
+List<CEvent> upcomingFrom(List<CEvent> events, DateTime now, {Duration within = kUpcomingWindow}) {
+  final n = now.millisecondsSinceEpoch, until = now.add(within).millisecondsSinceEpoch;
+  final seen = <String>{};
+  final out = [
+    for (final e in events)
+      if (!e.cancelled && !e.busyOnly && e.myRsvp != null && !e.declined && e.startMs != null && e.endMs != null && e.endMs! > n && e.startMs! < until && seen.add(e.instanceId))
+        e,
+  ];
+  // Đang diễn ra và sắp bắt đầu trước; cả ngày xếp sau sự kiện có giờ cùng lúc bắt đầu.
+  out.sort((a, b) => a.startMs != b.startMs ? a.startMs!.compareTo(b.startMs!) : (a.allDay ? 1 : 0) - (b.allDay ? 1 : 0));
+  return out;
+}
+
+/// "còn 2 ngày 3 giờ", "còn 2 giờ 15 phút", "còn 15 phút", "còn 40 giây" (phút làm tròn lên).
+String countdownText(Duration d) {
+  final s = d.inSeconds;
+  if (s < 60) return tr('còn {0} giây', [s < 1 ? 1 : s]);
+  final m = (s + 59) ~/ 60;
+  if (m < 60) return tr('còn {0} phút', [m]);
+  final h = m ~/ 60, mm = m % 60;
+  if (h < 24) return mm == 0 ? tr('còn {0} giờ', [h]) : tr('còn {0} giờ {1} phút', [h, mm]);
+  final days = h ~/ 24, hh = h % 24;
+  return hh == 0 ? tr('còn {0} ngày', [days]) : tr('còn {0} ngày {1} giờ', [days, hh]);
+}
+
+String _two(int n) => n.toString().padLeft(2, '0');
+const _weekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+/// "Hôm nay 14:30–16:00", "Ngày mai · Cả ngày", "T4 18/11 09:00–10:00" theo giờ [tz].
+String whenText(CEvent e, DateTime now, String tz) {
+  final s = wallOf(e.startMs!, tz), en = wallOf(e.endMs!, tz), today = dayOf(wallOf(now.millisecondsSinceEpoch, tz));
+  final diff = daysBetween(today, s);
+  // Đã bắt đầu từ hôm trước (cả ngày nhiều ngày, sự kiện qua đêm): tính là hôm nay.
+  final day = diff <= 0
+      ? tr('Hôm nay')
+      : diff == 1
+          ? tr('Ngày mai')
+          : '${tr(_weekdays[s.weekday - 1])} ${s.day}/${s.month}';
+  if (e.allDay) return '$day · ${tr('Cả ngày')}';
+  final end = dayOf(en) == dayOf(s) ? '${_two(en.hour)}:${_two(en.minute)}' : '${en.day}/${en.month} ${_two(en.hour)}:${_two(en.minute)}';
+  return '$day ${_two(s.hour)}:${_two(s.minute)}–$end';
+}
+
+class UpcomingEvents extends StatefulWidget {
+  const UpcomingEvents({super.key, this.compact = false, this.max = 3, this.clock, this.onOpen});
+
+  /// Điện thoại: một dòng gọn ở đầu trang.
+  final bool compact;
+  final int max;
+
+  /// Kiểm thử: đồng hồ, và việc mở sự kiện thay cho mở Lịch thật.
+  final DateTime Function()? clock;
+  final void Function(CEvent e)? onOpen;
+
+  @override
+  State<UpcomingEvents> createState() => _UpcomingEventsState();
+}
+
+class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObserver {
+  UpcomingData? _data;
+  Timer? _tick, _refresh;
+  bool _loading = false;
+
+  DateTime get _now => widget.clock?.call() ?? DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    MiniApps.changed.addListener(_reload);
+    _reload();
+    _refresh = Timer.periodic(const Duration(minutes: 5), (_) => _reload());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    MiniApps.changed.removeListener(_reload);
+    _tick?.cancel();
+    _refresh?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed) _reload();
+  }
+
+  Future<void> _reload() async {
+    if (_loading || !mounted) return;
+    _loading = true;
+    final token = context.read<AppState>().token;
+    try {
+      final d = await upcomingLoader(token);
+      if (!mounted) return;
+      setState(() => _data = d);
+    } catch (e) {
+      // Lỗi mạng / máy chủ: giữ danh sách cũ (nếu có), lần sau tải lại.
+      debugPrint('[calendar] sự kiện sắp tới: $e');
+    } finally {
+      _loading = false;
+    }
+    _sync();
+  }
+
+  /// Đồng hồ đếm ngược chỉ chạy khi đang có sự kiện để hiện.
+  void _sync() {
+    final any = _data != null && upcomingFrom(_data!.events, _now).isNotEmpty;
+    if (any && _tick == null) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() {});
+        if (_data == null || upcomingFrom(_data!.events, _now).isEmpty) {
+          _tick?.cancel();
+          _tick = null;
+        }
+      });
+    } else if (!any) {
+      _tick?.cancel();
+      _tick = null;
+    }
+  }
+
+  Future<void> _open(CEvent e) async {
+    if (widget.onOpen != null) return widget.onOpen!(e);
+    final app = _data?.app;
+    if (app == null) return;
+    await openCalendar(context, app, eventId: e.id, rid: e.rid);
+    // Có thể vừa sửa / xoá / trả lời trong Lịch.
+    unawaited(_reload());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = _data;
+    if (d == null) return const SizedBox.shrink();
+    final now = _now;
+    final list = upcomingFrom(d.events, now);
+    if (list.isEmpty) return const SizedBox.shrink();
+    return widget.compact ? _banner(context, list, now, d.tz) : _card(context, list, now, d.tz);
+  }
+
+  (String, bool) _status(CEvent e, DateTime now) {
+    final live = e.startMs! <= now.millisecondsSinceEpoch;
+    if (!live) return (countdownText(DateTime.fromMillisecondsSinceEpoch(e.startMs!).difference(now)), false);
+    if (e.allDay) return (tr('Đang diễn ra'), true);
+    return ('${tr('Đang diễn ra')} · ${countdownText(DateTime.fromMillisecondsSinceEpoch(e.endMs!).difference(now))}', true);
+  }
+
+  Widget _card(BuildContext context, List<CEvent> list, DateTime now, String tz) {
+    final pal = Pal.of(context);
+    final dark = calDark(context);
+    final shown = list.take(widget.max).toList();
+    return Padding(
+      key: const ValueKey('upcoming-events'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: pal.divider)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+            child: Row(children: [
+              Icon(Icons.event_rounded, size: 18, color: calAccent(context)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(tr('Sắp diễn ra'), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: pal.text))),
+              if (list.length > shown.length)
+                Text(tr('+{0} sự kiện', [list.length - shown.length]), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+            ]),
+          ),
+          for (final e in shown)
+            InkWell(
+              key: ValueKey('upcoming-${e.instanceId}'),
+              onTap: () => _open(e),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    width: 4,
+                    height: 40,
+                    margin: const EdgeInsets.only(top: 2, right: 10),
+                    decoration: BoxDecoration(color: eventColor(e.color ?? e.calendarColor, dark), borderRadius: BorderRadius.circular(2)),
+                  ),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
+                          maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.text)),
+                      const SizedBox(height: 2),
+                      Text([whenText(e, now, tz), if (e.location.trim().isNotEmpty) e.location.trim()].join(' · '),
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: pal.sub)),
+                      const SizedBox(height: 4),
+                      _chip(context, e, now),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          const SizedBox(height: 4),
+        ]),
+      ),
+    );
+  }
+
+  Widget _chip(BuildContext context, CEvent e, DateTime now) {
+    final (text, live) = _status(e, now);
+    final dark = calDark(context);
+    final fg = live ? (dark ? const Color(0xFF6FDC8C) : const Color(0xFF137333)) : calAccent(context);
+    final bg = live ? (dark ? const Color(0xFF173A22) : const Color(0xFFE6F4EA)) : calAccentSoft(context);
+    return Row(children: [
+      Flexible(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+          child: Text(text,
+              key: ValueKey('upcoming-countdown-${e.instanceId}'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: fg, fontFeatures: const [FontFeature.tabularFigures()])),
+        ),
+      ),
+      if (e.pendingInvite) ...[
+        const SizedBox(width: 6),
+        Text(tr('Chưa trả lời'), style: TextStyle(fontSize: 12, color: Pal.of(context).sub)),
+      ],
+    ]);
+  }
+
+  Widget _banner(BuildContext context, List<CEvent> list, DateTime now, String tz) {
+    final pal = Pal.of(context);
+    final e = list.first;
+    final live = e.startMs! <= now.millisecondsSinceEpoch;
+    // Dải hẹp: "Đang diễn ra" đi cùng dòng giờ, bên phải chỉ còn số đếm ngược.
+    final text = live && e.allDay ? tr('Cả ngày') : countdownText(DateTime.fromMillisecondsSinceEpoch(live ? e.endMs! : e.startMs!).difference(now));
+    final when = live ? '${tr('Đang diễn ra')} · ${whenText(e, now, tz)}' : whenText(e, now, tz);
+    final dark = calDark(context);
+    final accent = live ? (dark ? const Color(0xFF6FDC8C) : const Color(0xFF137333)) : calAccent(context);
+    return Padding(
+      key: const ValueKey('upcoming-events'),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Material(
+        color: live ? (dark ? const Color(0xFF173A22) : const Color(0xFFE6F4EA)) : calAccentSoft(context),
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('upcoming-${e.instanceId}'),
+          onTap: () => _open(e),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+            child: Row(children: [
+              Icon(live ? Icons.play_circle_fill_rounded : Icons.event_rounded, size: 22, color: accent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.text)),
+                  Text(when, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.sub)),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                flex: 0,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                    Text(text,
+                        key: ValueKey('upcoming-countdown-${e.instanceId}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: accent, fontFeatures: const [FontFeature.tabularFigures()])),
+                    if (list.length > 1)
+                      Text(tr('+{0} sự kiện', [list.length - 1]), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: pal.sub)),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
