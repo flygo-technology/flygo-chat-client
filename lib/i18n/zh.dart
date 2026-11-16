@@ -2450,4 +2450,5 @@ const Map<String, String> zh = {
   'Đã đổi tên': '已重命名',
   'Đặt làm mặc định': '设为默认',
   'Đổi tên trình duyệt': '重命名浏览器',
+  'Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).': '已将浏览器“{0}”连接到此账户。你的代理可以使用它（标记 @{1}）。',
 };

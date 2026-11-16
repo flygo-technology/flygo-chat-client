@@ -2450,4 +2450,5 @@ const Map<String, String> ja = {
   'Đã đổi tên': '名前を変更しました',
   'Đặt làm mặc định': 'デフォルトに設定',
   'Đổi tên trình duyệt': 'ブラウザー名を変更',
+  'Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).': 'ブラウザー「{0}」をこのアカウントに接続しました。エージェントが使えます（タグ @{1}）。',
 };

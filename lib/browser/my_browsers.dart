@@ -70,6 +70,20 @@ class MyBrowsers {
     return _cache;
   }
 
+  /// Cấp token client cho một trình duyệt trên máy này (ghép cặp tự động, xem browser_pairing.dart). Trả {client, token, ws_url}.
+  static Future<Map<String, dynamic>> pair(String chatToken, {required Map<String, dynamic> client, String? replace}) async {
+    final r = await http.post(Uri.parse('$base/api/pair'), headers: await _headers(chatToken, json: true), body: jsonEncode({
+      'client': {
+        'type': 'extension', 'kind': 'browser',
+        for (final k in ['name', 'engine', 'os', 'profile']) if (client[k] is String) k: client[k],
+      },
+      if (replace != null && RegExp(r'^[A-Za-z0-9_-]{12}$').hasMatch(replace)) 'replace': replace,
+      'machine_name': Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), ''),
+    })).timeout(const Duration(seconds: 15));
+    _at = DateTime.fromMillisecondsSinceEpoch(0);
+    return Map<String, dynamic>.from(_decode(r) as Map);
+  }
+
   static Future<void> rename(String chatToken, String id, String name) async {
     _decode(await http.patch(Uri.parse('$base/api/browsers/$id'), headers: await _headers(chatToken, json: true), body: jsonEncode({'name': name})));
     _at = DateTime.fromMillisecondsSinceEpoch(0);

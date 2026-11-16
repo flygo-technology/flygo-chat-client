@@ -3398,4 +3398,5 @@ const Map<String, String> en = {
   'Đã đổi tên': 'Renamed',
   'Đặt làm mặc định': 'Set as default',
   'Đổi tên trình duyệt': 'Rename browser',
+  'Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).': 'Connected browser "{0}" to this account. Your agents can use it (tag @{1}).',
 };
