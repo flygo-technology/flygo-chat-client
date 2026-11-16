@@ -410,17 +410,15 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
       return widget.embedded ? body : Scaffold(appBar: AppBar(), body: body);
     }
     final pr = f.project;
-    // Máy tính: bấm một lần = xem nhanh (hộp thoại), bấm đúp = trang việc đầy đủ. Điện thoại: bấm là mở trang.
+    // Máy tính: bấm là mở ngay hộp xem nhanh (trang đầy đủ qua nút "Mở toàn trang" trong hộp). Điện thoại: bấm là mở trang.
     final wideNow = twWide(context);
     void open(TwTask t) => wideNow ? showTaskPreview(context, store, t.key) : openTask(context, store, t.key);
-    void openFull(TwTask t) => openTask(context, store, t.key);
-    final full = wideNow ? openFull : null;
     final viewWidget = switch (_view) {
-      'list' => TwListView(store: store, project: f, filter: widget.filter, onOpen: open, onOpenFull: full, onCreate: _create),
-      'gantt' => TwGanttView(store: store, project: f, filter: widget.filter, onOpen: open, onOpenFull: full),
+      'list' => TwListView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
+      'gantt' => TwGanttView(store: store, project: f, filter: widget.filter, onOpen: open),
       'overview' => _overview(f, look),
       'settings' => TwSettingsPage(key: ValueKey('settings-$_settingsRev'), store: store, projectId: pr.id, inline: true, initialTab: _settingsTab ?? (twWide(context) ? 'statuses' : null)),
-      _ => TwBoardView(store: store, project: f, filter: widget.filter, onOpen: open, onOpenFull: full, onCreate: _create),
+      _ => TwBoardView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
     };
     final tabs = [('list', Icons.view_list_outlined, 'Danh sách'), ('kanban', Icons.view_kanban_outlined, 'Kanban'), ('gantt', Icons.timeline, 'Gantt'), ('overview', Icons.description_outlined, 'Tổng quan'), ('settings', Icons.tune, 'Cài đặt')];
     final users = [for (final m in f.members) if (m.subjectType == 'user') TwAssignee(kind: 'user', id: m.subjectId, name: m.name)];
