@@ -476,29 +476,68 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     return Focus(focusNode: _keys, autofocus: true, onKeyEvent: _onKey, child: content);
   }
 
-  Widget _errorView(MailColors mc) => Scaffold(
-    backgroundColor: mc.bg,
-    appBar: AppBar(title: Text(widget.title), backgroundColor: mc.bg),
-    body: Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.mail_outline, size: 56, color: mc.faint),
-            const SizedBox(height: 12),
-            Text(
-              'Không kết nối được máy chủ thư.\n${store.error}',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: mc.muted),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: store.start, child: const Text('Thử lại')),
-          ],
+  /// Máy chủ thư trả 404 cho /me: kết nối được, chỉ là người này chưa có hộp thư nào.
+  bool get _noMailbox => store.error is MailException && (store.error as MailException).status == 404;
+
+  /// Có quyền Quản trị Thư không (Flygo ID /v1/me/admin có native "mail-admin"): hiện nút mở trang quản trị.
+  late final Future<bool> _canAdminMail = () async {
+    try {
+      final id = await FlygoId.current(Provider.of<AppState>(context, listen: false).token);
+      return id != null && (await id.myAdmin()).any((a) => a['native'] == 'mail-admin');
+    } catch (_) {
+      return false;
+    }
+  }();
+
+  Widget _errorView(MailColors mc) {
+    final empty = _noMailbox;
+    return Scaffold(
+      backgroundColor: mc.bg,
+      appBar: AppBar(title: Text(widget.title), backgroundColor: mc.bg),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(empty ? Icons.inbox_outlined : Icons.mail_outline, size: 56, color: mc.faint),
+              const SizedBox(height: 12),
+              if (empty) ...[
+                Text('Bạn chưa có hộp thư nào', textAlign: TextAlign.center, style: TextStyle(color: mc.text, fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Text('Nhờ quản trị tạo hộp thư cho bạn.', textAlign: TextAlign.center, style: TextStyle(color: mc.muted)),
+              ] else
+                Text(
+                  'Không kết nối được máy chủ thư.\n${store.error}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: mc.muted),
+                ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  if (empty)
+                    FutureBuilder<bool>(
+                      future: _canAdminMail,
+                      builder: (context, snap) => snap.data == true
+                          ? OutlinedButton.icon(
+                              onPressed: () => openMailAdmin(context),
+                              icon: const Icon(Icons.admin_panel_settings_outlined, size: 18),
+                              label: const Text('Quản trị Thư'),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  FilledButton(onPressed: store.start, child: const Text('Thử lại')),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _brand(MailColors mc) => Row(
     mainAxisSize: MainAxisSize.min,
