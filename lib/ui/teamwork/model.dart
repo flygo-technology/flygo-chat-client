@@ -301,6 +301,12 @@ class TwRun {
     this.kind = 'start',
     this.commentId,
     this.sessionHint,
+    this.steps = const [],
+    this.text,
+    this.seq = 0,
+    this.stepCount = 0,
+    this.lastStep,
+    this.summary,
   });
   final String id, taskId, taskKey, botId, botName, startedBy;
   String state; // queued | running | review | done | failed | cancelled | blocked
@@ -310,6 +316,12 @@ class TwRun {
   final String? commentId;
   /// Phiên sẵn có của việc + agent + người này: gửi tiếp vào đó thay vì mở phiên mới.
   final String? sessionHint;
+  /// Tiến độ runner đẩy lên (GET /api/runs/:id): các bước + chữ đang viết.
+  List<TwRunStep> steps;
+  String? text, lastStep, summary;
+  int seq, stepCount;
+  bool get finished => const ['review', 'done', 'failed', 'cancelled', 'blocked'].contains(state);
+  bool get failed => const ['failed', 'blocked', 'cancelled'].contains(state);
   String? sessionChannel, error;
   int createdAt, updatedAt;
   bool get active => state == 'queued' || state == 'running';
@@ -328,6 +340,12 @@ class TwRun {
         kind: _s(m['kind'], 'start'),
         commentId: _ns(m['comment_id']),
         sessionHint: _ns(m['session_hint']),
+        steps: [for (final x in _maps(m['progress'] is Map ? (m['progress'] as Map)['steps'] : m['progress'] ?? m['steps'])) TwRunStep.fromJson(x)],
+        text: _ns(m['text']),
+        seq: _i(m['seq'] ?? (m['progress'] is Map ? (m['progress'] as Map)['seq'] : null)),
+        stepCount: _i(m['step_count']),
+        lastStep: m['last_step'] is Map ? _ns((m['last_step'] as Map)['title']) : _ns(m['last_step']),
+        summary: _ns(m['summary']),
       );
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -345,6 +363,15 @@ class TwRun {
         'created_at': createdAt,
         'updated_at': updatedAt,
       };
+}
+
+/// Một bước tiến độ của lượt chạy agent (như thẻ tiến trình trong chat).
+class TwRunStep {
+  const TwRunStep({required this.id, required this.kind, required this.title, this.detail, this.status = 'running', this.at = 0});
+  final String id, kind, title, status; // kind: tool | think | text | plan | approval; status: running | done | error
+  final String? detail;
+  final int at;
+  factory TwRunStep.fromJson(Map m) => TwRunStep(id: _s(m['id']), kind: _s(m['kind'], 'tool'), title: _s(m['title']), detail: _ns(m['detail']), status: _s(m['status'], 'running'), at: _i(m['at']));
 }
 
 const kRunStateNames = {

@@ -222,17 +222,20 @@ class TwApi {
   }
 
   Future<List<TwRun>> runs({bool mine = true, String? state}) async => [for (final r in _list(await get('/api/runs${q({'mine': mine ? '1' : null, 'state': state})}'), 'runs')) TwRun.fromJson(r)];
-  /// Nhận lượt chạy cho máy [device]: (lượt chạy, bản giao việc máy chủ soạn); null nếu máy khác đã nhận.
-  Future<(TwRun, String?)?> claim(String runId, String device) async {
+  /// Nhận lượt chạy cho máy [device]: (lượt chạy, bản giao việc máy chủ soạn, run_token); null nếu máy khác đã nhận.
+  /// [attestOwner]: người dùng hiện tại là chủ bot (máy chủ chỉ cho chạy không cần duyệt khi có xác nhận này).
+  Future<(TwRun, String?, String?)?> claim(String runId, String device, {bool attestOwner = false}) async {
     try {
-      final j = await post('/api/runs/$runId/claim', {'device': device});
-      return (TwRun.fromJson(_one(j, 'run')), j['brief'] as String?);
+      final j = await post('/api/runs/$runId/claim', {'device': device, if (attestOwner) 'attest_owner': true});
+      return (TwRun.fromJson(_one(j, 'run')), j['brief'] as String?, j['run_token'] as String?);
     } on TwException catch (e) {
       if (e.code == 'claimed' || e.code == 'not_queued') return null;
       rethrow;
     }
   }
 
+  /// Một lượt chạy kèm tiến độ (các bước + chữ đang viết).
+  Future<TwRun> run(String runId) async => TwRun.fromJson(_one(await get('/api/runs/$runId'), 'run'));
   Future<void> reportRun(String runId, String state, {String? sessionChannel, String? error}) => post('/api/runs/$runId', {'state': state, 'session_channel': ?sessionChannel, 'error': ?error});
   Future<void> cancelRun(String runId) => post('/api/runs/$runId/cancel');
 

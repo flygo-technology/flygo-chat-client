@@ -13,6 +13,7 @@ import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
 import 'rich_mentions.dart';
+import 'run_progress.dart';
 import 'store.dart';
 
 /// Mở trang chi tiết việc [idOrKey].
@@ -168,6 +169,15 @@ class _TwTaskPageState extends State<TwTaskPage> {
     } finally {
       if (mounted) setState(() => _savingDesc = false);
     }
+  }
+
+  /// Lượt "Bắt đầu" mới nhất của từng agent (để hiện tiến độ trong thẻ agent).
+  List<TwRun> _startRuns() {
+    final seen = <String>{};
+    return [
+      for (final r in _d?.runs ?? const <TwRun>[])
+        if (r.kind != 'mention' && r.id.isNotEmpty && seen.add(r.botId)) r,
+    ];
   }
 
   /// Phiên mới nhất của từng agent trên việc này.
@@ -593,6 +603,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ]),
             );
           }(),
+        // Tiến độ trực tiếp của lượt Bắt đầu gần nhất (ai xem việc cũng thấy).
+        for (final r in _startRuns())
+          Padding(padding: const EdgeInsets.only(bottom: 6), child: TwRunProgress(key: ValueKey('rp-start-${r.id}'), store: store, runId: r.id, botName: r.botName, state: r.state, session: r.sessionChannel, compact: true)),
       ]),
     );
   }
@@ -790,6 +803,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ]),
             );
           }(),
+        for (final r in _startRuns()) TwRunProgress(key: ValueKey('rp-start-${r.id}'), store: store, runId: r.id, botName: r.botName, state: r.state, session: r.sessionChannel, compact: true),
         if (canEdit && !runs.any((r) => r.active)) ...[
           const SizedBox(height: 6),
           FilledButton.icon(

@@ -210,6 +210,10 @@ void main() {
       expect(be.runs[0]['state'], 'running');
       expect(be.runs[0]['session_channel'], 'ch-1');
       expect(be.runs[1]['session_channel'], 'ch-new-b-claude');
+      // run_token của máy chủ đi kèm tin giao việc; chỉ xác nhận chủ bot khi đúng là chủ.
+      expect(l.props[0]['flygo_teamwork'], {'run_token': 'TOKEN-r-m1', 'run_id': 'r-m1'});
+      expect(be.runs[0]['attest_owner'], isFalse);
+      expect(be.runs[1]['attest_owner'], isTrue);
       s.dispose();
     });
 
@@ -394,7 +398,7 @@ void main() {
         expect(find.byKey(const ValueKey('tab-activity')), findsOneWidget);
         expect(find.byKey(const ValueKey('agent-card')), findsOneWidget);
         expect(find.textContaining('Chặn'), findsOneWidget);
-        expect(find.text('Codex đã trả lời'), findsOneWidget); // bình luận @nhắc agent
+        expect(find.text('Codex đã xong · 7 bước'), findsOneWidget); // bình luận @nhắc agent
         await shot(t, 'd5-task-$sfx');
         await done(t, s);
       });
@@ -747,8 +751,8 @@ void main() {
       final s = await pump(t, project: 'RA');
       await openTaskPage(t, s, 'RA-32');
       // Bình luận đã @nhắc agent: dòng trạng thái + Mở phiên (phiên lấy từ lượt chạy của việc).
-      expect(find.text('Codex đã trả lời'), findsOneWidget);
-      expect(find.text('Claude đang xử lý…'), findsOneWidget);
+      expect(find.text('Codex đã xong · 7 bước'), findsOneWidget);
+      expect(find.text('Claude đang xử lý… · 4 bước'), findsOneWidget);
       expect(find.byKey(const ValueKey('runline-open-b-codex')), findsOneWidget);
       await t.ensureVisible(find.byKey(const ValueKey('comment-send')));
       await t.pump();
@@ -766,6 +770,42 @@ void main() {
       final runs = ((be.bodies['POST /tw/api/tasks/t-32/comments']!['blocks'] as List).first as Map)['r'] as List;
       expect(runs.any((r) => (r as Map)['m'] != null && r['m']['k'] == 'agent' && r['m']['id'] == 'b-claude'), isTrue);
       expect(find.byKey(const ValueKey('agent-hint')), findsNothing);
+      await done(t, s);
+    });
+
+    testWidgets('tiến độ trực tiếp: bước + chữ đang viết (bảng) dưới bình luận; xong thì thu gọn; cập nhật theo run_progress', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-32');
+      // Lượt @nhắc đang chạy: 4 bước, chữ đang viết có bảng.
+      expect(find.text('Claude đang xử lý… · 4 bước'), findsOneWidget);
+      expect(find.text('🔓 Chạy không cần duyệt (chủ bot)'), findsOneWidget);
+      expect(find.text('Viết docs/api-ton-kho.md'), findsOneWidget);
+      expect(find.byKey(const ValueKey('run-text-r-c4')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const ValueKey('run-text-r-c4')), matching: find.byKey(const ValueKey('tw-table'))), findsOneWidget);
+      // Lượt Bắt đầu trong thẻ agent: ai xem cũng thấy, ghi rõ chế độ thường.
+      expect(find.text('Chạy chế độ thường (người giao không phải chủ bot)'), findsOneWidget);
+      await t.scrollUntilVisible(find.byKey(const ValueKey('run-text-r-c4')), 100, scrollable: find.descendant(of: find.byKey(const ValueKey('right-col')), matching: find.byType(Scrollable)).first);
+      await shot(t, 'd5i-agent-streaming');
+      // Lượt đã xong: thu gọn, bấm để xem các bước.
+      expect(find.text('Codex đã xong · 7 bước'), findsOneWidget);
+      expect(find.text('Chạy lại bun test: 14/14 đạt'), findsNothing);
+      await t.ensureVisible(find.byKey(const ValueKey('run-toggle-r-old')));
+      await t.tap(find.byKey(const ValueKey('run-toggle-r-old')));
+      await t.pump();
+      expect(find.text('Chạy lại bun test: 14/14 đạt'), findsOneWidget);
+      await shot(t, 'd5j-agent-done');
+      // run_progress → tải lại tiến độ.
+      (be.progress['r-c4']!['progress'] as Map)['steps'].add({'id': 's4', 'kind': 'tool', 'title': 'Thêm phần mã lỗi', 'status': 'running', 'at': 5});
+      s.debugEvent({'type': 'run_progress', 'id': 'r-c4', 'task_id': 't-32', 'project_id': 'p-ra', 'seq': 6});
+      await settle(t, 8);
+      expect(find.text('Claude đang xử lý… · 5 bước'), findsOneWidget);
+      expect(find.text('Thêm phần mã lỗi'), findsOneWidget);
+      // Xong: chuyển thành dòng thu gọn.
+      be.progress['r-c4']!['state'] = 'review';
+      s.debugEvent({'type': 'run_progress', 'id': 'r-c4', 'task_id': 't-32', 'project_id': 'p-ra', 'seq': 7});
+      await settle(t, 8);
+      expect(find.text('Claude đã xong · 5 bước'), findsOneWidget);
+      expect(find.byKey(const ValueKey('run-text-r-c4')), findsNothing);
       await done(t, s);
     });
 

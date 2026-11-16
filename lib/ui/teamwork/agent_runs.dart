@@ -27,12 +27,15 @@ class AppAgentLauncher implements TwAgentLauncher {
   }
 
   @override
-  Future<String> launch(String botId, String title, String brief) async {
+  Future<bool> isOwnerOf(String botId) async => (await state.myBotIds()).contains(botId);
+
+  @override
+  Future<String> launch(String botId, String title, String brief, {Map<String, dynamic> props = const {}}) async {
     final dm = await state.openDirect(botId);
     final group = state.channels[dm];
     if (group == null) throw StateError('Không mở được chat với agent');
     final c = await state.createAiChannel(group, [botId], title: title);
-    await state.send(c.id, brief, props: {'flygo_app': 'vn.flygo.teamwork'});
+    await state.send(c.id, brief, props: {'flygo_app': 'vn.flygo.teamwork', ...props});
     return c.id;
   }
 
@@ -54,8 +57,8 @@ class AppAgentLauncher implements TwAgentLauncher {
   }
 
   @override
-  Future<void> post(String channelId, String text) async {
-    await state.send(channelId, text, props: {'flygo_app': 'vn.flygo.teamwork'});
+  Future<void> post(String channelId, String text, {Map<String, dynamic> props = const {}}) async {
+    await state.send(channelId, text, props: {'flygo_app': 'vn.flygo.teamwork', ...props});
   }
 
   @override

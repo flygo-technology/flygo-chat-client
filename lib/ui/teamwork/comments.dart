@@ -13,6 +13,7 @@ import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
 import 'rich_mentions.dart';
+import 'run_progress.dart';
 import 'store.dart';
 
 /// Dãy cảm xúc (bấm để thả / gỡ) + nút thêm cảm xúc.
@@ -313,40 +314,11 @@ class TwCommentsState extends State<TwComments> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Wrap(spacing: 6, runSpacing: 6, children: [for (final a in c.attachments) AttachmentChip(a: a, store: store)]),
               ),
-            for (final r in c.runs) _runLine(r, look),
+            for (final r in c.runs)
+              TwRunProgress(key: ValueKey('rp-${r.id}-${r.botId}'), store: store, runId: r.id, botId: r.botId, botName: r.botName, state: r.state, session: r.sessionChannel ?? widget.sessions[r.botId]),
             if (!c.deleted) Padding(padding: const EdgeInsets.only(top: 6), child: ReactionRow(reactions: c.reactions, me: store.meId, keyPrefix: 'crx-${c.id}', onToggle: (e) => _react(c, e))),
           ]),
         ),
-      ]),
-    );
-  }
-
-  /// Trạng thái agent mà bình luận này @nhắc: đang xử lý / đã trả lời / gặp lỗi, kèm "Mở phiên".
-  Widget _runLine(TwRun r, TwLook look) {
-    final name = r.botName.isEmpty ? (store.agent(r.botId)?.name ?? 'Agent') : r.botName;
-    final (text, color, busy) = switch (r.state) {
-      'queued' || 'running' => ('$name đang xử lý…', look.ai, true),
-      'review' || 'done' => ('$name đã trả lời', look.ok, false),
-      'cancelled' => ('$name đã dừng', look.sub, false),
-      _ => ('$name gặp lỗi${r.error == null ? '' : ': ${r.error}'}', look.red, false),
-    };
-    return Padding(
-      key: ValueKey('runline-${r.botId}'),
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(children: [
-        if (busy)
-          SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: color))
-        else
-          Icon(r.state == 'review' || r.state == 'done' ? Icons.check_circle_outline : Icons.error_outline, size: 14, color: color),
-        const SizedBox(width: 6),
-        Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600))),
-        if ((r.sessionChannel ?? widget.sessions[r.botId]) != null && store.launcher != null)
-          TextButton(
-            key: ValueKey('runline-open-${r.botId}'),
-            style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8)),
-            onPressed: () => store.launcher!.open((r.sessionChannel ?? widget.sessions[r.botId])!),
-            child: const Text('Mở phiên'),
-          ),
       ]),
     );
   }
