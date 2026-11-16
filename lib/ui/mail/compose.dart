@@ -19,7 +19,7 @@ import 'widgets.dart';
 
 /// Dữ liệu mở khung soạn (thư mới, trả lời, chuyển tiếp, mở bản nháp).
 class ComposeArgs {
-  const ComposeArgs({this.to = const [], this.cc = const [], this.subject = '', this.body = '', this.quote, this.threadId, this.draftId, this.attachments = const [], this.kind = 'new', this.runs});
+  const ComposeArgs({this.to = const [], this.cc = const [], this.subject = '', this.body = '', this.quote, this.threadId, this.draftId, this.attachments = const [], this.kind = 'new', this.runs, this.targets = const {}});
   final List<MailPerson> to, cc;
   final String subject;
   /// Nội dung có sẵn (chữ thuần, vd thư AI soạn).
@@ -32,6 +32,10 @@ class ComposeArgs {
   final List<MailAttachment> attachments;
   /// new | reply | all | fwd | draft
   final String kind;
+  /// Người nhận cho từng kiểu trả lời ('reply' | 'all' -> (to, cc)), để đổi ngay trong khung soạn trước khi gửi.
+  final Map<String, (List<MailPerson>, List<MailPerson>)> targets;
+
+  ComposeArgs withBody(String b) => ComposeArgs(to: to, cc: cc, subject: subject, body: b, quote: quote, threadId: threadId, draftId: draftId, attachments: attachments, kind: kind, runs: runs, targets: targets);
 }
 
 class ComposeController extends ChangeNotifier {
@@ -51,7 +55,26 @@ class ComposeController extends ChangeNotifier {
   final TextEditingController subject;
   final MailRichController body;
   String? draftId;
+  /// Kiểu trả lời đang chọn ('reply' | 'all'); đổi bằng [setMode].
+  late String mode = args.kind;
   bool showCc, showBcc = false, minimized = false, maximized = false, sending = false, quoteShown = false;
+
+  bool get canSwitchMode => args.targets.containsKey('reply') && args.targets.containsKey('all');
+
+  /// Trả lời / Trả lời tất cả: thay danh sách người nhận theo kiểu đã chọn.
+  void setMode(String m) {
+    final t = args.targets[m];
+    if (t == null || m == mode) return;
+    mode = m;
+    to
+      ..clear()
+      ..addAll(t.$1);
+    cc
+      ..clear()
+      ..addAll(t.$2);
+    if (cc.isNotEmpty) showCc = true;
+    changed();
+  }
   String savedNote = '';
   int uploading = 0;
   Timer? _t;
@@ -189,6 +212,10 @@ class ComposeBody extends StatefulWidget {
 class _ComposeBodyState extends State<ComposeBody> {
   ComposeController get c => widget.c;
   bool _fmt = true;
+  // "Sửa bằng AI": ô lệnh dưới thân thư; AI viết lại nội dung đang soạn (không tự gửi), có hoàn tác.
+  bool _aiOpen = false, _aiBusy = false;
+  final _aiCmd = TextEditingController();
+  List<TRun>? _aiUndo;
   final _bodyFocus = FocusNode();
 
   @override
@@ -202,7 +229,86 @@ class _ComposeBodyState extends State<ComposeBody> {
   void dispose() {
     c.removeListener(_upd);
     _bodyFocus.dispose();
+    _aiCmd.dispose();
     super.dispose();
+  }
+
+  Future<void> _aiRevise() async {
+    if (_aiBusy) return;
+    setState(() => _aiBusy = true);
+    try {
+      final r = await c.api.aiRevise(threadId: c.args.threadId, draft: c.body.body, instruction: _aiCmd.text.trim());
+      if (!mounted) return;
+      if (r.draft.trim().isEmpty) {
+        _report('AI chưa sửa được, thử lại sau');
+      } else {
+        _aiUndo = c.body.runs;
+        c.body.setBody([TRun(r.draft)]);
+        _aiCmd.clear();
+        c.changed();
+      }
+    } catch (e) {
+      if (mounted) _report('AI lỗi: $e');
+    }
+    if (mounted) setState(() => _aiBusy = false);
+  }
+
+  void _aiUndoNow() {
+    final u = _aiUndo;
+    if (u == null) return;
+    c.body.setBody(u);
+    _aiUndo = null;
+    c.changed();
+  }
+
+  Widget _aiBar(MailColors mc) => Container(
+        key: const ValueKey('mail-ai-revise'),
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        decoration: BoxDecoration(color: mc.accentSoft.withValues(alpha: .55), borderRadius: BorderRadius.circular(20)),
+        child: Row(children: [
+          Icon(Icons.auto_awesome, size: 18, color: mc.accentText),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _aiCmd,
+              enabled: !_aiBusy,
+              autofocus: true,
+              onSubmitted: (_) => _aiRevise(),
+              style: const TextStyle(fontSize: 13.5),
+              decoration: const InputDecoration(isDense: true, border: InputBorder.none, hintText: 'Bảo AI sửa thư: ngắn gọn hơn, thêm lời xin lỗi, dịch sang tiếng Anh…'),
+            ),
+          ),
+          if (_aiUndo != null && !_aiBusy) TextButton(onPressed: _aiUndoNow, child: const Text('Hoàn tác')),
+          _aiBusy
+              ? const Padding(padding: EdgeInsets.all(10), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
+              : IconButton(tooltip: 'AI sửa', visualDensity: VisualDensity.compact, icon: Icon(Icons.send, size: 18, color: mc.accentText), onPressed: _aiRevise),
+          IconButton(tooltip: 'Đóng', visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _aiOpen = false)),
+        ]),
+      );
+
+  Widget _modeMenu(MailColors mc) {
+    const labels = {'reply': 'Trả lời', 'all': 'Trả lời tất cả'};
+    return PopupMenuButton<String>(
+      key: const ValueKey('mail-reply-mode'),
+      tooltip: 'Chọn kiểu trả lời',
+      initialValue: c.mode,
+      onSelected: c.setMode,
+      itemBuilder: (_) => [
+        for (final e in labels.entries)
+          PopupMenuItem(value: e.key, child: Row(children: [Icon(e.key == 'all' ? Icons.reply_all : Icons.reply, size: 18), const SizedBox(width: 10), Text(e.value)])),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: mc.line)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(c.mode == 'all' ? Icons.reply_all : Icons.reply, size: 18, color: mc.text),
+          const SizedBox(width: 6),
+          Text(labels[c.mode] ?? 'Trả lời', style: TextStyle(fontSize: 13, color: mc.text)),
+          Icon(Icons.arrow_drop_down, size: 18, color: mc.muted),
+        ]),
+      ),
+    );
   }
 
   void _upd() {
@@ -462,6 +568,7 @@ class _ComposeBodyState extends State<ComposeBody> {
               if (c.uploading > 0) const SizedBox(width: 60, height: 30, child: Center(child: LinearProgressIndicator())),
             ]),
           ),
+        if (_aiOpen) _aiBar(mc),
         if (_fmt)
           Align(
             alignment: Alignment.centerLeft,
@@ -499,8 +606,16 @@ class _ComposeBodyState extends State<ComposeBody> {
               ),
               const SizedBox(width: 8),
             ],
+            if (c.canSwitchMode) ...[_modeMenu(mc), const SizedBox(width: 4)],
             IconButton(tooltip: 'Tuỳ chọn định dạng', isSelected: _fmt, icon: const Icon(Icons.text_format), onPressed: () => setState(() => _fmt = !_fmt)),
             if (!widget.phone) IconButton(tooltip: 'Đính kèm tệp', icon: const Icon(Icons.attach_file), onPressed: _attach),
+            IconButton(
+              key: const ValueKey('mail-ai-revise-btn'),
+              tooltip: 'Sửa bằng AI',
+              isSelected: _aiOpen,
+              icon: Icon(Icons.auto_awesome, color: mc.accentText),
+              onPressed: () => setState(() => _aiOpen = !_aiOpen),
+            ),
             const Spacer(),
             Text(c.savedNote, style: TextStyle(fontSize: 12, color: mc.muted)),
             IconButton(tooltip: 'Huỷ bản nháp', icon: const Icon(Icons.delete_outline), onPressed: _discard),
@@ -818,12 +933,11 @@ String quoteHtml(String kind, MailMessage m, String subject) {
 /// Thư mới / trả lời / chuyển tiếp từ thư [m] của cuộc hội thoại [t].
 ComposeArgs replyArgs(String kind, MailThread t, MailMessage m, String myEmail) {
   final fromMe = m.from.email == myEmail;
+  final one = (fromMe ? m.to : [m.from], <MailPerson>[]);
+  final all = (fromMe ? m.to : [m.from, ...m.to.where((p) => p.email != myEmail)], m.cc.where((p) => p.email != myEmail).toList());
   var to = <MailPerson>[], cc = <MailPerson>[];
-  if (kind == 'reply') to = fromMe ? m.to : [m.from];
-  if (kind == 'all') {
-    to = fromMe ? m.to : [m.from, ...m.to.where((p) => p.email != myEmail)];
-    cc = m.cc.where((p) => p.email != myEmail).toList();
-  }
+  if (kind == 'reply') (to, cc) = one;
+  if (kind == 'all') (to, cc) = all;
   final base = t.summary.subject.replaceFirst(RegExp(r'^((re|fwd?|tl|tr):\s*)+', caseSensitive: false), '');
   return ComposeArgs(
     to: to,
@@ -833,6 +947,7 @@ ComposeArgs replyArgs(String kind, MailThread t, MailMessage m, String myEmail) 
     threadId: kind == 'fwd' ? null : t.summary.id,
     attachments: kind == 'fwd' ? m.attachments : const [],
     kind: kind,
+    targets: kind == 'fwd' ? const {} : {'reply': one, 'all': all},
   );
 }
 

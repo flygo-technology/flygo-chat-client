@@ -46,6 +46,9 @@ abstract class MailApi {
   /// AI chỉ soạn nháp, không bao giờ tự gửi.
   Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) =>
       throw MailException(501, 'Máy chủ thư chưa hỗ trợ AI');
+  /// AI sửa bản nháp đang soạn theo lệnh (không gửi). [threadId] = hội thoại đang trả lời (bối cảnh).
+  Future<MailAiResult> aiRevise({String? threadId, required String draft, String instruction = ''}) =>
+      throw MailException(501, 'Máy chủ thư chưa hỗ trợ AI');
   /// AI tóm tắt việc cần làm từ các thư chưa đọc của hộp đang xem.
   Future<MailDigest> aiDigest() => throw MailException(501, 'Máy chủ thư chưa hỗ trợ AI');
   /// Kênh realtime (null = backend không có: màn hình tự tải lại định kỳ).
@@ -176,6 +179,10 @@ class HttpMailApi extends MailApi {
   @override
   Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) async =>
       MailAiResult.fromJson(await _post('/ai', {'threadId': threadId, 'task': task, if (instruction.isNotEmpty) 'instruction': instruction, if (tone.isNotEmpty) 'tone': tone}) as Map);
+
+  @override
+  Future<MailAiResult> aiRevise({String? threadId, required String draft, String instruction = ''}) async => MailAiResult.fromJson(
+      await _post('/ai', {'task': 'revise', 'draft': draft, 'threadId': ?threadId, if (instruction.isNotEmpty) 'instruction': instruction}) as Map);
 
   @override
   Future<MailDigest> aiDigest() async => MailDigest.fromJson(await _post('/ai/digest', {}) as Map);
