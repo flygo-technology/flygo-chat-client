@@ -30,7 +30,7 @@ export interface LegacyService {
   /** Windows: tác vụ Task Scheduler ("task") hay khoá Run của người dùng ("run", máy không có quyền quản trị); cmd = lệnh chạy. */
   win?: { kind: "task" | "run"; cmd: string; xml?: string };
 }
-export interface PlanBot { key: string; config: string; server: string; engine: string; owner: string; service?: LegacyService }
+export interface PlanBot { key: string; config: string; server: string; engine: string; owner: string; service?: LegacyService; /** Đã có trong runner.json nhưng enabled:false (lần gộp trước trả về dịch vụ cũ) mà dịch vụ cũ còn chạy: bật lại. */ reenable?: boolean }
 export interface Plan {
   bots: PlanBot[];
   skipped: { config: string; key: string; reason: string }[];
@@ -131,7 +131,7 @@ export function buildPlan(o: { onlyServer?: string; exclude?: string[]; owners?:
   for (const s of services) if (!configs.includes(s.config) && existsSync(s.config)) configs.push(s.config);
   const plan: Plan = { bots: [], skipped: [], owners: { ...(o.existing?.owners ?? {}) }, runnerJson: MACHINE_CONFIG };
   for (const [k, v] of Object.entries(o.owners ?? {})) plan.owners[normServer(k)] = v;
-  const have = new Set<string>((o.existing?.bots ?? []).map((b: any) => b.key));
+  const have = new Map<string, any>((o.existing?.bots ?? []).map((b: any) => [b.key, b]));
   const cand: PlanBot[] = [];
   for (const config of configs) {
     const key = keyOf(config);
@@ -143,8 +143,9 @@ export function buildPlan(o: { onlyServer?: string; exclude?: string[]; owners?:
     if (!raw.botToken || !server || !raw.engine) { plan.skipped.push({ config, key, reason: "cấu hình thiếu serverUrl / botToken / engine" }); continue; }
     if (o.onlyServer && server !== normServer(o.onlyServer)) { plan.skipped.push({ config, key, reason: `khác máy chủ (${server})` }); continue; }
     if (o.exclude?.includes(key)) { plan.skipped.push({ config, key, reason: "bị loại (--exclude)" }); continue; }
-    if (have.has(key)) { plan.skipped.push({ config, key, reason: "đã có trong runner.json" }); continue; }
-    cand.push({ key, config, server, engine: raw.engine, owner: String(raw.ownerUserIds?.[0] ?? ""), service: svc });
+    const prev = have.get(key);
+    if (prev && prev.enabled !== false) { plan.skipped.push({ config, key, reason: "đã có trong runner.json" }); continue; }
+    cand.push({ key, config, server, engine: raw.engine, owner: String(raw.ownerUserIds?.[0] ?? ""), service: svc, ...(prev ? { reenable: true } : {}) });
   }
   // Chủ runner theo từng máy chủ: lấy từ --owner / runner.json sẵn có; không có thì người chủ của các bot cũ, nếu tất cả cùng một người.
   for (const server of new Set(cand.map((c) => c.server))) {
@@ -208,7 +209,7 @@ function enableService(s: LegacyService) {
 
 const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 13);
 
-export async function migrate(o: { selfCommand: string[]; dryRun?: boolean; onlyServer?: string; exclude?: string[]; owners?: Record<string, string>; verifyMs?: number; log: (s: string) => void }) {
+export async function migrate(o: { selfCommand: string[]; dryRun?: boolean; onlyServer?: string; exclude?: string[]; owners?: Record<string, string>; verifyMs?: number; maxWaitMs?: number; log: (s: string) => void }) {
   const existing = existsSync(MACHINE_CONFIG) ? JSON.parse(readFileSync(MACHINE_CONFIG, "utf8")) : null;
   const plan = buildPlan({ onlyServer: o.onlyServer, exclude: o.exclude, owners: o.owners, existing });
   if (o.dryRun || !plan.bots.length) return { ok: true, dryRun: !!o.dryRun, plan: redactPlan(plan) };
@@ -236,7 +237,9 @@ export async function migrate(o: { selfCommand: string[]; dryRun?: boolean; only
   mc.owners = { ...(mc.owners ?? {}), ...plan.owners };
   for (const b of plan.bots) {
     const raw = JSON.parse(readFileSync(b.config, "utf8"));
-    mc.bots.push({ key: b.key, ...raw, migratedFrom: b.config });
+    const i = mc.bots.findIndex((x: any) => x.key === b.key);
+    if (b.reenable && i >= 0) mc.bots[i] = { ...mc.bots[i], ...raw, key: b.key, enabled: true, migratedFrom: b.config };
+    else mc.bots.push({ key: b.key, ...raw, migratedFrom: b.config });
   }
   writeJson(MACHINE_CONFIG, mc);
 
@@ -247,7 +250,8 @@ export async function migrate(o: { selfCommand: string[]; dryRun?: boolean; only
   o.log("đã cài dịch vụ runner chung");
 
   // 4. kiểm: bot nào không lên thì trả về dịch vụ cũ
-  const failed = await verify(plan.bots.map((b) => b.key), o.verifyMs ?? 90_000);
+  const { failed, pending } = await verify(plan.bots.map((b) => b.key), o.verifyMs ?? 90_000, o.maxWaitMs ?? 10 * 60_000, o.log);
+  if (pending.length) o.log(`chưa lên nhưng giữ trong runner chung (runner tự thử lại): ${pending.join(", ")}`);
   if (failed.length) {
     const cur = JSON.parse(readFileSync(MACHINE_CONFIG, "utf8"));
     for (const b of cur.bots) if (failed.some((f) => f.key === b.key)) b.enabled = false;
@@ -255,23 +259,30 @@ export async function migrate(o: { selfCommand: string[]; dryRun?: boolean; only
     await Bun.sleep(2000);
     for (const f of failed) { const b = plan.bots.find((x) => x.key === f.key)!; enableService(b.service!); o.log(`bot ${f.key} không lên trong runner chung (${f.why}): bật lại dịch vụ cũ`); }
   }
-  return { ok: failed.length === 0, backup: dir, plan: redactPlan(plan), failed };
+  return { ok: failed.length === 0, backup: dir, plan: redactPlan(plan), failed, pending };
 }
 
-async function verify(keys: string[], ms: number): Promise<{ key: string; why: string }[]> {
+/** Chờ bot lên trong runner chung. Chỉ bot lỗi VĨNH VIỄN (phase "error": token hỏng, khác chủ, cấu hình sai…) mới bị trả
+ *  về dịch vụ cũ. Bot còn "starting" / "waiting" (máy chủ chat tạm lỗi 5xx / 530 / mất mạng) thì chờ thêm tới maxMs;
+ *  hết giờ vẫn để trong runner chung (runner tự thử lại), không trả về: dịch vụ cũ cũng sẽ gặp đúng lỗi mạng đó. */
+async function verify(keys: string[], ms: number, maxMs = 10 * 60_000, log?: (s: string) => void): Promise<{ failed: { key: string; why: string }[]; pending: string[] }> {
   const t0 = Date.now();
   let last: any = null;
-  while (Date.now() - t0 < ms) {
+  let noted = false;
+  const phase = (k: string) => last?.bots?.find((b: any) => b.key === k)?.phase;
+  while (Date.now() - t0 < maxMs) {
     await Bun.sleep(3000);
     last = await ctl("status").catch(() => null);
-    if (!last?.bots) continue;
-    const bad = keys.filter((k) => last.bots.find((b: any) => b.key === k)?.phase !== "running");
-    if (!bad.length) return [];
-    // lỗi vĩnh viễn thì khỏi chờ
-    if (bad.every((k) => last.bots.find((b: any) => b.key === k)?.phase === "error")) break;
+    if (!last?.bots) { if (Date.now() - t0 > ms) break; continue; } // runner chung không trả lời sau ms: coi như hỏng
+    const bad = keys.filter((k) => phase(k) !== "running");
+    if (!bad.length) return { failed: [], pending: [] };
+    if (bad.every((k) => phase(k) === "error")) break;
+    if (Date.now() - t0 > ms && !noted) { noted = true; log?.(`chờ thêm: ${bad.filter((k) => phase(k) !== "error").join(", ")} chưa nối được máy chủ chat (có thể máy chủ tạm lỗi)`); }
   }
-  return keys.filter((k) => last?.bots?.find((b: any) => b.key === k)?.phase !== "running")
+  const failed = keys.filter((k) => last?.bots ? phase(k) === "error" || !phase(k) : true)
     .map((k) => { const b = last?.bots?.find((x: any) => x.key === k); return { key: k, why: b?.error?.message ?? b?.phase ?? "runner chung không trả lời" }; });
+  const pending = keys.filter((k) => last?.bots && phase(k) && phase(k) !== "running" && phase(k) !== "error");
+  return { failed, pending };
 }
 
 export async function rollback(o: { from?: string; log: (s: string) => void }) {
@@ -300,7 +311,7 @@ function writeJson(path: string, v: any) {
 
 const redactPlan = (p: Plan) => ({
   runnerJson: p.runnerJson, owners: p.owners,
-  bots: p.bots.map((b) => ({ key: b.key, server: b.server, engine: b.engine, config: b.config, service: b.service?.name })),
+  bots: p.bots.map((b) => ({ key: b.key, server: b.server, engine: b.engine, config: b.config, service: b.service?.name, ...(b.reenable ? { reenable: true } : {}) })),
   skipped: p.skipped,
 });
 

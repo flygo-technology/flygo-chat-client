@@ -36,4 +36,7 @@ test("kế hoạch gộp: chỉ bot của chủ runner, có dịch vụ đang b�
   expect(p.bots.map((b) => b.key).sort()).toEqual(["default", "sep"]);
   p = buildPlan({ dir: d, services, owners: { "https://chat.a.example": "uA" }, existing: { owners: {}, bots: [{ key: "sep" }] } });
   expect(p.skipped.find((s) => s.key === "sep")!.reason).toContain("đã có");
+  // Lần gộp trước trả về dịch vụ cũ (enabled:false) mà dịch vụ cũ còn chạy: lần sau bật lại
+  p = buildPlan({ dir: d, services, owners: { "https://chat.a.example": "uA" }, existing: { owners: {}, bots: [{ key: "sep", enabled: false }] } });
+  expect(p.bots.find((b) => b.key === "sep")!.reenable).toBe(true);
 });

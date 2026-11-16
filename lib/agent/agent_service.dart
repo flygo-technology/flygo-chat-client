@@ -602,7 +602,7 @@ class AgentService extends ChangeNotifier {
     final plan = await _json(['migrate', '--dry-run', '--json']);
     final bots = ((plan?['plan'] as Map?)?['bots'] as List?) ?? const [];
     if (bots.isEmpty) return;
-    final r = await Process.run(bin, ['migrate', '--json']).timeout(const Duration(minutes: 4));
+    final r = await Process.run(bin, ['migrate', '--json']).timeout(const Duration(minutes: 12));
     debugPrint('[agent] gộp runner: ${r.stdout.toString().trim().split('\n').last}');
   }
 }
