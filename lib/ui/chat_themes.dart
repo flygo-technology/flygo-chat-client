@@ -127,13 +127,51 @@ Future<String?> pickChatTheme(BuildContext context, String? current) => showModa
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       builder: (ctx) {
         final pal = Pal.of(ctx);
-        final dark = Theme.of(ctx).brightness == Brightness.dark;
-        Widget tile(ChatTheme? t) {
-          final on = (t?.id ?? '') == (current ?? '');
+        return SizedBox(
+          height: MediaQuery.sizeOf(ctx).height * .75,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text(tr('Giao diện chat'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text(tr('Đổi cho mọi người trong cuộc trò chuyện này. Mỗi giao diện tự đổi theo chế độ ngày / đêm của máy.'),
+                  style: TextStyle(color: pal.sub, fontSize: 13)),
+            ),
+            Expanded(child: ChatThemeGrid(current: current, onPick: (id) => Navigator.pop(ctx, id))),
+          ]),
+        );
+      },
+    );
+
+/// Lưới các giao diện chat (dùng ở bảng chọn và tab "Màu chat"); [onPick] nhận id (chuỗi rỗng = mặc định).
+class ChatThemeGrid extends StatefulWidget {
+  final String? current;
+  final ValueChanged<String> onPick;
+  const ChatThemeGrid({super.key, this.current, required this.onPick});
+  @override
+  State<ChatThemeGrid> createState() => _ChatThemeGridState();
+}
+
+class _ChatThemeGridState extends State<ChatThemeGrid> {
+  late String? _current = widget.current;
+
+  void _pick(String id) {
+    setState(() => _current = id);
+    widget.onPick(id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    Widget tile(ChatTheme? t) {
+          final on = (t?.id ?? '') == (_current ?? '');
           final c = t?.colors(dark);
           final bg = c?.bg ?? pal.chatBg, fg = c?.fg ?? pal.text;
           return GestureDetector(
-            onTap: () => Navigator.pop(ctx, t?.id ?? ''),
+            onTap: () => _pick(t?.id ?? ''),
             child: Container(
               decoration: BoxDecoration(
                 color: bg,
@@ -168,32 +206,16 @@ Future<String?> pickChatTheme(BuildContext context, String? current) => showModa
           );
         }
 
-        return SizedBox(
-          height: MediaQuery.sizeOf(ctx).height * .75,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-              child: Text(tr('Giao diện chat'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-              child: Text(tr('Đổi cho mọi người trong cuộc trò chuyện này. Mỗi giao diện tự đổi theo chế độ ngày / đêm của máy.'),
-                  style: TextStyle(color: pal.sub, fontSize: 13)),
-            ),
-            Expanded(
-              child: GridView.count(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                crossAxisCount: 3,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: .95,
-                children: [tile(null), for (final t in chatThemes) tile(t)],
-              ),
-            ),
-          ]),
-        );
-      },
+    return GridView.count(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      crossAxisCount: 3,
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: .95,
+      children: [tile(null), for (final t in chatThemes) tile(t)],
     );
+  }
+}
 
 /// Sửa banner (chữ + màu nền). Trả về banner mới; text rỗng = bỏ banner; null = huỷ.
 Future<({String color, String text})?> editBanner(BuildContext context, ({String color, String text})? cur) {

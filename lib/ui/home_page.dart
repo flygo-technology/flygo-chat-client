@@ -40,6 +40,9 @@ import 'mcp_page.dart';
 import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
+import '../api/mini_apps.dart' show MiniApps;
+import 'season/appearance_pages.dart' show openAppearanceAdmin;
+import 'season/season_state.dart';
 import 'password_page.dart';
 import 'call_history.dart';
 import 'bot_page.dart';
@@ -318,7 +321,7 @@ class _HomePageState extends State<HomePage> {
       if (mounted && ok != _usersAdmin) setState(() => _usersAdmin = ok);
     });
     id.myAdmin().then((apps) {
-      if (mounted) setState(() => _adminApps = [for (final a in apps) if ((a['url'] is String && a['native'] == null) || a['native'] == 'mail-admin') a]);
+      if (mounted) setState(() => _adminApps = [for (final a in apps) if ((a['url'] is String && a['native'] == null) || a['native'] == 'mail-admin' || a['native'] == 'appearance-admin') a]);
     }).catchError((_) {
       _adminAskedFor = null;
     });
@@ -334,6 +337,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openAdmin(Map<String, dynamic> a) async {
     if (a['app'] == kKysoExtensionId) return KysoApi.openAdmin(context);
     if (a['native'] == 'mail-admin') return openMailAdmin(context);
+    if (a['native'] == 'appearance-admin') return openAppearanceAdmin(context);
     final u = Uri.tryParse('${a['url']}');
     if (u != null) await launchUrl(u, mode: LaunchMode.externalApplication);
   }
@@ -1238,6 +1242,8 @@ class _HomePageState extends State<HomePage> {
           ]),
         ),
         // Điện thoại: sự kiện Lịch sắp tới (đếm ngược) ở đầu trang, ẩn khi không có (Sếp, 2026-11-17).
+        // Banner mùa lễ (Giáng sinh: đếm ngược tới 24/12), ngay trên dải "Sắp diễn ra".
+        if (phone) const SeasonBanner(),
         if (phone) UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), compact: true),
         // Mục Chính: Chat, Trợ lý, Quy trình và Trình chiếu (mini app của máy chủ, tải về sau).
         MiniAppsSection(
@@ -1319,8 +1325,13 @@ class _HomePageState extends State<HomePage> {
                     // Máy tính: mở thành tab mới (danh sách + chi tiết hai cột); điện thoại: mở trang.
                     () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => UsersAdminPage(id: KysoApi.flygoId!)))),
               for (final a in _adminApps)
-                appTile(Icon(a['native'] == 'mail-admin' ? Icons.mark_email_read_rounded : Icons.admin_panel_settings_rounded, color: Colors.white, size: 32),
-                    a['app'] == kKysoExtensionId ? const Color(0xFF7C3AED) : a['native'] == 'mail-admin' ? const Color(0xFF1E7BFF) : const Color(0xFF475569), _adminLabel(a), 0, () => _openAdmin(a)),
+                appTile(
+                    Icon(switch (a['native']) { 'mail-admin' => Icons.mark_email_read_rounded, 'appearance-admin' => Icons.palette_rounded, _ => Icons.admin_panel_settings_rounded },
+                        color: Colors.white, size: 32),
+                    a['app'] == kKysoExtensionId
+                        ? const Color(0xFF7C3AED)
+                        : switch (a['native']) { 'mail-admin' => const Color(0xFF1E7BFF), 'appearance-admin' => const Color(0xFFC62828), _ => const Color(0xFF475569) },
+                    _adminLabel(a), 0, () => _openAdmin(a)),
             ]),
           ],
           // "Cập nhật" đã có trong thẻ người dùng (Kiểm tra cập nhật). Điện thoại: ô "Hồ sơ" (ảnh của mình) mở trang hồ sơ
@@ -1332,6 +1343,11 @@ class _HomePageState extends State<HomePage> {
                   () => (nav() ?? Navigator.of(context)).push(AppPageRoute(
                       builder: (_) => AppsProfilePage(onProfile: () => showEditProfile(context), onSettings: () => _openProfile(nav())))),
                   circle: true),
+            // App cá nhân của Flygo ID (features.personal, vd Giao diện): ngay sau Hồ sơ.
+            if (title == tr('Cá nhân'))
+              for (final a in MiniApps.cached)
+                if (a.feature('personal') && a.nativeScreen != null)
+                  appTile(MiniAppIcon(a, size: 34), miniAppTileColor(a), a.name, 0, () => openMiniApp(context, a)),
             for (final id in ids)
               if (id != 'update' && items[id] != null) tile(asTab(id, items[id]!)),
           ]),
@@ -1354,6 +1370,7 @@ class _HomePageState extends State<HomePage> {
               Expanded(
                 child: ListView(padding: EdgeInsets.only(top: 24 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), bottom: 16), children: [
                   card,
+                  const SeasonBanner(),
                   // Sự kiện Lịch sắp tới (đếm ngược) dưới thẻ người dùng, ẩn khi không có (Sếp, 2026-11-17).
                   UpcomingEvents(key: ValueKey('upcoming-$kServerUrl')),
                 ]),

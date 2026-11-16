@@ -11,6 +11,8 @@ import '../agent/agent_config.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'image_edit.dart';
+import 'season/season_art.dart' show SantaHat;
+import 'season/season_state.dart' show SeasonState;
 import 'theme.dart';
 
 /// Ảnh đại diện tròn. Ai chưa đặt ảnh riêng thì hiện nền màu với biểu tượng
@@ -116,8 +118,15 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final uid = userId;
+    // Mũ Noel (tháng 12, mùa Giáng sinh công ty bật): mình tắt xem mũ / chủ ảnh tắt mũ thì không đội.
+    final hat = uid != null && SeasonState.instance.hatFor(app.users[uid]?.raw, size);
+    final pic = _avatar(context, app, uid);
+    return hat ? SantaHat(size: size, child: pic) : pic;
+  }
+
+  Widget _avatar(BuildContext context, AppState app, String? uid) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final st = uid == null || !status || app.users[uid]?.isBot == true ? null : app.statuses[uid];
     if (st == null) return _picture(app, dark, size);
     final color = statusColor(st, Pal.of(context));

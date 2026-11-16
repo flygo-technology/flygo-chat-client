@@ -1,0 +1,365 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+
+import '../../api/mini_apps.dart';
+import '../../browser/flygo_id.dart';
+import '../../config.dart' show serverKey, kUserAgent;
+import '../../state/app_state.dart';
+import 'season.dart';
+import 'season_art.dart';
+
+/// App Giao diện (Flygo ID): màn hình native "appearance" (mặc định của mình) + "appearance-admin" (Quản trị).
+const kAppearanceApp = 'vn.flygo.appearance';
+
+/// Các phần của giao diện mùa lễ (khớp `features` của máy chủ appearance).
+const kSeasonFeatures = ['wallpaper', 'lights', 'hats', 'effect', 'banner'];
+
+/// Trạng thái giao diện mùa lễ + hình nền chat:
+/// - cài đặt của công ty: GET `<app>/api/seasons` (vé Flygo ID của [kAppearanceApp]); người không được dùng app thì không có gì;
+/// - lựa chọn riêng của mình: preferences `flygo_season/me` (JSON) và `flygo_wallpaper/<id kênh | _default>`;
+/// - "không đội mũ cho ảnh của mình": user props `flygo_no_hat` (người khác cần thấy).
+class SeasonState extends ChangeNotifier {
+  SeasonState._();
+  static final instance = SeasonState._();
+
+  static const kSeasonPref = 'flygo_season';
+  static const kWallpaperPref = 'flygo_wallpaper';
+  static const kDefaultKey = '_default';
+
+  /// App Giao diện của người dùng (null = không được dùng → không có mùa lễ, không có hình nền).
+  MiniApp? app;
+  /// Phản hồi GET /api/seasons gần nhất ({cfg, version, windows, can_admin, ...}).
+  Map<String, dynamic>? org;
+  /// Lựa chọn riêng (flygo_season/me).
+  Map<String, dynamic> mine = {};
+  /// id kênh / _default → mã hình nền.
+  Map<String, String> wallpapers = {};
+
+  AppState? _app;
+  Timer? _timer;
+  /// Đồng hồ (kiểm thử đặt ngày giả).
+  DateTime Function() clock = DateTime.now;
+
+  bool get available => app != null;
+  bool get canAdmin => org?['can_admin'] == true;
+
+  // ---------------------------------------------------------------- tải
+  Future<void> load(AppState state) async {
+    _app = state;
+    await _restoreCache();
+    final raw = await state.loadPrefCategory(kSeasonPref);
+    mine = _decode(raw['me']);
+    wallpapers = Map.of(await state.loadPrefCategory(kWallpaperPref));
+    notifyListeners();
+    await refresh();
+    _timer?.cancel();
+    // Khung ngày tính ở máy (qua nửa đêm tự bật / tắt); tải lại cài đặt công ty vài giờ một lần.
+    _timer = Timer.periodic(const Duration(hours: 3), (_) => refresh());
+  }
+
+  void clear() {
+    _timer?.cancel();
+    app = null;
+    org = null;
+    mine = {};
+    wallpapers = {};
+    notifyListeners();
+  }
+
+  /// Tải lại cài đặt của công ty.
+  Future<void> refresh() async {
+    final state = _app;
+    if (state == null || state.token.isEmpty) return;
+    try {
+      final apps = await MiniApps.list(state.token);
+      app = apps.where((a) => a.id == kAppearanceApp).firstOrNull;
+      if (app == null) {
+        org = null;
+        notifyListeners();
+        return;
+      }
+      org = await api('GET', '/api/seasons');
+      _saveCache();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('season: $e');
+    }
+  }
+
+  /// Gọi máy chủ Giao diện bằng vé Flygo ID.
+  Future<Map<String, dynamic>> api(String method, String path, [Object? body]) async {
+    final state = _app, a = app;
+    if (state == null || a == null) throw StateError('Giao diện chưa sẵn sàng');
+    final id = await FlygoId.current(state.token);
+    if (id == null) throw StateError('Máy chủ này chưa có Flygo ID');
+    Future<http.Response> send(bool refresh) async {
+      final req = http.Request(method, Uri.parse('${a.baseUrl.replaceAll(RegExp(r'/+$'), '')}$path'))
+        ..headers.addAll({
+          'Authorization': 'Bearer ${await id.ticket(kAppearanceApp, refresh: refresh).timeout(const Duration(seconds: 25))}',
+          'User-Agent': kUserAgent,
+          if (body != null) 'Content-Type': 'application/json',
+        });
+      if (body != null) req.body = jsonEncode(body);
+      return http.Response.fromStream(await req.send().timeout(const Duration(seconds: 30)));
+    }
+
+    var res = await send(false);
+    if (res.statusCode == 401) res = await send(true);
+    Map<String, dynamic> j = const {};
+    try {
+      j = Map<String, dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)) as Map);
+    } catch (_) {}
+    if (res.statusCode >= 400) throw SeasonException(res.statusCode, '${j['error'] ?? 'Giao diện trả lỗi ${res.statusCode}'}');
+    return j;
+  }
+
+  /// Quản trị viên lưu cài đặt của công ty (kèm version đã đọc; lệch thì máy chủ trả 409).
+  Future<void> saveOrg(Map<String, dynamic> cfg) async {
+    final r = await api('PUT', '/api/seasons', {...cfg, 'version': org?['version'] ?? 0});
+    org = r;
+    _saveCache();
+    notifyListeners();
+  }
+
+  Future<File> _cacheFile() async =>
+      File('${(await getApplicationSupportDirectory()).path}/season-${serverKey.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_')}.json');
+
+  Future<void> _restoreCache() async {
+    try {
+      final f = await _cacheFile();
+      if (f.existsSync()) org = Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
+    } catch (_) {}
+  }
+
+  void _saveCache() async {
+    try {
+      await (await _cacheFile()).writeAsString(jsonEncode(org));
+    } catch (_) {}
+  }
+
+  // ---------------------------------------------------------------- mùa đang diễn ra
+  Map<String, dynamic> get cfg => (org?['cfg'] as Map?)?.cast<String, dynamic>() ?? const {};
+
+  /// Ngày hôm nay theo giờ Việt Nam (khung ngày của máy chủ tính theo giờ VN).
+  static String _today(DateTime now) => now.toUtc().add(const Duration(hours: 7)).toIso8601String().substring(0, 10);
+
+  /// Mùa đang diễn ra (công ty đã bật và hôm nay nằm trong khung), null = không có.
+  String? activeSeason([DateTime? now]) {
+    if (!available) return null;
+    final today = _today(now ?? clock());
+    for (final w in (org?['windows'] as List? ?? const [])) {
+      if (w is! Map || w['enabled'] != true) continue;
+      final s = '${w['start']}', e = '${w['end']}';
+      if (s.compareTo(today) <= 0 && today.compareTo(e) <= 0) return '${w['id']}';
+    }
+    return null;
+  }
+
+  /// Khung ngày của một mùa (năm nay / năm sau).
+  ({String start, String end})? windowOf(String id) {
+    for (final w in (org?['windows'] as List? ?? const [])) {
+      if (w is Map && w['id'] == id) return (start: '${w['start']}', end: '${w['end']}');
+    }
+    return null;
+  }
+
+  /// Phần [feature] của mùa đang diễn ra có bật không: công ty bật sẵn + mình không tắt.
+  bool on(String feature, [DateTime? now]) {
+    final s = activeSeason(now);
+    if (s == null || mine['off'] == true) return false;
+    if (((cfg['seasons'] as Map?)?[s] as Map?)?['features']?[feature] == false) return false;
+    return mine[feature] != false;
+  }
+
+  /// "Hiệu ứng động": tuyết rơi, đèn nhấp nháy (không tính hiệu ứng một lần khi có lời chúc).
+  bool get motion => mine['motion'] != false;
+
+  /// Mũ Noel cho ảnh đại diện của [user]: chỉ tháng 12, mình bật xem mũ, chủ ảnh không tắt.
+  bool hatFor(Map<String, dynamic>? userRaw, double size) {
+    if (size < 20 || userRaw == null || userRaw['is_bot'] == true) return false;
+    if (activeSeason() != 'giangsinh' || clock().month != 12 || !on('hats')) return false;
+    return (userRaw['props'] as Map?)?['flygo_no_hat'] != 'true';
+  }
+
+  // ---------------------------------------------------------------- lựa chọn riêng
+  Map<String, dynamic> _decode(String? v) {
+    try {
+      return v == null || v.isEmpty ? {} : Map<String, dynamic>.from(jsonDecode(v) as Map);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> setMine(String key, Object? value) async {
+    final state = _app;
+    if (state?.me == null) return;
+    mine = {...mine, key: value};
+    if (value == null) mine.remove(key);
+    notifyListeners();
+    await state!.api.put('/users/${state.me!.id}/preferences', [
+      {'user_id': state.me!.id, 'category': kSeasonPref, 'name': 'me', 'value': jsonEncode(mine)}
+    ]);
+  }
+
+  /// Ảnh của mình có đội mũ không (user props, mọi người thấy).
+  bool get myHat => (_app?.me?.raw['props'] as Map?)?['flygo_no_hat'] != 'true';
+
+  Future<void> setMyHat(bool on) async {
+    final state = _app;
+    if (state?.me == null) return;
+    final props = {...?(state!.me!.raw['props'] as Map?)?.cast<String, dynamic>(), 'flygo_no_hat': on ? 'false' : 'true'};
+    final r = await state.api.put('/users/me/patch', {'props': props});
+    if (r is Map) state.me!.raw['props'] = r['props'] ?? props;
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------- hình nền
+  /// Lựa chọn riêng của chat (null = theo mặc định).
+  String? wallpaperOf(String channelId) => wallpapers[channelId];
+  String? get wallpaperDefault => wallpapers[kDefaultKey];
+
+  /// Hình nền thật dùng cho [channelId]: riêng của chat → mặc định của mình → mặc định của công ty → "theo mùa lễ".
+  /// Trả về null = nền chat thường.
+  WallpaperChoice? resolveWallpaper(String channelId, bool dark) {
+    if (!available) return null;
+    final defaults = (cfg['defaults'] as Map?) ?? const {};
+    final key = wallpapers.containsKey(channelId) ? channelId : kDefaultKey;
+    final id = wallpapers[channelId] ?? wallpapers[kDefaultKey] ?? (defaults['wallpaper'] as String?) ?? 'season';
+    if (id == 'none') return null;
+    if (id == 'season') {
+      if (!on('wallpaper') || activeSeason() != 'giangsinh') return null;
+      return WallpaperChoice(wallpaperById(dark ? 'demnoel' : 'tuyettrang')!);
+    }
+    if (id.startsWith('plain:')) {
+      final c = int.tryParse(id.substring(6), radix: 16);
+      return c == null ? null : WallpaperChoice.plain(Color(0xFF000000 | c));
+    }
+    if (id == 'photo') return WallpaperChoice.photo(key);
+    final w = wallpaperById(id);
+    return w == null ? null : WallpaperChoice(w);
+  }
+
+  /// Lưu hình nền của một chat (hoặc [kDefaultKey]); null = "Dùng mặc định" (xoá lựa chọn riêng).
+  Future<void> setWallpaper(String key, String? id) async {
+    final state = _app;
+    if (state?.me == null) return;
+    final pref = {'user_id': state!.me!.id, 'category': kWallpaperPref, 'name': key};
+    if (id == null) {
+      wallpapers.remove(key);
+      notifyListeners();
+      await state.api.post('/users/${state.me!.id}/preferences/delete', [
+        {...pref, 'value': ''}
+      ]);
+    } else {
+      wallpapers[key] = id;
+      notifyListeners();
+      await state.api.put('/users/${state.me!.id}/preferences', [
+        {...pref, 'value': id}
+      ]);
+    }
+  }
+
+  /// Ảnh nền tự chọn (lưu trên máy này): `<support>/wallpaper-<server>-<key>.img`
+  static Future<File> photoFile(String key) async => File(
+      '${(await getApplicationSupportDirectory()).path}/wallpaper-${serverKey.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_')}-${key.replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_')}.img');
+
+  // ---------------------------------------------------------------- đồng bộ từ máy khác
+  /// preferences_changed / preferences_deleted của mình (AppState chuyển sang).
+  void onPref(Map p, {required bool deleted}) {
+    final name = p['name'];
+    if (name is! String) return;
+    if (p['category'] == kWallpaperPref) {
+      deleted ? wallpapers.remove(name) : wallpapers[name] = '${p['value']}';
+      notifyListeners();
+    } else if (p['category'] == kSeasonPref && name == 'me') {
+      mine = deleted ? {} : _decode('${p['value']}');
+      notifyListeners();
+    }
+  }
+
+  // ---------------------------------------------------------------- hiệu ứng lời chúc
+  /// Hiệu ứng cho tin [text] (null = không có): theo chế độ của công ty (trộn / theo từ khoá).
+  BurstKind? effectFor(String text) {
+    if (!on('effect')) return null;
+    final eff = (cfg['effect'] as Map?) ?? const {};
+    final kws = [for (final k in (eff['keywords'] as List? ?? const [])) if (k is Map && '${k['k']}'.trim().isNotEmpty) k];
+    final low = _fold(text);
+    Map? hit;
+    for (final k in kws) {
+      if (_wordMatch(low, _fold('${k['k']}'))) {
+        hit = k;
+        break;
+      }
+    }
+    if (hit == null && !(kws.isEmpty && isXmasGreeting(text))) return null;
+    if (eff['mode'] != 'keyword' || hit == null) return BurstKind.mix;
+    return switch (hit['fx']) { 'snow' => BurstKind.snow, 'gifts' => BurstKind.gifts, _ => BurstKind.mix };
+  }
+
+  /// Bỏ dấu + chữ thường (để "giang sinh vui ve" khớp "Giáng sinh vui vẻ").
+  static String _fold(String s) {
+    const from = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
+    const to = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd';
+    final b = StringBuffer();
+    for (final ch in s.toLowerCase().split('')) {
+      final i = from.indexOf(ch);
+      b.write(i < 0 ? ch : to[i]);
+    }
+    return b.toString().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  static bool _wordMatch(String text, String kw) {
+    if (kw.isEmpty) return false;
+    return RegExp('(^|[^a-z0-9])${RegExp.escape(kw)}(\$|[^a-z0-9])').hasMatch(text);
+  }
+}
+
+class SeasonException implements Exception {
+  SeasonException(this.status, this.message);
+  final int status;
+  final String message;
+  @override
+  String toString() => message;
+}
+
+/// Hình nền đã chọn: hình vẽ sẵn, màu trơn hoặc ảnh trên máy.
+class WallpaperChoice {
+  final Wallpaper? art;
+  final Color? color;
+  final String? photoKey;
+  const WallpaperChoice(Wallpaper this.art)
+      : color = null,
+        photoKey = null;
+  const WallpaperChoice.plain(Color this.color)
+      : art = null,
+        photoKey = null;
+  const WallpaperChoice.photo(String this.photoKey)
+      : art = null,
+        color = null;
+
+  /// Nền tối (chữ hệ thống trên nền dùng bảng màu tối).
+  bool get dark => art?.dark ?? (color != null ? color!.computeLuminance() < .3 : true);
+}
+
+/// Banner mùa lễ ở Trang chủ (hiện ở Giáng sinh, tới hết 25/12); bấm × thì ẩn tới năm sau.
+class SeasonBanner extends StatelessWidget {
+  const SeasonBanner({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final s = SeasonState.instance;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final now = s.clock();
+        if (s.activeSeason(now) != 'giangsinh' || !s.on('banner', now) || (now.month == 12 && now.day > 25)) return const SizedBox.shrink();
+        if (s.mine['banner_hidden'] == now.year) return const SizedBox.shrink();
+        return XmasBanner(now: now, onClose: () => s.setMine('banner_hidden', now.year));
+      },
+    );
+  }
+}
