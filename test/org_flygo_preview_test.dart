@@ -212,4 +212,53 @@ void main() {
     await settle();
     expect(find.text('0/5'), findsOneWidget);
   });
+
+  testWidgets('Danh bạ khách: quyền "Xem danh bạ khách" và "Quản lý danh bạ khách" (tên từ manifest)', (tester) async {
+    (catalog['apps'] as List).add({'id': 'vn.flygo.contacts', 'name': 'Danh bạ khách', 'perms': {
+      'use': {'name': 'Xem danh bạ khách', 'level': 'normal', 'per_space': false},
+      'admin': {'name': 'Quản lý danh bạ khách', 'level': 'sensitive', 'per_space': false},
+      'tool:search_contacts': {'name': 'Tìm liên hệ', 'level': 'normal', 'per_space': false},
+      'tool:get_contact': {'name': 'Xem liên hệ', 'level': 'normal', 'per_space': false},
+      'tool:create_contact': {'name': 'Tạo liên hệ', 'level': 'sensitive', 'per_space': false},
+      'tool:log_interaction': {'name': 'Ghi tương tác', 'level': 'sensitive', 'per_space': false},
+    }, 'tools': {'search_contacts': {'kind': 'read'}, 'get_contact': {'kind': 'read'}, 'create_contact': {'kind': 'write'}, 'log_interaction': {'kind': 'write'}}});
+    await tester.runAsync(_fonts);
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final key = GlobalKey();
+    await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+      value: app,
+      child: RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(appBar: AppBar(title: const Text('Tổ chức')), body: FlygoOrgView(app: app, fid: FlygoId(base: 'https://apps.test', chatToken: 't'))),
+        ),
+      ),
+    ));
+    Future<void> settle() async {
+      for (var i = 0; i < 8; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await settle();
+    await tester.tap(find.text('Kinh doanh'));
+    await settle();
+    await tester.tap(find.byKey(const ValueKey('perm-group-vn.flygo.contacts')));
+    await settle();
+    expect(find.text('Xem danh bạ khách'), findsOneWidget);
+    expect(find.text('Quản lý danh bạ khách'), findsOneWidget);
+    expect(find.text('Dùng Danh bạ khách'), findsNothing);
+    if (out != null) {
+      await tester.runAsync(() async {
+        final img = await (key.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage();
+        final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+        await File('$out/org-danh-ba-khach.png').writeAsBytes(bytes!.buffer.asUint8List());
+      });
+    }
+  });
 }

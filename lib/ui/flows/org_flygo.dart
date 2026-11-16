@@ -862,7 +862,12 @@ class _PermPanelState extends State<_PermPanel> {
                         if (k == 'admin') ...[Icon(Icons.admin_panel_settings_outlined, size: 18, color: pal.accent), const SizedBox(width: 6)],
                         Flexible(
                           child: Text(
-                            k == 'use' ? tr('Dùng {0}', [appName(a)]) : (k == 'admin' ? tr('Quản trị {0}', [appName(a)]) : '${p['name']}'),
+                            // App đặt tên riêng cho quyền dùng / quản trị (manifest use_name, admin.name, vd "Xem danh bạ khách") thì hiện tên đó.
+                            k == 'use'
+                                ? ('${p['name'] ?? ''}'.isNotEmpty && p['name'] != 'Dùng app' ? '${p['name']}' : tr('Dùng {0}', [appName(a)]))
+                                : k == 'admin'
+                                    ? ('${p['name'] ?? ''}'.isNotEmpty && p['name'] != 'Quản trị' ? '${p['name']}' : tr('Quản trị {0}', [appName(a)]))
+                                    : '${p['name']}',
                             overflow: TextOverflow.ellipsis,
                             style: k == 'admin' ? const TextStyle(fontWeight: FontWeight.w600) : null,
                           ),
