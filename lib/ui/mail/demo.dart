@@ -166,6 +166,16 @@ class DemoMailApi extends MailApi {
   MailAdminApi adminApi() => _admin;
 
   @override
+  Future<MailDigest> aiDigest() async {
+    final ts = _threads.where((t) => t.box == 'inbox' && t.category == 'primary' && t.unread && !t.draft).toList();
+    return MailDigest(
+      summary: ts.isEmpty ? 'Không có thư chưa đọc nào trong hộp Chính.' : 'Có ${ts.length} cuộc hội thoại chưa đọc cần xem.',
+      threads: ts.length,
+      tasks: [for (final t in ts) MailDigestTask(text: 'Đọc và trả lời "${t.subject}"', from: t.messages.last.from.short, urgent: t.important, threadId: t.id, subject: t.subject)],
+    );
+  }
+
+  @override
   Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) async {
     final t = _find(threadId);
     final last = t.messages.last, who = last.from.short;

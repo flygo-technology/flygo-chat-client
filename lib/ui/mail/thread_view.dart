@@ -54,7 +54,7 @@ class ThreadViewState extends State<ThreadView> {
   ComposeArgs? _inline;
   final _scroll = ScrollController();
   // AI đọc thư: tóm tắt + soạn nháp trả lời (không bao giờ tự gửi).
-  bool _aiOpen = false, _aiBusy = false;
+  bool _aiOpen = false, _aiBusy = false, _aiReplyBusy = false;
   MailAiResult? _ai;
   Object? _aiErr;
   String _aiTone = 'polite';
@@ -162,6 +162,25 @@ class ThreadViewState extends State<ThreadView> {
     setState(() => _aiOpen = true);
     if (_ai == null && !_aiBusy) await _runAi();
     if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  }
+
+  /// "AI soạn trả lời": AI viết bản nháp rồi mở ô trả lời với nội dung đó (không tự gửi).
+  Future<void> aiReply() async {
+    final t = _t;
+    if (t == null || _aiReplyBusy) return;
+    setState(() => _aiReplyBusy = true);
+    try {
+      final r = await store.api.ai(t.summary.id, task: 'draft', tone: _aiTone);
+      if (!mounted) return;
+      if (r.draft.trim().isEmpty) {
+        _snack('AI chưa soạn được thư trả lời, thử lại sau');
+      } else {
+        reply('reply', null, r.draft);
+      }
+    } catch (e) {
+      if (mounted) _snack('AI lỗi: $e');
+    }
+    if (mounted) setState(() => _aiReplyBusy = false);
   }
 
   Future<void> _runAi() async {
@@ -373,7 +392,16 @@ class ThreadViewState extends State<ThreadView> {
                   _replyBtn(Icons.reply, 'Trả lời', () => reply('reply')),
                   if (others.length > 1) _replyBtn(Icons.reply_all, 'Trả lời tất cả', () => reply('all')),
                   _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
-                  if (!_aiOpen) _replyBtn(Icons.auto_awesome, 'AI soạn trả lời', openAi),
+                  if (!store.readOnly)
+                    OutlinedButton.icon(
+                      key: const ValueKey('mail-ai-reply'),
+                      onPressed: _aiReplyBusy ? null : aiReply,
+                      icon: _aiReplyBusy
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.auto_awesome, size: 18),
+                      label: Text(_aiReplyBusy ? 'AI đang soạn…' : 'AI soạn trả lời'),
+                      style: OutlinedButton.styleFrom(shape: const StadiumBorder(), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
+                    ),
                 ],
               ),
             ),
