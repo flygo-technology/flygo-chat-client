@@ -1,0 +1,116 @@
+// Ảnh xem trước màn "Kiểu bong bóng" (chạy tay): BUBBLE_OUT=<thư mục> flutter test test/bubble_styles_preview_test.dart
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/ui/bubble_picker.dart';
+import 'package:flygo_chat/ui/bubble_styles.dart';
+import 'package:flygo_chat/ui/theme.dart';
+
+Future<void> _fonts() async {
+  final dir = '${Platform.environment['FLUTTER_ROOT'] ?? '${Platform.environment['HOME']}/tools/flutter'}/bin/cache/artifacts/material_fonts';
+  Future<void> load(String family, List<String> files) async {
+    final l = FontLoader(family);
+    for (final f in files) {
+      final b = File('$dir/$f');
+      if (b.existsSync()) l.addFont(Future.value(ByteData.sublistView(b.readAsBytesSync())));
+    }
+    await l.load();
+  }
+
+  await load('Roboto', ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf']);
+  await load('Noto Sans', ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf']);
+  await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
+}
+
+Future<void> _shot(WidgetTester tester, GlobalKey key, String path) => tester.runAsync(() async {
+      final img = await (key.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage(pixelRatio: tester.view.devicePixelRatio);
+      final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+      await File(path).writeAsBytes(bytes!.buffer.asUint8List());
+    });
+
+/// Bảng soi nét vẽ: mỗi kiểu một ô, cỡ thật, hai tin liền nhau (tin đầu lượt + tin cuối lượt).
+Widget _artSheet(bool dark) {
+  return Builder(builder: (context) {
+    final pal = Pal.of(context);
+    Widget cell(BubbleStyle s) => Container(
+          width: 300,
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Align(alignment: Alignment.centerLeft, child: Text(s.name, style: TextStyle(color: pal.sub, fontSize: 12, fontWeight: FontWeight.w700))),
+            StyledBubble(style: s, fill: s.color, bottom: false, child: Text('Báo cáo quý 4 đã xong', style: TextStyle(fontSize: 16, color: bubbleTextOn(s.color)))),
+            const SizedBox(height: 3),
+            StyledBubble(style: s, fill: s.color, top: false, child: Text('Ok sếp, em gửi ngay', style: TextStyle(fontSize: 16, color: bubbleTextOn(s.color)))),
+          ]),
+        );
+    return Container(
+      color: pal.chatBg,
+      padding: const EdgeInsets.all(10),
+      child: Wrap(children: [for (final s in bubbleStyles) cell(s)]),
+    );
+  });
+}
+
+void main() {
+  final out = Platform.environment['BUBBLE_OUT'];
+
+  for (final dark in [false, true]) {
+    for (final (name, size) in [('phone', Size(390, 844)), ('phone-full', Size(390, 2700)), ('desktop', Size(1100, 760))]) {
+      testWidgets('picker $name ${dark ? 'dark' : 'light'}', (tester) async {
+        if (out == null) return;
+        await _fonts();
+        tester.view.physicalSize = size * 2;
+        tester.view.devicePixelRatio = 2;
+        addTearDown(tester.view.reset);
+        final key = GlobalKey();
+        await tester.pumpWidget(RepaintBoundary(
+          key: key,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(dark ? Brightness.dark : Brightness.light),
+            home: BubblePickerPage(current: const BubbleChoice('quockyvn'), defaultFill: (dark ? Pal.dark : Pal.light).outBubble),
+          ),
+        ));
+        await tester.pumpAndSettle();
+        await _shot(tester, key, '$out/picker-$name-${dark ? 'dark' : 'light'}.png');
+      });
+    }
+    testWidgets('picker per-chat ${dark ? 'dark' : 'light'}', (tester) async {
+      if (out == null) return;
+      await _fonts();
+      tester.view.physicalSize = const Size(390, 844) * 2;
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      await tester.pumpWidget(RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(dark ? Brightness.dark : Brightness.light),
+          home: BubblePickerPage(
+              allowInherit: true, inherited: const BubbleChoice('munoel'), defaultFill: (dark ? Pal.dark : Pal.light).outBubble),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await _shot(tester, key, '$out/picker-chat-inherit-${dark ? 'dark' : 'light'}.png');
+    });
+    testWidgets('art sheet ${dark ? 'dark' : 'light'}', (tester) async {
+      if (out == null) return;
+      await _fonts();
+      tester.view.physicalSize = const Size(1240, 2900) * 2;
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      await tester.pumpWidget(MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(dark ? Brightness.dark : Brightness.light),
+        home: Scaffold(body: SingleChildScrollView(child: RepaintBoundary(key: key, child: _artSheet(dark)))),
+      ));
+      await tester.pumpAndSettle();
+      await _shot(tester, key, '$out/art-${dark ? 'dark' : 'light'}.png');
+    });
+  }
+}

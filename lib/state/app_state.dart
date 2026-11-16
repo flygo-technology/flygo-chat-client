@@ -25,6 +25,7 @@ import '../data/servers.dart';
 import 'date_jump.dart';
 import '../push/push_service.dart';
 import '../ui/agent_view.dart' show agentDisplayText;
+import '../ui/bubble_styles.dart' show BubbleChoice, kBubbleDefaultKey, kBubbleInherit;
 import '../ui/common.dart';
 import '../ui/password_page.dart' show PasswordPolicy, kMustChangePasswordProp;
 import '../ui/panes/pane_layout.dart' show PaneContent;
@@ -399,6 +400,7 @@ class AppState extends ChangeNotifier {
       loadStatuses().then((_) => _autoOnline());
       loadStatusPresets();
       loadRingtones();
+      loadBubbles();
       loadBlocked();
       loadAgentConfig();
       loadMuteUntil();
@@ -1528,6 +1530,9 @@ class AppState extends ChangeNotifier {
     await _pendingMembers[channelId];
     await _addTaggedBots(channelId, text);
     if (rootId.isNotEmpty && replyKind.isNotEmpty) props = {...?props, 'flygo_reply': replyKind};
+    // Kiểu bong bóng mình chọn cho chat này (không ghi đè nếu tin đã có sẵn).
+    final bubble = _bubbleProps(channelId);
+    if (bubble != null && props?['flygo_bubble'] == null) props = {...?props, ...bubble};
     final now = DateTime.now().millisecondsSinceEpoch;
     final pendingId = '${me!.id}:$now';
     final local = <String, dynamic>{
@@ -1652,7 +1657,11 @@ class AppState extends ChangeNotifier {
       'create_at': now,
       'file_ids': const <String>[],
       'metadata': {},
-      if (rootId.isNotEmpty && replyKind.isNotEmpty) 'props': {'flygo_reply': replyKind},
+      if ((rootId.isNotEmpty && replyKind.isNotEmpty) || (text.isNotEmpty && _bubbleProps(channelId) != null))
+        'props': {
+          if (rootId.isNotEmpty && replyKind.isNotEmpty) 'flygo_reply': replyKind,
+          if (text.isNotEmpty) ...?_bubbleProps(channelId),
+        },
       '_local_files': [
         for (final (path, name, mime, aspect) in files) {'path': path, 'name': name, 'mime': mime, 'aspect': aspect},
       ],
@@ -3208,6 +3217,79 @@ class AppState extends ChangeNotifier {
     ]);
   }
 
+  // ---------------------------------------------------------------- preferences theo nhóm
+  /// Đọc mọi preference của mình trong một category: tên → giá trị (chuỗi thô). Lỗi / chưa có → rỗng.
+  Future<Map<String, String>> loadPrefCategory(String category) async {
+    if (me == null) return {};
+    try {
+      final list = await api.get('/users/${me!.id}/preferences/$category') as List;
+      return {for (final p in list) if (p is Map && p['name'] is String) p['name'] as String: '${p['value'] ?? ''}'};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  // ---------------------------------------------------------------- kiểu bong bóng theo chat
+  /// id kênh → kiểu bong bóng mình chọn (preferences `flygo_bubble/<id kênh>`, đồng bộ mọi thiết bị).
+  /// Lúc gửi tin, kiểu được gắn vào props.flygo_bubble để ai xem cũng thấy đúng kiểu người gửi.
+  Map<String, BubbleChoice> bubbles = {};
+  static const kBubblePref = 'flygo_bubble';
+
+  Future<void> loadBubbles() async {
+    final raw = await loadPrefCategory(kBubblePref);
+    bubbles = {
+      for (final e in raw.entries) e.key: ?_decodeBubble(e.value),
+    };
+    notifyListeners();
+  }
+
+  BubbleChoice? _decodeBubble(String v) {
+    try {
+      return BubbleChoice.fromJson(jsonDecode(v));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Lựa chọn riêng của chat (null = theo mặc định chung).
+  BubbleChoice? bubbleFor(String channelId) => bubbles[channelId];
+
+  /// Kiểu mặc định chung (app "Giao diện").
+  BubbleChoice? get bubbleDefault => bubbles[kBubbleDefaultKey];
+
+  /// Kiểu dùng khi gửi tin vào [channelId]: lựa chọn riêng của chat, không có thì mặc định chung; null = bong bóng thường.
+  BubbleChoice? resolvedBubble(String channelId) {
+    final c = bubbles[channelId] ?? bubbles[kBubbleDefaultKey];
+    return c == null || c.style.isEmpty ? null : c;
+  }
+
+  /// Lưu kiểu bong bóng của một chat (hoặc [kBubbleDefaultKey] = mặc định chung).
+  /// Chat: [kBubbleInherit] = "Dùng mặc định" (xoá lựa chọn riêng); `BubbleChoice('')` = bong bóng thường.
+  /// Mặc định chung: `BubbleChoice('')` = xoá.
+  Future<void> setBubble(String channelId, BubbleChoice choice) async {
+    if (me == null) return;
+    final pref = {'user_id': me!.id, 'category': kBubblePref, 'name': channelId};
+    if (choice.style == kBubbleInherit || (channelId == kBubbleDefaultKey && choice.style.isEmpty)) {
+      bubbles.remove(channelId);
+      notifyListeners();
+      await api.post('/users/${me!.id}/preferences/delete', [
+        {...pref, 'value': ''}
+      ]);
+    } else {
+      bubbles[channelId] = choice;
+      notifyListeners();
+      await api.put('/users/${me!.id}/preferences', [
+        {...pref, 'value': jsonEncode(choice.toJson())}
+      ]);
+    }
+  }
+
+  /// Props kiểu bong bóng cho tin sắp gửi vào [channelId] (null nếu dùng mặc định).
+  Map<String, dynamic>? _bubbleProps(String channelId) {
+    final b = resolvedBubble(channelId);
+    return b == null ? null : {'flygo_bubble': b.toJson()};
+  }
+
   Future<void> saveStatusPresets(List<({String emoji, String text})> list) async {
     if (me == null) return;
     statusPresets = list;
@@ -3546,6 +3628,11 @@ class AppState extends ChangeNotifier {
               muteUntil = {for (final x in (jsonDecode(p['value'] as String) as Map).entries) x.key as String: (x.value as num).toInt()};
               notifyListeners();
             }
+            if (p['category'] == kBubblePref && p['user_id'] == me?.id && p['name'] is String) {
+              final c = _decodeBubble('${p['value']}');
+              c == null ? bubbles.remove(p['name']) : bubbles[p['name'] as String] = c;
+              notifyListeners();
+            }
             if (p['category'] == 'flygo_chat' && p['name'] == 'agent_config' && p['user_id'] == me?.id) {
               agentConfig = {
                 for (final x in (jsonDecode(p['value'] as String) as Map).entries) x.key as String: (x.value as Map).cast<String, String>(),
@@ -3553,6 +3640,16 @@ class AppState extends ChangeNotifier {
               notifyListeners();
             }
           }
+        } catch (_) {}
+      case 'preferences_deleted':
+        // Đặt lại kiểu bong bóng về mặc định trên máy khác.
+        try {
+          final list = jsonDecode(e.data['preferences'] as String) as List;
+          var changed = false;
+          for (final p in list) {
+            if (p['category'] == kBubblePref && p['user_id'] == me?.id) changed |= bubbles.remove(p['name']) != null;
+          }
+          if (changed) notifyListeners();
         } catch (_) {}
       case 'thread_updated':
         try {

@@ -61,6 +61,8 @@ import 'moderation.dart';
 import 'reactions.dart';
 import 'common.dart';
 import 'effects.dart';
+import 'bubble_picker.dart' show bubbleEdge;
+import 'bubble_styles.dart';
 import 'chat_themes.dart';
 import 'ref_picker.dart';
 import 'ref_grants.dart';
@@ -2384,7 +2386,15 @@ class _Bubble extends StatelessWidget {
         post.files.every((f) => !f.isImage && !f.isVideo && !f.mime.startsWith('audio/')) &&
         post.priority.isEmpty &&
         (post.props['flygo_fx'] as Map?)?['bg'] == null;
-    final pal = mine && !claude && !fileOnly ? outer.onFill(outer.outBubble) : outer;
+    // Kiểu bong bóng người gửi chọn cho chat này (props.flygo_bubble): màu nền riêng + hình trang trí ló ra ở mép.
+    // Nền hiệu ứng (flygo_fx.bg) được ưu tiên; tin chỉ có tệp và chat kiểu Claude giữ nguyên.
+    final bubbleChoice = claude || fileOnly || (post.props['flygo_fx'] as Map?)?['bg'] != null ? null : bubbleOfProps(post.props);
+    final bubbleDeco = bubbleChoice?.def?.decorated == true ? bubbleChoice!.def : null;
+    final pal = bubbleChoice != null
+        ? bubblePal(outer, bubbleChoice.fill)
+        : mine && !claude && !fileOnly
+            ? outer.onFill(outer.outBubble)
+            : outer;
     final showName = !mine && first && !channel.isDirect && !claude;
     // Hiệu ứng (âm thanh / hình ảnh) của tin mới người khác gửi: phát một lần khi tin hiện ra.
     final fx = (post.props['flygo_fx'] as Map?)?.cast<String, dynamic>();
@@ -2435,7 +2445,9 @@ class _Bubble extends StatelessWidget {
               (const {'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'white_check_mark', '-1', 'x', '+1'}
                   .contains(k))))
         : post.reactions;
-    final bubbleColor = fileOnly
+    final bubbleColor = bubbleChoice != null
+        ? bubbleChoice.fill
+        : fileOnly
         ? Colors.transparent
         : claude
             ? (mine ? pal.outBubble : Colors.transparent)
@@ -2495,7 +2507,8 @@ class _Bubble extends StatelessWidget {
 
     const r = Radius.circular(18);
     const tailR = Radius.circular(4);
-    final radius = claude ? BorderRadius.circular(mine ? 20 : 0) : BorderRadius.only(
+    // Bong bóng có hình trang trí: bo tròn đều, không đuôi.
+    final radius = claude ? BorderRadius.circular(mine ? 20 : 0) : bubbleDeco != null ? const BorderRadius.all(r) : BorderRadius.only(
       topLeft: r,
       topRight: r,
       bottomLeft: !mine && last ? tailR : r,
@@ -3084,8 +3097,18 @@ class _Bubble extends StatelessWidget {
             data: Theme.of(context).copyWith(extensions: [pal]),
             child: SolidFileCards(
               solid: fileOnly,
-              child: CustomPaint(
-              painter: last && !claude && !fileOnly && fx?['bg'] == null && post.priority.isEmpty ? _TailPainter(color: bubbleColor, mine: mine) : null,
+              child: _bubbleRoom(
+                bubbleDeco,
+                first: first,
+                last: last && reactions.isEmpty,
+                child: CustomPaint(
+              painter: last && !claude && !fileOnly && fx?['bg'] == null && post.priority.isEmpty && bubbleDeco == null
+                  ? _TailPainter(color: bubbleColor, mine: mine)
+                  : null,
+              // Hình trang trí vẽ tràn ra ngoài khung (khoảng trống trên / dưới do [_bubbleRoom] chừa), không đè chữ.
+              foregroundPainter: bubbleDeco == null
+                  ? null
+                  : BubbleDecoPainter(style: bubbleDeco, fill: bubbleColor, top: first, bottom: last && reactions.isEmpty, mirror: !mine),
               child: Container(
                 constraints: BoxConstraints(maxWidth: maxW),
                 padding: topPart != null || isLocation
@@ -3112,7 +3135,8 @@ class _Bubble extends StatelessWidget {
                     border: switch (post.priority) {
                       'urgent' => Border.all(color: const Color(0xFFE53935), width: 2),
                       'important' => Border.all(color: const Color(0xFFF08C00), width: 1.5),
-                      _ => null,
+                      // Bong bóng tự chọn màu gần trùng nền chat: viền mảnh cho rõ khung.
+                      _ => bubbleChoice == null ? null : bubbleEdge(bubbleColor, outer.chatBg, outer.divider),
                     }),
                 child: topPart != null || isLocation
                     ? IntrinsicWidth(
@@ -3125,6 +3149,7 @@ class _Bubble extends StatelessWidget {
                     : content,
               ),
             ),
+              ),
             ),
           ),
     );
@@ -3272,6 +3297,13 @@ class _Bubble extends StatelessWidget {
   }
 
   static final _bubbleKeys = <String, GlobalKey>{};
+
+  /// Chừa khoảng trống trên (tin đầu lượt) / dưới (tin cuối lượt) cho hình trang trí của kiểu bong bóng.
+  static Widget _bubbleRoom(BubbleStyle? style, {required bool first, required bool last, required Widget child}) {
+    if (style == null) return child;
+    final t = first ? style.roomTop(1) : 0.0, b = last ? style.roomBottom(1) : 0.0;
+    return t == 0 && b == 0 ? child : Padding(padding: EdgeInsets.only(top: t, bottom: b), child: child);
+  }
 
   static Rect? _rectOf(GlobalKey key) {
     final box = key.currentContext?.findRenderObject() as RenderBox?;
