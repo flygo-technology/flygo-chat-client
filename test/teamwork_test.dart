@@ -17,7 +17,6 @@ import 'package:flygo_chat/ui/teamwork/store.dart';
 import 'package:flygo_chat/ui/teamwork/task_page.dart';
 import 'package:flygo_chat/ui/teamwork/task_widgets.dart';
 import 'package:flygo_chat/ui/teamwork/teamwork_page.dart';
-import 'package:flygo_chat/ui/teamwork/settings_page.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:flygo_chat/ui/todo/model.dart';
 
@@ -339,9 +338,15 @@ void main() {
 
       testWidgets('cài đặt: trạng thái + đúng một trạng thái bắt đầu, thành viên ($sfx)', (t) async {
         final s = await pump(t, dark: dark, project: 'RA');
-        final nav = t.state<NavigatorState>(find.byType(Navigator).first);
-        unawaited(nav.push(MaterialPageRoute(builder: (_) => TwSettingsPage(store: s, projectId: 'p-ra'))));
-        await settle(t, 8);
+        // Tab "Cài đặt" ngay sau "Tổng quan", mở ngay trong màn hình dự án.
+        expect(t.getRect(find.byKey(const ValueKey('view-settings'))).left, greaterThanOrEqualTo(t.getRect(find.byKey(const ValueKey('view-overview'))).right));
+        expect(find.byKey(const ValueKey('project-settings')), findsNothing); // bỏ nút tune trên thanh đầu
+        final before = pushes.n;
+        await t.tap(find.byKey(const ValueKey('view-settings')));
+        await settle(t, 6);
+        expect(pushes.n, before);
+        expect(find.byKey(const ValueKey('settings-nav')), findsOneWidget);
+        expect(find.text('Agent AI'), findsOneWidget);
         expect(find.text('Trạng thái việc'), findsOneWidget);
         expect(find.textContaining('Agent nộp kết quả vào đây'), findsOneWidget);
         await shot(t, 'd6-settings-$sfx');
@@ -463,17 +468,98 @@ void main() {
       await done(t, ph);
     });
 
-    testWidgets('máy tính: bấm thẻ Kanban mở khung bên phải; nút mở trang đầy đủ', (t) async {
+    testWidgets('máy tính: bấm thẻ Kanban / dòng Danh sách mở trang việc đầy đủ', (t) async {
       final s = await pump(t, project: 'RA', view: 'kanban');
       final before = pushes.n;
       await t.tap(find.byKey(const ValueKey('card-RA-35')));
       await settle(t, 8);
-      expect(pushes.n, before);
-      expect(find.byKey(const ValueKey('task-panel')), findsOneWidget);
-      await shot(t, 'd2b-kanban-panel');
-      await t.tap(find.byKey(const ValueKey('panel-full')));
-      await settle(t, 8);
       expect(pushes.n, before + 1);
+      expect(find.byType(TwTaskPage), findsOneWidget);
+      expect(find.byKey(const ValueKey('task-panel')), findsNothing);
+      expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
+      await t.pageBack();
+      await settle(t, 3);
+      await t.tap(find.byKey(const ValueKey('view-list')));
+      await settle(t, 3);
+      await t.tap(find.byKey(const ValueKey('row-RA-44')));
+      await settle(t, 8);
+      expect(pushes.n, before + 2);
+      await done(t, s);
+    });
+
+    testWidgets('thanh đầu dự án: nhóm nút sát mép phải (1280 / 1600 / 1920); "Mời" mở Cài đặt › Thành viên', (t) async {
+      for (final w in [1280.0, 1600.0, 1920.0]) {
+        final s = await pump(t, size: Size(w, 900), project: 'RA');
+        expect(t.getRect(find.byKey(const ValueKey('new-task'))).right, greaterThan(w - 24), reason: 'rộng $w');
+        if (w == 1600) {
+          await t.tap(find.byKey(const ValueKey('invite')));
+          await settle(t, 4);
+          expect(find.text('Thành viên & quyền'), findsWidgets);
+          expect(find.text('Vai trò: Ban giám đốc'), findsOneWidget);
+        }
+        await done(t, s);
+      }
+    });
+
+    testWidgets('khung việc con: mặc định 40% cửa sổ, kéo mép trái để đổi và nhớ độ rộng', (t) async {
+      final s = await pump(t, project: 'RA');
+      double? saved;
+      s.savePanelWidth = (w) async => saved = w;
+      await openTaskPage(t, s, 'RA-32');
+      expect(t.getSize(find.byKey(const ValueKey('right-col'))).width, 420);
+      await t.tap(find.byKey(const ValueKey('sub-RA-63')));
+      await settle(t, 8);
+      expect(t.getSize(find.byKey(const ValueKey('right-col'))).width, closeTo(1440 * .4, 1));
+      final g = await t.startGesture(t.getCenter(find.byKey(const ValueKey('panel-resize'))), kind: PointerDeviceKind.mouse);
+      for (var i = 0; i < 5; i++) {
+        await g.moveBy(const Offset(-20, 0));
+        await t.pump();
+      }
+      await g.up();
+      await settle(t, 2);
+      final w = t.getSize(find.byKey(const ValueKey('right-col'))).width;
+      expect(w, greaterThan(1440 * .4 + 60));
+      expect(saved, closeTo(w, 1));
+      expect(s.panelWidth, closeTo(w, 1));
+      // Mở việc con khác: giữ độ rộng đã chọn.
+      await t.tap(find.byKey(const ValueKey('sub-RA-64')));
+      await settle(t, 8);
+      expect(t.getSize(find.byKey(const ValueKey('right-col'))).width, closeTo(w, 1));
+      await done(t, s);
+    });
+
+    testWidgets('mã việc dài (ZLMCP-10…ZLMCP-999): không xuống dòng, không tràn', (t) async {
+      final nums = [10, 105, 999, 12, 47, 88, 230, 31, 64, 5, 777, 400, 19, 20, 21, 22, 23, 24, 25];
+      for (var i = 0; i < be.tasks.length; i++) {
+        be.tasks[i]['key'] = 'ZLMCP-${nums[i % nums.length]}';
+      }
+      be.projects.first['key'] = 'ZLMCP';
+      final s = await pump(t, project: 'ZLMCP', view: 'list');
+      void oneLine(String k) {
+        for (final e in find.text(k).evaluate()) {
+          final h = (e.renderObject as RenderBox).size.height;
+          expect(h, lessThan(22), reason: '$k cao $h: bị xuống dòng');
+        }
+      }
+
+      for (final k in ['ZLMCP-999', 'ZLMCP-105', 'ZLMCP-10']) {
+        expect(find.text(k), findsWidgets);
+        oneLine(k);
+      }
+      await openTaskPage(t, s, 't-32');
+      expect(find.text('ZLMCP-999'), findsNothing);
+      for (final k in ['ZLMCP-400', 'ZLMCP-777', 'ZLMCP-12', 'ZLMCP-20']) {
+        oneLine(k);
+      }
+      final rows = find.byWidgetPredicate((w) => w is InkWell && w.key is ValueKey && '${(w.key as ValueKey).value}'.startsWith('sub-ZLMCP-'));
+      expect(rows, findsNWidgets(6));
+      for (final e in rows.evaluate()) {
+        expect((e.renderObject as RenderBox).size.height, 30);
+      }
+      await t.tap(rows.at(3));
+      await settle(t, 8);
+      expect(find.byKey(const ValueKey('task-panel')), findsOneWidget);
+      await shot(t, 'd5f-long-keys');
       await done(t, s);
     });
 
@@ -671,10 +757,18 @@ void main() {
 
     testWidgets('cài đặt trạng thái trên điện thoại (sửa: màu, nhóm, bắt đầu)', (t) async {
       final s = await pump(t, size: _phone, dark: true);
-      await s.openProject('p-ra');
-      final nav = t.state<NavigatorState>(find.byType(Navigator).first);
-      unawaited(nav.push(MaterialPageRoute(builder: (_) => TwSettingsPage(store: s, projectId: 'p-ra'))));
-      await settle(t, 6);
+      await t.tap(find.byKey(const ValueKey('project-RA')));
+      await settle(t, 8);
+      // Tab Cài đặt trên điện thoại: danh sách mục → chi tiết, ngay trong màn hình dự án.
+      final before = pushes.n;
+      await t.tap(find.byKey(const ValueKey('view-settings')));
+      await settle(t, 4);
+      expect(pushes.n, before);
+      expect(find.byKey(const ValueKey('set-agents')), findsOneWidget);
+      await shot(t, 'p9-settings-list-dark');
+      await t.tap(find.byKey(const ValueKey('set-statuses')));
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('set-back')), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('st-s-review')));
       await settle(t, 4);
       expect(find.text('Sửa "Chờ duyệt"'), findsOneWidget);

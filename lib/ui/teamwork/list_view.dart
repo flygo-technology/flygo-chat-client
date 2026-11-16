@@ -25,6 +25,8 @@ class _TwListViewState extends State<TwListView> {
   final Set<String> _sel = {};
 
   TwStore get store => widget.store;
+  double _keyW = 70;
+  TextStyle _keyStyle(TwLook look) => TextStyle(fontSize: 12, color: look.sub, fontWeight: FontWeight.w600);
 
   Future<void> _bulk(Map<String, dynamic> patch) async {
     final ids = _sel.toList();
@@ -45,6 +47,7 @@ class _TwListViewState extends State<TwListView> {
     final tasks = widget.filter.apply(store.tasksOf(p.project.id), store.today);
     final groups = groupTasks(tasks, widget.filter, p, store.today);
     final head = TextStyle(fontSize: 11.5, color: look.sub, fontWeight: FontWeight.w600);
+    _keyW = keyColumnWidth(context, tasks.map((t) => t.key), _keyStyle(look), min: 44);
     return Column(children: [
       if (_sel.isNotEmpty)
         Container(
@@ -83,7 +86,7 @@ class _TwListViewState extends State<TwListView> {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(children: [
             const SizedBox(width: 50),
-            SizedBox(width: 74, child: Text('Mã', style: head)),
+            SizedBox(width: _keyW + 4, child: Text('Mã', style: head)),
             Expanded(child: Text('Tên việc', style: head)),
             SizedBox(width: 180, child: Text('Nhãn', style: head)),
             SizedBox(width: 110, child: Text('Người làm', style: head)),
@@ -164,7 +167,7 @@ class _TwListViewState extends State<TwListView> {
           ),
           PriorityIcon(t.priority),
           const SizedBox(width: 6),
-          SizedBox(width: 70, child: Text(t.key, style: TextStyle(fontSize: 12, color: look.sub, fontWeight: FontWeight.w600))),
+          SizedBox(width: _keyW, child: KeyText(t.key, style: _keyStyle(look))),
           _statusButton(t),
           const SizedBox(width: 6),
           if (t.parentId != null) Padding(padding: const EdgeInsets.only(right: 4), child: Icon(Icons.subdirectory_arrow_right, size: 15, color: look.sub)),
@@ -202,9 +205,9 @@ class _TwListViewState extends State<TwListView> {
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t.title, style: const TextStyle(fontWeight: FontWeight.w500)),
+              Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
-              Text([t.key, if (t.due != null) dRel(t.due!, store.today), if (t.subTotal > 0) '${t.subDone}/${t.subTotal} việc con'].join(' · '),
+              Text(maxLines: 1, overflow: TextOverflow.ellipsis, [t.key, if (t.due != null) dRel(t.due!, store.today), if (t.subTotal > 0) '${t.subDone}/${t.subTotal} việc con'].join(' · '),
                   style: TextStyle(fontSize: 12, color: late ? look.red : look.sub)),
             ]),
           ),

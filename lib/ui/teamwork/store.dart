@@ -52,6 +52,9 @@ class TwStore extends ChangeNotifier {
   String? error;
   /// Tăng khi một việc đổi từ ngoài (WebSocket): trang chi tiết đang mở tải lại.
   final Map<String, int> taskRev = {};
+  /// Độ rộng khung việc bên phải đã chọn (null = 40% cửa sổ) + cách lưu lại trên máy.
+  double? panelWidth;
+  Future<void> Function(double width)? savePanelWidth;
   /// Bản nháp mô tả đang sửa theo id việc (đóng trang không mất).
   final Map<String, List<TBlock>> descDrafts = {};
   /// Lệnh chờ gửi lại khi có mạng: {m, p, b}.

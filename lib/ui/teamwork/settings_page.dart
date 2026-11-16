@@ -7,20 +7,43 @@ import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
 import 'store.dart';
+import 'teamwork_page.dart' show showPrefs;
 
-const kSettingsTabs = {'general': 'Chung', 'statuses': 'Trạng thái & quy trình', 'members': 'Thành viên & quyền', 'labels': 'Nhãn', 'danger': 'Lưu trữ / xoá'};
+const kSettingsTabs = {
+  'general': 'Chung',
+  'statuses': 'Trạng thái & quy trình',
+  'members': 'Thành viên & quyền',
+  'labels': 'Nhãn',
+  'agents': 'Agent AI',
+  'notify': 'Thông báo',
+  'danger': 'Lưu trữ / xoá',
+};
+const _tabIcons = {
+  'general': Icons.info_outline,
+  'statuses': Icons.view_kanban_outlined,
+  'members': Icons.group_outlined,
+  'labels': Icons.label_outline,
+  'agents': Icons.smart_toy_outlined,
+  'notify': Icons.notifications_none,
+  'danger': Icons.archive_outlined,
+};
 
 class TwSettingsPage extends StatefulWidget {
-  const TwSettingsPage({super.key, required this.store, required this.projectId, this.initialTab = 'statuses'});
+  const TwSettingsPage({super.key, required this.store, required this.projectId, this.initialTab, this.inline = false});
   final TwStore store;
   final String projectId;
-  final String initialTab;
+  /// Mục mở đầu. Điện thoại: null = danh sách mục (chọn một mục thì mở chi tiết).
+  final String? initialTab;
+  /// Nằm trong tab "Cài đặt" của dự án (không có thanh ứng dụng riêng).
+  final bool inline;
   @override
   State<TwSettingsPage> createState() => _TwSettingsPageState();
 }
 
 class _TwSettingsPageState extends State<TwSettingsPage> {
-  late String _tab = widget.initialTab;
+  late String _tab = widget.initialTab ?? 'statuses';
+  /// Điện thoại: đang xem chi tiết một mục (false = danh sách mục).
+  late bool _detail = widget.initialTab != null;
   TwStore get store => widget.store;
   TwProjectFull? get f => store.fullOf(widget.projectId);
 
@@ -56,7 +79,7 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
   Widget build(BuildContext context) {
     final look = TwLook.of(context);
     final full = f;
-    if (full == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (full == null) return widget.inline ? const Center(child: CircularProgressIndicator()) : const Scaffold(body: Center(child: CircularProgressIndicator()));
     final wide = twWide(context);
     final admin = full.project.canAdmin;
     final content = switch (_tab) {
@@ -64,20 +87,15 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
       'members' => _members(full, look, admin),
       'labels' => _labels(full, look, admin),
       'danger' => _danger(full, look),
+      'agents' => _agents(look),
+      'notify' => _notify(look),
       _ => _statuses(full, look, admin),
     };
-    return Scaffold(
-      backgroundColor: look.bg,
-      appBar: AppBar(
-        backgroundColor: look.bg,
-        surfaceTintColor: Colors.transparent,
-        titleSpacing: 0,
-        title: Row(children: [ProjectBadge(full.project, size: 26), const SizedBox(width: 10), const Text('Cài đặt dự án', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17))]),
-      ),
-      body: wide
+    final body = wide
           ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(
-                width: 220,
+                key: const ValueKey('settings-nav'),
+                width: 250,
                 child: ListView(padding: const EdgeInsets.all(10), children: [
                   for (final e in kSettingsTabs.entries)
                     Padding(
@@ -88,6 +106,8 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
                         child: ListTile(
                           key: ValueKey('set-${e.key}'),
                           dense: true,
+                          leading: Icon(_tabIcons[e.key], size: 19, color: _tab == e.key ? look.accent : look.sub),
+                          minLeadingWidth: 20,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           title: Text(e.value, style: TextStyle(color: _tab == e.key ? look.accent : look.text, fontWeight: _tab == e.key ? FontWeight.w600 : FontWeight.w500)),
                           onTap: () => setState(() => _tab = e.key),
@@ -98,18 +118,65 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
               ),
               Expanded(child: content),
             ])
-          : Column(children: [
-              SizedBox(
-                height: 46,
-                child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7), children: [
+          : !_detail
+              ? ListView(padding: const EdgeInsets.symmetric(vertical: 6), children: [
                   for (final e in kSettingsTabs.entries)
-                    Padding(padding: const EdgeInsets.only(right: 6), child: TwPill(key: ValueKey('set-${e.key}'), set: _tab == e.key, onTap: () => setState(() => _tab = e.key), child: Text(e.value))),
-                ]),
-              ),
-              Expanded(child: content),
-            ]),
+                    ListTile(
+                      key: ValueKey('set-${e.key}'),
+                      leading: Icon(_tabIcons[e.key], color: look.sub),
+                      title: Text(e.value),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => setState(() {
+                        _tab = e.key;
+                        _detail = true;
+                      }),
+                    ),
+                ])
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  if (widget.inline || widget.initialTab == null)
+                    InkWell(
+                      key: const ValueKey('set-back'),
+                      onTap: () => setState(() => _detail = false),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                        child: Row(children: [const Icon(Icons.chevron_left), const SizedBox(width: 4), Text(kSettingsTabs[_tab]!, style: const TextStyle(fontWeight: FontWeight.w700))]),
+                      ),
+                    ),
+                  Expanded(child: content),
+                ]);
+    if (widget.inline) return body;
+    return Scaffold(
+      backgroundColor: look.bg,
+      appBar: AppBar(
+        backgroundColor: look.bg,
+        surfaceTintColor: Colors.transparent,
+        titleSpacing: 0,
+        title: Row(children: [ProjectBadge(full.project, size: 26), const SizedBox(width: 10), const Text('Cài đặt dự án', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17))]),
+      ),
+      body: body,
     );
   }
+
+  Widget _agents(TwLook look) => ListView(padding: const EdgeInsets.all(20), children: [
+        _h('Agent AI',
+            'Giao việc cho agent ở ô "Người làm". Agent không cần thêm vào dự án: nó làm bằng quyền của người bấm Bắt đầu (hoặc kéo việc vào trạng thái bắt đầu), báo kết quả bằng bình luận và chuyển việc sang trạng thái "nộp kết quả" để người giao duyệt.',
+            look),
+        Container(
+          decoration: _box(look),
+          child: Column(children: [
+            for (final a in store.agents) ListTile(leading: TwAvatar(name: a.name, id: a.id, agent: true, size: 28, border: false), title: Text(a.label), subtitle: Text('@${a.username}')),
+            if (store.agents.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text('Chưa có agent nào bạn dùng được', style: TextStyle(color: look.sub))),
+          ]),
+        ),
+      ]);
+
+  Widget _notify(TwLook look) => ListView(padding: const EdgeInsets.all(20), children: [
+        _h('Thông báo', 'Bot "Làm việc nhóm" nhắn riêng khi bạn được giao việc, được nhắc, có bình luận mới… Mỗi người tự bật / tắt từng loại.', look),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(key: const ValueKey('notify-prefs'), onPressed: () => showPrefs(context, store), icon: const Icon(Icons.tune, size: 18), label: const Text('Chọn loại tin nhắn')),
+        ),
+      ]);
 
   Widget _h(String title, String sub, TwLook look) => Padding(
         padding: const EdgeInsets.only(bottom: 12),

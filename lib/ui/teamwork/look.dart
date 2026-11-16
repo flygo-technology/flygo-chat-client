@@ -360,3 +360,25 @@ class TwPill extends StatelessWidget {
     );
   }
 }
+
+// ------------------------------------------------------------ mã việc
+/// Độ rộng cột mã việc: đo mã dài nhất bằng TextPainter (mã không bao giờ xuống dòng), tối thiểu [min].
+double keyColumnWidth(BuildContext context, Iterable<String> keys, TextStyle style, {double min = 36}) {
+  final base = DefaultTextStyle.of(context).style.merge(style);
+  final scaler = MediaQuery.textScalerOf(context);
+  var w = min;
+  for (final k in keys.toSet()) {
+    final tp = TextPainter(text: TextSpan(text: k, style: base), textDirection: TextDirection.ltr, textScaler: scaler, maxLines: 1)..layout();
+    if (tp.width > w) w = tp.width;
+  }
+  return w.ceilToDouble() + 8;
+}
+
+/// Mã việc một dòng (không xuống dòng, không cắt).
+class KeyText extends StatelessWidget {
+  const KeyText(this.text, {super.key, required this.style});
+  final String text;
+  final TextStyle style;
+  @override
+  Widget build(BuildContext context) => Text(text, maxLines: 1, softWrap: false, overflow: TextOverflow.visible, style: style);
+}
