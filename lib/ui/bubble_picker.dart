@@ -65,16 +65,20 @@ class BubblePickerPage extends StatefulWidget {
   final BubbleChoice? current;
   /// Màu bong bóng mặc định của mình (khi chưa chọn kiểu).
   final Color defaultFill;
-  const BubblePickerPage({super.key, this.current, required this.defaultFill});
+  /// Có ô "Dùng mặc định" (chọn ở một chat): [current] null = đang theo mặc định chung [inherited].
+  final bool allowInherit;
+  final BubbleChoice? inherited;
+  const BubblePickerPage({super.key, this.current, required this.defaultFill, this.allowInherit = false, this.inherited});
 
   @override
   State<BubblePickerPage> createState() => _BubblePickerPageState();
 }
 
 class _BubblePickerPageState extends State<BubblePickerPage> {
-  late BubbleChoice _choice = widget.current ?? const BubbleChoice('');
+  late final BubbleChoice _initial = widget.current ?? BubbleChoice(widget.allowInherit ? kBubbleInherit : '');
+  late BubbleChoice _choice = _initial;
 
-  bool get _changed => (widget.current ?? const BubbleChoice('')) != _choice;
+  bool get _changed => _initial != _choice;
 
   @override
   Widget build(BuildContext context) {
@@ -96,35 +100,47 @@ class _BubblePickerPageState extends State<BubblePickerPage> {
           const SizedBox(width: 6),
         ],
       ),
-      body: BubblePickerBody(current: widget.current, defaultFill: widget.defaultFill, onChanged: (c) => setState(() => _choice = c)),
+      body: BubblePickerBody(
+        current: widget.current,
+        defaultFill: widget.defaultFill,
+        allowInherit: widget.allowInherit,
+        inherited: widget.inherited,
+        onChanged: (c) => setState(() => _choice = c),
+      ),
     );
   }
 }
 
 /// Nội dung màn chọn kiểu bong bóng (không Scaffold, không nút Lưu) để nhúng vào trang khác
-/// (vd. tab "Bong bóng" của bảng giao diện chat). Gọi [onChanged] mỗi khi đổi; `BubbleChoice('')` = mặc định.
+/// (vd. tab "Bong bóng" của bảng giao diện chat, app "Giao diện"). Gọi [onChanged] mỗi khi đổi:
+/// `BubbleChoice('')` = bong bóng thường, `BubbleChoice(kBubbleInherit)` = "Dùng mặc định" (chỉ khi [allowInherit]).
 class BubblePickerBody extends StatefulWidget {
   final BubbleChoice? current;
   final Color defaultFill;
   final ValueChanged<BubbleChoice> onChanged;
-  const BubblePickerBody({super.key, this.current, required this.defaultFill, required this.onChanged});
+  /// Chọn ở một chat: thêm ô "Dùng mặc định"; [current] null = đang theo mặc định chung [inherited] (null = bong bóng thường).
+  final bool allowInherit;
+  final BubbleChoice? inherited;
+  const BubblePickerBody(
+      {super.key, this.current, required this.defaultFill, required this.onChanged, this.allowInherit = false, this.inherited});
 
   @override
   State<BubblePickerBody> createState() => _BubblePickerBodyState();
 }
 
 class _BubblePickerBodyState extends State<BubblePickerBody> {
-  late String _style = widget.current?.style ?? '';
+  late String _style = widget.current?.style ?? (widget.allowInherit ? kBubbleInherit : '');
   late Color? _color = widget.current?.color;
   final _scroll = ScrollController();
   final _groupKeys = <String, GlobalKey>{};
 
-  BubbleStyle? get _def => bubbleStyleById(_style);
-  Color get _fill => _color ?? _def?.color ?? widget.defaultFill;
+  bool get _inherit => _style == kBubbleInherit;
+  BubbleStyle? get _def => _inherit ? widget.inherited?.def : bubbleStyleById(_style);
+  Color get _fill => _inherit ? (widget.inherited?.style.isNotEmpty == true ? widget.inherited!.fill : widget.defaultFill) : (_color ?? _def?.color ?? widget.defaultFill);
 
   void _update(VoidCallback fn) {
     setState(fn);
-    widget.onChanged(_style.isEmpty ? const BubbleChoice('') : BubbleChoice(_style, _color));
+    widget.onChanged(_style.isEmpty || _inherit ? BubbleChoice(_style) : BubbleChoice(_style, _color));
   }
 
   Future<void> _customColor() async {
@@ -132,7 +148,7 @@ class _BubblePickerBodyState extends State<BubblePickerBody> {
     if (c == null || !mounted) return;
     _update(() {
       _color = c;
-      if (_style.isEmpty) _style = kBubblePlain;
+      if (_style.isEmpty || _inherit) _style = kBubblePlain;
     });
   }
 
@@ -215,10 +231,13 @@ class _BubblePickerBodyState extends State<BubblePickerBody> {
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       children: [
                         _Swatch(
-                          selected: _color == null,
+                          selected: _color == null && !_inherit,
                           color: _def?.color ?? widget.defaultFill,
                           label: tr('Theo kiểu'),
-                          onTap: () => _update(() => _color = null),
+                          onTap: () => _update(() {
+                            _color = null;
+                            if (_inherit) _style = '';
+                          }),
                         ),
                         _Swatch(
                           selected: _color != null && !bubbleSwatches.contains(_color),
@@ -232,7 +251,7 @@ class _BubblePickerBodyState extends State<BubblePickerBody> {
                             color: c,
                             onTap: () => _update(() {
                               _color = c;
-                              if (_style.isEmpty) _style = kBubblePlain;
+                              if (_style.isEmpty || _inherit) _style = kBubblePlain;
                             }),
                           ),
                       ],
@@ -244,6 +263,17 @@ class _BubblePickerBodyState extends State<BubblePickerBody> {
                   sliver: SliverGrid(
                     gridDelegate: grid,
                     delegate: SliverChildListDelegate([
+                      if (widget.allowInherit)
+                        _StyleTile(
+                          style: widget.inherited?.def,
+                          fill: widget.inherited?.style.isNotEmpty == true ? widget.inherited!.fill : widget.defaultFill,
+                          name: tr('Dùng mặc định'),
+                          selected: _inherit,
+                          onTap: () => _update(() {
+                            _style = kBubbleInherit;
+                            _color = null;
+                          }),
+                        ),
                       _StyleTile(
                         style: null,
                         fill: widget.defaultFill,

@@ -20,9 +20,11 @@ class BubbleStyle {
   final String group;
   /// Khoảng trống chừa phía trên (tin đầu lượt) và phía dưới (tin cuối lượt) cho hình trang trí, ở cỡ 1 (chưa nhân [kBubbleArt]).
   final double top, bottom;
+  /// Có được lật ngang ở tin người khác không. Không lật: hình có hướng mang nghĩa (quốc kỳ, dấu tích, mũi tên tăng trưởng).
+  final bool flip;
   final BubbleDecoFn? _top, _bottom;
   const BubbleStyle(this.id, this.name, this.color,
-      {this.group = '', this.top = 0, this.bottom = 0, BubbleDecoFn? paintTop, BubbleDecoFn? paintBottom})
+      {this.group = '', this.top = 0, this.bottom = 0, this.flip = true, BubbleDecoFn? paintTop, BubbleDecoFn? paintBottom})
       : _top = paintTop,
         _bottom = paintBottom;
 
@@ -38,6 +40,12 @@ const kBubbleArt = 1.3;
 
 /// Kiểu "chỉ đổi màu" (không hình trang trí).
 const kBubblePlain = 'mau';
+
+/// Tên preference của kiểu mặc định chung (mọi chat chưa chọn riêng).
+const kBubbleDefaultKey = '_default';
+
+/// Lựa chọn "Dùng mặc định" ở một chat (xoá lựa chọn riêng, theo mặc định chung). Không bao giờ lưu.
+const kBubbleInherit = '_inherit';
 
 /// Các nhóm chủ đề, theo thứ tự hiện trong màn chọn.
 List<(String, String)> get bubbleGroups => [
@@ -68,9 +76,9 @@ List<BubbleStyle> get bubbleStyles => [
       BubbleStyle('laptop', tr('Laptop'), const Color(0xFFECEFF1), group: 'vanphong', top: 12, bottom: 16, paintTop: _wifi, paintBottom: _laptop),
       BubbleStyle('ytuong', tr('Ý tưởng'), const Color(0xFFFFF9C4), group: 'vanphong', top: 16, bottom: 8, paintTop: _bulb, paintBottom: _sparkles),
       BubbleStyle('tenlua', tr('Khởi động'), const Color(0xFF3949AB), group: 'vanphong', top: 16, bottom: 8, paintTop: _rocket, paintBottom: _nightStars),
-      BubbleStyle('tangtruong', tr('Tăng trưởng'), const Color(0xFF2E7D32), group: 'vanphong', bottom: 12, paintBottom: _barChart),
+      BubbleStyle('tangtruong', tr('Tăng trưởng'), const Color(0xFF2E7D32), group: 'vanphong', bottom: 12, flip: false, paintBottom: _barChart),
       BubbleStyle('thanhtich', tr('Thành tích'), const Color(0xFFFFE082), group: 'vanphong', top: 16, bottom: 12, paintTop: _trophy, paintBottom: _medal),
-      BubbleStyle('daduyet', tr('Đã duyệt'), const Color(0xFFFFFDF5), group: 'vanphong', bottom: 20, paintBottom: _stamp),
+      BubbleStyle('daduyet', tr('Đã duyệt'), const Color(0xFFFFFDF5), group: 'vanphong', bottom: 20, flip: false, paintBottom: _stamp),
       BubbleStyle('hoptac', tr('Hợp tác'), const Color(0xFFE1F5FE), group: 'vanphong', top: 16, paintTop: _handshake),
       BubbleStyle('baoho', tr('An toàn'), const Color(0xFF455A64), group: 'vanphong', top: 10, bottom: 12, paintTop: _hardHat, paintBottom: _cone),
       BubbleStyle('thangmay', tr('Thang máy'), const Color(0xFFCFD8DC), group: 'vanphong', top: 22, paintTop: _elevator, paintBottom: _callPanel),
@@ -79,7 +87,7 @@ List<BubbleStyle> get bubbleStyles => [
       BubbleStyle('sinhnhat', tr('Sinh nhật'), const Color(0xFFF8BBD0), group: 'vanphong', top: 16, bottom: 12, paintTop: _balloons, paintBottom: _cake),
       BubbleStyle('cayxanh', tr('Cây xanh'), const Color(0xFFC8E6C9), group: 'vanphong', bottom: 12, paintBottom: _plant),
       // Việt Nam
-      BubbleStyle('quockyvn', tr('Quốc kỳ'), const Color(0xFFC8102E), group: 'vietnam', top: 18, paintTop: _flagVn),
+      BubbleStyle('quockyvn', tr('Quốc kỳ'), const Color(0xFFC8102E), group: 'vietnam', top: 18, flip: false, paintTop: _flagVn),
       BubbleStyle('hoasen', tr('Hoa sen'), const Color(0xFFFCE4EC), group: 'vietnam', bottom: 12, top: 10, paintTop: _lotusBud, paintBottom: _lotus),
       BubbleStyle('nonla', tr('Nón lá'), const Color(0xFFFFF8E1), group: 'vietnam', top: 14, paintTop: _nonLa),
       BubbleStyle('denlong', tr('Đèn ông sao'), const Color(0xFFFFE0B2), group: 'vietnam', top: 18, paintTop: _starLantern),
@@ -121,6 +129,7 @@ Color? parseBubbleHex(String? s) {
 }
 
 /// Lựa chọn kiểu bong bóng: kiểu + màu nền (null = màu mặc định của kiểu).
+/// Kiểu rỗng = bong bóng thường của app (ở một chat: chọn hẳn "Mặc định", không theo mặc định chung).
 class BubbleChoice {
   final String style;
   final Color? color;
@@ -129,7 +138,8 @@ class BubbleChoice {
   BubbleStyle? get def => bubbleStyleById(style);
   Color get fill => color ?? def?.color ?? bubbleStyles.first.color;
 
-  Map<String, dynamic> toJson() => {'s': style, if (color != null && color != def?.color) 'c': bubbleHex(color!)};
+  Map<String, dynamic> toJson() =>
+      style.isEmpty ? const {'s': 'none'} : {'s': style, if (color != null && color != def?.color) 'c': bubbleHex(color!)};
 
   static BubbleChoice? fromJson(Object? v) {
     if (v is! Map) return null;
@@ -137,6 +147,7 @@ class BubbleChoice {
     final c = parseBubbleHex(v['c'] as String?);
     // Kiểu lạ (app mới hơn thêm kiểu): vẫn giữ màu, không hình trang trí.
     if (s is! String || s.isEmpty) return null;
+    if (s == 'none') return const BubbleChoice('');
     if (bubbleStyleById(s) == null) return c == null ? null : BubbleChoice(kBubblePlain, c);
     return BubbleChoice(s, c);
   }
@@ -148,7 +159,10 @@ class BubbleChoice {
 }
 
 /// Kiểu bong bóng gắn trên tin (props.flygo_bubble).
-BubbleChoice? bubbleOfProps(Map<String, dynamic> props) => BubbleChoice.fromJson(props['flygo_bubble']);
+BubbleChoice? bubbleOfProps(Map<String, dynamic> props) {
+  final c = BubbleChoice.fromJson(props['flygo_bubble']);
+  return c == null || c.style.isEmpty ? null : c;
+}
 
 double _contrast(Color a, Color b) {
   final x = a.computeLuminance(), y = b.computeLuminance();
@@ -208,14 +222,15 @@ class BubbleDecoPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final b = Offset.zero & size;
     final u = scale * kBubbleArt;
-    if (mirror) {
+    final flip = mirror && style.flip;
+    if (flip) {
       canvas.save();
       canvas.translate(size.width, 0);
       canvas.scale(-1, 1);
     }
     if (top) style._top?.call(canvas, b, fill, u);
     if (bottom) style._bottom?.call(canvas, b, fill, u);
-    if (mirror) canvas.restore();
+    if (flip) canvas.restore();
   }
 
   @override
@@ -1540,179 +1555,4 @@ void _snowCap(Canvas c, Rect b, Color fill, double u) {
 void _snowflakesBottom(Canvas c, Rect b, Color fill, double u) {
   _snowflake(c, Offset(b.right - 4 * u, b.bottom + 4 * u), 3.6 * u, u, const Color(0xFF90CAF9));
   _snowflake(c, Offset(b.right - 14 * u, b.bottom + 6 * u), 2.2 * u, u, const Color(0xFFBBDEFB));
-}
-
-// ------------------------------------------------------------------------------------------------ cỡ to "ôm bong bóng" (bản demo)
-
-/// Bản demo cỡ to (~2 lần): linh vật bám hai chân lên mép trên, đuôi vòng ra cạnh bên, chân sau ló dưới đáy.
-/// Chưa có trong màn chọn — chờ Sếp chọn cỡ.
-List<BubbleStyle> get bubbleHugDemo => [
-      BubbleStyle('meo-to', tr('Mèo văn phòng'), const Color(0xFFFFE0B2), group: 'linhvat', top: 30, bottom: 6, paintTop: _catHug, paintBottom: _hugBackPawsCat),
-      BubbleStyle('cun-to', tr('Cún'), const Color(0xFFFFF3E0), group: 'linhvat', top: 30, bottom: 6, paintTop: _pupHug, paintBottom: _hugBackPawsPup),
-      BubbleStyle('munoel-to', tr('Mũ Noel'), const Color(0xFFC62828), group: 'giangsinh', top: 30, bottom: 12, paintTop: _santaHatHug, paintBottom: _hollyBig),
-      BubbleStyle('hoamai-to', tr('Hoa mai'), const Color(0xFFFFF3C4), group: 'tet', top: 18, bottom: 12, paintTop: _maiHug, paintBottom: _maiPetalsBig),
-    ];
-
-const _hugK = 1.9;
-
-/// Vẽ phần đầu linh vật cỡ thường ở cỡ [_hugK], dịch lên để chân chỉ chạm mép (không lấn vào chữ).
-void _hugTop(Canvas c, Rect b, double u, BubbleDecoFn head, Color fill) =>
-    head(c, b.translate(0, -2.6 * u), fill, u * _hugK);
-
-/// Đuôi thò ra từ sau cạnh phải bong bóng, cong lên.
-void _sideTail(Canvas c, Rect b, double u, Color col, {Color? stripe}) {
-  final y = b.top + math.min(b.height * .55, 22 * u);
-  final p = Path()
-    ..moveTo(b.right - 2 * u, y + 4 * u)
-    ..cubicTo(b.right + 9 * u, y + 5 * u, b.right + 8.5 * u, y - 9 * u, b.right + 3 * u, y - 11 * u);
-  c.drawPath(p, _s(u, _ink, 6.6));
-  c.drawPath(p, _s(u, col, 4.8));
-  if (stripe != null) {
-    for (final m in p.computeMetrics()) {
-      for (var d = 6 * u; d < m.length - 3 * u; d += 6 * u) {
-        final t = m.getTangentForOffset(d)!;
-        final n = Offset(-t.vector.dy, t.vector.dx) * 2.2 * u;
-        c.drawLine(t.position - n, t.position + n, _s(u, stripe, 1.3));
-      }
-    }
-  }
-}
-
-void _catHead(Canvas c, Rect b, Color fill, double u) {
-  const fur = Color(0xFFF4A259), stripe = Color(0xFFD9822B);
-  final o = _peekPaws(c, b, u, fur);
-  for (final s in [-1.0, 1.0]) {
-    final ear = Path()
-      ..moveTo(o.dx + s * 8.4 * u, o.dy - 1 * u)
-      ..lineTo(o.dx + s * 7.4 * u, o.dy - 11 * u)
-      ..lineTo(o.dx + s * 1.8 * u, o.dy - 6.8 * u)
-      ..close();
-    _draw(c, ear, fur, u);
-    c.drawPath(
-        Path()
-          ..moveTo(o.dx + s * 6.8 * u, o.dy - 3.2 * u)
-          ..lineTo(o.dx + s * 6.6 * u, o.dy - 8.4 * u)
-          ..lineTo(o.dx + s * 3.6 * u, o.dy - 6 * u)
-          ..close(),
-        _f(const Color(0xFFF8BBD0)));
-  }
-  _draw(c, _oval(o, 9.4 * u, 7.8 * u), fur, u);
-  for (final dx in [-2.0, 0.0, 2.0]) {
-    c.drawLine(o + Offset(dx * u, -7.4 * u), o + Offset(dx * .7 * u, -4.8 * u), _s(u, stripe, .9));
-  }
-  c.drawPath(_oval(o + Offset(0, 3 * u), 4.6 * u, 3.2 * u), _f(const Color(0xFFFFF3E0)));
-  _eyes(c, o, u, dy: -1);
-  c.drawPath(Path()..moveTo(o.dx - 1.1 * u, o.dy + 1.2 * u)..lineTo(o.dx + 1.1 * u, o.dy + 1.2 * u)..lineTo(o.dx, o.dy + 2.3 * u)..close(),
-      _f(const Color(0xFFF06292)));
-  _smile(c, o + Offset(0, 2.6 * u), u);
-  for (final s in [-1.0, 1.0]) {
-    for (final dy in [1.4, 3.0]) {
-      c.drawLine(o + Offset(s * 4.6 * u, dy * u), o + Offset(s * 9.6 * u, (dy * 1.4 - 1.4) * u), _s(u, _ink.withValues(alpha: .55), .45));
-    }
-  }
-  _blush(c, o, u, gap: 6.2, dy: 2.6);
-}
-
-void _catHug(Canvas c, Rect b, Color fill, double u) {
-  _sideTail(c, b, u, const Color(0xFFF4A259), stripe: const Color(0xFFD9822B));
-  _hugTop(c, b, u, _catHead, fill);
-}
-
-void _pupHug(Canvas c, Rect b, Color fill, double u) {
-  _sideTail(c, b, u, const Color(0xFFE8954A));
-  _hugTop(c, b, u, _pup, fill);
-}
-
-void _backPaws(Canvas c, Rect b, double u, Color col) {
-  for (final dx in [22.0, 36.0]) {
-    final o = Offset(b.right - dx * 1.6 * u, b.bottom + 1.6 * u);
-    _draw(c, _oval(o, 5 * u, 3.6 * u), col, u);
-    for (final t in [-1.8, 0.0, 1.8]) {
-      c.drawLine(o + Offset(t * u, 1 * u), o + Offset(t * u, 3.2 * u), _s(u, _ink.withValues(alpha: .6), .7));
-    }
-  }
-}
-
-void _hugBackPawsCat(Canvas c, Rect b, Color fill, double u) => _backPaws(c, b, u, const Color(0xFFF4A259));
-void _hugBackPawsPup(Canvas c, Rect b, Color fill, double u) => _backPaws(c, b, u, const Color(0xFFFFF3E0));
-
-/// Mũ Noel to đội lên góc trái: vành lông trắng ôm theo góc bo của bong bóng, chóp mũ rủ sang phải.
-void _santaHatHug(Canvas c, Rect b, Color fill, double u) {
-  final l = b.left, t = b.top;
-  final rad = math.min(18.0, b.height / 2);
-  final hat = Path()
-    ..moveTo(l + 2 * u, t - 2 * u)
-    ..cubicTo(l + 6 * u, t - 30 * u, l + 40 * u, t - 34 * u, l + 64 * u, t - 20 * u)
-    ..quadraticBezierTo(l + 56 * u, t - 14 * u, l + 50 * u, t - 2 * u)
-    ..close();
-  _draw(c, hat, const Color(0xFFE53935), u, w: 1.4);
-  // Nếp gấp trên thân mũ.
-  c.drawPath(
-      Path()
-        ..moveTo(l + 30 * u, t - 24 * u)
-        ..quadraticBezierTo(l + 44 * u, t - 22 * u, l + 52 * u, t - 15 * u),
-      _s(u, const Color(0xFFB71C1C), 1));
-  // Vành lông: chạy dọc cạnh trái, vòng qua góc bo, dọc mép trên.
-  final brim = Path()
-    ..moveTo(l - 1 * u, t + rad + 6 * u)
-    ..lineTo(l - 1 * u, t + rad)
-    ..arcToPoint(Offset(l + rad, t - 1 * u), radius: Radius.circular(rad + 1 * u))
-    ..lineTo(l + 52 * u, t - 1 * u);
-  c.drawPath(brim, _s(u, _ink, 8.6));
-  c.drawPath(brim, _s(u, Colors.white, 7));
-  for (final m in brim.computeMetrics()) {
-    for (var d = 3 * u; d < m.length; d += 5 * u) {
-      final p = m.getTangentForOffset(d)!.position;
-      c.drawCircle(p + Offset(.6 * u, -1.4 * u), .9 * u, _f(const Color(0xFFE0E0E0)));
-    }
-  }
-  _draw(c, _oval(Offset(l + 66 * u, t - 17 * u), 6 * u, 6 * u), Colors.white, u, w: 1.2);
-}
-
-void _hollyBig(Canvas c, Rect b, Color fill, double u) {
-  c.save();
-  c.translate(b.right, b.bottom);
-  c.scale(1.7);
-  c.translate(-b.right, -b.bottom);
-  _holly(c, b.translate(-2 * u, 1 * u), fill, u);
-  c.restore();
-}
-
-/// Cành mai to chạy dọc mép trên, nhiều hoa, ló ra cả hai đầu.
-void _maiHug(Canvas c, Rect b, Color fill, double u) {
-  const wood = Color(0xFF5D4037);
-  final end = math.min(b.width * .8, 120 * u);
-  final p = Path()
-    ..moveTo(b.left - 14 * u, b.top + 12 * u)
-    ..quadraticBezierTo(b.left - 2 * u, b.top - 8 * u, b.left + end * .5, b.top - 6 * u)
-    ..quadraticBezierTo(b.left + end * .8, b.top - 5 * u, b.left + end, b.top - 12 * u);
-  c.drawPath(p, _s(u, wood, 3.4));
-  final twig = Path()
-    ..moveTo(b.left + end * .35, b.top - 6.5 * u)
-    ..quadraticBezierTo(b.left + end * .4, b.top - 13 * u, b.left + end * .48, b.top - 16 * u);
-  c.drawPath(twig, _s(u, wood, 2));
-  var i = 0;
-  for (final m in [...p.computeMetrics(), ...twig.computeMetrics()]) {
-    for (var d = 8 * u; d < m.length; d += 13 * u) {
-      final pos = m.getTangentForOffset(d)!.position;
-      final big = i++ % 3 != 1;
-      if (big) {
-        _flower(c, pos + Offset(0, -2 * u), 7 * u, const Color(0xFFFFC107), const Color(0xFFE65100), u, rot: i * .5);
-        for (var k = 0; k < 5; k++) {
-          final a = i * .5 + k * 2 * math.pi / 5 - math.pi / 2;
-          c.drawLine(pos + Offset(0, -2 * u), pos + Offset(0, -2 * u) + Offset(math.cos(a), math.sin(a)) * 3.4 * u, _s(u, const Color(0xFFE65100), .5));
-        }
-      } else {
-        _draw(c, _oval(pos + Offset(1 * u, -3.5 * u), 2.8 * u, 2.8 * u), const Color(0xFFFFD54F), u, w: .8);
-        _draw(c, _oval(pos + Offset(-2 * u, 2 * u), 2 * u, 1.2 * u), const Color(0xFF7CB342), u, w: .6);
-      }
-    }
-  }
-}
-
-void _maiPetalsBig(Canvas c, Rect b, Color fill, double u) {
-  for (final (dx, dy, r, a) in [(-6.0, 4.0, 3.6, .4), (6.0, 8.5, 2.8, 1.3), (-16.0, 9.0, 2.4, 2.2), (-28.0, 5.0, 2.0, .9)]) {
-    final o = Offset(b.right + dx * u, b.bottom + dy * u);
-    _rotated(c, o, a, () => _draw(c, _oval(o, r * u, r * .6 * u), const Color(0xFFFFC107), u, w: .6));
-  }
 }

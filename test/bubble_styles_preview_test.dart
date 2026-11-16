@@ -54,85 +54,8 @@ Widget _artSheet(bool dark) {
   });
 }
 
-/// So sánh cỡ: cỡ hiện tại và bản to "ôm bong bóng", mỗi kiểu một đoạn chat (tin người khác + hai tin của mình).
-Widget _sizeDemo() {
-  return Builder(builder: (context) {
-    final pal = Pal.of(context);
-    Widget chat(BubbleStyle s) {
-      final fg = bubbleTextOn(s.color);
-      Widget msg(String t, {bool mine = true, bool top = true, bool bottom = true}) => Align(
-            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 1.5),
-              child: StyledBubble(
-                style: s,
-                fill: s.color,
-                top: top,
-                bottom: bottom,
-                mirror: !mine,
-                child: Text(t, style: TextStyle(fontSize: 16, color: fg, height: 1.3)),
-              ),
-            ),
-          );
-      return Column(children: [
-        msg('Anh gửi file hợp đồng rồi nhé', mine: false),
-        const SizedBox(height: 6),
-        msg('Dạ em nhận rồi ạ', bottom: false),
-        msg('Chiều nay em gửi bản ký lại', top: false),
-      ]);
-    }
-
-    final cur = {for (final s in bubbleStyles) s.id: s};
-    final pairs = [
-      (cur['meo']!, bubbleHugDemo[0]),
-      (cur['cun']!, bubbleHugDemo[1]),
-      (cur['munoel']!, bubbleHugDemo[2]),
-      (cur['hoamai']!, bubbleHugDemo[3]),
-    ];
-    Widget label(String t) => Padding(
-          padding: const EdgeInsets.only(top: 14, bottom: 4),
-          child: Text(t, style: TextStyle(color: pal.sub, fontSize: 12, fontWeight: FontWeight.w700)),
-        );
-    return Container(
-      color: pal.chatBg,
-      padding: const EdgeInsets.fromLTRB(14, 6, 14, 18),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        for (final (a, b) in pairs) ...[
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Text(a.name, style: TextStyle(color: pal.text, fontSize: 16, fontWeight: FontWeight.w800)),
-          ),
-          label('CỠ HIỆN TẠI'),
-          chat(a),
-          label('CỠ TO (ÔM BONG BÓNG)'),
-          chat(b),
-          Divider(color: pal.divider, height: 26),
-        ],
-      ]),
-    );
-  });
-}
-
 void main() {
   final out = Platform.environment['BUBBLE_OUT'];
-
-  for (final dark in [false, true]) {
-    testWidgets('size demo ${dark ? 'dark' : 'light'}', (tester) async {
-      if (out == null) return;
-      await _fonts();
-      tester.view.physicalSize = const Size(390, 1900) * 2;
-      tester.view.devicePixelRatio = 2;
-      addTearDown(tester.view.reset);
-      final key = GlobalKey();
-      await tester.pumpWidget(MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(dark ? Brightness.dark : Brightness.light),
-        home: Scaffold(body: SingleChildScrollView(child: RepaintBoundary(key: key, child: _sizeDemo()))),
-      ));
-      await tester.pumpAndSettle();
-      await _shot(tester, key, '$out/demo-size-${dark ? 'dark' : 'light'}.png');
-    });
-  }
 
   for (final dark in [false, true]) {
     for (final (name, size) in [('phone', Size(390, 844)), ('phone-full', Size(390, 2700)), ('desktop', Size(1100, 760))]) {
@@ -155,6 +78,25 @@ void main() {
         await _shot(tester, key, '$out/picker-$name-${dark ? 'dark' : 'light'}.png');
       });
     }
+    testWidgets('picker per-chat ${dark ? 'dark' : 'light'}', (tester) async {
+      if (out == null) return;
+      await _fonts();
+      tester.view.physicalSize = const Size(390, 844) * 2;
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      await tester.pumpWidget(RepaintBoundary(
+        key: key,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(dark ? Brightness.dark : Brightness.light),
+          home: BubblePickerPage(
+              allowInherit: true, inherited: const BubbleChoice('munoel'), defaultFill: (dark ? Pal.dark : Pal.light).outBubble),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await _shot(tester, key, '$out/picker-chat-inherit-${dark ? 'dark' : 'light'}.png');
+    });
     testWidgets('art sheet ${dark ? 'dark' : 'light'}', (tester) async {
       if (out == null) return;
       await _fonts();

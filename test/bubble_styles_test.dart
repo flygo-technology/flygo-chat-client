@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/bubble_styles.dart';
 
 /// Vẽ riêng phần trang trí của [s] quanh bong bóng [size] (đặt giữa ảnh, chừa lề [m]) rồi đếm điểm ảnh có màu nằm trong
@@ -28,7 +29,7 @@ Future<int> _pixelsOverText(BubbleStyle s, Size size, {double scale = 1, bool mi
 void main() {
   test('hình trang trí không đè vùng chữ của bong bóng (mọi kiểu, nhiều cỡ)', () async {
     final bad = <String>[];
-    for (final s in [...bubbleStyles, ...bubbleHugDemo]) {
+    for (final s in bubbleStyles) {
       for (final size in const [Size(64, 36), Size(150, 36), Size(260, 58), Size(320, 120)]) {
         for (final mirror in [false, true]) {
           final n = await _pixelsOverText(s, size, mirror: mirror);
@@ -74,5 +75,19 @@ void main() {
     expect(BubbleChoice.fromJson('rác'), isNull);
     expect(const BubbleChoice('quockyvn').toJson(), {'s': 'quockyvn'});
     expect(BubbleChoice('meo', const Color(0xFF000000)).toJson(), {'s': 'meo', 'c': '000000'});
+  });
+
+  test('kiểu riêng của chat thắng mặc định chung; "Mặc định" ở chat tắt cả mặc định chung', () {
+    final app = AppState('t');
+    expect(app.resolvedBubble('c1'), isNull);
+    app.bubbles[kBubbleDefaultKey] = const BubbleChoice('meo');
+    expect(app.resolvedBubble('c1')?.style, 'meo');
+    app.bubbles['c1'] = const BubbleChoice('quockyvn');
+    expect(app.resolvedBubble('c1')?.style, 'quockyvn');
+    app.bubbles['c2'] = const BubbleChoice('');
+    expect(app.resolvedBubble('c2'), isNull);
+    // "Mặc định" riêng của chat lưu thành {s: none} và đọc lại đúng.
+    expect(BubbleChoice.fromJson(const BubbleChoice('').toJson())?.style, '');
+    expect(bubbleOfProps({'flygo_bubble': {'s': 'none'}}), isNull);
   });
 }
