@@ -6,6 +6,7 @@ import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
+import 'package:flygo_chat/ui/mail/when.dart';
 
 /// /me chưa trả lời: màn hình chờ thay vì giao diện trống.
 class _Slow extends DemoMailApi {
@@ -154,5 +155,40 @@ void main() {
     await t.tap(find.byKey(const ValueKey('mail-other-boxes')));
     await t.pumpAndSettle();
     expect(find.text(before), findsWidgets);
+  });
+
+  test('pickWhen labels: hôm nay / ngày mai', () {
+    final n = DateTime.now();
+    expect(whenLabel(DateTime(n.year, n.month, n.day, 18)), 'hôm nay 18:00');
+    final t = n.add(const Duration(days: 1));
+    expect(whenLabel(DateTime(t.year, t.month, t.day, 8)), 'ngày mai 08:00');
+  });
+
+  test('MailChange snooze json', () {
+    final d = DateTime.utc(2026, 11, 18, 1);
+    expect(MailChange(snooze: d).toJson()['snooze'], '2026-11-18T01:00:00.000Z');
+    expect(const MailChange(unsnooze: true).toJson().containsKey('snooze'), true);
+    expect(const MailChange(unsnooze: true).toJson()['snooze'], null);
+    expect(MailChange(snooze: d).leavesBox, true);
+  });
+
+  testWidgets('khung soạn có nút Hẹn giờ gửi', (t) async {
+    t.view.physicalSize = const Size(1440, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final store = MailStore(DemoMailApi());
+    await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    t.state<MailHomeState>(find.byType(MailHome)).compose();
+    for (var i = 0; i < 5; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byKey(const ValueKey('mail-send-later')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('mail-send-later')));
+    await t.pumpAndSettle();
+    expect(find.text('Hẹn giờ gửi'), findsWidgets);
+    expect(find.text('Sáng mai'), findsOneWidget);
   });
 }

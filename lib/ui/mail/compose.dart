@@ -15,6 +15,7 @@ import 'api.dart';
 import 'html_view.dart';
 import 'model.dart';
 import 'rich.dart';
+import 'when.dart';
 import 'widgets.dart';
 
 /// Dữ liệu mở khung soạn (thư mới, trả lời, chuyển tiếp, mở bản nháp).
@@ -155,12 +156,12 @@ class ComposeController extends ChangeNotifier {
     return null;
   }
 
-  Future<void> send() async {
+  Future<void> send({DateTime? at}) async {
     sending = true;
     notifyListeners();
     _t?.cancel();
     try {
-      await api.send(draft(), draftId: draftId);
+      await api.send(draft(), draftId: draftId, sendAt: at);
       _closed = true;
     } finally {
       sending = false;
@@ -333,7 +334,14 @@ class _ComposeBodyState extends State<ComposeBody> {
       ) ??
       false;
 
-  Future<void> _send() async {
+  /// Hẹn giờ gửi: chọn mốc giờ rồi gửi như thường (máy chủ giữ thư tới lúc đó).
+  Future<void> _sendLater() async {
+    final at = await pickWhen(context, title: 'Hẹn giờ gửi', send: true);
+    if (at == null || !mounted) return;
+    await _send(at: at);
+  }
+
+  Future<void> _send({DateTime? at}) async {
     final err = c.validate();
     if (err != null) {
       await showDialog<void>(context: context, builder: (ctx) => AlertDialog(title: const Text('Lỗi'), content: Text(err), actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))]));
@@ -345,8 +353,13 @@ class _ComposeBodyState extends State<ComposeBody> {
       return;
     }
     try {
-      await c.send();
-      widget.onSent(c.args.threadId);
+      await c.send(at: at);
+      if (at != null) {
+        _report('Đã hẹn gửi ${whenLabel(at)}. Xem ở mục Đã lên lịch.');
+        widget.onClosed('');
+      } else {
+        widget.onSent(c.args.threadId);
+      }
     } catch (e) {
       _report('Gửi thư thất bại: $e');
     }
@@ -479,6 +492,7 @@ class _ComposeBodyState extends State<ComposeBody> {
               IconButton(tooltip: 'Đóng', icon: const Icon(Icons.arrow_back), onPressed: _close),
               const Expanded(child: Text('Soạn thư', style: TextStyle(fontSize: 18))),
               IconButton(tooltip: 'Đính kèm tệp', icon: const Icon(Icons.attach_file), onPressed: _attach),
+              IconButton(tooltip: 'Hẹn giờ gửi', icon: const Icon(Icons.schedule_send_outlined), onPressed: c.sending ? null : _sendLater),
               IconButton(tooltip: 'Gửi', icon: Icon(Icons.send_outlined, color: mc.accent), onPressed: c.sending ? null : _send),
               PopupMenuButton<String>(
                 onSelected: (v) => v == 'discard' ? _discard() : setState(() => c.showCc = c.showBcc = true),
@@ -603,6 +617,12 @@ class _ComposeBodyState extends State<ComposeBody> {
                 style: FilledButton.styleFrom(backgroundColor: mc.button, padding: const EdgeInsets.symmetric(horizontal: 24)),
                 onPressed: c.sending ? null : _send,
                 child: c.sending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Gửi'),
+              ),
+              IconButton(
+                key: const ValueKey('mail-send-later'),
+                tooltip: 'Hẹn giờ gửi',
+                onPressed: c.sending ? null : _sendLater,
+                icon: const Icon(Icons.schedule_send_outlined),
               ),
               const SizedBox(width: 8),
             ],

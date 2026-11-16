@@ -149,6 +149,7 @@ IconData boxIcon(String box) => switch (box) {
       'starred' => Icons.star_outline,
       'snoozed' => Icons.schedule,
       'sent' => Icons.send_outlined,
+      'scheduled' => Icons.schedule_send_outlined,
       'drafts' => Icons.insert_drive_file_outlined,
       'important' => Icons.label_important_outline,
       'all' => Icons.mail_outline,

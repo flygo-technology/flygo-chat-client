@@ -83,6 +83,7 @@ class MailStore extends ChangeNotifier {
         'starred': 'Có gắn sao',
         'snoozed': 'Đã tạm ẩn',
         'sent': 'Đã gửi',
+        'scheduled': 'Đã lên lịch',
         'drafts': 'Thư nháp',
         'important': 'Quan trọng',
         'all': 'Tất cả thư',
@@ -373,6 +374,24 @@ class MailStore extends ChangeNotifier {
       return null;
     }
     return apply(ids, changeFor(a), extra: extra);
+  }
+
+  /// Tạm ẩn tới [until] (null = bỏ tạm ẩn); trả hàm hoàn tác.
+  Future<Future<void> Function()?> snooze(List<String> ids, DateTime? until) async {
+    final undo = await apply(ids, until == null ? const MailChange(unsnooze: true) : MailChange(snooze: until));
+    if (until == null) return undo;
+    return () async {
+      await api.modify(ids, const MailChange(unsnooze: true));
+      await load(quiet: true);
+      await refreshCounts();
+    };
+  }
+
+  /// Huỷ hẹn giờ gửi: thư trở lại Thư nháp.
+  Future<void> cancelScheduled(String draftId) async {
+    await api.cancelScheduled(draftId);
+    await load(quiet: true);
+    await refreshCounts();
   }
 
   Future<MailLabel> createLabel(String name, int color) async {

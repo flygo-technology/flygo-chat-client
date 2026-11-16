@@ -18,6 +18,7 @@ import '../theme.dart' show toast;
 import 'admin_page.dart';
 import 'api.dart';
 import 'digest.dart';
+import 'when.dart';
 import 'compose.dart';
 import 'demo.dart';
 import 'model.dart';
@@ -216,6 +217,29 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
   }
 
   void openThread(MailThreadSummary t) async {
+    final sid = t.scheduledDraftId;
+    if (sid != null && t.scheduledAt != null) {
+      final edit = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Thư đã hẹn giờ'),
+          content: Text('Thư "${t.subject}" sẽ được gửi ${whenLabel(t.scheduledAt!)}. Huỷ hẹn giờ để sửa? Thư sẽ về Thư nháp.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Đóng')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Huỷ hẹn giờ và sửa')),
+          ],
+        ),
+      );
+      if (edit != true || !mounted) return;
+      try {
+        await store.cancelScheduled(sid);
+        final th = await store.api.thread(t.id);
+        compose(draftArgs(th));
+      } catch (e) {
+        snack('$e');
+      }
+      return;
+    }
     if (t.draft) {
       try {
         final th = await store.api.thread(t.id);
@@ -342,7 +366,25 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     }
   }
 
-  void _snooze() => snack('Tạm ẩn thư sẽ có khi máy chủ thư hỗ trợ');
+  /// Tạm ẩn: chọn mốc giờ; thư quay lại Hộp thư đến (chưa đọc) đúng lúc đó. Đang ở mục Đã tạm ẩn: bỏ tạm ẩn.
+  Future<void> _snooze([List<String>? only]) async {
+    final ids = only ?? (store.selected.isNotEmpty ? store.selected.toList() : (_threadId == null ? <String>[] : [_threadId!]));
+    if (ids.isEmpty) return;
+    if (store.view.box == 'snoozed') {
+      final undo = await store.snooze(ids, null);
+      snack('Đã bỏ tạm ẩn', undo: undo);
+      return;
+    }
+    final until = await pickWhen(context, title: 'Tạm ẩn đến');
+    if (until == null || !mounted) return;
+    try {
+      final undo = await store.snooze(ids, until);
+      if (_threadId != null && ids.contains(_threadId)) setState(() => _threadId = null);
+      snack('Đã tạm ẩn đến ${whenLabel(until)}', undo: undo);
+    } catch (e) {
+      snack('$e');
+    }
+  }
 
   /* ---------------- keyboard ---------------- */
 
@@ -1113,7 +1155,7 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
               ),
             ),
           ),
-        for (final b in ['inbox', 'starred', 'snoozed', 'sent', 'drafts']) box(b),
+        for (final b in ['inbox', 'starred', 'snoozed', 'sent', 'scheduled', 'drafts']) box(b),
         item('more', Icon(_moreBoxes ? Icons.expand_less : Icons.expand_more), _moreBoxes ? 'Ẩn bớt' : 'Thêm', 0, false, () => setState(() => _moreBoxes = !_moreBoxes)),
         if (_moreBoxes)
           for (final b in ['important', 'all', 'spam', 'trash']) box(b),
@@ -1186,7 +1228,7 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
         anyUnread ? 'Đánh dấu là đã đọc' : 'Đánh dấu là chưa đọc',
         () => act(anyUnread ? MailAction.read : MailAction.unread, ids),
       ),
-      if (!phone) ib(Icons.schedule, 'Tạm ẩn', _snooze),
+      if (!phone) ib(Icons.schedule, store.view.box == 'snoozed' ? 'Bỏ tạm ẩn' : 'Tạm ẩn', () => _snooze(ids)),
       Builder(
         builder: (bc) => IconButton(
           tooltip: 'Nhãn',
@@ -1460,7 +1502,7 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     onTap: () => openThread(t),
     onSelect: () => store.toggleSelect(t.id),
     onStar: () => act(t.starred ? MailAction.unstar : MailAction.star, [t.id]),
-    onAction: (a) => a == null ? _snooze() : act(a, [t.id]),
+    onAction: (a) => a == null ? _snooze([t.id]) : act(a, [t.id]),
   );
 
   Widget _phoneRow(MailColors mc, MailThreadSummary t) {
@@ -1515,8 +1557,8 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          fmtListDate(t.date),
-                          style: TextStyle(fontSize: 12, fontWeight: bold, color: t.unread ? mc.text : mc.muted),
+                          rowWhen(t) ?? fmtListDate(t.date),
+                          style: TextStyle(fontSize: 12, fontWeight: bold, color: rowWhen(t) != null ? mc.accentText : t.unread ? mc.text : mc.muted),
                         ),
                       ],
                     ),
@@ -1701,13 +1743,13 @@ class _MailRowState extends State<_MailRow> {
                       t.unread ? 'Đánh dấu là đã đọc' : 'Đánh dấu là chưa đọc',
                       () => widget.onAction(t.unread ? MailAction.read : MailAction.unread),
                     ),
-                    _hb(Icons.schedule, 'Tạm ẩn', () => widget.onAction(null)),
+                    _hb(Icons.schedule, t.snoozedUntil != null ? 'Bỏ tạm ẩn' : 'Tạm ẩn', () => widget.onAction(null)),
                   ],
                 )
               : Text(
-                  fmtListDate(t.date),
+                  rowWhen(t) ?? fmtListDate(t.date),
                   textAlign: TextAlign.right,
-                  style: TextStyle(fontSize: 12, fontWeight: bold, color: t.unread ? mc.text : mc.muted),
+                  style: TextStyle(fontSize: 12, fontWeight: bold, color: rowWhen(t) != null ? mc.accentText : t.unread ? mc.text : mc.muted),
                 ),
         ),
         const SizedBox(width: 16),
@@ -1977,3 +2019,7 @@ class _InlineReplyState extends State<_InlineReply> {
     );
   }
 }
+
+/// Dòng thư: "Gửi lúc …" (đã hẹn giờ) hoặc "Đến …" (đang tạm ẩn) thay cho ngày.
+String? rowWhen(MailThreadSummary t) =>
+    t.scheduledAt != null ? 'Gửi ${whenLabel(t.scheduledAt!)}' : t.snoozedUntil != null ? 'Đến ${whenLabel(t.snoozedUntil!)}' : null;

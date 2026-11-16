@@ -72,7 +72,7 @@ class MailAttachment {
 }
 
 /// Hộp / mục xem: inbox, starred, snoozed, sent, drafts, important, all, spam, trash.
-const kMailBoxes = ['inbox', 'starred', 'snoozed', 'sent', 'drafts', 'important', 'all', 'spam', 'trash'];
+const kMailBoxes = ['inbox', 'starred', 'snoozed', 'sent', 'scheduled', 'drafts', 'important', 'all', 'spam', 'trash'];
 
 class MailThreadSummary {
   MailThreadSummary({
@@ -91,10 +91,18 @@ class MailThreadSummary {
     this.draft = false,
     this.category = 'primary',
     this.attachments = const [],
+    this.snoozedUntil,
+    this.scheduledAt,
+    this.scheduledDraftId,
   });
 
   final String id;
   String subject, snippet, box, category;
+  /// Tạm ẩn tới lúc này (null = không tạm ẩn).
+  DateTime? snoozedUntil;
+  /// Hẹn giờ gửi lúc này; [scheduledDraftId] = bản nháp sẽ được gửi.
+  DateTime? scheduledAt;
+  String? scheduledDraftId;
   DateTime date;
   int count;
   List<MailPerson> participants, to;
@@ -118,6 +126,9 @@ class MailThreadSummary {
         draft: m['draft'] == true,
         category: '${m['category'] ?? 'primary'}',
         attachments: [for (final a in (m['attachments'] as List? ?? const [])) MailAttachment.fromJson(a as Map)],
+        snoozedUntil: m['snoozedUntil'] is String ? DateTime.tryParse(m['snoozedUntil'] as String)?.toLocal() : null,
+        scheduledAt: m['scheduledAt'] is String ? DateTime.tryParse(m['scheduledAt'] as String)?.toLocal() : null,
+        scheduledDraftId: m['scheduledDraftId'] is String ? m['scheduledDraftId'] as String : null,
       );
 
   /// Ảnh chụp các trạng thái để hoàn tác.
@@ -307,12 +318,15 @@ class MailDraft {
 
 /// Thay đổi trên các cuộc hội thoại (POST /threads/modify).
 class MailChange {
-  const MailChange({this.unread, this.starred, this.important, this.box, this.addLabels = const [], this.removeLabels = const []});
+  const MailChange({this.unread, this.starred, this.important, this.box, this.addLabels = const [], this.removeLabels = const [], this.snooze, this.unsnooze = false});
   final bool? unread, starred, important;
   final String? box;
+  /// Tạm ẩn tới lúc này; [unsnooze] = bỏ tạm ẩn.
+  final DateTime? snooze;
+  final bool unsnooze;
   final List<String> addLabels, removeLabels;
 
-  bool get leavesBox => box != null;
+  bool get leavesBox => box != null || snooze != null || unsnooze;
 
   Map<String, dynamic> toJson() => {
         if (unread != null) 'unread': unread,
@@ -321,6 +335,7 @@ class MailChange {
         if (box != null) 'box': box,
         if (addLabels.isNotEmpty) 'addLabels': addLabels,
         if (removeLabels.isNotEmpty) 'removeLabels': removeLabels,
+        if (snooze != null) 'snooze': snooze!.toUtc().toIso8601String() else if (unsnooze) 'snooze': null,
       };
 
   void applyTo(MailThreadSummary t) {
