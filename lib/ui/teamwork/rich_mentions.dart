@@ -172,35 +172,53 @@ class _TwRichEditorState extends State<TwRichEditor> {
     }
   }
 
+  /// Ô đang gõ (ô vừa gõ gần nhất); chưa gõ ô nào thì đặt con trỏ vào cuối nội dung.
   Future<RichController?> _target() async {
     if (_ed.focused == null) {
       _ed.focusEnd();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await WidgetsBinding.instance.endOfFrame;
     }
     return _ed.focused;
   }
 
   Future<void> _mention({int replace = 0}) async {
     _picking = true;
-    final c = await _target();
-    if (!mounted || c == null) return;
-    final a = await pickMention(context, widget.store);
-    _picking = false;
-    if (a == null) return;
-    insertMention(c, '@${a.name}', mentionLink(a.kind, a.id), replace: replace);
-    _lastText = c.text;
+    try {
+      final a = await pickMention(context, widget.store);
+      if (a == null || !mounted) return;
+      final c = await _target();
+      if (c == null) return;
+      insertMention(c, '@${a.name}', mentionLink(a.kind, a.id), replace: replace);
+      _lastText = c.text;
+      widget.onChanged(_current());
+    } finally {
+      _picking = false;
+    }
   }
 
   Future<void> _task({int replace = 0}) async {
     _picking = true;
-    final c = await _target();
-    if (!mounted || c == null) return;
-    final t = await pickTask(context, widget.store, projectId: widget.projectId, title: 'Nhắc tới việc');
-    _picking = false;
-    if (t == null) return;
-    insertMention(c, t.key, mentionLink('task', t.key), replace: replace);
-    _lastText = c.text;
+    try {
+      final t = await pickTask(context, widget.store, projectId: widget.projectId, title: 'Nhắc tới việc');
+      if (t == null || !mounted) return;
+      final c = await _target();
+      if (c == null) return;
+      insertMention(c, t.key, mentionLink('task', t.key), replace: replace);
+      _lastText = c.text;
+      widget.onChanged(_current());
+    } finally {
+      _picking = false;
+    }
   }
+
+  /// Nội dung hiện tại (sau khi chèn chỗ nhắc, BlockEditor báo onChanged qua onEdited; gọi lại cho chắc).
+  List<TBlock> _current() {
+    final c = _ed.focused, b = _ed.focusedBlock;
+    if (c == null || b == null) return widget.blocks;
+    return [for (final x in _blocksSnapshot ?? widget.blocks) x.id == b.id ? (x.clone()..r = c.runs) : x];
+  }
+
+  List<TBlock>? _blocksSnapshot;
 
   Future<void> _link() async {
     final c = _ed.focused;
@@ -253,7 +271,10 @@ class _TwRichEditorState extends State<TwRichEditor> {
     final look = TwLook.of(context);
     final editor = BlockEditor(
       blocks: widget.blocks,
-      onChanged: widget.onChanged,
+      onChanged: (b) {
+        _blocksSnapshot = b;
+        widget.onChanged(b);
+      },
       controller: _ed,
       revision: widget.revision,
       readOnly: widget.readOnly,

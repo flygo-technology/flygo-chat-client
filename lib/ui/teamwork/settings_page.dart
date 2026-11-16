@@ -120,7 +120,7 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
         ]),
       );
 
-  BoxDecoration _box(TwLook look) => BoxDecoration(border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(12), color: look.bg);
+  BoxDecoration _box(TwLook look) => BoxDecoration(border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(12));
 
   // ------------------------------------------------------------ chung
   Widget _general(TwProjectFull full, TwLook look, bool admin) {

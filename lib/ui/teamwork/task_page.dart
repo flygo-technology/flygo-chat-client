@@ -416,8 +416,8 @@ class _TwTaskPageState extends State<TwTaskPage> {
         child: Row(children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
           if (count != null) ...[const SizedBox(width: 8), Text(count, style: TextStyle(color: TwLook.of(context).sub))],
-          if (extra != null) ...[const SizedBox(width: 10), extra],
-          const Spacer(),
+          if (extra != null) ...[const SizedBox(width: 10), Flexible(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 160), child: extra))] else const Spacer(),
+          if (extra != null) const SizedBox(width: 10),
           ...actions,
         ]),
       );
@@ -427,7 +427,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
     final sub = d.subtasks;
     final direct = childrenOf(sub, t.id);
     final doneN = direct.where((s) => p?.status(s.statusId)?.isDone ?? false).length;
-    return ListView(padding: EdgeInsets.fromLTRB(wide ? 32 : 16, 8, wide ? 32 : 16, 40), children: [
+    return SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(wide ? 32 : 16, 8, wide ? 32 : 16, 40),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       TextField(
         key: const ValueKey('task-title'),
         controller: _title,
@@ -448,7 +450,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
       if (t.hasAgent) _agentCard(look),
       _section('Việc con',
           count: direct.isEmpty ? null : '$doneN/${direct.length}',
-          extra: direct.isEmpty ? null : SizedBox(width: 160, child: ThinProgress(doneN / direct.length)),
+          extra: direct.isEmpty ? null : ThinProgress(doneN / direct.length),
           actions: [
             if (canEdit)
               TextButton.icon(
@@ -456,7 +458,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
                 style: TextButton.styleFrom(foregroundColor: look.ai, backgroundColor: look.aiSoft, visualDensity: VisualDensity.compact),
                 onPressed: () => MediaQuery.sizeOf(context).width >= 1180 ? setState(() => _ai = true) : _openAi(),
                 icon: const Icon(Icons.auto_awesome, size: 16),
-                label: const Text('AI chia nhỏ'),
+                label: Text(wide ? 'AI chia nhỏ' : 'AI'),
               ),
             const SizedBox(width: 6),
             if (canEdit)
@@ -486,7 +488,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
         TwComments(key: _comments, store: store, task: t, onMention: _onMention, canComment: p != null)
       else
         _activityList(look),
-    ]);
+    ]));
   }
 
   Widget _tabBtn(String k, String label, TwLook look) => InkWell(

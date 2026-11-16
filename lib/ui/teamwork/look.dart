@@ -224,11 +224,9 @@ class LabelChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = hexColor(label.color);
     return Container(
-      height: dense ? 20 : 22,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.center,
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: dense ? 2 : 3),
       decoration: BoxDecoration(color: c.withValues(alpha: .13), borderRadius: BorderRadius.circular(6)),
-      child: Text(label.name, style: TextStyle(color: c, fontSize: 11.5, fontWeight: FontWeight.w600)),
+      child: Text(label.name, style: TextStyle(color: c, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.3)),
     );
   }
 }
@@ -242,8 +240,7 @@ class TwChip extends StatelessWidget {
   final bool solid;
   @override
   Widget build(BuildContext context) => Container(
-        height: 22,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(color: solid ? color : color.withValues(alpha: .13), borderRadius: BorderRadius.circular(6)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           if (icon != null) ...[Icon(icon, size: 13, color: solid ? Colors.white : color), const SizedBox(width: 4)],

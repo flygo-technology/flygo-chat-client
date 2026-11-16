@@ -135,7 +135,7 @@ class TwGanttViewState extends State<TwGanttView> {
         final r = await showDialog<String>(
           context: context,
           builder: (d) => AlertDialog(
-            title: Text('Dời ${t.key}: ${start == null ? '' : dShort(start)} → ${due == null ? '' : dShort(due)}'),
+            title: Text('Dời ${t.key}: ${start == null ? '' : dShort(start)} – ${due == null ? '' : dShort(due)}'),
             content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('${deps.length} việc phụ thuộc việc này:'),
               const SizedBox(height: 6),
@@ -213,7 +213,7 @@ class TwGanttViewState extends State<TwGanttView> {
       child: SizedBox(
         width: width,
         child: Column(children: [
-          SizedBox(height: _headH, child: CustomPaint(size: Size(width, _headH), painter: _HeadPainter(origin, days, dw, zoom, store.today, look))),
+          SizedBox(height: _headH, child: CustomPaint(size: Size(width, _headH), painter: _HeadPainter(origin, days, dw, zoom, store.today, look, DefaultTextStyle.of(context).style))),
           Expanded(
             child: DragTarget<TwTask>(
               onAcceptWithDetails: (d) {
@@ -406,7 +406,7 @@ class TwGanttViewState extends State<TwGanttView> {
                   final s = (t.start ?? t.due!), e = (t.due ?? t.start!);
                   final ns = _dragMode == 'end' ? s : s.add(Duration(days: n));
                   final ne = _dragMode == 'start' ? e : e.add(Duration(days: n));
-                  return '${dShort(ns)} → ${dShort(ne)}';
+                  return '${dShort(ns)} – ${dShort(ne)}';
                 }(),
                 style: TextStyle(color: look.bg, fontSize: 11),
               ),
@@ -457,15 +457,17 @@ class TwGanttViewState extends State<TwGanttView> {
 }
 
 class _HeadPainter extends CustomPainter {
-  _HeadPainter(this.origin, this.days, this.dw, this.zoom, this.today, this.look);
+  _HeadPainter(this.origin, this.days, this.dw, this.zoom, this.today, this.look, this.base);
   final DateTime origin, today;
   final int days;
   final double dw;
   final String zoom;
   final TwLook look;
+  /// Kiểu chữ của giao diện (phông chữ app).
+  final TextStyle base;
 
   void _text(Canvas c, String s, Offset at, {Color? color, double size = 11, FontWeight w = FontWeight.w500, bool center = false, double width = 60}) {
-    final tp = TextPainter(text: TextSpan(text: s, style: TextStyle(color: color ?? look.sub, fontSize: size, fontWeight: w)), textDirection: TextDirection.ltr, textAlign: center ? TextAlign.center : TextAlign.left)
+    final tp = TextPainter(text: TextSpan(text: s, style: base.copyWith(color: color ?? look.sub, fontSize: size, fontWeight: w, height: 1.25)), textDirection: TextDirection.ltr, textAlign: center ? TextAlign.center : TextAlign.left)
       ..layout(minWidth: center ? width : 0, maxWidth: center ? width : 400);
     tp.paint(c, at);
   }

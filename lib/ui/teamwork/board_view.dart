@@ -133,11 +133,11 @@ class _TwBoardViewState extends State<TwBoardView> {
       child: Row(children: [
         StatusRing(s),
         const SizedBox(width: 8),
-        Flexible(child: Text(s.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))),
+        Flexible(flex: 6, child: Text(s.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))),
         const SizedBox(width: 6),
         Text('$n', style: TextStyle(color: look.sub, fontWeight: FontWeight.w600, fontSize: 12)),
         if (s.isStart) Padding(padding: const EdgeInsets.only(left: 6), child: Tooltip(message: 'Trạng thái bắt đầu: agent chạy khi việc vào đây', child: Icon(Icons.play_circle_outline, size: 16, color: look.ai))),
-        const Spacer(),
+        const Spacer(flex: 1),
         if (s.wip != null)
           Container(
             key: ValueKey('wip-${s.id}'),
