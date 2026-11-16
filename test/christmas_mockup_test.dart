@@ -383,6 +383,15 @@ class _AppearanceSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
         child: Text('Chỉ mình thấy, riêng chat này. Màu bong bóng và chữ giữ nguyên.', style: TextStyle(fontSize: 13, color: pal.sub)),
       ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Row(children: [
+          Icon(Icons.push_pin_outlined, size: 18, color: pal.sub),
+          const SizedBox(width: 6),
+          Expanded(child: Text('Chat này đang dùng hình nền riêng', style: TextStyle(fontSize: 13.5, color: pal.text))),
+          OutlinedButton(onPressed: () {}, child: const Text('Dùng mặc định')),
+        ]),
+      ),
       section('Giáng sinh'),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -439,95 +448,232 @@ class _AppearanceSheet extends StatelessWidget {
   }
 }
 
-/// Cài đặt cá nhân > Mùa lễ hội: tắt từng phần, hoặc tắt hẳn.
-class _SeasonSettings extends StatelessWidget {
-  const _SeasonSettings();
+/// Khung trang app (tiêu đề + nút quay lại) cho hai app Giao diện.
+Widget _appPage(BuildContext context, String title, String? sub, List<Widget> children) {
+  final pal = Pal.of(context);
+  return Container(
+    color: pal.bg,
+    child: ListView(padding: EdgeInsets.zero, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 44, 16, 2),
+        child: Row(children: [
+          IconButton(onPressed: () {}, icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: pal.accent)),
+          Expanded(child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: pal.text))),
+        ]),
+      ),
+      if (sub != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+          child: Text(sub, style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
+        ),
+      ...children,
+      const SizedBox(height: 30),
+    ]),
+  );
+}
+
+Widget _card(BuildContext context, List<Widget> c, {String? title}) {
+  final pal = Pal.of(context);
+  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    if (title != null)
+      Padding(
+        padding: const EdgeInsets.fromLTRB(28, 6, 16, 6),
+        child: Text(title.toUpperCase(), style: TextStyle(fontSize: 12, letterSpacing: .4, fontWeight: FontWeight.w700, color: pal.sub)),
+      ),
+    Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+      child: Material(color: pal.surface, borderRadius: BorderRadius.circular(14), clipBehavior: Clip.antiAlias, child: Column(children: c)),
+    ),
+  ]);
+}
+
+Widget _sw(BuildContext context, IconData? i, String title, String? sub, bool v, {double indent = 0}) {
+  final pal = Pal.of(context);
+  return SwitchListTile(
+    value: v,
+    onChanged: (_) {},
+    secondary: i == null ? null : Icon(i, color: pal.accent),
+    contentPadding: EdgeInsets.only(left: 16 + indent, right: 12),
+    title: Text(title, style: TextStyle(fontSize: 15, color: pal.text)),
+    subtitle: sub == null ? null : Text(sub, style: TextStyle(fontSize: 12.5, color: pal.sub)),
+  );
+}
+
+Widget _div(BuildContext context, [double indent = 56]) => Divider(height: 1, color: Pal.of(context).divider, indent: indent);
+
+Widget _segmented(BuildContext context, List<String> opts, int sel) {
+  final pal = Pal.of(context);
+  return Container(
+    padding: const EdgeInsets.all(3),
+    decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(10)),
+    child: Row(children: [
+      for (final (i, t) in opts.indexed)
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 7),
+            alignment: Alignment.center,
+            decoration: i == sel ? BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 4)]) : null,
+            child: Text(t, style: TextStyle(fontSize: 13.5, fontWeight: i == sel ? FontWeight.w700 : FontWeight.w500, color: i == sel ? pal.text : pal.sub)),
+          ),
+        ),
+    ]),
+  );
+}
+
+/// Ô hình nền nhỏ (hàng ngang).
+Widget _wpTile(BuildContext context, Widget art, String name, {bool on = false}) {
+  final pal = Pal.of(context);
+  return Padding(
+    padding: const EdgeInsets.only(right: 10),
+    child: Column(children: [
+      Container(
+        width: 64,
+        height: 92,
+        padding: EdgeInsets.all(on ? 2.5 : 1),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 2.5 : 1)),
+        child: ClipRRect(borderRadius: BorderRadius.circular(9), child: art),
+      ),
+      const SizedBox(height: 5),
+      SizedBox(width: 70, child: Text(name, maxLines: 2, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, height: 1.2, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text))),
+    ]),
+  );
+}
+
+/// Ô "Theo mùa lễ": nửa Đêm Noel, nửa Tuyết trắng.
+Widget _autoArt() => Row(children: [
+      Expanded(child: WallpaperView(wallpaper: wallpaperById('demnoel')!, frozenT: 2)),
+      Expanded(child: WallpaperView(wallpaper: wallpaperById('tuyettrang')!, frozenT: 2)),
+    ]);
+
+/// App "Giao diện" (Cá nhân): mặc định của mình cho mọi chat + tuỳ chọn mùa lễ.
+class _AppearanceApp extends StatelessWidget {
+  const _AppearanceApp();
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    Widget sw(IconData i, String title, String? sub, bool v, {bool enabled = true}) => SwitchListTile(
-          value: v,
-          onChanged: enabled ? (_) {} : null,
-          secondary: Icon(i, color: pal.accent),
-          title: Text(title, style: TextStyle(fontSize: 15, color: pal.text)),
-          subtitle: sub == null ? null : Text(sub, style: TextStyle(fontSize: 12.5, color: pal.sub)),
-        );
-    Widget card(List<Widget> c) => Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: Material(color: pal.surface, borderRadius: BorderRadius.circular(14), clipBehavior: Clip.antiAlias, child: Column(children: c)),
-        );
-    return Container(
-      color: pal.bg,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(4, 44, 16, 8),
-          child: Row(children: [
-            IconButton(onPressed: () {}, icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: pal.accent)),
-            Text('Mùa lễ hội', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: pal.text)),
-          ]),
-        ),
-        Container(
-          margin: const EdgeInsets.fromLTRB(16, 6, 16, 14),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            gradient: const LinearGradient(colors: [Color(0xFFB3202A), Color(0xFF0F4D2E)]),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final st = _style('munoel')!;
+    return _appPage(context, 'Giao diện', 'Mặc định cho mọi chat của mình. Chat nào đổi riêng (Giao diện chat) thì giữ kiểu riêng, bấm "Dùng mặc định" ở chat đó để quay về.', [
+      // Xem trước
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SizedBox(
+            height: 190,
+            child: Stack(children: [
+              Positioned.fill(child: WallpaperView(wallpaper: wallpaperById(dark ? 'demnoel' : 'tuyettrang')!, frozenT: 3)),
+              Positioned(left: 0, right: 0, top: 0, child: LightString(frozenT: 3)),
+              Positioned(
+                left: 12,
+                top: 52,
+                child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  _avatar('Lan Phạm', 30, color: _people[0].$2),
+                  const SizedBox(width: 6),
+                  StyledBubble(style: null, fill: (dark ? Pal.dark : Pal.light).inBubble, child: Text('Chiều nay liên hoan nhé', style: TextStyle(fontSize: 15, color: (dark ? Pal.dark : Pal.light).text))),
+                ]),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 18,
+                child: StyledBubble(style: st, fill: st.color, child: Text('Ok, em đặt bánh rồi', style: TextStyle(fontSize: 15, color: bubbleTextOn(st.color)))),
+              ),
+            ]),
           ),
-          child: Row(children: [
-            CustomPaint(size: const Size(34, 40), painter: MiniTreePainter(1)),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Giáng sinh đang bật', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
-                SizedBox(height: 2),
-                Text('Công ty bật từ 01/12 đến 26/12, sau đó tự tắt.', style: TextStyle(color: Colors.white70, fontSize: 12.5)),
-              ]),
-            ),
+        ),
+      ),
+      _card(context, title: 'Bong bóng của mình', [
+        ListTile(
+          leading: SizedBox(width: 40, child: Center(child: StyledBubble(style: null, fill: st.color, padding: const EdgeInsets.fromLTRB(10, 4, 10, 4), child: const Text('Aa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700))))),
+          title: Text('Kiểu', style: TextStyle(fontSize: 15, color: pal.text)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('Mũ Noel · đỏ', style: TextStyle(fontSize: 14, color: pal.sub)),
+            Icon(Icons.chevron_right_rounded, color: pal.sub),
           ]),
         ),
-        card([sw(Icons.celebration_outlined, 'Dùng giao diện mùa lễ', 'Tắt mục này là tắt hết bên dưới, chỉ trên máy của mình', true)]),
-        card([
-          sw(Icons.wallpaper_rounded, 'Hình nền mặc định', 'Đêm Noel (tối) · Tuyết trắng (sáng). Chat đã tự chọn hình nền thì giữ nguyên', true),
-          Divider(height: 1, color: pal.divider, indent: 56),
-          sw(Icons.light_rounded, 'Dây đèn trên khung chat', null, true),
-          Divider(height: 1, color: pal.divider, indent: 56),
-          sw(Icons.face_retouching_natural_rounded, 'Hiện mũ Noel trên ảnh đại diện', 'Chỉ tháng 12, trên máy của mình', true),
-          Divider(height: 1, color: pal.divider, indent: 56),
-          sw(Icons.person_outline_rounded, 'Đội mũ cho ảnh của mình', 'Tắt thì mọi người thấy ảnh mình không có mũ', true),
-          Divider(height: 1, color: pal.divider, indent: 56),
-          sw(Icons.auto_awesome_rounded, 'Hiệu ứng khi có lời chúc', '"Giáng sinh vui vẻ", "Merry Christmas", "Noel"', true),
-          Divider(height: 1, color: pal.divider, indent: 56),
-          sw(Icons.home_outlined, 'Banner ở Trang chủ', 'Đếm ngược đến 24/12', true),
-        ]),
-        card([sw(Icons.animation_rounded, 'Hiệu ứng động', 'Tự tắt khi máy bật giảm chuyển động hoặc tiết kiệm pin', true)]),
+        _div(context, 72),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Cỡ chữ trong bong bóng', style: TextStyle(fontSize: 15, color: pal.text)),
+            const SizedBox(height: 8),
+            _segmented(context, ['Nhỏ', 'Vừa', 'Lớn', 'Rất lớn'], 1),
+          ]),
+        ),
       ]),
-    );
+      _card(context, title: 'Hình nền mặc định', [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 4, 10),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _wpTile(context, _autoArt(), 'Theo mùa lễ', on: true),
+              _wpTile(context, Container(color: pal.chatBg), 'Không'),
+              for (final w in wallpapers) _wpTile(context, WallpaperView(wallpaper: w, frozenT: 2), w.name),
+              _wpTile(context, Container(color: dark ? const Color(0xFF1F2933) : const Color(0xFFE8EEF4)), 'Màu trơn'),
+              _wpTile(context, Container(color: pal.surface2, child: Icon(Icons.add_photo_alternate_outlined, color: pal.sub)), 'Ảnh'),
+            ]),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text('"Theo mùa lễ": Đêm Noel khi máy tối, Tuyết trắng khi máy sáng, trong mùa công ty bật; ngoài mùa thì không có hình nền.',
+              style: TextStyle(fontSize: 12.5, color: pal.sub)),
+        ),
+      ]),
+      _card(context, title: 'Mùa lễ hội', [
+        _sw(context, Icons.celebration_outlined, 'Dùng giao diện mùa lễ', 'Đang có: Giáng sinh (01/12 – 26/12)', true),
+        _div(context),
+        _sw(context, Icons.light_rounded, 'Dây đèn trên khung chat', null, true),
+        _div(context),
+        _sw(context, Icons.face_retouching_natural_rounded, 'Hiện mũ Noel của mọi người', 'Chỉ trên máy của mình', true),
+        _div(context),
+        _sw(context, Icons.person_outline_rounded, 'Đội mũ cho ảnh của mình', 'Tắt thì mọi người thấy ảnh mình không có mũ', true),
+        _div(context),
+        _sw(context, Icons.auto_awesome_rounded, 'Hiệu ứng khi có lời chúc', '"Giáng sinh vui vẻ", "Merry Christmas", "Noel"', true),
+        _div(context),
+        _sw(context, Icons.home_outlined, 'Banner ở Trang chủ', 'Đếm ngược đến 24/12', true),
+      ]),
+      _card(context, title: 'Chuyển động', [
+        _sw(context, Icons.animation_rounded, 'Hiệu ứng động', 'Tuyết rơi, đèn nhấp nháy. Tự tắt khi máy bật giảm chuyển động hoặc tiết kiệm pin', true),
+      ]),
+    ]);
   }
 }
 
-/// Quản trị > Giao diện mùa lễ (quản trị viên Flygo ID của công ty).
-class _AdminSeason extends StatelessWidget {
-  const _AdminSeason();
+/// App "Giao diện" (Quản trị): mùa lễ của công ty, phần bật sẵn, kiểu hiệu ứng, mặc định của công ty.
+class _AppearanceAdmin extends StatelessWidget {
+  const _AppearanceAdmin();
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    Widget season(String name, String range, String status, bool on, Color c, IconData i, {bool soon = false}) => Container(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
-          decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? c.withValues(alpha: .6) : pal.divider)),
-          child: Row(children: [
-            Container(width: 44, height: 44, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(12)), child: Icon(i, color: Colors.white)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(name, style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: pal.text)),
-                Text(range, style: TextStyle(fontSize: 13, color: pal.sub)),
-                const SizedBox(height: 3),
-                Text(status, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? const Color(0xFF2E9D57) : pal.sub)),
+    Widget season(String name, String range, String status, bool on, Color c, IconData i) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: Material(
+            color: pal.surface,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? c.withValues(alpha: .6) : pal.divider)),
+              child: Row(children: [
+                Container(width: 44, height: 44, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(12)), child: Icon(i, color: Colors.white)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(name, style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: pal.text)),
+                    Row(children: [
+                      Text(range, style: TextStyle(fontSize: 13, color: pal.sub)),
+                      const SizedBox(width: 4),
+                      Icon(Icons.edit_calendar_outlined, size: 15, color: pal.accent),
+                    ]),
+                    const SizedBox(height: 3),
+                    Text(status, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? const Color(0xFF2E9D57) : pal.sub)),
+                  ]),
+                ),
+                Switch(value: on, onChanged: (_) {}),
               ]),
             ),
-            Switch(value: on, onChanged: soon ? null : (_) {}),
-          ]),
+          ),
         );
     Widget check(String t, bool v) => CheckboxListTile(
           dense: true,
@@ -536,41 +682,54 @@ class _AdminSeason extends StatelessWidget {
           controlAffinity: ListTileControlAffinity.leading,
           title: Text(t, style: TextStyle(fontSize: 14.5, color: pal.text)),
         );
-    return Container(
-      color: pal.bg,
-      child: ListView(padding: EdgeInsets.zero, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(4, 44, 16, 4),
-          child: Row(children: [
-            IconButton(onPressed: () {}, icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: pal.accent)),
-            Expanded(child: Text('Giao diện mùa lễ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: pal.text))),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-          child: Text('Bật một lần, áp dụng cho cả công ty. Đến ngày tự bật, hết ngày tự tắt, năm sau lặp lại. Mỗi người vẫn tự tắt được trong Cài đặt.',
-              style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
-        ),
-        season('Giáng sinh', '01/12 – 26/12 hằng năm', 'Đã bật · tự bật lúc 00:00 01/12', true, const Color(0xFFC62828), Icons.park_rounded),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Material(color: pal.surface, borderRadius: BorderRadius.circular(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
-              child: Text('Mặc định cho mọi người', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: pal.sub)),
-            ),
-            check('Hình nền Đêm Noel / Tuyết trắng', true),
-            check('Dây đèn trên khung chat', true),
-            check('Mũ Noel trên ảnh đại diện (chỉ tháng 12)', true),
-            check('Hiệu ứng khi có lời chúc', true),
-            check('Banner + đếm ngược ở Trang chủ', true),
-            const SizedBox(height: 6),
-          ])),
-        ),
-        season('Tết Nguyên đán', 'Theo âm lịch (2027: 26/01 – 14/02)', 'Sắp có', false, const Color(0xFFD84315), Icons.local_florist_rounded, soon: true),
-        season('Trung thu', 'Theo âm lịch', 'Sắp có', false, const Color(0xFF3949AB), Icons.nightlight_round, soon: true),
+    Widget kw(String k, String fx, IconData i) => ListTile(
+          dense: true,
+          title: Text('"$k"', style: TextStyle(fontSize: 14.5, color: pal.text)),
+          trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(10)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(i, size: 16, color: pal.accent),
+              const SizedBox(width: 5),
+              Text(fx, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: pal.text)),
+              Icon(Icons.arrow_drop_down_rounded, color: pal.sub),
+            ]),
+          ),
+        );
+    return _appPage(context, 'Giao diện công ty', 'Bật một lần, áp dụng cho cả công ty: đến ngày tự bật, hết ngày tự tắt, năm sau lặp lại. Mỗi người vẫn tự tắt được trong app Giao diện của mình.', [
+      season('Giáng sinh', '01/12 – 26/12', 'Đã bật · tự bật lúc 00:00 01/12', true, const Color(0xFFC62828), Icons.park_rounded),
+      season('Tết Nguyên đán', '2027: 26/01 – 14/02 (âm lịch)', 'Tắt', false, const Color(0xFFD84315), Icons.local_florist_rounded),
+      season('Trung thu', '2027: 08/09 – 16/09 (âm lịch)', 'Tắt', false, const Color(0xFF3949AB), Icons.nightlight_round),
+      _card(context, title: 'Giáng sinh · bật sẵn cho mọi người', [
+        check('Hình nền Đêm Noel / Tuyết trắng', true),
+        check('Dây đèn trên khung chat', true),
+        check('Mũ Noel trên ảnh đại diện (chỉ tháng 12)', true),
+        check('Hiệu ứng khi có lời chúc', true),
+        check('Banner + đếm ngược ở Trang chủ', true),
       ]),
-    );
+      _card(context, title: 'Hiệu ứng lời chúc', [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 8), child: _segmented(context, ['Trộn tuyết + quà', 'Theo từ khoá'], 1)),
+        kw('Giáng sinh vui vẻ', 'Quà', Icons.redeem_rounded),
+        _div(context, 16),
+        kw('Merry Christmas', 'Tuyết', Icons.ac_unit_rounded),
+        _div(context, 16),
+        kw('Noel', 'Trộn', Icons.auto_awesome_rounded),
+        _div(context, 16),
+        ListTile(dense: true, leading: Icon(Icons.add_rounded, color: pal.accent), title: Text('Thêm từ khoá', style: TextStyle(fontSize: 14.5, color: pal.accent, fontWeight: FontWeight.w600))),
+      ]),
+      _card(context, title: 'Mặc định của công ty (không bắt buộc)', [
+        ListTile(
+          title: Text('Bong bóng', style: TextStyle(fontSize: 15, color: pal.text)),
+          subtitle: Text('Người chưa tự chọn sẽ dùng kiểu này', style: TextStyle(fontSize: 12.5, color: pal.sub)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text('Của app', style: TextStyle(color: pal.sub)), Icon(Icons.chevron_right_rounded, color: pal.sub)]),
+        ),
+        _div(context, 16),
+        ListTile(
+          title: Text('Hình nền', style: TextStyle(fontSize: 15, color: pal.text)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text('Theo mùa lễ', style: TextStyle(color: pal.sub)), Icon(Icons.chevron_right_rounded, color: pal.sub)]),
+        ),
+      ]),
+    ]);
   }
 }
 
@@ -629,8 +788,11 @@ void main() {
     testWidgets('appearance sheet desktop $mode', (t) async {
       if (out != null) await render(t, '09-sheet-desktop', desktop, dark, const _AppearanceSheet(desktop: true));
     });
-    testWidgets('season settings $mode', (t) async {
-      if (out != null) await render(t, '10-season-settings-phone', phone, dark, const _SeasonSettings());
+    testWidgets('appearance app $mode', (t) async {
+      if (out != null) await render(t, '10-app-giaodien-phone', phone, dark, const _AppearanceApp());
+    });
+    testWidgets('appearance app full $mode', (t) async {
+      if (out != null) await render(t, '10b-app-giaodien-phone-full', const Size(390, 1640), dark, const _AppearanceApp());
     });
     testWidgets('appearance sheet tall $mode', (t) async {
       if (out != null) await render(t, '08b-sheet-phone-full', const Size(390, 1100), dark, const _AppearanceSheet());
@@ -647,7 +809,10 @@ void main() {
       ));
     });
     testWidgets('admin $mode', (t) async {
-      if (out != null) await render(t, '11-admin-phone', phone, dark, const _AdminSeason());
+      if (out != null) await render(t, '11-app-giaodien-admin-phone', phone, dark, const _AppearanceAdmin());
+    });
+    testWidgets('admin full $mode', (t) async {
+      if (out != null) await render(t, '11b-app-giaodien-admin-phone-full', const Size(390, 1500), dark, const _AppearanceAdmin());
     });
   }
 
