@@ -90,8 +90,8 @@ class _SettingsTabState extends State<SettingsTab> {
           const SizedBox(height: 6),
           Divider(height: 1, color: p.divider),
           SwitchRow(
-            label: 'Tạo việc trong app Công việc',
-            help: _features['todo'] == false ? 'Máy chủ chưa nối với app Công việc' : 'Giao cho một người; tiêu đề lấy câu trả lời bằng {{mã câu hỏi}}',
+            label: 'Tạo việc trong app Ghi chú',
+            help: _features['todo'] == false ? 'Máy chủ chưa nối với app Ghi chú' : 'Giao cho một người; tiêu đề lấy câu trả lời bằng {{mã câu hỏi}}',
             value: _todo['enabled'] == true,
             onChanged: !ed || _features['todo'] == false ? null : (v) => v && _todo['assignee'] == null ? _pickAssignee() : _save({'todo': {..._todo, 'enabled': v}}),
           ),

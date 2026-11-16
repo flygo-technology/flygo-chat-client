@@ -368,7 +368,7 @@ class _ResponsesTabState extends State<ResponsesTab> {
             const SizedBox(height: 10),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final l in (r['links'] as List))
-                Pill('${(l as Map)['kind'] == 'flow' ? 'Luồng' : 'Công việc'}: ${l['title'] ?? l['id']}', icon: l['kind'] == 'flow' ? Icons.account_tree_outlined : Icons.check_box_outlined, bg: tintOf(color, isDark(context)), fg: color),
+                Pill('${(l as Map)['kind'] == 'flow' ? 'Luồng' : 'Ghi chú'}: ${l['title'] ?? l['id']}', icon: l['kind'] == 'flow' ? Icons.account_tree_outlined : Icons.check_box_outlined, bg: tintOf(color, isDark(context)), fg: color),
             ]),
           ],
         ]),

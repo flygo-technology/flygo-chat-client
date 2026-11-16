@@ -344,7 +344,7 @@ void main() {
     await t.tap(find.text('Từng câu trả lời'));
     await settle(t, 2);
     expect(find.textContaining('Luồng: Xử lý phản hồi khách hàng'), findsOneWidget);
-    expect(find.textContaining('Công việc: Gọi lại Lan Nguyễn'), findsOneWidget);
+    expect(find.textContaining('Ghi chú: Gọi lại Lan Nguyễn'), findsOneWidget);
     await pump(t, FormEditorPage(api: api, formId: 'form0001', tab: 1), size: const Size(412, 1400));
     await shot(t, 'f10-responses-phone');
   });
