@@ -17,6 +17,7 @@ import '../todo/model.dart';
 import 'agent_runs.dart';
 import 'api.dart';
 import 'board_view.dart';
+import 'cover.dart';
 import 'gantt_view.dart';
 import 'list_view.dart';
 import 'look.dart';
@@ -40,6 +41,8 @@ Future<TwStore> teamworkStore(BuildContext context, MiniApp app) async {
   // Độ rộng khung việc bên phải: nhớ trên máy này (tuỳ chọn giao diện của app).
   s.panelWidth = await state.uiPref<double>('teamwork_panel_width');
   s.savePanelWidth = (w) => state.setUiPref('teamwork_panel_width', w);
+  s.commentsCollapsed = await state.uiPref<bool>('teamwork_comments_collapsed') ?? false;
+  s.saveCommentsCollapsed = (v) => state.setUiPref('teamwork_comments_collapsed', v);
   return s;
 }
 
@@ -407,13 +410,17 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
       return widget.embedded ? body : Scaffold(appBar: AppBar(), body: body);
     }
     final pr = f.project;
-    void open(TwTask t) => openTask(context, store, t.key);
+    // Máy tính: bấm một lần = xem nhanh (hộp thoại), bấm đúp = trang việc đầy đủ. Điện thoại: bấm là mở trang.
+    final wideNow = twWide(context);
+    void open(TwTask t) => wideNow ? showTaskPreview(context, store, t.key) : openTask(context, store, t.key);
+    void openFull(TwTask t) => openTask(context, store, t.key);
+    final full = wideNow ? openFull : null;
     final viewWidget = switch (_view) {
-      'list' => TwListView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
-      'gantt' => TwGanttView(store: store, project: f, filter: widget.filter, onOpen: open),
+      'list' => TwListView(store: store, project: f, filter: widget.filter, onOpen: open, onOpenFull: full, onCreate: _create),
+      'gantt' => TwGanttView(store: store, project: f, filter: widget.filter, onOpen: open, onOpenFull: full),
       'overview' => _overview(f, look),
       'settings' => TwSettingsPage(key: ValueKey('settings-$_settingsRev'), store: store, projectId: pr.id, inline: true, initialTab: _settingsTab ?? (twWide(context) ? 'statuses' : null)),
-      _ => TwBoardView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
+      _ => TwBoardView(store: store, project: f, filter: widget.filter, onOpen: open, onOpenFull: full, onCreate: _create),
     };
     final tabs = [('list', Icons.view_list_outlined, 'Danh sách'), ('kanban', Icons.view_kanban_outlined, 'Kanban'), ('gantt', Icons.timeline, 'Gantt'), ('overview', Icons.description_outlined, 'Tổng quan'), ('settings', Icons.tune, 'Cài đặt')];
     final users = [for (final m in f.members) if (m.subjectType == 'user') TwAssignee(kind: 'user', id: m.subjectId, name: m.name)];
@@ -461,6 +468,8 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
       );
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // Dải hình nền mảnh trên đầu màn hình dự án.
+      TwCoverView(key: const ValueKey('project-cover-band'), cover: pr.cover, fallback: hexColor(pr.color, kTwAccent), height: 5),
       Container(
         height: 56,
         padding: const EdgeInsets.symmetric(horizontal: 20),

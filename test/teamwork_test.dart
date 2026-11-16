@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/teamwork/gantt_view.dart';
 import 'package:flygo_chat/ui/teamwork/model.dart';
@@ -28,7 +29,9 @@ const _desk = Size(1440, 900), _phone = Size(390, 844);
 class _Pushes extends NavigatorObserver {
   int n = 0;
   @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => n++;
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) n++; // chỉ đếm trang, không đếm hộp thoại
+  }
 }
 
 void main() {
@@ -210,6 +213,10 @@ void main() {
       expect(be.runs[0]['state'], 'running');
       expect(be.runs[0]['session_channel'], 'ch-1');
       expect(be.runs[1]['session_channel'], 'ch-new-b-claude');
+      // run_token của máy chủ đi kèm tin giao việc; chỉ xác nhận chủ bot khi đúng là chủ.
+      expect(l.props[0]['flygo_teamwork'], {'run_token': 'TOKEN-r-m1', 'run_id': 'r-m1'});
+      expect(be.runs[0]['attest_owner'], isFalse);
+      expect(be.runs[1]['attest_owner'], isTrue);
       s.dispose();
     });
 
@@ -354,8 +361,9 @@ void main() {
         await shot(t, 'd3-list-$sfx');
         if (!dark) {
           await t.tap(find.descendant(of: find.byKey(const ValueKey('row-RA-44')), matching: find.byType(Checkbox)));
+          await t.pump(const Duration(milliseconds: 400));
           await t.tap(find.descendant(of: find.byKey(const ValueKey('row-RA-41')), matching: find.byType(Checkbox)));
-          await t.pump();
+          await t.pump(const Duration(milliseconds: 400));
           expect(find.text('Đã chọn 2 việc'), findsOneWidget);
           await t.tap(find.byKey(const ValueKey('bulk-status')));
           await settle(t, 3);
@@ -394,7 +402,7 @@ void main() {
         expect(find.byKey(const ValueKey('tab-activity')), findsOneWidget);
         expect(find.byKey(const ValueKey('agent-card')), findsOneWidget);
         expect(find.textContaining('Chặn'), findsOneWidget);
-        expect(find.text('Codex đã trả lời'), findsOneWidget); // bình luận @nhắc agent
+        expect(find.text('Codex đã xong · 7 bước'), findsOneWidget); // bình luận @nhắc agent
         await shot(t, 'd5-task-$sfx');
         await done(t, s);
       });
@@ -578,22 +586,104 @@ void main() {
       await done(t, ph);
     });
 
-    testWidgets('máy tính: bấm thẻ Kanban / dòng Danh sách mở trang việc đầy đủ', (t) async {
+    Future<void> dbl(WidgetTester t, Finder f) async {
+      await t.tap(f);
+      await t.pump(const Duration(milliseconds: 60));
+      await t.tap(f);
+      await settle(t, 8);
+    }
+
+    testWidgets('máy tính: bấm thẻ Kanban → xem nhanh (không mở trang); bấm đúp → trang đầy đủ; Danh sách cũng vậy', (t) async {
       final s = await pump(t, project: 'RA', view: 'kanban');
       final before = pushes.n;
-      await t.tap(find.byKey(const ValueKey('card-RA-35')));
+      await t.tap(find.byKey(const ValueKey('card-RA-32')));
+      await t.pump(const Duration(milliseconds: 400)); // chờ quá thời gian bấm đúp
       await settle(t, 8);
+      expect(pushes.n, before);
+      expect(find.byKey(const ValueKey('task-preview')), findsOneWidget);
+      final dlg = find.byKey(const ValueKey('task-preview'));
+      expect(find.descendant(of: dlg, matching: find.text('API đặt hàng + đồng bộ tồn kho')), findsOneWidget);
+      expect(find.descendant(of: dlg, matching: find.byKey(const ValueKey('p-status'))), findsOneWidget);
+      expect(find.descendant(of: dlg, matching: find.byKey(const ValueKey('sub-RA-63'))), findsOneWidget);
+      expect(find.descendant(of: dlg, matching: find.byKey(const ValueKey('comments-all'))), findsOneWidget); // 3 bình luận gần nhất + xem tất cả
+      expect(find.descendant(of: dlg, matching: find.byKey(const ValueKey('comment-send'))), findsNothing);
+      expect(t.getSize(find.descendant(of: dlg, matching: find.byType(TwTaskPage))).width, lessThanOrEqualTo(720));
+      await shot(t, 'd2c-kanban-preview');
+      // Bấm việc con trong hộp: đổi nội dung, không mở trang.
+      await t.tap(find.descendant(of: dlg, matching: find.byKey(const ValueKey('sub-RA-63'))));
+      await t.pump(const Duration(milliseconds: 400));
+      await settle(t, 6);
+      expect(pushes.n, before);
+      expect(find.descendant(of: dlg, matching: find.text('Viết test tồn kho')), findsWidgets);
+      // Esc đóng hộp.
+      await t.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(t, 3);
+      expect(find.byKey(const ValueKey('task-preview')), findsNothing);
+      // Bấm đúp: trang đầy đủ, không hiện hộp.
+      await dbl(t, find.byKey(const ValueKey('card-RA-35')));
       expect(pushes.n, before + 1);
-      expect(find.byType(TwTaskPage), findsOneWidget);
-      expect(find.byKey(const ValueKey('task-panel')), findsNothing);
+      expect(find.byKey(const ValueKey('task-preview')), findsNothing);
       expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
       await t.pageBack();
       await settle(t, 3);
+      // Danh sách: bấm một lần xem nhanh, "Mở toàn trang" mở trang.
       await t.tap(find.byKey(const ValueKey('view-list')));
       await settle(t, 3);
       await t.tap(find.byKey(const ValueKey('row-RA-44')));
+      await t.pump(const Duration(milliseconds: 400));
+      await settle(t, 6);
+      expect(find.byKey(const ValueKey('task-preview')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('preview-full')));
       await settle(t, 8);
       expect(pushes.n, before + 2);
+      expect(find.byKey(const ValueKey('task-preview')), findsNothing);
+      await done(t, s);
+    });
+
+    testWidgets('cột bình luận thu gọn thành dải 40px (nhớ trên máy); khung việc con vẫn mở bên phải', (t) async {
+      final s = await pump(t, project: 'RA');
+      final saved = <bool>[];
+      s.saveCommentsCollapsed = (v) async => saved.add(v);
+      await openTaskPage(t, s, 'RA-32');
+      await t.tap(find.byKey(const ValueKey('comments-collapse')));
+      await settle(t, 2);
+      expect(t.getSize(find.byKey(const ValueKey('right-col'))).width, 40);
+      expect(find.byKey(const ValueKey('comments-expand')), findsOneWidget);
+      expect(find.byKey(const ValueKey('rail-live')), findsOneWidget); // agent đang chạy
+      expect(saved, [true]);
+      await shot(t, 'd5k-comments-collapsed');
+      await t.tap(find.byKey(const ValueKey('sub-RA-63')));
+      await settle(t, 8);
+      expect(find.byKey(const ValueKey('task-panel')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('panel-close')));
+      await settle(t, 2);
+      expect(find.byKey(const ValueKey('comments-expand')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('comments-expand')));
+      await settle(t, 2);
+      expect(find.byKey(const ValueKey('tab-comments')), findsOneWidget);
+      expect(saved, [true, false]);
+      await done(t, s);
+    });
+
+    testWidgets('Cài đặt › Chung: chọn hình nền, xem trước thẻ, lưu PATCH {cover}', (t) async {
+      final s = await pump(t, project: 'RA');
+      await t.tap(find.byKey(const ValueKey('view-settings')));
+      await settle(t, 4);
+      await t.tap(find.byKey(const ValueKey('set-general')));
+      await settle(t, 3);
+      await t.ensureVisible(find.byKey(const ValueKey('cover-section')));
+      expect(find.byKey(const ValueKey('cover-preview')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('cover-gradient-ocean')));
+      await t.pump();
+      await shot(t, 'd6c-cover-picker');
+      await t.tap(find.byKey(const ValueKey('cover-save')));
+      await settle(t);
+      expect(be.bodies['PATCH /tw/api/projects/p-ra'], {'cover': {'kind': 'gradient', 'value': 'ocean'}});
+      await t.tap(find.byKey(const ValueKey('cover-pattern-dots')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('cover-save')));
+      await settle(t);
+      expect(be.bodies['PATCH /tw/api/projects/p-ra']!['cover'], {'kind': 'pattern', 'value': '#5B5BD6', 'pattern': 'dots'});
       await done(t, s);
     });
 
@@ -694,6 +784,7 @@ void main() {
       expect(be.bodies[k]!['status_id'], 's-review');
       expect(be.bodies[k]!['before_id'], 't-33');
       expect(find.text('WIP 4/3'), findsOneWidget);
+      expect(find.byKey(const ValueKey('task-preview')), findsNothing); // kéo thả không mở hộp xem nhanh
       await done(t, s);
     });
 
@@ -747,8 +838,8 @@ void main() {
       final s = await pump(t, project: 'RA');
       await openTaskPage(t, s, 'RA-32');
       // Bình luận đã @nhắc agent: dòng trạng thái + Mở phiên (phiên lấy từ lượt chạy của việc).
-      expect(find.text('Codex đã trả lời'), findsOneWidget);
-      expect(find.text('Claude đang xử lý…'), findsOneWidget);
+      expect(find.text('Codex đã xong · 7 bước'), findsOneWidget);
+      expect(find.text('Claude đang xử lý… · 4 bước'), findsOneWidget);
       expect(find.byKey(const ValueKey('runline-open-b-codex')), findsOneWidget);
       await t.ensureVisible(find.byKey(const ValueKey('comment-send')));
       await t.pump();
@@ -766,6 +857,42 @@ void main() {
       final runs = ((be.bodies['POST /tw/api/tasks/t-32/comments']!['blocks'] as List).first as Map)['r'] as List;
       expect(runs.any((r) => (r as Map)['m'] != null && r['m']['k'] == 'agent' && r['m']['id'] == 'b-claude'), isTrue);
       expect(find.byKey(const ValueKey('agent-hint')), findsNothing);
+      await done(t, s);
+    });
+
+    testWidgets('tiến độ trực tiếp: bước + chữ đang viết (bảng) dưới bình luận; xong thì thu gọn; cập nhật theo run_progress', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-32');
+      // Lượt @nhắc đang chạy: 4 bước, chữ đang viết có bảng.
+      expect(find.text('Claude đang xử lý… · 4 bước'), findsOneWidget);
+      expect(find.text('🔓 Chạy không cần duyệt (chủ bot)'), findsOneWidget);
+      expect(find.text('Viết docs/api-ton-kho.md'), findsOneWidget);
+      expect(find.byKey(const ValueKey('run-text-r-c4')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const ValueKey('run-text-r-c4')), matching: find.byKey(const ValueKey('tw-table'))), findsOneWidget);
+      // Lượt Bắt đầu trong thẻ agent: ai xem cũng thấy, ghi rõ chế độ thường.
+      expect(find.text('Chạy chế độ thường (người giao không phải chủ bot)'), findsOneWidget);
+      await t.scrollUntilVisible(find.byKey(const ValueKey('run-text-r-c4')), 100, scrollable: find.descendant(of: find.byKey(const ValueKey('right-col')), matching: find.byType(Scrollable)).first);
+      await shot(t, 'd5i-agent-streaming');
+      // Lượt đã xong: thu gọn, bấm để xem các bước.
+      expect(find.text('Codex đã xong · 7 bước'), findsOneWidget);
+      expect(find.text('Chạy lại bun test: 14/14 đạt'), findsNothing);
+      await t.ensureVisible(find.byKey(const ValueKey('run-toggle-r-old')));
+      await t.tap(find.byKey(const ValueKey('run-toggle-r-old')));
+      await t.pump();
+      expect(find.text('Chạy lại bun test: 14/14 đạt'), findsOneWidget);
+      await shot(t, 'd5j-agent-done');
+      // run_progress → tải lại tiến độ.
+      (be.progress['r-c4']!['progress'] as Map)['steps'].add({'id': 's4', 'kind': 'tool', 'title': 'Thêm phần mã lỗi', 'status': 'running', 'at': 5});
+      s.debugEvent({'type': 'run_progress', 'id': 'r-c4', 'task_id': 't-32', 'project_id': 'p-ra', 'seq': 6});
+      await settle(t, 8);
+      expect(find.text('Claude đang xử lý… · 5 bước'), findsOneWidget);
+      expect(find.text('Thêm phần mã lỗi'), findsOneWidget);
+      // Xong: chuyển thành dòng thu gọn.
+      be.progress['r-c4']!['state'] = 'review';
+      s.debugEvent({'type': 'run_progress', 'id': 'r-c4', 'task_id': 't-32', 'project_id': 'p-ra', 'seq': 7});
+      await settle(t, 8);
+      expect(find.text('Claude đã xong · 5 bước'), findsOneWidget);
+      expect(find.byKey(const ValueKey('run-text-r-c4')), findsNothing);
       await done(t, s);
     });
 

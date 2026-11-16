@@ -58,11 +58,13 @@ List<GanttRow> ganttRows(List<TwTask> tasks, Set<String> folded) {
 }
 
 class TwGanttView extends StatefulWidget {
-  const TwGanttView({super.key, required this.store, required this.project, required this.filter, required this.onOpen});
+  const TwGanttView({super.key, required this.store, required this.project, required this.filter, required this.onOpen, this.onOpenFull});
   final TwStore store;
   final TwProjectFull project;
   final TwFilter filter;
   final void Function(TwTask) onOpen;
+  /// Bấm đúp (máy tính): mở trang đầy đủ; null = không có (điện thoại: bấm một lần mở trang).
+  final void Function(TwTask)? onOpenFull;
   @override
   State<TwGanttView> createState() => TwGanttViewState();
 }
@@ -291,6 +293,7 @@ class TwGanttViewState extends State<TwGanttView> {
     return InkWell(
       key: ValueKey('grow-${t.key}'),
       onTap: () => widget.onOpen(t),
+      onDoubleTap: widget.onOpenFull == null ? null : () => widget.onOpenFull!(t),
       child: Container(
         height: _rowH,
         padding: EdgeInsets.only(left: 12.0 + r.depth * 20, right: 12),
@@ -346,6 +349,7 @@ class TwGanttViewState extends State<TwGanttView> {
     Widget gestures(Widget child, double w) => GestureDetector(
           key: ValueKey('gbar-${t.key}'),
           onTap: () => widget.onOpen(t),
+          onDoubleTap: widget.onOpenFull == null ? null : () => widget.onOpenFull!(t),
           onHorizontalDragStart: canEdit ? (d) => start(d, w) : null,
           onHorizontalDragUpdate: canEdit ? (d) => setState(() => _dragDx += d.delta.dx) : null,
           onHorizontalDragEnd: canEdit ? (_) => _endDrag(t) : null,

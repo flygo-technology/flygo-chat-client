@@ -9,11 +9,13 @@ import 'store.dart';
 import 'task_widgets.dart';
 
 class TwListView extends StatefulWidget {
-  const TwListView({super.key, required this.store, required this.project, required this.filter, required this.onOpen, required this.onCreate});
+  const TwListView({super.key, required this.store, required this.project, required this.filter, required this.onOpen, required this.onCreate, this.onOpenFull});
   final TwStore store;
   final TwProjectFull project;
   final TwFilter filter;
   final void Function(TwTask) onOpen;
+  /// Bấm đúp (máy tính): mở trang đầy đủ; null = không có (điện thoại: bấm một lần mở trang).
+  final void Function(TwTask)? onOpenFull;
   /// Thêm việc vào nhóm trạng thái [statusId].
   final void Function(String? statusId) onCreate;
   @override
@@ -152,6 +154,7 @@ class _TwListViewState extends State<TwListView> {
     return InkWell(
       key: ValueKey('row-${t.key}'),
       onTap: () => widget.onOpen(t),
+      onDoubleTap: widget.onOpenFull == null ? null : () => widget.onOpenFull!(t),
       child: Container(
         height: 40,
         padding: const EdgeInsets.symmetric(horizontal: 8),

@@ -13,14 +13,58 @@ import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
 import 'rich_mentions.dart';
+import 'run_progress.dart';
 import 'store.dart';
+
+/// Xem nhanh một việc (máy tính): hộp thoại giữa màn hình ~720px, cuộn được; bấm việc con trong hộp thì đổi nội dung;
+/// "Mở toàn trang" đóng hộp và mở trang việc đầy đủ. Esc / bấm ra ngoài để đóng.
+Future<void> showTaskPreview(BuildContext context, TwStore store, String idOrKey) => showDialog<void>(
+      context: context,
+      builder: (d) => Dialog(
+        key: const ValueKey('task-preview'),
+        insetPadding: const EdgeInsets.all(24),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 720, maxHeight: MediaQuery.sizeOf(d).height * .85),
+          child: _PreviewHost(store: store, first: idOrKey, outer: context),
+        ),
+      ),
+    );
+
+class _PreviewHost extends StatefulWidget {
+  const _PreviewHost({required this.store, required this.first, required this.outer});
+  final TwStore store;
+  final String first;
+  final BuildContext outer;
+  @override
+  State<_PreviewHost> createState() => _PreviewHostState();
+}
+
+class _PreviewHostState extends State<_PreviewHost> {
+  late String _key = widget.first;
+  @override
+  Widget build(BuildContext context) => TwTaskPage(
+        key: ValueKey('preview-$_key'),
+        store: widget.store,
+        idOrKey: _key,
+        embedded: true,
+        preview: true,
+        onOpenTask: (k) => setState(() => _key = k),
+        onClose: () => Navigator.of(context).pop(),
+        onOpenFull: (k) {
+          Navigator.of(context).pop();
+          if (widget.outer.mounted) openTask(widget.outer, widget.store, k);
+        },
+      );
+}
 
 /// Mở trang chi tiết việc [idOrKey].
 Future<void> openTask(BuildContext context, TwStore store, String idOrKey) =>
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwTaskPage(store: store, idOrKey: idOrKey)));
 
 class TwTaskPage extends StatefulWidget {
-  const TwTaskPage({super.key, required this.store, required this.idOrKey, this.showAi, this.embedded = false, this.onOpenTask, this.onClose});
+  const TwTaskPage({super.key, required this.store, required this.idOrKey, this.showAi, this.embedded = false, this.onOpenTask, this.onClose, this.preview = false, this.onOpenFull});
   final TwStore store;
   final String idOrKey;
   /// Không còn dùng (khung AI đã bỏ); giữ để gọi cũ không lỗi.
@@ -30,6 +74,9 @@ class TwTaskPage extends StatefulWidget {
   /// Bấm việc con / việc liên kết: cha quyết định mở ở đâu (khung bên phải thay nội dung).
   final void Function(String key)? onOpenTask;
   final VoidCallback? onClose;
+  /// Hộp xem nhanh (bấm thẻ Kanban / dòng / thanh Gantt trên máy tính): 3 bình luận gần nhất, nút "Mở toàn trang".
+  final bool preview;
+  final void Function(String key)? onOpenFull;
   @override
   State<TwTaskPage> createState() => _TwTaskPageState();
 }
@@ -168,6 +215,15 @@ class _TwTaskPageState extends State<TwTaskPage> {
     } finally {
       if (mounted) setState(() => _savingDesc = false);
     }
+  }
+
+  /// Lượt "Bắt đầu" mới nhất của từng agent (để hiện tiến độ trong thẻ agent).
+  List<TwRun> _startRuns() {
+    final seen = <String>{};
+    return [
+      for (final r in _d?.runs ?? const <TwRun>[])
+        if (r.kind != 'mention' && r.id.isNotEmpty && seen.add(r.botId)) r,
+    ];
   }
 
   /// Phiên mới nhất của từng agent trên việc này.
@@ -444,10 +500,10 @@ class _TwTaskPageState extends State<TwTaskPage> {
           Expanded(child: _center(look, chips: !huge)),
           Container(
             key: const ValueKey('right-col'),
-            width: _panelKey == null ? (huge ? 420 : 360) : _panelWidth(w),
+            width: _panelKey == null ? (store.commentsCollapsed ? 40 : (huge ? 420 : 360)) : _panelWidth(w),
             decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))),
             child: _panelKey == null
-                ? _rightTabs(look)
+                ? (store.commentsCollapsed ? _rail(look) : _rightTabs(look))
                 : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     _resizeHandle(look, w),
                     Expanded(child: KeyedSubtree(
@@ -545,10 +601,44 @@ class _TwTaskPageState extends State<TwTaskPage> {
         child: Row(children: [
           tab('comments', 'Bình luận${t.commentCount > 0 ? ' ${t.commentCount}' : ''}'),
           tab('activity', 'Hoạt động'),
+          const Spacer(),
+          IconButton(key: const ValueKey('comments-collapse'), tooltip: 'Thu gọn cột bình luận', visualDensity: VisualDensity.compact, icon: const Icon(Icons.keyboard_double_arrow_right, size: 18), onPressed: () => _setCollapsed(true)),
         ]),
       ),
       Expanded(child: content),
     ]);
+  }
+
+  void _setCollapsed(bool v) {
+    setState(() => store.commentsCollapsed = v);
+    store.saveCommentsCollapsed?.call(v);
+  }
+
+  /// Cột bình luận thu gọn: dải 40px (biểu tượng bình luận + số, chấm khi agent đang chạy); bấm để mở lại.
+  Widget _rail(TwLook look) {
+    final live = (_d?.runs ?? const <TwRun>[]).any((r) => r.active);
+    return Material(
+      color: look.surface,
+      child: InkWell(
+        key: const ValueKey('comments-expand'),
+        onTap: () => _setCollapsed(false),
+        child: Column(children: [
+          const SizedBox(height: 10),
+          Icon(Icons.keyboard_double_arrow_left, size: 18, color: look.sub),
+          const SizedBox(height: 14),
+          Badge(
+            isLabelVisible: t.commentCount > 0,
+            label: Text('${t.commentCount}'),
+            backgroundColor: look.accent,
+            child: Icon(Icons.chat_bubble_outline, size: 20, color: look.sub),
+          ),
+          if (live) ...[
+            const SizedBox(height: 12),
+            Container(key: const ValueKey('rail-live'), width: 8, height: 8, decoration: BoxDecoration(color: look.ai, shape: BoxShape.circle)),
+          ],
+        ]),
+      ),
+    );
   }
 
   /// Agent được giao, một dòng: avatar, tên, trạng thái, Mở phiên / Dừng / Bắt đầu.
@@ -593,6 +683,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ]),
             );
           }(),
+        // Tiến độ trực tiếp của lượt Bắt đầu gần nhất (ai xem việc cũng thấy).
+        for (final r in _startRuns())
+          Padding(padding: const EdgeInsets.only(bottom: 6), child: TwRunProgress(key: ValueKey('rp-start-${r.id}'), store: store, runId: r.id, botName: r.botName, state: r.state, session: r.sessionChannel, compact: true)),
       ]),
     );
   }
@@ -641,13 +734,16 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ],
               Text(t.key, style: TextStyle(fontSize: 13, color: look.sub, fontWeight: FontWeight.w600)),
               const Spacer(),
-              IconButton(
-                key: const ValueKey('panel-full'),
-                tooltip: 'Mở trang đầy đủ',
-                icon: const Icon(Icons.open_in_full, size: 19),
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwTaskPage(store: store, idOrKey: t.key))),
-              ),
-              IconButton(key: const ValueKey('panel-close'), tooltip: 'Đóng', icon: const Icon(Icons.close, size: 20), onPressed: widget.onClose),
+              if (widget.preview)
+                TextButton.icon(key: const ValueKey('preview-full'), onPressed: () => widget.onOpenFull?.call(t.key), icon: const Icon(Icons.open_in_full, size: 16), label: const Text('Mở toàn trang'))
+              else
+                IconButton(
+                  key: const ValueKey('panel-full'),
+                  tooltip: 'Mở trang đầy đủ',
+                  icon: const Icon(Icons.open_in_full, size: 19),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwTaskPage(store: store, idOrKey: t.key))),
+                ),
+              IconButton(key: ValueKey(widget.preview ? 'preview-close' : 'panel-close'), tooltip: 'Đóng', icon: const Icon(Icons.close, size: 20), onPressed: widget.onClose),
             ]),
           ),
           Expanded(child: DefaultTextStyle.merge(style: TextStyle(fontSize: 13, color: look.text), child: _body(look, false, compact: true))),
@@ -730,7 +826,17 @@ class _TwTaskPageState extends State<TwTaskPage> {
       ]),
       Divider(height: 1, color: look.divider),
       if (_tab == 'comments')
-        TwComments(key: _comments, store: store, task: t, onMention: _onMention, sessions: _sessions, canComment: p != null)
+        TwComments(
+          key: _comments,
+          store: store,
+          task: t,
+          onMention: _onMention,
+          sessions: _sessions,
+          canComment: p != null,
+          composer: !widget.preview,
+          limit: widget.preview ? 3 : null,
+          onSeeAll: widget.preview ? () => widget.onOpenFull?.call(t.key) : null,
+        )
       else
         _activityList(look),
     ]));
@@ -790,6 +896,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ]),
             );
           }(),
+        for (final r in _startRuns()) TwRunProgress(key: ValueKey('rp-start-${r.id}'), store: store, runId: r.id, botName: r.botName, state: r.state, session: r.sessionChannel, compact: true),
         if (canEdit && !runs.any((r) => r.active)) ...[
           const SizedBox(height: 6),
           FilledButton.icon(

@@ -3,9 +3,11 @@
 // (người / phòng ban / vai trò / mọi người), Nhãn, Lưu trữ / xoá.
 import 'package:flutter/material.dart';
 
+import 'cover.dart';
 import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
+import 'projects_view.dart' show ProjectCard;
 import 'store.dart';
 import 'teamwork_page.dart' show showPrefs;
 
@@ -42,6 +44,9 @@ class TwSettingsPage extends StatefulWidget {
 
 class _TwSettingsPageState extends State<TwSettingsPage> {
   late String _tab = widget.initialTab ?? 'statuses';
+  /// Hình nền đang chọn (chưa lưu); null + _coverPicked = false: chưa chọn gì.
+  TwCover? _cover;
+  bool _coverPicked = false;
   /// Điện thoại: đang xem chi tiết một mục (false = danh sách mục).
   late bool _detail = widget.initialTab != null;
   TwStore get store => widget.store;
@@ -157,6 +162,48 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
     );
   }
 
+  /// Hình nền: xem trước thẻ dự án + bộ chọn (màu trơn, màu chuyển, hoạ tiết), lưu bằng PATCH {cover}.
+  Widget _coverSection(TwProjectFull full, TwLook look, bool admin) {
+    final pr = full.project;
+    final cur = _coverPicked ? _cover : pr.cover;
+    final preview = TwProject.fromJson({...pr.toJson(), 'cover': cur?.toJson()});
+    return Padding(
+      key: const ValueKey('cover-section'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Hình nền', style: TextStyle(fontSize: 16)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 24, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.start, children: [
+          SizedBox(width: 300, height: ProjectCard.height, child: ProjectCard(key: const ValueKey('cover-preview'), project: preview, store: store, onTap: () {}, preview: true)),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: IgnorePointer(
+              ignoring: !admin,
+              child: TwCoverPicker(cover: cur, projectColor: hexColor(pr.color, kTwAccent), onChanged: (c) => setState(() {
+                _cover = c;
+                _coverPicked = true;
+              })),
+            ),
+          ),
+        ]),
+        if (admin)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: FilledButton(
+              key: const ValueKey('cover-save'),
+              onPressed: !_coverPicked || cur == pr.cover
+                  ? null
+                  : () => _run(() async {
+                        await store.updateProject(pr.id, {'cover': cur?.toJson()});
+                        if (mounted) setState(() => _coverPicked = false);
+                      }),
+              child: const Text('Lưu hình nền'),
+            ),
+          ),
+      ]),
+    );
+  }
+
   Widget _agents(TwLook look) => ListView(padding: const EdgeInsets.all(20), children: [
         _h('Agent AI',
             'Giao việc cho agent ở ô "Người làm". Agent không cần thêm vào dự án: nó làm bằng quyền của người bấm Bắt đầu (hoặc kéo việc vào trạng thái bắt đầu), báo kết quả bằng bình luận và chuyển việc sang trạng thái "nộp kết quả" để người giao duyệt.',
@@ -219,6 +266,7 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
           ]),
         ),
       ),
+      _coverSection(full, look, admin),
       ListTile(
         title: const Text('Trạng thái dự án'),
         subtitle: Padding(

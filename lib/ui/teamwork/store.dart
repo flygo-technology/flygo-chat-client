@@ -18,8 +18,11 @@ abstract class TwAgentLauncher {
   /// Người dùng hiện tại có được dùng agent [botId] không.
   Future<bool> canUse(String botId);
 
-  /// Mở phiên mới với agent [botId] dưới tên người dùng, gửi [brief]; trả về id kênh phiên.
-  Future<String> launch(String botId, String title, String brief);
+  /// Mở phiên mới với agent [botId] dưới tên người dùng, gửi [brief] (kèm [props]); trả về id kênh phiên.
+  Future<String> launch(String botId, String title, String brief, {Map<String, dynamic> props = const {}});
+
+  /// Người dùng hiện tại là chủ bot [botId].
+  Future<bool> isOwnerOf(String botId);
 
   /// Gửi lời dừng vào phiên [channelId] (nếu phiên ở máy này).
   Future<void> stop(String channelId);
@@ -27,8 +30,8 @@ abstract class TwAgentLauncher {
   /// Phiên [channelId] còn dùng được (còn tồn tại, mình là chủ, có agent [botId]).
   Future<bool> sessionUsable(String channelId, String botId);
 
-  /// Gửi [text] vào phiên sẵn có [channelId].
-  Future<void> post(String channelId, String text);
+  /// Gửi [text] vào phiên sẵn có [channelId] (kèm [props]).
+  Future<void> post(String channelId, String text, {Map<String, dynamic> props = const {}});
 
   /// Mở phiên trong chat.
   void open(String channelId);
@@ -58,6 +61,11 @@ class TwStore extends ChangeNotifier {
   String? error;
   /// Tăng khi một việc đổi từ ngoài (WebSocket): trang chi tiết đang mở tải lại.
   final Map<String, int> taskRev = {};
+  /// Tăng khi một lượt chạy agent có tiến độ mới (run_progress): khối tiến độ tải lại.
+  final Map<String, int> runRev = {};
+  /// Cột bình luận / hoạt động của trang việc đang thu gọn (nhớ trên máy) + cách lưu.
+  bool commentsCollapsed = false;
+  Future<void> Function(bool collapsed)? saveCommentsCollapsed;
   /// Độ rộng khung việc bên phải đã chọn (null = 40% cửa sổ) + cách lưu lại trên máy.
   double? panelWidth;
   Future<void> Function(double width)? savePanelWidth;
@@ -209,8 +217,16 @@ class TwStore extends ChangeNotifier {
     final type = '${ev['type'] ?? ''}';
     final pid = ev['project_id'] as String?;
     final tid = ev['task_id'] as String?;
+    if (type == 'run_progress') {
+      final id = ev['id'] as String?;
+      if (id != null) runRev[id] = (runRev[id] ?? 0) + 1;
+      _changed(persist: false);
+      return;
+    }
     if (type == 'run') {
       unawaited(checkRuns());
+      final id = ev['id'] as String?;
+      if (id != null) runRev[id] = (runRev[id] ?? 0) + 1;
     }
     if (type == 'notification') {
       unawaited(loadNotifications());
@@ -490,7 +506,7 @@ class TwStore extends ChangeNotifier {
     for (final r in runs) {
       if (!_claiming.add(r.id)) continue;
       try {
-        final claimed = await api.claim(r.id, device);
+        final claimed = await api.claim(r.id, device, attestOwner: await l.isOwnerOf(r.botId));
         if (claimed == null) continue;
         if (!await l.canUse(r.botId)) {
           await api.reportRun(r.id, 'blocked', error: 'Người bắt đầu không được dùng agent ${r.botName.isEmpty ? r.botId : r.botName}');
@@ -500,12 +516,14 @@ class TwStore extends ChangeNotifier {
         final brief = claimed.$2 ?? briefOf(d, api.taskLink(d.task.key));
         // @nhắc agent: tiếp tục trong phiên sẵn có của việc này nếu còn dùng được, không thì mở phiên mới.
         final hint = claimed.$1.sessionHint ?? r.sessionHint;
+        // run_token: runner kiểm bằng khoá của TeamWork rồi mới đẩy tiến độ / chạy không cần duyệt.
+        final props = <String, dynamic>{if (claimed.$3 != null) 'flygo_teamwork': {'run_token': claimed.$3, 'run_id': r.id}};
         String ch;
         if (hint != null && await l.sessionUsable(hint, r.botId)) {
-          await l.post(hint, brief);
+          await l.post(hint, brief, props: props);
           ch = hint;
         } else {
-          ch = await l.launch(r.botId, '${d.task.key} · ${d.task.title}', brief);
+          ch = await l.launch(r.botId, '${d.task.key} · ${d.task.title}', brief, props: props);
         }
         await api.reportRun(r.id, 'running', sessionChannel: ch);
         taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;

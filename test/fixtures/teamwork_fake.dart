@@ -122,11 +122,23 @@ class FakeTw {
 
   final projects = [
     _p('p-ra', 'RA', 'Ra mắt app bán hàng', '#5B5BD6', 'active', {'backlog': 18, 'started': 9, 'closed': 4, 'done': 23}, 'owner',
-        desc: 'App đặt hàng cho đại lý: thiết kế, API, kiểm thử, đào tạo đại lý và ra mắt.', due: '2027-01-15', star: true),
-    _p('p-ht', 'HT', 'Hồ sơ thầu tháng 12', '#E8890C', 'active', {'backlog': 5, 'started': 6, 'closed': 2, 'done': 4}, 'member', desc: 'Hồ sơ năng lực, báo giá, bảo lãnh dự thầu cho 3 gói thầu.', due: '2026-12-05'),
-    _p('p-qt', 'QT', 'Quyết toán năm 2026', '#2B9348', 'active', {'backlog': 22, 'started': 3, 'closed': 1, 'done': 10}, 'admin', desc: 'Khoá sổ, đối chiếu công nợ, kiểm kê kho, báo cáo thuế cuối năm.', due: '2027-01-31'),
+        desc: 'App đặt hàng cho đại lý: thiết kế, API, kiểm thử, đào tạo đại lý và ra mắt.', due: '2027-01-15', star: true)
+      ..['cover'] = {'kind': 'gradient', 'value': 'violet'}
+      ..['dept_names'] = ['Kinh doanh', 'Kỹ thuật']
+      ..['member_preview'] = [_u('u-lan'), _u('u-minh'), _u('u-hung'), _a('b-claude')],
+    _p('p-ht', 'HT', 'Hồ sơ thầu tháng 12', '#E8890C', 'active', {'backlog': 5, 'started': 6, 'closed': 2, 'done': 4}, 'member', desc: 'Hồ sơ năng lực, báo giá, bảo lãnh dự thầu cho 3 gói thầu.', due: '2026-12-05')
+      ..['cover'] = {'kind': 'pattern', 'value': '#E8890C', 'pattern': 'dots'}
+      ..['dept_names'] = ['Kinh doanh', 'Kế toán']
+      ..['member_preview'] = [_u('u-thu'), _u('u-an'), _a('b-codex')],
+    _p('p-qt', 'QT', 'Quyết toán năm 2026', '#2B9348', 'active', {'backlog': 22, 'started': 3, 'closed': 1, 'done': 10}, 'admin', desc: 'Khoá sổ, đối chiếu công nợ, kiểm kê kho, báo cáo thuế cuối năm.', due: '2027-01-31')
+      ..['cover'] = {'kind': 'gradient', 'value': 'forest'}
+      ..['dept_names'] = ['Kế toán']
+      ..['member_preview'] = [_u('u-an'), _u('u-ha')],
     _p('p-td', 'TD', 'Tuyển dụng Q1/2027', '#D6409F', 'planning', {'backlog': 14}, 'member', desc: '8 vị trí kỹ thuật, kinh doanh, kế toán, hỗ trợ khách hàng.', due: '2027-03-31'),
-    _p('p-bt', 'BT', 'Bảo trì thiết bị', '#0E9F8E', 'active', {'backlog': 6, 'started': 4, 'done': 31}, 'member', desc: 'Lịch bảo trì định kỳ hằng tháng cho khách hàng hợp đồng năm.'),
+    _p('p-bt', 'BT', 'Bảo trì thiết bị', '#0E9F8E', 'active', {'backlog': 6, 'started': 4, 'done': 31}, 'member', desc: 'Lịch bảo trì định kỳ hằng tháng cho khách hàng hợp đồng năm.')
+      ..['cover'] = {'kind': 'pattern', 'value': '#0E9F8E', 'pattern': 'waves'}
+      ..['dept_names'] = ['Kỹ thuật']
+      ..['member_preview'] = [_u('u-hung'), _u('u-quan'), _a('b-codex')],
   ];
 
   final statuses = [
@@ -158,7 +170,48 @@ class FakeTw {
 
   late final List<Map<String, dynamic>> tasks = _seedTasks();
   final runs = <Map<String, dynamic>>[];
+  /// Tiến độ lượt chạy (GET /api/runs/:id).
+  final progress = <String, Map<String, dynamic>>{
+    'r-c4': {
+      'id': 'r-c4', 'kind': 'mention', 'task_id': 't-32', 'comment_id': 'c4', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'running', 'seq': 5, 'step_count': 4,
+      'progress': {'seq': 5, 'steps': [
+        {'id': 'tw-mode', 'kind': 'approval', 'title': '🔓 Chạy không cần duyệt (chủ bot)', 'status': 'done', 'at': 1},
+        {'id': 's1', 'kind': 'tool', 'title': 'Đọc việc RA-32 và 6 việc con', 'status': 'done', 'at': 2},
+        {'id': 's2', 'kind': 'tool', 'title': 'Đọc tệp api/inventory.ts', 'status': 'done', 'at': 3},
+        {'id': 's3', 'kind': 'tool', 'title': 'Viết docs/api-ton-kho.md', 'status': 'running', 'at': 4},
+      ]},
+      'text': '## Tài liệu API tồn kho\n\n| Endpoint | Phương thức | Ghi chú |\n|---|---|---|\n| `/api/stock` | GET | Tồn kho theo mã hàng |\n| `/api/orders` | POST | Tạo đơn, trừ tồn kho |\n\nĐang viết phần lỗi…',
+    },
+    'r-old': {
+      'id': 'r-old', 'kind': 'mention', 'task_id': 't-32', 'comment_id': 'c1', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'state': 'review', 'seq': 12, 'step_count': 7, 'session_channel': 'ch-1',
+      'progress': {'seq': 12, 'steps': [
+        for (final (i, t) in const [(1, 'Đọc việc RA-32'), (2, 'Đọc api/inventory.ts'), (3, 'Viết test đồng bộ tồn kho'), (4, 'Chạy bun test'), (5, 'Sửa lỗi số âm khi hai đơn cùng lúc'), (6, 'Chạy lại bun test: 14/14 đạt'), (7, 'Bình luận kết quả')])
+          {'id': 's$i', 'kind': 'tool', 'title': t, 'status': 'done', 'at': i},
+      ]},
+    },
+    'r-start': {
+      'id': 'r-start', 'kind': 'start', 'task_id': 't-32', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'state': 'running', 'seq': 3, 'step_count': 2, 'session_channel': 'ch-1',
+      'progress': {'seq': 3, 'steps': [
+        {'id': 'a', 'kind': 'approval', 'title': 'Chạy chế độ thường (người giao không phải chủ bot)', 'status': 'done', 'at': 1},
+        {'id': 'b', 'kind': 'tool', 'title': 'Chạy bun test tests/inventory.test.ts', 'status': 'running', 'at': 2},
+      ]},
+    },
+  };
   late final List<Map<String, dynamic>> comments = [
+    {
+      'id': 'c0',
+      'task_id': 't-32',
+      'parent_id': null,
+      'author': 'u-hung',
+      'author_name': 'Hùng',
+      'via': 'app',
+      'blocks': [
+        {'id': 'b0', 't': 'p', 'r': [{'x': 'Phần mềm kho mở API đọc tồn kho rồi nhé.'}]},
+      ],
+      'created_at': twNow.millisecondsSinceEpoch - 40 * 3600000,
+      'reactions': [],
+      'attachments': [],
+    },
     {
       'id': 'c1',
       'task_id': 't-32',
@@ -186,7 +239,7 @@ class FakeTw {
       ],
       'attachments': [],
       'runs': [
-        {'id': 'r-old', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'state': 'review'},
+        {'id': 'r-old', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'state': 'review', 'step_count': 7},
       ],
     },
     {
@@ -284,7 +337,7 @@ class FakeTw {
           ..['blocked_by'] = ['t-41'],
         _t('t-32', 32, 'API đặt hàng + đồng bộ tồn kho', 's-doing', 1,
             a: [_u('u-minh'), _a('b-codex')], l: ['l-gap'], start: '2026-11-21', due: '2026-11-28', subT: 6, subD: 3, cm: 2, at: 2, rank: 'b',
-            run: {'id': 'r-old', 'task_id': 't-32', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'started_by': 'u-minh', 'state': 'running', 'session_channel': 'ch-1'})
+            run: {'id': 'r-start', 'kind': 'start', 'task_id': 't-32', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'started_by': 'u-minh', 'state': 'running', 'session_channel': 'ch-1'})
           ..['blocked_by'] = ['t-29'],
         _t('t-35', 35, 'Màn hình giỏ hàng & thanh toán', 's-doing', 2, a: [_u('u-lan')], l: ['l-ui'], start: '2026-11-17', due: '2026-12-02', subT: 4, subD: 2, cm: 5, rank: 'c'),
         _t('t-38', 38, 'Bảng giá theo cấp đại lý', 's-doing', 3, a: [_u('u-an')], l: ['l-kt'], start: '2026-11-22', due: '2026-11-25', cm: 1, rank: 'd'),
@@ -461,9 +514,14 @@ class FakeTw {
           final r = runs.firstWhere((r) => r['id'] == x![1]);
           if (r['claimed'] == true) return _ok({'error': 'lượt chạy đã được một máy khác nhận', 'code': 'claimed'}, 409);
           r['claimed'] = true;
-          return _ok({'run': r, 'brief': 'BRIEF ${task(r['task_id'] as String)['key']}', 'task': {'id': r['task_id']}});
+          r['attest_owner'] = body['attest_owner'] == true;
+          return _ok({'run': r, 'brief': 'BRIEF ${task(r['task_id'] as String)['key']}', 'run_token': 'TOKEN-${r['id']}', 'task': {'id': r['task_id']}});
         }
         if ((x = m(r'/runs/([\w-]+)/cancel')) != null) return _ok({'run': {'id': x![1], 'state': 'cancelled'}});
+        if ((x = m(r'/runs/([\w-]+)')) != null && req.method == 'GET') {
+          final r = progress[x![1]] ?? runs.where((r) => r['id'] == x![1]).firstOrNull;
+          return r == null ? _ok({'error': 'không có', 'code': 'not_found'}, 404) : _ok({'run': r});
+        }
         if ((x = m(r'/runs/([\w-]+)')) != null) {
           final r = runs.where((r) => r['id'] == x![1]).firstOrNull;
           r?.addAll(body);
@@ -569,17 +627,25 @@ class FakeLauncher implements TwAgentLauncher {
   final launched = <(String, String, String)>[];
   final stopped = <String>[];
   final posted = <(String, String)>[];
+  final props = <Map<String, dynamic>>[];
   Set<String> allowed = {'b-claude', 'b-codex'};
   Set<String> usable = {};
+  Set<String> owned = {'b-claude'};
+  @override
+  Future<bool> isOwnerOf(String botId) async => owned.contains(botId);
   @override
   Future<bool> sessionUsable(String channelId, String botId) async => usable.contains(channelId);
   @override
-  Future<void> post(String channelId, String text) async => posted.add((channelId, text));
+  Future<void> post(String channelId, String text, {Map<String, dynamic> props = const {}}) async {
+    posted.add((channelId, text));
+    this.props.add(props);
+  }
   @override
   Future<bool> canUse(String botId) async => allowed.contains(botId);
   @override
-  Future<String> launch(String botId, String title, String brief) async {
+  Future<String> launch(String botId, String title, String brief, {Map<String, dynamic> props = const {}}) async {
     launched.add((botId, title, brief));
+    this.props.add(props);
     return 'ch-new-$botId';
   }
 

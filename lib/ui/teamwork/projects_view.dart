@@ -2,6 +2,7 @@
 // mình) + lọc theo trạng thái dự án + hộp tạo dự án mới.
 import 'package:flutter/material.dart';
 
+import 'cover.dart';
 import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
@@ -66,11 +67,13 @@ class _TwProjectsViewState extends State<TwProjectsView> {
       Expanded(
         child: list.isEmpty
             ? Center(child: Text(widget.store.loaded ? 'Chưa có dự án nào ở mục này' : 'Đang tải…', style: TextStyle(color: look.sub)))
-            : LayoutBuilder(builder: (context, c) {
-                final cols = c.maxWidth >= 1000 ? 3 : (c.maxWidth >= 640 ? 2 : 1);
+            : Builder(builder: (context) {
+                // 4 cột từ ~1400px cửa sổ, 3 cột ~1050px, 2 cột máy tính bảng, 1 cột điện thoại.
+                final w = MediaQuery.sizeOf(context).width;
+                final cols = w >= 1400 ? 4 : (w >= 1050 ? 3 : (w >= 640 ? 2 : 1));
                 return GridView.builder(
                   padding: EdgeInsets.fromLTRB(wide ? 24 : 14, 6, wide ? 24 : 14, 90),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisSpacing: 14, crossAxisSpacing: 14, mainAxisExtent: cols == 1 ? 150 : 196),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisSpacing: 12, crossAxisSpacing: 12, mainAxisExtent: ProjectCard.height),
                   itemCount: list.length,
                   itemBuilder: (_, i) => ProjectCard(project: list[i], store: widget.store, compact: cols == 1, onTap: () => widget.onOpen(list[i])),
                 );
@@ -80,64 +83,109 @@ class _TwProjectsViewState extends State<TwProjectsView> {
   }
 }
 
-class ProjectCard extends StatelessWidget {
-  const ProjectCard({super.key, required this.project, required this.store, required this.onTap, this.compact = false});
+/// Thẻ dự án gọn: dải hình nền 56px, ô dự án đè lên mép dưới trái, sao ở góc phải; tên + phòng ban; thanh tiến độ mảnh chia
+/// theo nhóm trạng thái; một dòng: trạng thái, "x/y xong", hạn, thành viên. Vai trò của mình: chú thích khi rê chuột vào ô dự án.
+class ProjectCard extends StatefulWidget {
+  const ProjectCard({super.key, required this.project, required this.store, required this.onTap, this.compact = false, this.preview = false});
   final TwProject project;
   final TwStore store;
   final VoidCallback onTap;
   final bool compact;
+  /// Xem trước trong trình chọn hình nền (không bấm được sao).
+  final bool preview;
+  static const height = 158.0;
+  @override
+  State<ProjectCard> createState() => _ProjectCardState();
+}
+
+class _ProjectCardState extends State<ProjectCard> {
+  bool _hover = false;
   @override
   Widget build(BuildContext context) {
     final look = TwLook.of(context);
-    final p = project;
+    final p = widget.project;
     final sc = hexColor(kProjectStatusColors[p.status]);
     final meta = TextStyle(fontSize: 12, color: look.sub);
-    return Material(
-      key: ValueKey('project-${p.key}'),
-      color: look.card,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: look.divider)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              ProjectBadge(p, size: compact ? 30 : 34),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                  if (p.deptNames.isNotEmpty) Text(p.deptNames.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: meta),
-                ]),
+    final color = hexColor(p.color, kTwAccent);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: _hover ? [BoxShadow(color: Colors.black.withValues(alpha: look.dark ? .4 : .12), blurRadius: 14, offset: const Offset(0, 4))] : const [],
+        ),
+        child: Material(
+          key: ValueKey('project-${p.key}'),
+          color: look.card,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: look.divider)),
+          child: InkWell(
+            onTap: widget.onTap,
+            child: Stack(children: [
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                TwCoverView(key: ValueKey('cover-of-${p.key}'), cover: p.cover, fallback: color, height: 56),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(60, 6, 12, 0),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: look.text)),
+                    Text(p.deptNames.isEmpty ? p.key : p.deptNames.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: meta),
+                  ]),
+                ),
+                const Spacer(),
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: CategoryBar(p.counts, height: 4)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                  child: Row(children: [
+                    Expanded(
+                      child: Row(children: [
+                        TwChip(kProjectStatusNames[p.status]!, color: sc),
+                        const SizedBox(width: 8),
+                        Flexible(child: Text('${p.doneCount}/${p.total} xong', maxLines: 1, overflow: TextOverflow.clip, softWrap: false, style: meta)),
+                        if (p.due != null) ...[
+                          const SizedBox(width: 8),
+                          Icon(Icons.event_outlined, size: 13, color: look.sub),
+                          const SizedBox(width: 2),
+                          Text(dShort(p.due!), maxLines: 1, softWrap: false, style: meta),
+                        ],
+                      ]),
+                    ),
+                    const SizedBox(width: 6),
+                    TwAvatars(p.memberPreview, size: 22, max: 3),
+                  ]),
+                ),
+              ]),
+              Positioned(
+                left: 12,
+                top: 38,
+                child: Tooltip(
+                  message: 'Vai trò của bạn: ${kRoleNames[p.myRole] ?? p.myRole}',
+                  child: Container(
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: look.card, width: 3)),
+                    child: ProjectBadge(p, size: 36),
+                  ),
+                ),
               ),
-              if (compact) TwAvatars(p.memberPreview, size: 22, max: 3),
-              IconButton(
-                tooltip: p.starred ? 'Bỏ ghim sao' : 'Ghim sao',
-                visualDensity: VisualDensity.compact,
-                icon: Icon(p.starred ? Icons.star_rounded : Icons.star_outline_rounded, color: p.starred ? const Color(0xFFE8B10C) : look.sub),
-                onPressed: () => store.star(p),
-              ),
+              if (!widget.preview)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Material(
+                    color: Colors.black.withValues(alpha: .18),
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => widget.store.star(p),
+                      child: Padding(
+                        padding: const EdgeInsets.all(5),
+                        child: Icon(p.starred ? Icons.star_rounded : Icons.star_outline_rounded, size: 18, color: p.starred ? const Color(0xFFFFD43B) : Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
             ]),
-            if (!compact) ...[
-              const SizedBox(height: 8),
-              Text(blocksText(p.description).replaceAll('\n', ' '), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: look.sub, height: 1.45)),
-            ],
-            const Spacer(),
-            CategoryBar(p.counts),
-            const SizedBox(height: 8),
-            Row(children: [
-              TwChip(kProjectStatusNames[p.status]!, color: sc),
-              const SizedBox(width: 8),
-              Text('${p.doneCount}/${p.total} xong', style: meta),
-              const Spacer(),
-              if (p.due != null) ...[Icon(Icons.event_outlined, size: 15, color: look.sub), const SizedBox(width: 3), Text(dLong(p.due!), style: meta)],
-            ]),
-            if (!compact) ...[
-              const SizedBox(height: 8),
-              Row(children: [TwAvatars(p.memberPreview, size: 26), const Spacer(), Text(kRoleNames[p.myRole] ?? '', style: meta)]),
-            ],
-          ]),
+          ),
         ),
       ),
     );

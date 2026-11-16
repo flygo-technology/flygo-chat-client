@@ -18,6 +18,7 @@ import { ClaudeEngine } from "./engines/claude";
 import { CodexEngine } from "./engines/codex";
 import { AGY_ENV, AntigravityEngine } from "./engines/antigravity";
 import { limitsKey, type UsageLimits } from "./limits";
+import { parseTwHeader, twBase, twDecide, TwProgress, TwVerifier, TW_BYPASS_NOTE, TW_NORMAL_NOTE, type TwDecision } from "./teamwork";
 import { answerText, type EngineInventory, type ApprovalDecision, type ApprovalRequest, type AskResult, type Engine, type UserAnswer, type UserQuestion, type PermMode, PERM_MODES } from "./engines/types";
 import { A2AClient, type A2APeer } from "./a2a";
 import { INLINE_MAX, insideDir, saveFilePart, splitParts, toFilePart, uploadLarge } from "./a2a-files";
@@ -123,6 +124,25 @@ if (!markerHost(botDesc)) {
 }
 
 const isOwner = (id: string) => cfg.ownerUserIds.includes(id);
+// TeamWork: JWKS cố định theo máy chủ chat trong cấu hình (không bao giờ theo URL trong tin nhắn).
+const twVerifier = new TwVerifier(`${twBase(cfg.serverUrl)}/.well-known/jwks.json`, BOT_ID, fetch, Date.now, twBase(cfg.serverUrl));
+/** Lượt này có phải lượt TeamWork không (token hợp lệ, hoặc phiên đã gắn lượt còn hạn) và có chạy không cần duyệt không. */
+async function teamworkOf(post: Post, text: string): Promise<TwDecision | null> {
+  let tok: any = post.props?.flygo_teamwork;
+  if (typeof tok === "string") try { tok = JSON.parse(tok); } catch { tok = null; }
+  const killSwitch = cfg.teamworkBypass === true, owner = isOwner(post.user_id);
+  if (tok?.run_token) {
+    const claims = await twVerifier.verify(tok.run_token);
+    const d = twDecide({ claims, header: parseTwHeader(text), posterIsOwner: owner, killSwitch });
+    if (d) db.query("INSERT OR REPLACE INTO tw_sessions VALUES (?, ?, ?, ?, ?)").run(post.channel_id, d.run, claims?.bypass === true ? 1 : 0, Number(claims?.exp ?? 0) * 1000, Date.now());
+    else if (parseTwHeader(text)) log(`teamwork: token không hợp lệ cho kênh ${post.channel_id}, chạy như tin thường`);
+    return d;
+  }
+  // Lượt sau trong phiên đã gắn TeamWork (chưa hết hạn token): vẫn đẩy tiến độ; không cần duyệt chỉ khi người gửi là chủ bot.
+  const row = db.query("SELECT run, bypass, exp FROM tw_sessions WHERE channel_id = ?").get(post.channel_id) as { run: string; bypass: number; exp: number } | null;
+  if (!row || row.exp < Date.now()) return null;
+  return twDecide({ claims: { run: row.run, bypass: row.bypass === 1, bot_id: BOT_ID }, header: null, posterIsOwner: owner, killSwitch });
+}
 const isAllowed = (id: string) => isOwner(id) || allowIds.includes(id);
 allowIds = parseAllow(me.bot_description);
 setInterval(refreshAllow, 60_000);
@@ -161,6 +181,8 @@ interface Session { root_id: string; channel_id: string; engine: EngineName; ses
 db.run(`CREATE TABLE IF NOT EXISTS projects (channel_id TEXT PRIMARY KEY, path TEXT)`);
 // "Luôn cho phép" (🔓 của chủ bot trên lời xin duyệt): phạm vi = khoá phiên (chat chính của kênh / luồng / a2a:<caller>:<context>).
 db.run(`CREATE TABLE IF NOT EXISTS bypass (scope TEXT PRIMARY KEY, by_user TEXT, at INTEGER)`);
+// TeamWork: phiên (kênh) đang gắn với lượt chạy nào (token đã kiểm), để các lượt sau trong phiên vẫn đẩy tiến độ / giữ chế độ.
+db.run(`CREATE TABLE IF NOT EXISTS tw_sessions (channel_id TEXT PRIMARY KEY, run TEXT, bypass INTEGER, exp INTEGER, at INTEGER)`);
 // Khối "Vị trí & ID / Công cụ" đã đưa cho phiên: chỉ nhắc lại khi đổi.
 db.run(`CREATE TABLE IF NOT EXISTS ctx_seen (root_id TEXT PRIMARY KEY, hash TEXT)`);
 // Chat AI riêng: tin chat chính của nhóm gắn đã đưa cho phiên tới mốc thời gian nào.
@@ -3233,6 +3255,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const mode: PermMode | undefined = okMode(want.mode) ? want.mode : undefined;
   if (want.mode && !mode) bad.push(`chế độ ${want.mode}`);
   const runConfig = { model, effort, mode: mode ?? defaultMode(), ...(bad.length ? { note: `Không hỗ trợ ${bad.join(", ")}, dùng mặc định.` } : {}) };
+  // TeamWork (app Làm việc nhóm): token đã kiểm quyết định có đẩy tiến độ / chạy không cần duyệt (giữ danh sách cấm).
+  const tw = await teamworkOf(post, rawText).catch(() => null);
   // Nghiên cứu sâu (app: "+" → "Nghiên cứu sâu", props.flygo_mode = "research"): quy trình tìm nhiều nguồn + báo cáo có trích dẫn.
   const research = post.props?.flygo_mode === "research";
   const researchNote = research ? `\n\n(Chế độ NGHIÊN CỨU SÂU — làm đúng quy trình:
@@ -3254,6 +3278,13 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const card = new RunCard(mm, where, runId, engineName, title, post.user_id, () => reply.touch());
   reply.card = card;
   card.config = runConfig;
+  // Tiến độ lên TeamWork: mọi bước của thẻ (cùng tiêu đề / trạng thái) + chữ đang viết; địa chỉ suy từ máy chủ trong cấu hình.
+  const twp = tw?.push ? new TwProgress({ base: twBase(cfg.serverUrl), run: tw.run, botToken: cfg.botToken, serverUrl: cfg.serverUrl, log }) : null;
+  if (twp) {
+    const orig = card.step.bind(card);
+    card.step = (s) => { orig(s); twp.step(s); };
+    card.step({ id: "tw-mode", kind: "approval", title: tw!.bypass ? TW_BYPASS_NOTE : tw!.note || TW_NORMAL_NOTE, status: "done" });
+  }
   card.triggerId = post.id;
   card.forkedFrom = forkedFrom;
   if (forkedFrom) db.query("INSERT OR REPLACE INTO fork_depth VALUES (?, ?)").run(root, forkedFrom.depth);
@@ -3272,7 +3303,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
 
   const ask = async (req: ApprovalRequest): Promise<ApprovalDecision> => {
     const sid = `approval-${crypto.randomUUID()}`;
-    if (isBypass(root)) { // đã "luôn cho phép" (kể cả bật giữa lượt): tự duyệt
+    if (isBypass(root) || tw?.bypass) { // đã "luôn cho phép" / lượt TeamWork không cần duyệt: tự duyệt (danh sách cấm vẫn chặn trước đó)
       card.step({ id: sid, kind: "approval", title: `🔓 Tự duyệt: ${req.title.slice(0, 100)}`, status: "done" });
       return "accept";
     }
@@ -3335,6 +3366,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         effort,
         fallbackModel: opts.default.model,
         bypass,
+        twBypass: !!tw?.bypass,
         mode,
         mcpEnv: mcpEnvFor(root, {
           MM_URL: cfg.serverUrl, MM_TOKEN: cfg.botToken, CHANNEL_ID: post.channel_id, ROOT_ID: threadRoot,
@@ -3347,7 +3379,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       {
         step: (s) => card.step(s),
         todos: (t) => card.setTodos(t),
-        text: (t) => reply.update(t),
+        text: (t) => { reply.update(t); twp?.setText(reply.current); },
         approval: ask,
         ask: askQ,
         session: (id) => { card.sessionId = id; session!.session_id = id; saveSession(session!); },
@@ -3372,6 +3404,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     card.sessionId = res.sessionId;
     card.setStatus("done");
     await card.finish();
+    void twp?.finish("done", res.text ?? reply.current);
     // AI theo dõi chat quyết định im lặng (chỉ ghi "KHÔNG"): không đăng gì, xoá bong bóng đã stream (nếu có).
     const noWatchReply = !!post.props?.flygo_chat_watch_batch && /^\s*(không|khong|no|skip|im lặng|im lang|bỏ qua|bo qua)[\s.!…]*$/i.test(res.text ?? "");
     if (noWatchReply) {
@@ -3392,6 +3425,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     card.interrupted = cancelled && stopping;
     card.setStatus(cancelled ? (stopping ? "stopped" : "cancelled") : "error");
     await card.finish();
+    void twp?.finish("failed", [reply.current.trim(), cancelled ? "(đã dừng)" : `Lỗi: ${card.error}`].filter(Boolean).join("\n\n"));
     // Runner tắt giữa lượt: đăng lại thành tin có lời nhắn (có thông báo), giữ phần chữ đã viết.
     await reply.finish(cancelled && stopping ? [reply.current.trim(), STOP_NOTE].filter(Boolean).join("\n\n") : "");
     if (!cancelled) await mm.createPost({ ...where, message: `❌ Em gặp lỗi: ${card.error}`, props: { ...(post.root_id ? { flygo_reply: "thread" } : {}), flygo_agent_owner: post.user_id } });

@@ -489,3 +489,19 @@ File chạy: `dist/flygo-agent-{darwin-arm64,darwin-x64,linux-x64,linux-arm64,wi
 **macOS: App Sandbox.** Bản macOS đang bật `com.apple.security.app-sandbox`. Tiến trình con kế thừa sandbox, nên runner sẽ không đọc được `~/.codex`, `~/.claude` và không chạy được `codex`/`claude`. Có hai cách:
 - (a) Tắt sandbox. App phân phối ngoài Mac App Store nên vẫn notarize được. Lưu ý dữ liệu đang nằm ở `~/Library/Containers/vn.flygo.chat`, cần chuyển sang chỗ mới.
 - (b) Giữ sandbox, app chỉ cài dịch vụ nền một lần qua lệnh người dùng chạy trong Terminal, sau đó điều khiển và theo dõi qua trạng thái của bot.
+
+## TeamWork (app Làm việc nhóm), 0.6.96
+
+Lượt do app Làm việc nhóm giao (nút Bắt đầu, hoặc @nhắc agent trong bình luận) là tin có dòng đầu `[teamwork task=KEY run=ID comment=CID url=…]` kèm `props.flygo_teamwork.run_token`. Mã nằm ở `src/teamwork.ts`.
+
+- **Token:** JWS EdDSA của máy chủ TeamWork. Runner kiểm bằng JWKS ở `<serverUrl>/__apps/teamwork/.well-known/jwks.json`, tức là theo máy chủ trong cấu hình, không theo URL trong tin. Phải đúng: `iss`, `aud = flygo-agent`, `typ = teamwork-run`, chưa hết hạn, `bot_id` là bot này. Không có token hợp lệ thì dòng đầu bị bỏ qua: không đẩy tiến độ, không bỏ duyệt.
+- **Không cần duyệt:** chỉ khi đủ ba điều kiện: token có `bypass: true`, người gửi tin là chủ bot, cấu hình `teamworkBypass: true`. Thiếu cấu hình thì coi là `false`. Không đủ điều kiện thì lượt chạy chế độ thường. Bước đầu của thẻ ghi rõ "🔓 Chạy không cần duyệt (chủ bot)" hoặc "Chạy chế độ thường".
+- **Danh sách cấm vẫn giữ khi không cần duyệt:**
+  - Claude: `--permission-mode bypassPermissions` cộng `deny` của cấu hình và `TW_CLAUDE_DENY` (xoá, sudo, đọc `~/.ssh`, `~/.config/flygo-agent`, `~/.codex/auth.json`, `~/.aws`, các kho mật khẩu). Đã kiểm với Claude Code 2.1.x: deny vẫn chặn trong chế độ bypass.
+  - agy: không dùng `--dangerously-skip-permissions`. Hook ở chế độ `teamwork` tự duyệt mọi thao tác, trừ những gì khớp danh sách cấm. Settings giữ `deny` (`TW_AGY_DENY`).
+  - Codex: không có danh sách cấm. Lượt chạy `approvalPolicy: never` với sandbox `workspaceWrite`: chỉ ghi được trong thư mục làm việc, có mạng nếu `codex.network` cho phép. Không cấp toàn quyền đĩa, nên việc cần ghi ngoài thư mục làm việc sẽ bị sandbox chặn.
+- **Tiến độ:** runner đẩy lên `POST <serverUrl>/__apps/teamwork/api/runs/<run>/progress` với header `Authorization: Bearer <token bot>` và `X-MM-Server`.
+  - Nội dung: các bước của thẻ (cùng tiêu đề, trạng thái, đã che bí mật) và chữ đang viết.
+  - Tối đa khoảng 2 lần mỗi giây. Lỗi thì thử lại có giãn cách; 429 thì chờ theo `retry_after_ms`. Bản cuối gửi kèm `final: true`.
+  - Đẩy lỗi không bao giờ làm hỏng hay chặn lượt.
+- **Lượt sau trong cùng phiên:** lấy lượt chạy đã gắn với kênh (bảng `tw_sessions`) cho tới khi token hết hạn.

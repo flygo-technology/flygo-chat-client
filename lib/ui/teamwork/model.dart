@@ -1,6 +1,7 @@
 // TeamWork (vn.flygo.teamwork): dữ liệu như máy chủ trả (flygo-chat-server teamwork/README.md). Đọc rộng tay: trường
 // thiếu thì lấy mặc định, để app cũ vẫn chạy khi máy chủ thêm trường mới.
 import '../todo/model.dart';
+import 'cover.dart';
 
 // ------------------------------------------------------------ tiện ích đọc JSON
 String _s(Object? v, [String d = '']) => v == null ? d : '$v';
@@ -155,11 +156,14 @@ class TwProject {
     this.memberPreview = const [],
     this.updatedAt = 0,
     this.chatChannel,
+    this.cover,
   });
   final String id;
   String key, name, color, status, owner, myRole;
   /// Kênh chat gắn với dự án (bot đăng sự kiện vào đó).
   String? chatChannel;
+  /// Hình nền (null = màu chuyển nhạt từ màu dự án).
+  TwCover? cover;
   List<TBlock> description;
   List<String> deptIds, deptNames;
   DateTime? start, due;
@@ -196,6 +200,7 @@ class TwProject {
         memberPreview: [for (final a in _maps(m['member_preview'] ?? m['members_preview'])) TwAssignee.fromJson(a)],
         updatedAt: _i(m['updated_at']),
         chatChannel: _ns(m['chat_channel']),
+        cover: TwCover.fromJson(m['cover']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -218,6 +223,7 @@ class TwProject {
         'member_preview': [for (final a in memberPreview) a.toJson()],
         'updated_at': updatedAt,
         'chat_channel': chatChannel,
+        'cover': cover?.toJson(),
       };
 }
 
@@ -301,6 +307,12 @@ class TwRun {
     this.kind = 'start',
     this.commentId,
     this.sessionHint,
+    this.steps = const [],
+    this.text,
+    this.seq = 0,
+    this.stepCount = 0,
+    this.lastStep,
+    this.summary,
   });
   final String id, taskId, taskKey, botId, botName, startedBy;
   String state; // queued | running | review | done | failed | cancelled | blocked
@@ -310,6 +322,12 @@ class TwRun {
   final String? commentId;
   /// Phiên sẵn có của việc + agent + người này: gửi tiếp vào đó thay vì mở phiên mới.
   final String? sessionHint;
+  /// Tiến độ runner đẩy lên (GET /api/runs/:id): các bước + chữ đang viết.
+  List<TwRunStep> steps;
+  String? text, lastStep, summary;
+  int seq, stepCount;
+  bool get finished => const ['review', 'done', 'failed', 'cancelled', 'blocked'].contains(state);
+  bool get failed => const ['failed', 'blocked', 'cancelled'].contains(state);
   String? sessionChannel, error;
   int createdAt, updatedAt;
   bool get active => state == 'queued' || state == 'running';
@@ -328,6 +346,12 @@ class TwRun {
         kind: _s(m['kind'], 'start'),
         commentId: _ns(m['comment_id']),
         sessionHint: _ns(m['session_hint']),
+        steps: [for (final x in _maps(m['progress'] is Map ? (m['progress'] as Map)['steps'] : m['progress'] ?? m['steps'])) TwRunStep.fromJson(x)],
+        text: _ns(m['text']),
+        seq: _i(m['seq'] ?? (m['progress'] is Map ? (m['progress'] as Map)['seq'] : null)),
+        stepCount: _i(m['step_count']),
+        lastStep: m['last_step'] is Map ? _ns((m['last_step'] as Map)['title']) : _ns(m['last_step']),
+        summary: _ns(m['summary']),
       );
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -345,6 +369,15 @@ class TwRun {
         'created_at': createdAt,
         'updated_at': updatedAt,
       };
+}
+
+/// Một bước tiến độ của lượt chạy agent (như thẻ tiến trình trong chat).
+class TwRunStep {
+  const TwRunStep({required this.id, required this.kind, required this.title, this.detail, this.status = 'running', this.at = 0});
+  final String id, kind, title, status; // kind: tool | think | text | plan | approval; status: running | done | error
+  final String? detail;
+  final int at;
+  factory TwRunStep.fromJson(Map m) => TwRunStep(id: _s(m['id']), kind: _s(m['kind'], 'tool'), title: _s(m['title']), detail: _ns(m['detail']), status: _s(m['status'], 'running'), at: _i(m['at']));
 }
 
 const kRunStateNames = {

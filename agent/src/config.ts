@@ -25,6 +25,9 @@ export interface Config {
   projectRoots: string[]; // chat được gắn thư mục code ([flygo-project path=…] / "@bot dự án <path>") chỉ khi path nằm dưới các thư mục này; rỗng = tắt
   mainIdleHours: number; // chat chính nghỉ quá N giờ thì mở phiên mới; 0 = không bao giờ (mặc định)
   approvalTimeoutSec: number;
+  /** TeamWork: cho lượt từ app Làm việc nhóm chạy không cần duyệt (vẫn giữ danh sách cấm) khi token hợp lệ và người giao là chủ bot.
+   *  Thiếu = false (tắt); bật bằng cấu hình của từng bot. */
+  teamworkBypass?: boolean;
   codex: {
     bin?: string; // đường dẫn codex (Windows cài qua npm: …\\npm\\codex.cmd)
     skipLoginCheck?: boolean; // bỏ qua kiểm tra đăng nhập (codex xác thực theo cách runner không nhận ra)
