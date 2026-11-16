@@ -16,6 +16,8 @@ class StyledBubble extends StatelessWidget {
   final double scale;
   final BorderRadius radius;
   final EdgeInsets padding;
+  /// Nền phía sau bong bóng (để thêm viền mảnh khi màu bong bóng gần trùng nền); mặc định nền chat.
+  final Color? against;
   const StyledBubble({
     super.key,
     required this.style,
@@ -26,33 +28,34 @@ class StyledBubble extends StatelessWidget {
     this.scale = 1,
     this.radius = const BorderRadius.all(Radius.circular(18)),
     this.padding = const EdgeInsets.fromLTRB(12, 7, 10, 7),
+    this.against,
   });
 
   @override
   Widget build(BuildContext context) {
     final s = style;
+    final pal = Pal.of(context);
     final box = Container(
       padding: padding,
-      decoration: BoxDecoration(color: fill, borderRadius: radius, border: _edge(context, fill)),
+      decoration: BoxDecoration(color: fill, borderRadius: radius, border: bubbleEdge(fill, against ?? pal.chatBg, pal.divider)),
       child: child,
     );
     if (s == null || !s.decorated) return box;
     return Padding(
-      padding: EdgeInsets.only(top: top ? s.top * scale : 0, bottom: bottom ? s.bottom * scale : 0),
+      padding: EdgeInsets.only(top: top ? s.roomTop(scale) : 0, bottom: bottom ? s.roomBottom(scale) : 0),
       child: CustomPaint(foregroundPainter: BubbleDecoPainter(style: s, fill: fill, top: top, bottom: bottom, scale: scale), child: box),
     );
   }
 }
 
-/// Viền mảnh khi màu bong bóng gần trùng nền chat (bong bóng trắng trên nền sáng, đen trên nền tối).
-Border? _edge(BuildContext context, Color fill) {
-  final bg = Pal.of(context).chatBg;
+/// Viền mảnh khi màu bong bóng gần trùng nền phía sau (bong bóng trắng trên nền sáng, đen trên nền tối).
+Border? bubbleEdge(Color fill, Color bg, Color line) {
   final a = fill.computeLuminance(), b = bg.computeLuminance();
   final ratio = (math.max(a, b) + .05) / (math.min(a, b) + .05);
-  return ratio < 1.25 ? Border.all(color: Pal.of(context).divider, width: 1) : null;
+  return ratio < 1.3 ? Border.all(color: line, width: 1) : null;
 }
 
-/// Màn "Kiểu bong bóng" của một chat: xem trước ở trên, bảng kiểu + màu ở dưới, Huỷ / Lưu.
+/// Màn "Kiểu bong bóng" của một chat (trang riêng, có Huỷ / Lưu) — bọc [BubblePickerBody].
 /// Trả về lựa chọn mới (`BubbleChoice('')` = về mặc định), null = huỷ.
 class BubblePickerPage extends StatefulWidget {
   final BubbleChoice? current;
@@ -65,33 +68,13 @@ class BubblePickerPage extends StatefulWidget {
 }
 
 class _BubblePickerPageState extends State<BubblePickerPage> {
-  late String _style = widget.current?.style ?? '';
-  late Color? _color = widget.current?.color;
+  late BubbleChoice _choice = widget.current ?? const BubbleChoice('');
 
-  BubbleStyle? get _def => bubbleStyleById(_style);
-  Color get _fill => _color ?? _def?.color ?? widget.defaultFill;
-
-  bool get _changed {
-    final cur = widget.current;
-    if (cur == null) return _style.isNotEmpty;
-    return cur.style != _style || cur.fill != _fill;
-  }
-
-  void _save() => Navigator.pop(context, _style.isEmpty ? const BubbleChoice('') : BubbleChoice(_style, _color));
-
-  Future<void> _customColor() async {
-    final c = await pickBubbleColor(context, _fill);
-    if (c == null || !mounted) return;
-    setState(() {
-      _color = c;
-      if (_style.isEmpty) _style = kBubblePlain;
-    });
-  }
+  bool get _changed => (widget.current ?? const BubbleChoice('')) != _choice;
 
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    final wide = MediaQuery.sizeOf(context).width >= 700;
     return Scaffold(
       backgroundColor: pal.chatBg,
       appBar: AppBar(
@@ -103,111 +86,200 @@ class _BubblePickerPageState extends State<BubblePickerPage> {
         title: Text(tr('Kiểu bong bóng'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: pal.text)),
         actions: [
           TextButton(
-            onPressed: _changed ? _save : null,
+            onPressed: _changed ? () => Navigator.pop(context, _choice) : null,
             child: Text(tr('Lưu'), style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
           const SizedBox(width: 6),
         ],
       ),
-      body: Column(children: [
-        _Preview(style: _def, fill: _fill, defaultFill: widget.defaultFill),
-        Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              color: pal.bg,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 12, offset: const Offset(0, -2))],
-            ),
-            child: CustomScrollView(slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
-                  child: Text(tr('Chỉ bạn đổi kiểu tin mình gửi trong chat này. Áp dụng cho các tin gửi sau khi lưu; mọi người đều thấy.'),
-                      style: TextStyle(color: pal.sub, fontSize: 13)),
-                ),
-              ),
-              SliverToBoxAdapter(child: _section(pal, tr('Màu nền'))),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 46,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    children: [
-                      _Swatch(
-                        selected: _color == null,
-                        color: _def?.color ?? widget.defaultFill,
-                        label: tr('Theo kiểu'),
-                        onTap: () => setState(() => _color = null),
-                      ),
-                      for (final c in bubbleSwatches)
-                        _Swatch(
-                          selected: _color == c,
-                          color: c,
-                          onTap: () => setState(() {
-                            _color = c;
-                            if (_style.isEmpty) _style = kBubblePlain;
-                          }),
-                        ),
-                      _Swatch(
-                        selected: _color != null && !bubbleSwatches.contains(_color),
-                        color: _color != null && !bubbleSwatches.contains(_color) ? _color! : null,
-                        label: tr('Tuỳ chỉnh'),
-                        onTap: _customColor,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(child: _section(pal, tr('Kiểu'))),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(10, 0, 10, 24),
-                sliver: SliverGrid(
-                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: wide ? 118 : 96,
-                    mainAxisExtent: 98,
-                    crossAxisSpacing: 4,
-                    mainAxisSpacing: 6,
-                  ),
-                  delegate: SliverChildListDelegate([
-                    _StyleTile(
-                      style: null,
-                      fill: widget.defaultFill,
-                      name: tr('Mặc định'),
-                      selected: _style.isEmpty,
-                      onTap: () => setState(() {
-                        _style = '';
-                        _color = null;
-                      }),
-                    ),
-                    for (final s in bubbleStyles)
-                      _StyleTile(
-                        style: s,
-                        fill: _style == s.id ? _fill : (_color ?? s.color),
-                        name: s.name,
-                        selected: _style == s.id,
-                        onTap: () => setState(() => _style = s.id),
-                      ),
-                  ]),
-                ),
-              ),
-            ]),
-          ),
-        ),
-      ]),
+      body: BubblePickerBody(current: widget.current, defaultFill: widget.defaultFill, onChanged: (c) => setState(() => _choice = c)),
     );
+  }
+}
+
+/// Nội dung màn chọn kiểu bong bóng (không Scaffold, không nút Lưu) để nhúng vào trang khác
+/// (vd. tab "Bong bóng" của bảng giao diện chat). Gọi [onChanged] mỗi khi đổi; `BubbleChoice('')` = mặc định.
+class BubblePickerBody extends StatefulWidget {
+  final BubbleChoice? current;
+  final Color defaultFill;
+  final ValueChanged<BubbleChoice> onChanged;
+  const BubblePickerBody({super.key, this.current, required this.defaultFill, required this.onChanged});
+
+  @override
+  State<BubblePickerBody> createState() => _BubblePickerBodyState();
+}
+
+class _BubblePickerBodyState extends State<BubblePickerBody> {
+  late String _style = widget.current?.style ?? '';
+  late Color? _color = widget.current?.color;
+  final _scroll = ScrollController();
+  final _groupKeys = <String, GlobalKey>{};
+
+  BubbleStyle? get _def => bubbleStyleById(_style);
+  Color get _fill => _color ?? _def?.color ?? widget.defaultFill;
+
+  void _update(VoidCallback fn) {
+    setState(fn);
+    widget.onChanged(_style.isEmpty ? const BubbleChoice('') : BubbleChoice(_style, _color));
+  }
+
+  Future<void> _customColor() async {
+    final c = await pickBubbleColor(context, _fill);
+    if (c == null || !mounted) return;
+    _update(() {
+      _color = c;
+      if (_style.isEmpty) _style = kBubblePlain;
+    });
+  }
+
+  void _jump(String group) {
+    final ctx = _groupKeys[group]?.currentContext;
+    if (ctx != null) Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final wide = MediaQuery.sizeOf(context).width >= 700;
+    final styles = bubbleStyles;
+    final grid = SliverGridDelegateWithMaxCrossAxisExtent(
+      maxCrossAxisExtent: wide ? 124 : 100,
+      mainAxisExtent: 112,
+      crossAxisSpacing: 4,
+      mainAxisSpacing: 6,
+    );
+    Widget tile(BubbleStyle s) => _StyleTile(
+          style: s,
+          fill: _style == s.id ? _fill : (_color ?? s.color),
+          name: s.name,
+          selected: _style == s.id,
+          onTap: () => _update(() => _style = s.id),
+        );
+    return Column(children: [
+      _Preview(style: _def, fill: _fill),
+      Expanded(
+        child: Container(
+          decoration: BoxDecoration(
+            color: pal.bg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 12, offset: const Offset(0, -2))],
+          ),
+          child: Column(children: [
+            // Chip nhảy tới từng nhóm chủ đề.
+            SizedBox(
+              height: 50,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                children: [
+                  for (final (id, name) in bubbleGroups)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ActionChip(
+                        label: Text(name),
+                        onPressed: () => _jump(id),
+                        backgroundColor: _def?.group == id ? pal.chipSelBg : pal.surface2,
+                        labelStyle: TextStyle(color: _def?.group == id ? pal.chipSelFg : pal.text, fontWeight: FontWeight.w600, fontSize: 13),
+                        side: BorderSide.none,
+                        shape: const StadiumBorder(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CustomScrollView(controller: _scroll, slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 4),
+                    child: Text(tr('Chỉ bạn đổi kiểu tin mình gửi trong chat này. Áp dụng cho các tin gửi sau khi lưu; mọi người đều thấy.'),
+                        style: TextStyle(color: pal.sub, fontSize: 13)),
+                  ),
+                ),
+                SliverToBoxAdapter(child: _section(pal, tr('Màu nền'))),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 46,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      children: [
+                        _Swatch(
+                          selected: _color == null,
+                          color: _def?.color ?? widget.defaultFill,
+                          label: tr('Theo kiểu'),
+                          onTap: () => _update(() => _color = null),
+                        ),
+                        _Swatch(
+                          selected: _color != null && !bubbleSwatches.contains(_color),
+                          color: _color != null && !bubbleSwatches.contains(_color) ? _color! : null,
+                          label: tr('Tuỳ chỉnh'),
+                          onTap: _customColor,
+                        ),
+                        for (final c in bubbleSwatches)
+                          _Swatch(
+                            selected: _color == c,
+                            color: c,
+                            onTap: () => _update(() {
+                              _color = c;
+                              if (_style.isEmpty) _style = kBubblePlain;
+                            }),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(10, 12, 10, 0),
+                  sliver: SliverGrid(
+                    gridDelegate: grid,
+                    delegate: SliverChildListDelegate([
+                      _StyleTile(
+                        style: null,
+                        fill: widget.defaultFill,
+                        name: tr('Mặc định'),
+                        selected: _style.isEmpty,
+                        onTap: () => _update(() {
+                          _style = '';
+                          _color = null;
+                        }),
+                      ),
+                      for (final s in styles.where((s) => s.group.isEmpty)) tile(s),
+                    ]),
+                  ),
+                ),
+                for (final (id, name) in bubbleGroups) ...[
+                  SliverToBoxAdapter(child: KeyedSubtree(key: _groupKeys.putIfAbsent(id, GlobalKey.new), child: _section(pal, name))),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    sliver: SliverGrid(gridDelegate: grid, delegate: SliverChildListDelegate([for (final s in styles.where((s) => s.group == id)) tile(s)])),
+                  ),
+                ],
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    ]);
   }
 
   Widget _section(Pal pal, String t) => Padding(
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
         child: Text(t, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: pal.text)),
       );
 }
 
 class _Preview extends StatelessWidget {
   final BubbleStyle? style;
-  final Color fill, defaultFill;
-  const _Preview({required this.style, required this.fill, required this.defaultFill});
+  final Color fill;
+  const _Preview({required this.style, required this.fill});
 
   @override
   Widget build(BuildContext context) {
@@ -234,7 +306,7 @@ class _Preview extends StatelessWidget {
         );
     return Container(
       color: pal.chatBg,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 22, 16),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Align(
           alignment: Alignment.centerLeft,
@@ -277,18 +349,19 @@ class _StyleTile extends StatelessWidget {
             color: selected ? pal.surface2 : null,
             border: Border.all(color: selected ? pal.text : Colors.transparent, width: 1.6),
           ),
-          padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
           child: Column(children: [
             SizedBox(
-              height: 52,
+              height: 66,
               child: Center(
                 child: StyledBubble(
                   style: style,
                   fill: fill,
-                  scale: .75,
+                  scale: .72,
                   radius: BorderRadius.circular(12),
                   padding: EdgeInsets.zero,
-                  child: const SizedBox(width: 58, height: 22),
+                  against: selected ? pal.surface2 : pal.bg,
+                  child: const SizedBox(width: 56, height: 22),
                 ),
               ),
             ),

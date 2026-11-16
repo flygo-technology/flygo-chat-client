@@ -58,7 +58,7 @@ void main() {
   final out = Platform.environment['BUBBLE_OUT'];
 
   for (final dark in [false, true]) {
-    for (final (name, size) in [('phone', Size(390, 844)), ('phone-full', Size(390, 1640)), ('desktop', Size(1100, 760))]) {
+    for (final (name, size) in [('phone', Size(390, 844)), ('phone-full', Size(390, 2700)), ('desktop', Size(1100, 760))]) {
       testWidgets('picker $name ${dark ? 'dark' : 'light'}', (tester) async {
         if (out == null) return;
         await _fonts();
@@ -81,7 +81,7 @@ void main() {
     testWidgets('art sheet ${dark ? 'dark' : 'light'}', (tester) async {
       if (out == null) return;
       await _fonts();
-      tester.view.physicalSize = const Size(1240, 1400) * 2;
+      tester.view.physicalSize = const Size(1240, 2900) * 2;
       tester.view.devicePixelRatio = 2;
       addTearDown(tester.view.reset);
       final key = GlobalKey();
