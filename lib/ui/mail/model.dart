@@ -251,6 +251,31 @@ class MailAiResult {
       summary: '${m['summary'] ?? ''}', draft: '${m['draft'] ?? ''}', model: '${m['model'] ?? ''}', actions: [for (final a in (m['actions'] as List? ?? const [])) '$a']);
 }
 
+/// AI tóm tắt việc cần làm từ các thư chưa đọc (POST /mail/api/ai/digest).
+class MailDigest {
+  const MailDigest({this.summary = '', this.tasks = const [], this.threads = 0, this.model = ''});
+  final String summary, model;
+  final List<MailDigestTask> tasks;
+  final int threads;
+
+  factory MailDigest.fromJson(Map m) => MailDigest(
+      summary: '${m['summary'] ?? ''}',
+      model: '${m['model'] ?? ''}',
+      threads: (m['threads'] as num?)?.toInt() ?? 0,
+      tasks: [for (final t in (m['tasks'] as List? ?? const [])) if (t is Map) MailDigestTask.fromJson(t)]);
+}
+
+class MailDigestTask {
+  const MailDigestTask({required this.text, this.from = '', this.urgent = false, this.due = '', this.threadId, this.subject = ''});
+  final String text, from, due, subject;
+  final bool urgent;
+  final String? threadId;
+
+  factory MailDigestTask.fromJson(Map m) => MailDigestTask(
+      text: '${m['text'] ?? ''}', from: '${m['from'] ?? ''}', urgent: m['urgent'] == true, due: '${m['due'] ?? ''}',
+      threadId: m['threadId'] is String ? m['threadId'] as String : null, subject: '${m['subject'] ?? ''}');
+}
+
 class MailPage {
   const MailPage(this.items, this.total, {this.page = 1, this.size = 50, this.counts});
   final List<MailThreadSummary> items;

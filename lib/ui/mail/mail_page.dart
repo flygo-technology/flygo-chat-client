@@ -17,6 +17,7 @@ import '../calendar/calendar_entry.dart' show openCalendarCreate;
 import '../theme.dart' show toast;
 import 'admin_page.dart';
 import 'api.dart';
+import 'digest.dart';
 import 'compose.dart';
 import 'demo.dart';
 import 'model.dart';
@@ -144,8 +145,17 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  String? _tabTitle;
+
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // Tiêu đề tab (bản desktop): địa chỉ hộp thư đang xem.
+    final email = store.me?.current.id;
+    if (email != null && email != _tabTitle) {
+      _tabTitle = email;
+      DeskTabScope.of(context)?.onTitle?.call(email);
+    }
+    setState(() {});
   }
 
   bool _wide(BuildContext c) => MediaQuery.sizeOf(c).width >= 760;
@@ -185,6 +195,24 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     });
     if (!_wide(context)) _scaffold.currentState?.closeDrawer();
     await store.open(v);
+  }
+
+  /// Mở hội thoại theo id (từ "Tóm tắt bằng AI").
+  void openThreadId(String id) {
+    final t = store.items.where((x) => x.id == id).firstOrNull;
+    if (t != null) return openThread(t);
+    if (_wide(context)) {
+      setState(() => _threadId = id);
+      return;
+    }
+    Navigator.of(context).push(
+      AppPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: MailColors.of(context).surface,
+          body: SafeArea(child: ThreadView(store: store, threadId: id, wide: false, onBack: () => Navigator.of(context).maybePop(), onCompose: compose)),
+        ),
+      ),
+    );
   }
 
   void openThread(MailThreadSummary t) async {
@@ -470,11 +498,27 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     final wide = _wide(context);
     final content = store.error != null && store.me == null
         ? _errorView(mc)
+        : store.me == null
+        ? _loadingView(mc)
         : wide
         ? _desktop(mc)
         : _phone(mc);
     return Focus(focusNode: _keys, autofocus: true, onKeyEvent: _onKey, child: content);
   }
+
+  /// Đang tải thông tin hộp thư (lần mở đầu): không vẽ giao diện trống bấm không được.
+  Widget _loadingView(MailColors mc) => Scaffold(
+    key: const ValueKey('mail-loading'),
+    backgroundColor: mc.bg,
+    appBar: AppBar(title: Text(widget.title), backgroundColor: mc.bg),
+    body: Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(strokeWidth: 2.5)),
+        const SizedBox(height: 14),
+        Text('Đang tải hộp thư…', style: TextStyle(color: mc.muted)),
+      ]),
+    ),
+  );
 
   /// Máy chủ thư trả 404 cho /me: kết nối được, chỉ là người này chưa có hộp thư nào.
   bool get _noMailbox => store.error is MailException && (store.error as MailException).status == 404;
@@ -882,6 +926,22 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
               icon: Badge(isLabelVisible: otherUnread > 0, smallSize: 8, backgroundColor: mc.danger, child: const Icon(Icons.swap_horiz, size: 18)),
               label: const Text('Xem hòm thư khác'),
             ),
+          if (me.has('ai') && !me.readOnly)
+            wide
+                ? TextButton.icon(
+                    key: const ValueKey('mail-ai-digest'),
+                    onPressed: () => showMailDigest(context, store, wide: wide, onOpen: openThreadId),
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10)),
+                    icon: const Icon(Icons.auto_awesome, size: 18),
+                    label: const Text('Tóm tắt bằng AI'),
+                  )
+                : IconButton(
+                    key: const ValueKey('mail-ai-digest'),
+                    tooltip: 'Tóm tắt bằng AI',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => showMailDigest(context, store, wide: wide, onOpen: openThreadId),
+                    icon: Icon(Icons.auto_awesome, size: 20, color: mc.accentText),
+                  ),
         ],
       ),
     );
