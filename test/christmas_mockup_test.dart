@@ -591,15 +591,6 @@ class _AppearanceApp extends StatelessWidget {
             Icon(Icons.chevron_right_rounded, color: pal.sub),
           ]),
         ),
-        _div(context, 72),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Cỡ chữ trong bong bóng', style: TextStyle(fontSize: 15, color: pal.text)),
-            const SizedBox(height: 8),
-            _segmented(context, ['Nhỏ', 'Vừa', 'Lớn', 'Rất lớn'], 1),
-          ]),
-        ),
       ]),
       _card(context, title: 'Hình nền mặc định', [
         Padding(
