@@ -107,11 +107,13 @@ List<TwReaction> toggleReaction(List<TwReaction> list, String emoji, String me) 
 }
 
 class TwComments extends StatefulWidget {
-  const TwComments({super.key, required this.store, required this.task, this.onMention, this.canComment = true, this.composer = true});
+  const TwComments({super.key, required this.store, required this.task, this.onMention, this.canComment = true, this.composer = true, this.pinned = false});
   final TwStore store;
   final TwTask task;
   final void Function(String kind, String id)? onMention;
   final bool canComment, composer;
+  /// Cột phải máy tính: danh sách cuộn, ô soạn ghim dưới cùng.
+  final bool pinned;
   @override
   State<TwComments> createState() => TwCommentsState();
 }
@@ -264,6 +266,8 @@ class TwCommentsState extends State<TwComments> {
                   key: ValueKey('cmenu-${c.id}'),
                   iconSize: 18,
                   padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  style: const ButtonStyle(minimumSize: WidgetStatePropertyAll(Size(28, 22)), tapTargetSize: MaterialTapTargetSize.shrinkWrap, padding: WidgetStatePropertyAll(EdgeInsets.zero)),
                   icon: Icon(Icons.more_horiz, size: 18, color: look.sub),
                   onSelected: (v) {
                     if (v == 'reply') setState(() => _replyTo = c.parentId ?? c.id);
@@ -312,14 +316,15 @@ class TwCommentsState extends State<TwComments> {
     if (list == null) return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator(strokeWidth: 2)));
     final roots = list.where((c) => c.parentId == null).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     final replying = list.where((c) => c.id == _replyTo).firstOrNull;
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    final items = <Widget>[
       for (final c in roots) ...[
         _comment(c, look),
         for (final r in list.where((x) => x.parentId == c.id).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt))) _comment(r, look, reply: true),
       ],
       if (roots.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 14), child: Text('Chưa có bình luận', style: TextStyle(color: look.sub))),
+    ];
+    final composer = <Widget>[
       if (widget.composer && widget.canComment) ...[
-        const SizedBox(height: 10),
         if (replying != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -343,14 +348,32 @@ class TwCommentsState extends State<TwComments> {
         ),
         if (_pending.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 6, children: [for (final a in _pending) AttachmentChip(a: a, store: store, onRemove: () => setState(() => _pending.remove(a)))])),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Row(children: [
-          IconButton(tooltip: 'Đính kèm', onPressed: _attach, icon: const Icon(Icons.attach_file, size: 20)),
+          IconButton(tooltip: 'Đính kèm', visualDensity: VisualDensity.compact, onPressed: _attach, icon: const Icon(Icons.attach_file, size: 19)),
           const Spacer(),
-          FilledButton.icon(key: const ValueKey('comment-send'), onPressed: _sending ? null : _send, icon: const Icon(Icons.send, size: 16), label: const Text('Bình luận')),
+          FilledButton.icon(
+            key: const ValueKey('comment-send'),
+            style: widget.pinned ? FilledButton.styleFrom(visualDensity: VisualDensity.compact) : null,
+            onPressed: _sending ? null : _send,
+            icon: const Icon(Icons.send, size: 16),
+            label: Text(widget.pinned ? 'Gửi' : 'Bình luận'),
+          ),
         ]),
       ],
-    ]);
+    ];
+    if (widget.pinned) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 16), children: items)),
+        if (composer.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            decoration: BoxDecoration(border: Border(top: BorderSide(color: look.divider))),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: composer),
+          ),
+      ]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [...items, if (composer.isNotEmpty) const SizedBox(height: 10), ...composer]);
   }
 }
 
