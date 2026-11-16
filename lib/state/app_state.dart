@@ -176,6 +176,23 @@ class AppState extends ChangeNotifier {
     p ??= await api.postById(postId);
     final m = (p.props['flygo_meeting'] as Map?)?.cast<String, dynamic>();
     if (m == null || meetingEnded(m)) return;
+    // Phòng họp có mã: nhờ relay kết thúc (thẻ của phòng tạo từ Lịch / MCP do tài khoản quản trị của relay đăng, token của
+    // mình không sửa được). Relay chưa có đường này thì tự sửa thẻ như cũ.
+    final code = m['code'] as String?;
+    if (code != null && code.isNotEmpty) {
+      try {
+        await discoverPush(kServerUrl);
+        final r = await http.post(Uri.parse('${pushUrlFor(kServerUrl)}/meet/rooms/$code/end'), headers: {
+          'Authorization': 'Bearer $token',
+          'X-MM-Server': kServerUrl,
+          'User-Agent': kUserAgent,
+        }).timeout(const Duration(seconds: 10));
+        if (r.statusCode == 200) return;
+        debugPrint('[meet] end via relay: ${r.statusCode} ${r.body}');
+      } catch (e) {
+        debugPrint('[meet] end via relay: $e');
+      }
+    }
     await patchProps(p, {
       'flygo_meeting': {...m, 'ended_at': DateTime.now().millisecondsSinceEpoch, 'ended_by': me?.id ?? ''},
     });
