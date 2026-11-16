@@ -108,13 +108,16 @@ List<TwReaction> toggleReaction(List<TwReaction> list, String emoji, String me) 
 }
 
 class TwComments extends StatefulWidget {
-  const TwComments({super.key, required this.store, required this.task, this.onMention, this.canComment = true, this.composer = true, this.pinned = false, this.sessions = const {}});
+  const TwComments({super.key, required this.store, required this.task, this.onMention, this.canComment = true, this.composer = true, this.pinned = false, this.sessions = const {}, this.limit, this.onSeeAll});
   final TwStore store;
   final TwTask task;
   final void Function(String kind, String id)? onMention;
   final bool canComment, composer;
   /// Cột phải máy tính: danh sách cuộn, ô soạn ghim dưới cùng.
   final bool pinned;
+  /// Xem nhanh: chỉ [limit] bình luận gần nhất + "xem tất cả" ([onSeeAll]).
+  final int? limit;
+  final VoidCallback? onSeeAll;
   /// Phiên agent của việc này theo id bot (để "Mở phiên" dưới bình luận @nhắc agent).
   final Map<String, String> sessions;
   @override
@@ -328,7 +331,9 @@ class TwCommentsState extends State<TwComments> {
     final look = TwLook.of(context);
     final list = _list;
     if (list == null) return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator(strokeWidth: 2)));
-    final roots = list.where((c) => c.parentId == null).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final allRoots = list.where((c) => c.parentId == null).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final lim = widget.limit;
+    final roots = lim != null && allRoots.length > lim ? allRoots.sublist(allRoots.length - lim) : allRoots;
     final replying = list.where((c) => c.id == _replyTo).firstOrNull;
     final items = <Widget>[
       for (final c in roots) ...[
@@ -336,6 +341,11 @@ class TwCommentsState extends State<TwComments> {
         for (final r in list.where((x) => x.parentId == c.id).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt))) _comment(r, look, reply: true),
       ],
       if (roots.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 14), child: Text('Chưa có bình luận', style: TextStyle(color: look.sub))),
+      if (lim != null && widget.onSeeAll != null && allRoots.length > roots.length)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(key: const ValueKey('comments-all'), onPressed: widget.onSeeAll, child: Text('Xem tất cả ${allRoots.length} bình luận')),
+        ),
     ];
     final composer = <Widget>[
       if (widget.composer && widget.canComment) ...[

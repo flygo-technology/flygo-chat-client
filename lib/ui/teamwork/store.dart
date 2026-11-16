@@ -63,6 +63,9 @@ class TwStore extends ChangeNotifier {
   final Map<String, int> taskRev = {};
   /// Tăng khi một lượt chạy agent có tiến độ mới (run_progress): khối tiến độ tải lại.
   final Map<String, int> runRev = {};
+  /// Cột bình luận / hoạt động của trang việc đang thu gọn (nhớ trên máy) + cách lưu.
+  bool commentsCollapsed = false;
+  Future<void> Function(bool collapsed)? saveCommentsCollapsed;
   /// Độ rộng khung việc bên phải đã chọn (null = 40% cửa sổ) + cách lưu lại trên máy.
   double? panelWidth;
   Future<void> Function(double width)? savePanelWidth;

@@ -10,11 +10,13 @@ import 'store.dart';
 import 'task_widgets.dart';
 
 class TwBoardView extends StatefulWidget {
-  const TwBoardView({super.key, required this.store, required this.project, required this.filter, required this.onOpen, required this.onCreate});
+  const TwBoardView({super.key, required this.store, required this.project, required this.filter, required this.onOpen, required this.onCreate, this.onOpenFull});
   final TwStore store;
   final TwProjectFull project;
   final TwFilter filter;
   final void Function(TwTask) onOpen;
+  /// Bấm đúp (máy tính): mở trang đầy đủ; null = không có (điện thoại: bấm một lần mở trang).
+  final void Function(TwTask)? onOpenFull;
   final void Function(String? statusId) onCreate;
   @override
   State<TwBoardView> createState() => _TwBoardViewState();
@@ -108,7 +110,7 @@ class _TwBoardViewState extends State<TwBoardView> {
                 if (_hover == (s.id, t.id)) _ghost(look),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: _draggable(t, width: cardWidth, child: TaskCard(key: ValueKey('card-${t.key}'), task: t, store: store, onTap: () => widget.onOpen(t))),
+                  child: _draggable(t, width: cardWidth, child: TaskCard(key: ValueKey('card-${t.key}'), task: t, store: store, onTap: () => widget.onOpen(t), onDoubleTap: widget.onOpenFull == null ? null : () => widget.onOpenFull!(t))),
                 ),
               ]),
             ),

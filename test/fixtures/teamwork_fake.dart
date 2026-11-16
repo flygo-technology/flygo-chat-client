@@ -122,11 +122,23 @@ class FakeTw {
 
   final projects = [
     _p('p-ra', 'RA', 'Ra mắt app bán hàng', '#5B5BD6', 'active', {'backlog': 18, 'started': 9, 'closed': 4, 'done': 23}, 'owner',
-        desc: 'App đặt hàng cho đại lý: thiết kế, API, kiểm thử, đào tạo đại lý và ra mắt.', due: '2027-01-15', star: true),
-    _p('p-ht', 'HT', 'Hồ sơ thầu tháng 12', '#E8890C', 'active', {'backlog': 5, 'started': 6, 'closed': 2, 'done': 4}, 'member', desc: 'Hồ sơ năng lực, báo giá, bảo lãnh dự thầu cho 3 gói thầu.', due: '2026-12-05'),
-    _p('p-qt', 'QT', 'Quyết toán năm 2026', '#2B9348', 'active', {'backlog': 22, 'started': 3, 'closed': 1, 'done': 10}, 'admin', desc: 'Khoá sổ, đối chiếu công nợ, kiểm kê kho, báo cáo thuế cuối năm.', due: '2027-01-31'),
+        desc: 'App đặt hàng cho đại lý: thiết kế, API, kiểm thử, đào tạo đại lý và ra mắt.', due: '2027-01-15', star: true)
+      ..['cover'] = {'kind': 'gradient', 'value': 'violet'}
+      ..['dept_names'] = ['Kinh doanh', 'Kỹ thuật']
+      ..['member_preview'] = [_u('u-lan'), _u('u-minh'), _u('u-hung'), _a('b-claude')],
+    _p('p-ht', 'HT', 'Hồ sơ thầu tháng 12', '#E8890C', 'active', {'backlog': 5, 'started': 6, 'closed': 2, 'done': 4}, 'member', desc: 'Hồ sơ năng lực, báo giá, bảo lãnh dự thầu cho 3 gói thầu.', due: '2026-12-05')
+      ..['cover'] = {'kind': 'pattern', 'value': '#E8890C', 'pattern': 'dots'}
+      ..['dept_names'] = ['Kinh doanh', 'Kế toán']
+      ..['member_preview'] = [_u('u-thu'), _u('u-an'), _a('b-codex')],
+    _p('p-qt', 'QT', 'Quyết toán năm 2026', '#2B9348', 'active', {'backlog': 22, 'started': 3, 'closed': 1, 'done': 10}, 'admin', desc: 'Khoá sổ, đối chiếu công nợ, kiểm kê kho, báo cáo thuế cuối năm.', due: '2027-01-31')
+      ..['cover'] = {'kind': 'gradient', 'value': 'forest'}
+      ..['dept_names'] = ['Kế toán']
+      ..['member_preview'] = [_u('u-an'), _u('u-ha')],
     _p('p-td', 'TD', 'Tuyển dụng Q1/2027', '#D6409F', 'planning', {'backlog': 14}, 'member', desc: '8 vị trí kỹ thuật, kinh doanh, kế toán, hỗ trợ khách hàng.', due: '2027-03-31'),
-    _p('p-bt', 'BT', 'Bảo trì thiết bị', '#0E9F8E', 'active', {'backlog': 6, 'started': 4, 'done': 31}, 'member', desc: 'Lịch bảo trì định kỳ hằng tháng cho khách hàng hợp đồng năm.'),
+    _p('p-bt', 'BT', 'Bảo trì thiết bị', '#0E9F8E', 'active', {'backlog': 6, 'started': 4, 'done': 31}, 'member', desc: 'Lịch bảo trì định kỳ hằng tháng cho khách hàng hợp đồng năm.')
+      ..['cover'] = {'kind': 'pattern', 'value': '#0E9F8E', 'pattern': 'waves'}
+      ..['dept_names'] = ['Kỹ thuật']
+      ..['member_preview'] = [_u('u-hung'), _u('u-quan'), _a('b-codex')],
   ];
 
   final statuses = [
@@ -186,6 +198,20 @@ class FakeTw {
     },
   };
   late final List<Map<String, dynamic>> comments = [
+    {
+      'id': 'c0',
+      'task_id': 't-32',
+      'parent_id': null,
+      'author': 'u-hung',
+      'author_name': 'Hùng',
+      'via': 'app',
+      'blocks': [
+        {'id': 'b0', 't': 'p', 'r': [{'x': 'Phần mềm kho mở API đọc tồn kho rồi nhé.'}]},
+      ],
+      'created_at': twNow.millisecondsSinceEpoch - 40 * 3600000,
+      'reactions': [],
+      'attachments': [],
+    },
     {
       'id': 'c1',
       'task_id': 't-32',

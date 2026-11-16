@@ -1,6 +1,7 @@
 // TeamWork (vn.flygo.teamwork): dữ liệu như máy chủ trả (flygo-chat-server teamwork/README.md). Đọc rộng tay: trường
 // thiếu thì lấy mặc định, để app cũ vẫn chạy khi máy chủ thêm trường mới.
 import '../todo/model.dart';
+import 'cover.dart';
 
 // ------------------------------------------------------------ tiện ích đọc JSON
 String _s(Object? v, [String d = '']) => v == null ? d : '$v';
@@ -155,11 +156,14 @@ class TwProject {
     this.memberPreview = const [],
     this.updatedAt = 0,
     this.chatChannel,
+    this.cover,
   });
   final String id;
   String key, name, color, status, owner, myRole;
   /// Kênh chat gắn với dự án (bot đăng sự kiện vào đó).
   String? chatChannel;
+  /// Hình nền (null = màu chuyển nhạt từ màu dự án).
+  TwCover? cover;
   List<TBlock> description;
   List<String> deptIds, deptNames;
   DateTime? start, due;
@@ -196,6 +200,7 @@ class TwProject {
         memberPreview: [for (final a in _maps(m['member_preview'] ?? m['members_preview'])) TwAssignee.fromJson(a)],
         updatedAt: _i(m['updated_at']),
         chatChannel: _ns(m['chat_channel']),
+        cover: TwCover.fromJson(m['cover']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -218,6 +223,7 @@ class TwProject {
         'member_preview': [for (final a in memberPreview) a.toJson()],
         'updated_at': updatedAt,
         'chat_channel': chatChannel,
+        'cover': cover?.toJson(),
       };
 }
 
