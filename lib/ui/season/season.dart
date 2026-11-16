@@ -228,3 +228,37 @@ class _LightStringState extends State<LightString> with SingleTickerProviderStat
 
 /// Màu chữ hệ thống trên hình nền (chip ngày, "đang nhập…").
 Pal wallpaperPal(Wallpaper w) => w.dark ? Pal.dark : Pal.light;
+
+/// Phát hiệu ứng rơi một lần phủ màn hình (~3 giây). Máy bật giảm chuyển động thì bỏ qua.
+void playBurst(BuildContext context, BurstKind kind) {
+  if (MediaQuery.maybeDisableAnimationsOf(context) == true) return;
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  late OverlayEntry entry;
+  entry = OverlayEntry(builder: (_) => IgnorePointer(child: _Burst(kind: kind, onDone: () => entry.remove())));
+  overlay.insert(entry);
+}
+
+class _Burst extends StatefulWidget {
+  final BurstKind kind;
+  final VoidCallback onDone;
+  const _Burst({required this.kind, required this.onDone});
+  @override
+  State<_Burst> createState() => _BurstState();
+}
+
+class _BurstState extends State<_Burst> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 3000))
+    ..forward().whenComplete(widget.onDone);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: AnimatedBuilder(animation: _c, builder: (_, _) => CustomPaint(size: Size.infinite, painter: BurstPainter(_c.value, widget.kind))),
+      );
+}

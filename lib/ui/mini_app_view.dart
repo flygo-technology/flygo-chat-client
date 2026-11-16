@@ -32,6 +32,7 @@ import 'contacts/directory_view.dart';
 import 'contacts/dm_link.dart' show openContact;
 import '../push/push_service.dart' show PushService;
 import 'show_page.dart';
+import 'season/appearance_pages.dart' show openAppearance;
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
 import 'mini_app_windows.dart';
@@ -52,6 +53,12 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   }
   if (app.nativeScreen == 'flows') {
     await openFlowsHome(context, context.read<AppState>());
+    return;
+  }
+  // Giao diện: mặc định của mình (bong bóng, hình nền, mùa lễ).
+  if (app.nativeScreen == 'appearance') {
+    tab?.onTitle?.call(app.name);
+    await openAppearance(context);
     return;
   }
     // Bảng tin trên máy tính: tab riêng (không mở trang có nút quay lại); mở thẳng một bài thì vẫn mở trang.
@@ -201,6 +208,7 @@ const _tileIcons = <String, IconData>{
   'wiki': Icons.menu_book_rounded,
   'assignment': Icons.assignment_rounded,
   'teamwork': Icons.view_kanban_rounded,
+  'palette': Icons.palette_rounded,
 };
 
 /// Màu ô của app (manifest "tile.color"), hoặc null nếu app không khai.
@@ -308,6 +316,8 @@ class _MiniAppsSectionState extends State<MiniAppsSection> with WidgetsBindingOb
       for (final a in _apps)
         if ((widget.only == null || widget.only!.contains(a.id) || (native && a.nativeScreen != null)) &&
             !widget.except.contains(a.id) &&
+            // App cá nhân (features.personal, vd Giao diện) nằm ở nhóm Cá nhân, không ở Chính / Ứng dụng.
+            !a.feature('personal') &&
             !(native && widget.only == null && a.nativeScreen != null))
           if (a.nativeScreen != kContactsScreen) a // Danh bạ khách không có ô riêng: nằm trong ô Danh bạ (tab Khách).
     ];

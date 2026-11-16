@@ -297,7 +297,7 @@ class SantaHat extends StatelessWidget {
 }
 
 /// Hiệu ứng toàn màn hình một lần (kiểu iMessage): [p] từ 0 đến 1 trong ~3 giây.
-enum BurstKind { snow, gifts }
+enum BurstKind { snow, gifts, mix }
 
 class BurstPainter extends CustomPainter {
   final double p;
@@ -325,7 +325,7 @@ class BurstPainter extends CustomPainter {
       final x = it.x * s.width + math.sin(q * 6 + it.phase) * it.drift * 1.6;
       final a = fade * (q < 1 ? 1.0 : 0.0);
       if (a <= 0) continue;
-      if (kind == BurstKind.snow) {
+      if (kind == BurstKind.snow || (kind == BurstKind.mix && i.isEven)) {
         final lp = Paint()
           ..color = Colors.white.withValues(alpha: .9 * a)
           ..strokeWidth = 2

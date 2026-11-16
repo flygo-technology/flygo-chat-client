@@ -13,8 +13,7 @@ import '../remote/rc_service.dart' show RemoteControlService;
 import '../remote/rc_ui.dart' show RemoteControlUi;
 import '../state/app_state.dart';
 import 'chat_page.dart';
-import 'bubble_picker.dart';
-import 'bubble_styles.dart' show BubbleChoice;
+import 'season/chat_appearance.dart' show openChatAppearance;
 import 'chat_themes.dart';
 import 'common.dart';
 import 'day_sections.dart';
@@ -434,41 +433,17 @@ class _ChatInfoPageState extends State<ChatInfoPage> {
                 value: ch.purposeText.isEmpty ? tr('Chưa có') : ch.purposeText.replaceAll('\n', ' '),
                 onTap: () => _push(_PurposePage(channelId: ch.id)),
               ),
-            // Giao diện chat và banner: dùng chung cho mọi người trong cuộc trò chuyện.
+            // Giao diện chat: Màu chat (mọi người), Bong bóng (tin mình gửi), Hình nền (chỉ mình thấy).
             // Chat với trợ lý dùng giao diện của hãng (Claude / ChatGPT) nên không có mục này.
             if (!(ch.isAi || app.isAgentDm(ch)))
             InfoRow(
               icon: Icons.palette_outlined,
               title: tr('Giao diện chat'),
-              value: chatThemeById(ch.themeId)?.name ?? tr('Mặc định'),
-              onTap: () async {
-                final id = await pickChatTheme(context, ch.themeId);
-                if (id == null) return;
-                await _guard(() => app.setChatTheme(ch.id, id.isEmpty ? null : id));
-              },
-            ),
-            // Kiểu bong bóng: chỉ đổi tin mình gửi trong chat này (mọi người đều thấy).
-            if (!(ch.isAi || app.isAgentDm(ch)))
-            InfoRow(
-              icon: Icons.chat_bubble_outline_rounded,
-              title: tr('Kiểu bong bóng'),
-              value: switch (app.bubbleFor(ch.id)) {
-                final c? => c.def?.name ?? tr('Mặc định'),
-                null => app.bubbleDefault?.def == null ? tr('Mặc định') : tr('Theo mặc định ({0})', [app.bubbleDefault!.def!.name]),
-              },
-              onTap: () async {
-                final dark = Theme.of(context).brightness == Brightness.dark;
-                final choice = await Navigator.of(context).push<BubbleChoice>(AppPageRoute(
-                  builder: (_) => BubblePickerPage(
-                    current: app.bubbleFor(ch.id),
-                    allowInherit: true,
-                    inherited: app.bubbleDefault,
-                    defaultFill: chatThemeById(ch.themeId)?.colors(dark).outBubble ?? Pal.of(context).outBubble,
-                  ),
-                ));
-                if (choice == null) return;
-                await _guard(() => app.setBubble(ch.id, choice));
-              },
+              value: [
+                chatThemeById(ch.themeId)?.name ?? tr('Mặc định'),
+                ?app.resolvedBubble(ch.id)?.def?.name,
+              ].join(' · '),
+              onTap: () => openChatAppearance(context, ch),
             ),
             InfoRow(
               icon: Icons.campaign_outlined,

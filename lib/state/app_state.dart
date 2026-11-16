@@ -26,6 +26,7 @@ import 'date_jump.dart';
 import '../push/push_service.dart';
 import '../ui/agent_view.dart' show agentDisplayText;
 import '../ui/bubble_styles.dart' show BubbleChoice, kBubbleDefaultKey, kBubbleInherit;
+import '../ui/season/season_state.dart' show SeasonState;
 import '../ui/common.dart';
 import '../ui/password_page.dart' show PasswordPolicy, kMustChangePasswordProp;
 import '../ui/panes/pane_layout.dart' show PaneContent;
@@ -401,6 +402,8 @@ class AppState extends ChangeNotifier {
       loadStatusPresets();
       loadRingtones();
       loadBubbles();
+      // Giao diện mùa lễ + hình nền chat (app Giao diện, chỉ người được dùng app).
+      SeasonState.instance.load(this);
       loadBlocked();
       loadAgentConfig();
       loadMuteUntil();
@@ -3628,6 +3631,7 @@ class AppState extends ChangeNotifier {
               muteUntil = {for (final x in (jsonDecode(p['value'] as String) as Map).entries) x.key as String: (x.value as num).toInt()};
               notifyListeners();
             }
+            if (p['user_id'] == me?.id) SeasonState.instance.onPref(p as Map, deleted: false);
             if (p['category'] == kBubblePref && p['user_id'] == me?.id && p['name'] is String) {
               final c = _decodeBubble('${p['value']}');
               c == null ? bubbles.remove(p['name']) : bubbles[p['name'] as String] = c;
@@ -3648,6 +3652,7 @@ class AppState extends ChangeNotifier {
           var changed = false;
           for (final p in list) {
             if (p['category'] == kBubblePref && p['user_id'] == me?.id) changed |= bubbles.remove(p['name']) != null;
+            if (p['user_id'] == me?.id) SeasonState.instance.onPref(p as Map, deleted: true);
           }
           if (changed) notifyListeners();
         } catch (_) {}
@@ -3985,6 +3990,7 @@ class AppState extends ChangeNotifier {
   }
 
   void disposeSession() {
+    SeasonState.instance.clear();
     calls.hangUp();
     _ws?.close();
     _tick?.cancel();

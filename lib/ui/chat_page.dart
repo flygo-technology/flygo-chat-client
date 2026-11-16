@@ -64,6 +64,9 @@ import 'effects.dart';
 import 'bubble_picker.dart' show bubbleEdge;
 import 'bubble_styles.dart';
 import 'chat_themes.dart';
+import 'season/chat_wallpaper.dart';
+import 'season/season.dart' show playBurst;
+import 'season/season_state.dart';
 import 'ref_picker.dart';
 import 'ref_grants.dart';
 import 'schedules_view.dart' show openChatWith;
@@ -929,7 +932,10 @@ class _ChatPageState extends State<ChatPage> {
     Widget page = Scaffold(
       backgroundColor: chatTheme?.colors(Theme.of(context).brightness == Brightness.dark).bg ?? pal.chatBg,
       // Nền chat (hoạ tiết + màu giao diện) phủ suốt từ vùng tin nhắn xuống dưới ô soạn tin, không tách khối riêng.
-      body: DoodleBackground(
+      // Hình nền mình chọn (app Giao diện) thay nền hoạ tiết; dây đèn mùa Giáng sinh ở mép trên.
+      body: SeasonChatBackground(
+        channelId: ch.id,
+        off: claude || ch.isAi,
         // Luồng riêng tư: nền khác chat thường (giống luồng công việc riêng) cho dễ phân biệt.
         color: claude
                 ? pal.chatBg
@@ -1007,6 +1013,8 @@ class _ChatPageState extends State<ChatPage> {
                               ),
                       ]));
                     })))),
+              // Dây đèn mùa Giáng sinh ngay dưới thanh tiêu đề nổi.
+              if (!claude && !ch.isAi) Positioned(left: 0, right: 0, top: _topInset - 4, child: const SeasonLights()),
               // Chat chính đã đọc hết nhưng còn tin chưa đọc trong luồng / luồng bí mật: nút tua tới tin gốc của luồng đó.
               if ((firstUnreadId == null || _unreadJumped) && spots.isNotEmpty)
                 Positioned(
@@ -2402,6 +2410,17 @@ class _Bubble extends StatelessWidget {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) playPostFx(context, post.id, fx);
       });
+    }
+    // Lời chúc mùa lễ ("Giáng sinh vui vẻ"...): hiệu ứng rơi một lần cho tin mới (cả người gửi lẫn người nhận),
+    // không phát lại khi kéo xem tin cũ.
+    if (post.createAt > fxSince && !playedFx.contains('season:${post.id}') && post.message.isNotEmpty && !post.isRecalled) {
+      final burst = SeasonState.instance.effectFor(post.message);
+      if (burst != null) {
+        playedFx.add('season:${post.id}');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) playBurst(context, burst);
+        });
+      }
     }
     final sender = app.users[post.userId];
     // Tin đã thu hồi: vẫn giữ tên người gửi khi là tin đầu của một lượt (nhóm), như mọi tin khác.
