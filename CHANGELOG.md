@@ -2,7 +2,9 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
-## Unreleased (feat/agent-team)
+## 1.0.5+479 (runner 0.6.95)
+
+### Unreleased (feat/agent-team)
 - Agent team: every bot with a session in the same project is a teammate, whatever its engine or machine. New runner tools: project_info, team_list (engine, account vs API key + provider, model / effort, host, online, open sessions), team_session_read, team_ask (quiet read-only fork by default, visible=true shows the turn in both chats) and team_post (note, or wake=true with approval). The tools go over the A2A relay, which checks same project, channel membership and owner/allow, applies hourly rate limits and keeps depth 1. Teammate content is wrapped as untrusted data.
 - Runner publishes a team descriptor to the relay (props.flygo_team, no secrets) and its running sessions (presence). a2a.team=false takes a bot out of the team; a2a.describe overrides the detected provider/auth.
 - Project sessions are told about their teammates in the prompt ("check team_list before saying you can't see another session").
