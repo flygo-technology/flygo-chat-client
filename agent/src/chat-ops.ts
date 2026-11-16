@@ -443,7 +443,7 @@ export function createChatOps(d: ChatDeps) {
       await d.kickTurn(x.origin, `⏰ Nhắc hẹn: ${oneLine(x.preview, 80)}`, `(Nhắc hẹn bạn tự đặt lúc trước cho tin #${x.post_id} (${link(x.post_id)}) ở "${x.where}": "${oneLine(x.preview, 500)}".${x.note ? ` Ghi chú: ${x.note}.` : ""} Đọc lại tin đó (chat_get_message) rồi làm việc cần làm.)`).catch((e) => d.log(`nhắc hẹn: ${e?.message ?? e}`));
     }
   }
-  setInterval(() => remindTick().catch(() => {}), 30_000);
+  const remindTimer = setInterval(() => remindTick().catch(() => {}), 30_000);
 
   // ---- trạng thái riêng của bot (user_set_status): runner giữ và làm mới cùng trạng thái "đang chạy" ----
   function statusOverride(): { text: string; emoji: string; until: number } | null {
@@ -1057,6 +1057,8 @@ export function createChatOps(d: ChatDeps) {
   }
   let refreshStatus: () => Promise<void> = async () => {};
   return {
+    /** Dừng bot: huỷ hẹn giờ nhắc. */
+    dispose: () => clearInterval(remindTimer),
     tool,
     onCardReaction,
     onCardAnswer,

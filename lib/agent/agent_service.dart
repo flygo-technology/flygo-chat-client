@@ -155,15 +155,25 @@ class AgentService extends ChangeNotifier {
       debugPrint('[agent] sync runner: $e');
       return;
     }
-    if (!updated) return;
-    final dir = Directory('$_home$_sep.config${_sep}flygo-agent');
-    if (!dir.existsSync()) return;
-    for (final f in dir.listSync().whereType<File>().where((f) => RegExp(r'config-.+\.json$').hasMatch(f.path))) {
-      try {
-        final st = await Process.run(binPath, ['service-status', '--config', f.path]);
-        final j = jsonDecode(st.stdout.toString().trim().split('\n').last);
-        if (j is Map && j['installed'] == true) await Process.run(binPath, ['install-service', '--config', f.path]);
-      } catch (_) {}
+    if (updated) {
+      // Runner chung: cài lại dịch vụ = khởi động lại với bản mới (mọi bot của máy, một lần).
+      if (await _machineInstalled()) await Process.run(binPath, ['install-machine-service', '--config', machineConfigPath]);
+      // Dịch vụ một-bot kiểu cũ còn sót (vd. bot chưa gộp được): khởi động lại như trước.
+      final dir = Directory('$_home$_sep.config${_sep}flygo-agent');
+      if (dir.existsSync()) {
+        for (final f in dir.listSync().whereType<File>().where((f) => RegExp(r'config-.+\.json$').hasMatch(f.path))) {
+          try {
+            final st = await Process.run(binPath, ['service-status', '--config', f.path]);
+            final j = jsonDecode(st.stdout.toString().trim().split('\n').last);
+            if (j is Map && j['installed'] == true) await Process.run(binPath, ['install-service', '--config', f.path]);
+          } catch (_) {}
+        }
+      }
+    }
+    try {
+      await _migrateLegacy(binPath);
+    } catch (e) {
+      debugPrint('[agent] gộp runner: $e');
     }
   }
 
@@ -452,29 +462,147 @@ class AgentService extends ChangeNotifier {
     }
   }
 
-  Future<bool> serviceInstalled(AgentBot bot) async {
-    if (runningLocally(bot)) return true;
+  // ---------------------------------------------------------------- runner chung (một runner mỗi máy)
+  /// Cấu hình runner chung: mọi trợ lý chạy nền trên máy này nằm trong một file, một dịch vụ nền.
+  static String get machineConfigPath => '$_home$_sep.config${_sep}flygo-agent${_sep}runner.json';
+
+  Map<String, dynamic> _readMachine() {
     try {
-      final r = await Process.run(await ensureBinary(), ['service-status', '--config', configPath(bot.username)]);
+      final f = File(machineConfigPath);
+      if (f.existsSync()) return (jsonDecode(f.readAsStringSync()) as Map).cast<String, dynamic>();
+    } catch (_) {}
+    return {'version': 2, 'machine': {'name': thisHost}, 'owners': <String, dynamic>{}, 'defaults': <String, dynamic>{}, 'servers': <String, dynamic>{}, 'bots': <dynamic>[]};
+  }
+
+  Future<void> _writeMachine(Map<String, dynamic> m) async {
+    final f = File(machineConfigPath);
+    await f.parent.create(recursive: true);
+    final tmp = File('${f.path}.tmp-app');
+    await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(m), flush: true);
+    if (!Platform.isWindows) await Process.run('chmod', ['600', tmp.path]);
+    await tmp.rename(f.path);
+  }
+
+  static String _norm(String s) => s.trim().replaceAll(RegExp(r'/+$'), '').toLowerCase();
+
+  /// Mục của bot trong runner.json (theo id bot, rồi theo tên: đổi tên bot vẫn nhận ra).
+  static Map<String, dynamic>? _entryOf(Map<String, dynamic> m, AgentBot bot) {
+    final bots = (m['bots'] as List? ?? []).whereType<Map>().map((e) => e.cast<String, dynamic>());
+    return bots.where((e) => e['botId'] == bot.id).firstOrNull ??
+        bots.where((e) => e['key'] == bot.username && _norm(e['serverUrl'] as String? ?? '') == _norm(kServerUrl)).firstOrNull;
+  }
+
+  /// Như [_entryOf], thêm: mục do `migrate` gộp từ cấu hình cũ (key = tên dịch vụ cũ, chưa có botId): hỏi runner
+  /// đang chạy key nào là bot này.
+  Future<Map<String, dynamic>?> _entryFor(Map<String, dynamic> m, AgentBot bot) async {
+    final e = _entryOf(m, bot);
+    if (e != null) return e;
+    final st = await _json(['ctl', 'status'], timeout: const Duration(seconds: 10));
+    final key = ((st?['bots'] as List?) ?? const []).whereType<Map>().where((b) => b['id'] == bot.id).map((b) => b['key']).firstOrNull;
+    if (key == null) return null;
+    return (m['bots'] as List? ?? []).whereType<Map>().map((x) => x.cast<String, dynamic>()).where((x) => x['key'] == key).firstOrNull;
+  }
+
+  Future<Map<String, dynamic>?> _json(List<String> args, {Duration timeout = const Duration(seconds: 40)}) async {
+    try {
+      final r = await Process.run(await ensureBinary(), args).timeout(timeout);
       final j = jsonDecode(r.stdout.toString().trim().split('\n').last);
-      return j is Map && (j['installed'] == true || j['running'] == true);
+      return j is Map ? j.cast<String, dynamic>() : null;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 
-  Future<void> installService(AppState app, AgentBot bot) async {
-    final bin = await ensureBinary();
-    final f = File(configPath(bot.username));
-    await f.parent.create(recursive: true);
-    await f.writeAsString(jsonEncode(_config(app, bot, await botToken(app, bot))), flush: true);
-    if (!Platform.isWindows) await Process.run('chmod', ['600', f.path]);
-    final r = await Process.run(bin, ['install-service', '--config', f.path]);
-    if (r.exitCode != 0) throw Exception(r.stderr.toString().trim().split('\n').last);
+  Future<bool> _machineInstalled() async => (await _json(['machine-service-status']))?['installed'] == true;
+
+  /// Dịch vụ một-bot kiểu cũ của bot này còn cài không (máy chưa gộp).
+  Future<bool> _legacyInstalled(AgentBot bot) async {
+    final j = await _json(['service-status', '--config', configPath(bot.username)]);
+    return j != null && (j['installed'] == true || j['running'] == true);
   }
 
+  Future<bool> serviceInstalled(AgentBot bot) async {
+    if (runningLocally(bot)) return true;
+    final e = await _entryFor(_readMachine(), bot);
+    if (e != null && e['enabled'] != false && await _machineInstalled()) return true;
+    return _legacyInstalled(bot);
+  }
+
+  /// Cho trợ lý chạy nền trên máy này: thêm vào runner chung (runner.json) rồi để runner nạp nóng.
+  /// Runner thuộc MỘT người: máy chủ này đã có chủ runner khác thì không chạy bot của người khác.
+  Future<void> installService(AppState app, AgentBot bot) async {
+    final bin = await ensureBinary();
+    final me = app.me!.id;
+    final m = _readMachine();
+    final owners = (m['owners'] as Map? ?? {}).cast<String, dynamic>();
+    final key = _norm(kServerUrl);
+    final cur = owners.entries.where((e) => _norm(e.key) == key).map((e) => e.value as String?).firstOrNull;
+    if (cur != null && cur != me) {
+      throw Exception(tr('Runner trên máy này thuộc tài khoản khác trên máy chủ này. Mỗi người một runner: chỉ chia sẻ trợ lý, không chia sẻ runner.'));
+    }
+    owners[kServerUrl] = me;
+    m['owners'] = owners;
+    final bots = (m['bots'] as List? ?? []).cast<dynamic>();
+    final entry = await _entryFor(m, bot);
+    final next = <String, dynamic>{
+      ...?entry,
+      'key': entry?['key'] ?? _freeKey(bots, bot.username),
+      'botId': bot.id,
+      'serverUrl': kServerUrl,
+      'botToken': await botToken(app, bot),
+      'ownerUserIds': [me],
+      'engine': bot.engine,
+      'enabled': true,
+    };
+    if (entry != null) {
+      bots[bots.indexWhere((e) => identical(e, entry) || (e is Map && e['key'] == entry['key']))] = next;
+    } else {
+      bots.add(next);
+    }
+    m['bots'] = bots;
+    await _writeMachine(m);
+    // Bot còn dịch vụ kiểu cũ: gỡ trước để runner chung không bị "đã có runner khác chạy bot này".
+    if (await _legacyInstalled(bot)) await Process.run(bin, ['uninstall-service', '--config', configPath(bot.username)]);
+    if (await _machineInstalled()) {
+      await _json(['ctl', 'reload']); // runner tự theo dõi runner.json; gọi thêm cho chắc
+    } else {
+      final r = await Process.run(bin, ['install-machine-service', '--config', machineConfigPath]);
+      if (r.exitCode != 0) throw Exception(r.stderr.toString().trim().split('\n').last);
+    }
+  }
+
+  static String _freeKey(List<dynamic> bots, String want) {
+    final used = bots.whereType<Map>().map((e) => e['key']).toSet();
+    final base = want.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
+    var k = base;
+    for (var i = 2; used.contains(k); i++) {
+      k = '$base-$i';
+    }
+    return k;
+  }
+
+  /// Không chạy trợ lý này trên máy này nữa: bỏ khỏi runner chung (và gỡ dịch vụ kiểu cũ nếu còn).
   Future<void> uninstallService(AgentBot bot) async {
-    final r = await Process.run(await ensureBinary(), ['uninstall-service', '--config', configPath(bot.username)]);
-    if (r.exitCode != 0) throw Exception(r.stderr.toString().trim().split('\n').last);
+    final m = _readMachine();
+    final e = await _entryFor(m, bot);
+    if (e != null) {
+      (m['bots'] as List).removeWhere((x) => x is Map && x['key'] == e['key']);
+      await _writeMachine(m);
+      await _json(['ctl', 'reload']);
+    }
+    if (await _legacyInstalled(bot)) {
+      final r = await Process.run(await ensureBinary(), ['uninstall-service', '--config', configPath(bot.username)]);
+      if (r.exitCode != 0) throw Exception(r.stderr.toString().trim().split('\n').last);
+    }
+  }
+
+  /// Máy còn dịch vụ một-bot kiểu cũ: gộp vào runner chung (Sếp 2026-11-16: "gộp luôn").
+  /// `migrate` sao lưu cấu hình cũ, chỉ gộp bot của chủ runner và tự trả về dịch vụ cũ cho bot nào không lên.
+  Future<void> _migrateLegacy(String bin) async {
+    final plan = await _json(['migrate', '--dry-run', '--json']);
+    final bots = ((plan?['plan'] as Map?)?['bots'] as List?) ?? const [];
+    if (bots.isEmpty) return;
+    final r = await Process.run(bin, ['migrate', '--json']).timeout(const Duration(minutes: 4));
+    debugPrint('[agent] gộp runner: ${r.stdout.toString().trim().split('\n').last}');
   }
 }

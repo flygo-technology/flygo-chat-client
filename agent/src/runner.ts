@@ -45,11 +45,62 @@ export interface RunnerIO {
   emit(ev: Record<string, any>): void; // sự kiện cho app
   log(s: string): void;
   selfCommand: string[]; // lệnh gọi lại chính chương trình này (để chạy subcommand mcp-chat)
+  signal?: AbortSignal; // runner chung: huỷ lúc bot còn đang khởi động
 }
 
-export async function startRunner(cfg: Config, io: RunnerIO) {
+/** Bot không chạy được nữa (token hỏng, gắn máy khác, đã có runner khác, thiếu engine, khác chủ runner…).
+ *  `exitCode`: mã thoát của chế độ một bot (`run`); `retry`: runner chung có nên thử lại sau không. */
+export class BotFatal extends Error {
+  constructor(public code: string, public exitCode: number, message = code, public retry = false) { super(message); }
+}
+
+/** Một bot đang chạy trong tiến trình runner. */
+export interface BotHandle {
+  id: string;
+  username: string;
+  /** Dừng bot: không nhận việc mới, chờ lượt đang chạy chốt thẻ (tối đa drainMs), đưa bot về offline, giải phóng tài nguyên. */
+  stop(reason?: string, drainMs?: number): Promise<void>;
+  /** Số lượt đang chạy. */
+  active(): number;
+  /** A2A client của bot (null = tắt A2A). */
+  a2a: A2AClient | null;
+  /** Xong khi bot đã dừng hẳn (tự dừng hoặc bị dừng); giá trị = lý do. */
+  done: Promise<string>;
+}
+
+// Bot đang chạy trong tiến trình này (runner chung chạy nhiều bot): một bot chỉ một bản.
+const liveBots = new Set<string>();
+
+/** Khởi động một bot. Lỗi giữa chừng (sau khi đã giữ khoá / mở cổng): dọn sạch để runner chung khởi động lại được. */
+export async function startRunner(cfg: Config, io: RunnerIO): Promise<BotHandle> {
+  const cleanups: (() => void)[] = [];
+  try {
+    return await startBot(cfg, io, cleanups);
+  } catch (e) {
+    for (const f of cleanups.reverse()) try { f(); } catch {}
+    throw e;
+  }
+}
+
+async function startBot(cfg: Config, io: RunnerIO, cleanups: (() => void)[]): Promise<BotHandle> {
 const { emit } = io;
 const log = io.log;
+// Hẹn giờ của bot này: ghi lại để dừng bot (runner chung) thì huỷ hết, không ảnh hưởng bot khác trong cùng tiến trình.
+const timers = new Set<any>();
+let disposed = false;
+const setTimeout = ((fn: (...a: any[]) => void, ms?: number, ...a: any[]) => {
+  const t = globalThis.setTimeout(() => { timers.delete(t); fn(...a); }, ms);
+  timers.add(t);
+  return t;
+}) as unknown as typeof globalThis.setTimeout;
+const setInterval = ((fn: (...a: any[]) => void, ms?: number, ...a: any[]) => {
+  const t = globalThis.setInterval(fn, ms, ...a);
+  timers.add(t);
+  return t;
+}) as unknown as typeof globalThis.setInterval;
+const clearTimeout = (t: any) => { timers.delete(t); globalThis.clearTimeout(t); };
+const clearInterval = (t: any) => { timers.delete(t); globalThis.clearInterval(t); };
+cleanups.push(() => { disposed = true; for (const t of timers) { globalThis.clearTimeout(t); globalThis.clearInterval(t); } timers.clear(); });
 const mm = new MM(cfg.serverUrl, cfg.botToken);
 // Token bị thu hồi (bot bị xoá/tắt: POST /bots/{id}/disable) -> 401: báo và thoát mã 0 để dịch vụ nền không chạy lại liên tục.
 // Lỗi khác (mạng…) thì thoát lỗi để dịch vụ nền thử lại.
@@ -64,11 +115,14 @@ const me = await (async () => {
       if (isAuthError(e)) {
         emit({ event: "error", code: "auth_revoked", message: `Token của bot không còn dùng được (bot đã bị tắt hoặc xoá): ${String(e.message ?? e).slice(0, 200)}` });
         io.log("token bot bị từ chối (401): dừng runner");
-        process.exit(0);
+        throw new BotFatal("auth_revoked", 0);
       }
+      if (e instanceof BotFatal) throw e;
+      if (disposed || io.signal?.aborted) throw new BotFatal("stopped", 0);
       if (i === 0) emit({ event: "error", code: "auth", message: String(e.message ?? e) });
       io.log(`chưa nối được máy chủ chat (${String(e?.message ?? e).slice(0, 160)}), thử lại sau ${wait / 1000}s`);
-      await Bun.sleep(wait);
+      await Promise.race([Bun.sleep(wait), new Promise((r) => io.signal?.addEventListener("abort", r, { once: true }))]);
+      if (io.signal?.aborted) throw new BotFatal("stopped", 0);
     }
   }
 })();
@@ -114,7 +168,7 @@ function boundElsewhere(desc: string) {
   log(`bot gắn với máy ${h}, máy này là ${MY_HOST}: dừng runner`);
   return true;
 }
-if (boundElsewhere(botDesc)) process.exit(0);
+if (boundElsewhere(botDesc)) throw new BotFatal("bound_elsewhere", 0);
 if (!markerHost(botDesc)) {
   // Bot không tự sửa được mô tả của mình (máy chủ chat cấm) -> thử, không được thì chỉ báo; app/chủ bot đặt host.
   const desc = /\[flygo-agent[^\]]*\]/i.test(botDesc) ? botDesc.replace(/\[flygo-agent([^\]]*)\]/i, `[flygo-agent$1 host=${MY_HOST}]`) : `${botDesc} [flygo-agent engine=${cfg.engine} host=${MY_HOST}]`.trim();
@@ -154,16 +208,24 @@ if (existsSync(lockPath)) {
   const pid = Number(readFileSync(lockPath, "utf8"));
   let alive = false;
   try { if (pid && pid !== process.pid) { process.kill(pid, 0); alive = true; } } catch {}
-  if (alive) { emit({ event: "error", code: "already_running", pid, message: `Bot @${BOT_NAME} đang được runner khác chạy (pid ${pid}).` }); process.exit(3); }
+  if (alive) { emit({ event: "error", code: "already_running", pid, message: `Bot @${BOT_NAME} đang được runner khác chạy (pid ${pid}).` }); throw new BotFatal("already_running", 3); }
 }
+if (liveBots.has(BOT_ID)) {
+  emit({ event: "error", code: "already_running", pid: process.pid, message: `Bot @${BOT_NAME} đã chạy trong runner này (cấu hình trùng bot).` });
+  throw new BotFatal("already_running", 3);
+}
+liveBots.add(BOT_ID);
 writeFileSync(lockPath, String(process.pid));
+cleanups.push(() => { liveBots.delete(BOT_ID); try { if (readFileSync(lockPath, "utf8") === String(process.pid)) unlinkSync(lockPath); } catch {} });
 
 // ---- engine có sẵn trên máy ----
 const report = await doctor({ codex: cfg.codex.bin, claude: cfg.claude.bin, agy: cfg.agy.bin, codexSkipLogin: cfg.codex.skipLoginCheck });
 const available = ENGINE_NAMES.filter((e) => report[e].installed && report[e].loggedIn);
 if (!available.includes(cfg.engine)) {
   emit({ event: "error", code: "no_engine", engine: cfg.engine, message: `Bot @${BOT_NAME} dùng ${cfg.engine} nhưng máy chưa cài hoặc chưa đăng nhập ${cfg.engine}.`, doctor: report });
-  process.exit(4);
+  liveBots.delete(BOT_ID);
+  try { if (readFileSync(lockPath, "utf8") === String(process.pid)) unlinkSync(lockPath); } catch {}
+  throw new BotFatal("no_engine", 4, "no_engine", true);
 }
 const ENGINE: EngineName = cfg.engine; // bot gắn cố định một engine, không đổi theo tin nhắn
 
@@ -543,6 +605,7 @@ const http = Bun.serve({
   },
 });
 
+cleanups.push(() => http.stop(true));
 // Cổng HTTP của runner ghi ra tệp: MCP sống lâu (Codex app-server giữ thread) vẫn tìm được runner sau khi runner khởi động lại.
 const portFile = join(CONFIG_DIR, `runner-${BOT_ID}.port`);
 writeFileSync(portFile, String(http.port));
@@ -799,7 +862,7 @@ async function publishMeta(inv = true) {
   const marker = invModels.length ? { models: invModels.map((m) => m.id).join(","), efforts: o.efforts.join(","), default: `${defModel}:${o.default.effort}` } : undefined;
   const team = teamDescriptor({
     engine: ENGINE, runner: pkg.version, host: MY_HOST, model: defModel, effort: o.default.effort, a2a: true, team: cfg.a2a.team !== false,
-    codexArgs: cfg.codex.spawnArgs, over: cfg.a2a.describe,
+    codexArgs: cfg.codex.spawnArgs, over: cfg.a2a.describe, env: { ...process.env, ...cfg.env },
   });
   const body = JSON.stringify({ skills: { v: 1, at: Date.now(), skills }, models, marker, team });
   const key = JSON.stringify({ skills, models: { ...models, limits: limitsKey(limits) }, marker, team });
@@ -3496,6 +3559,7 @@ setInterval(() => catchUp("định kỳ").catch((e) => log(`bắt bù: ${e?.mess
 
 // ---- WebSocket máy chủ chat ----
 const typing = mm.connect((ev) => {
+  if (stopping && ev.event === "posted") return; // đang dừng (drain): tin mới để lần chạy sau bắt bù; reaction (duyệt) vẫn nhận
   if (ev.event === "hello") { emit({ event: "connected" }); catchUp().catch((e) => log(`bắt bù: ${e?.message ?? e}`)); }
   if (ev.event === "posted") {
     const post = JSON.parse(ev.data.post) as Post;
@@ -3878,26 +3942,50 @@ async function onStaleApproval(r: any) {
   await mm.createPost({ channel_id: p.channel_id, root_id: p.root_id, message: note, props: { ...(p.root_id ? { flygo_reply: "thread" } : on ? { flygo_bypass: true } : {}), flygo_agent_owner: r.user_id } });
 }
 
-async function shutdown(sig: string) {
-  log(`nhận ${sig}, dừng runner`);
-  stopping = true;
-  clearInterval(presenceTimer);
-  for (const x of running.values()) x.ac.abort();
-  for (const t of a2aTasks.values()) t.ac.abort();
-  a2a?.stop();
-  // Chờ các lượt đang chạy chốt thẻ (đã dừng) rồi mới thoát, tối đa 8 giây.
-  for (let i = 0; i < 40 && running.size; i++) await Bun.sleep(200);
-  await presence(false);
-  try { if (readFileSync(lockPath, "utf8") === String(process.pid)) unlinkSync(lockPath); } catch {}
-  try { if (JSON.parse(readFileSync(localFile, "utf8")).key === localKey) unlinkSync(localFile); } catch {}
-  emit({ event: "stopped" });
-  process.exit(0);
+let stopped: Promise<void> | null = null;
+let markDone: (reason: string) => void = () => {};
+const done = new Promise<string>((r) => { markDone = r; });
+/** Dừng bot. drainMs > 0: không nhận việc mới, chờ lượt đang chạy tự xong tối đa drainMs rồi mới huỷ. */
+function shutdown(sig: string, drainMs = 0): Promise<void> {
+  stopped ??= (async () => {
+    log(`nhận ${sig}, dừng bot @${BOT_NAME}`);
+    stopping = true;
+    clearInterval(presenceTimer);
+    for (let t0 = Date.now(); running.size && Date.now() - t0 < drainMs; ) await Bun.sleep(500);
+    for (const x of running.values()) x.ac.abort();
+    for (const t of a2aTasks.values()) t.ac.abort();
+    a2a?.stop();
+    // Chờ các lượt đang chạy chốt thẻ (đã dừng) rồi mới thoát, tối đa 8 giây.
+    for (let i = 0; i < 40 && running.size; i++) await Bun.sleep(200);
+    await presence(false);
+    disposed = true;
+    for (const t of timers) { globalThis.clearTimeout(t); globalThis.clearInterval(t); }
+    timers.clear();
+    typing.close();
+    chatOps.dispose();
+    for (const e of Object.values(engines)) (e as Engine).dispose?.();
+    http.stop(true);
+    try { db.close(); } catch {}
+    liveBots.delete(BOT_ID);
+    try { if (readFileSync(lockPath, "utf8") === String(process.pid)) unlinkSync(lockPath); } catch {}
+    try { if (JSON.parse(readFileSync(localFile, "utf8")).key === localKey) unlinkSync(localFile); } catch {}
+    emit({ event: "stopped" });
+    markDone(sig);
+  })();
+  return stopped;
 }
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
 
+// ---- Runner chung: bot phải thuộc đúng chủ runner trên máy chủ này (relay đọc chủ bot bằng quyền admin) ----
+// "Chỉ chia sẻ bot, không chia sẻ runner" (Sếp, 2026-11-16): runner của người này không bao giờ chạy bot của người khác.
+if (a2a && cfg.runnerOwner) a2a.onWelcome = (w) => {
+  if (!w.owner_id || w.owner_id === cfg.runnerOwner) return;
+  emit({ event: "error", code: "owner_mismatch", owner: w.owner_id, message: `Bot @${BOT_NAME} thuộc người khác (chủ ${w.owner_id}), không chạy trên runner của ${cfg.runnerOwner}.` });
+  log(`bot @${BOT_NAME} không thuộc chủ runner (${w.owner_id} ≠ ${cfg.runnerOwner}): dừng bot`);
+  shutdown("owner_mismatch").catch(() => {});
+};
 // ---- A2A ----
 a2a?.start(a2aCard());
+cleanups.push(() => { a2a?.stop(); typing.close(); });
 emit({ event: "ready", a2a: a2a ? cfg.a2a.relay : null, bot: { id: BOT_ID, username: BOT_NAME }, owners: cfg.ownerUserIds, allow: allowIds, engine: ENGINE, options: botOptions(), doctor: report, workspace_root: cfg.workspaceRoot });
 // Kiểm kê kỹ năng / model: lúc khởi động, sau mỗi lượt (Claude chỉ báo kỹ năng khi chạy), và mỗi giờ.
 setTimeout(() => publishMeta().catch(() => {}), 5_000);
@@ -4047,5 +4135,12 @@ setTimeout(scheduleTick, 10_000);
 setInterval(scheduleTick, 30_000);
 setTimeout(publishSchedules, 6_000);
 log(`runner sẵn sàng · engine ${ENGINE} · thư mục làm việc ${cfg.workspaceRoot}`);
+return {
+  id: BOT_ID,
+  get username() { return BOT_NAME; },
+  stop: (reason = "stop", drainMs = 0) => shutdown(reason, drainMs),
+  active: () => running.size,
+  a2a,
+  done,
+};
 }
-

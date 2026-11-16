@@ -16,6 +16,10 @@ export interface Config {
   ownerUserIds: string[]; // chỉ những người này mới giao việc được
   engine: EngineName; // mỗi bot gắn cố định một engine: bot Claude chỉ chạy Claude, bot Codex chỉ chạy Codex
   persona?: string; // ghi đè persona mặc định
+  /** Biến môi trường riêng của bot, thêm vào engine (vd. ANTHROPIC_BASE_URL cho bot chạy API tương thích). Runner chung: mỗi bot một bộ. */
+  env?: Record<string, string>;
+  /** Runner chung: chủ của runner trên máy chủ của bot (người đã đăng nhập máy chủ đó trên máy này). Có thì bot phải thuộc đúng người này. */
+  runnerOwner?: string;
   /** Điều khiển máy thật / terminal qua MCP mã nguồn mở đã cài (desktop-mcp.ts); false = tắt hẳn. Mặc định bật khi có cài. */
   computerUse?: boolean;
   /** Ghi đè / thêm MCP điều khiển máy: { "<tên>": { command, args?, env? } | false }. */

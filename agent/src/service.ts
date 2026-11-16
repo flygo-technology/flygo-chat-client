@@ -138,3 +138,96 @@ export function stopServiceForTakeover(pid: number): boolean {
   }
   return false;
 }
+
+// ---- runner chung (một runner mỗi máy): một dịch vụ cố định, không theo tên file cấu hình ----
+// Tên riêng (vn.flygo.agent.machine / flygo-agent-machine / FlygoAgentMachine) để không đụng dịch vụ cũ của từng bot.
+const M_LABEL = "vn.flygo.agent.machine", M_UNIT = "flygo-agent-machine", M_TASK = "FlygoAgentMachine";
+const mPlist = () => join(home, "Library", "LaunchAgents", `${M_LABEL}.plist`);
+const mUnit = () => join(home, ".config", "systemd", "user", `${M_UNIT}.service`);
+
+export function machineServiceStatus() {
+  if (process.platform === "darwin") return { installed: existsSync(mPlist()), path: mPlist(), running: sh(["launchctl", "print", `gui/${process.getuid!()}/${M_LABEL}`]).code === 0 };
+  if (process.platform === "linux") return { installed: existsSync(mUnit()), path: mUnit(), running: sh(["systemctl", "--user", "is-active", M_UNIT]).out === "active" };
+  if (sh(["schtasks", "/Query", "/TN", M_TASK]).code === 0) return { installed: true, path: M_TASK, running: false };
+  return { installed: sh(["reg", "query", RUN_KEY, "/v", M_TASK]).code === 0, path: `${RUN_KEY}\\${M_TASK}`, running: false };
+}
+
+/** Cài (hoặc cài lại = khởi động lại với binary mới) dịch vụ runner chung: `<self> machine --config <file>`. */
+export function installMachineService(selfCommand: string[], configPath: string) {
+  mkdirSync(logDir, { recursive: true });
+  const args = [...selfCommand, "machine", "--config", configPath];
+  const logFile = join(logDir, "machine.log");
+  if (process.platform === "darwin") {
+    const uid = process.getuid!();
+    sh(["launchctl", "bootout", `gui/${uid}/${M_LABEL}`]);
+    mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(mPlist(), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${M_LABEL}</string>
+  <key>ProgramArguments</key><array>${args.map((a) => `<string>${xml(a)}</string>`).join("")}</array>
+  <key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(home)}</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardOutPath</key><string>${xml(logFile)}</string>
+  <key>StandardErrorPath</key><string>${xml(logFile)}</string>
+</dict></plist>
+`);
+    for (let i = 0; i < 40 && sh(["launchctl", "print", `gui/${uid}/${M_LABEL}`]).code === 0; i++) Bun.sleepSync(250);
+    let r = sh(["launchctl", "bootstrap", `gui/${uid}`, mPlist()]);
+    for (let i = 0; i < 5 && r.code !== 0; i++) { Bun.sleepSync(1000); r = sh(["launchctl", "bootstrap", `gui/${uid}`, mPlist()]); }
+    if (r.code !== 0) throw new Error(`launchctl bootstrap: ${r.out}`);
+  } else if (process.platform === "linux") {
+    mkdirSync(join(home, ".config", "systemd", "user"), { recursive: true });
+    // Runner chung luôn chạy (KeepAlive): bot nào lỗi thì runner tự khởi động lại bot đó, không thoát cả tiến trình.
+    writeFileSync(mUnit(), `[Unit]\nDescription=Flygo Agent runner (một runner cho mọi bot của máy)\nAfter=network-online.target\n\n[Service]\nExecStart=${args.map((a) => JSON.stringify(a)).join(" ")}\nRestart=always\nRestartSec=15\nKillMode=mixed\nTimeoutStopSec=30\n\n[Install]\nWantedBy=default.target\n`);
+    sh(["systemctl", "--user", "daemon-reload"]);
+    sh(["systemctl", "--user", "enable", M_UNIT]);
+    const r = sh(["systemctl", "--user", "restart", M_UNIT]);
+    if (r.code !== 0) throw new Error(`systemctl: ${r.out}`);
+  } else {
+    const winArgs = [...args, "--log", logFile];
+    const cmdLine = winArgs.map((a) => `"${a}"`).join(" ");
+    stopWinMachine();
+    const r = sh(["schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", M_TASK, "/TR", cmdLine]);
+    if (r.code === 0) {
+      const ps = [
+        `$t = Get-ScheduledTask -TaskName '${M_TASK}'`,
+        "$trig = @($t.Triggers | Where-Object { -not $_.Repetition.Interval })",
+        "$rep = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)",
+        "$s = $t.Settings; $s.MultipleInstances = 'IgnoreNew'; $s.ExecutionTimeLimit = 'PT0S'; $s.DisallowStartIfOnBatteries = $false; $s.StopIfGoingOnBatteries = $false",
+        `Set-ScheduledTask -TaskName '${M_TASK}' -Trigger ($trig + $rep) -Settings $s | Out-Null`,
+      ].join("; ");
+      const w = sh(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps]);
+      if (w.code !== 0) process.stderr.write(`không thêm được lịch canh chừng: ${w.out}\n`);
+      sh(["schtasks", "/Run", "/TN", M_TASK]);
+    } else {
+      const k = sh(["reg", "add", RUN_KEY, "/v", M_TASK, "/t", "REG_SZ", "/d", cmdLine, "/f"]);
+      if (k.code !== 0) throw new Error(`Không cài được chạy nền (schtasks: ${r.out}; khoá Run: ${k.out})`);
+      spawn(winArgs, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref();
+    }
+  }
+  return machineServiceStatus();
+}
+
+/** Windows: dừng runner chung đang chạy (chế độ khoá Run không có schtasks /End). */
+function stopWinMachine() {
+  sh(["powershell", "-NoProfile", "-Command", `Get-CimInstance Win32_Process -Filter "Name='flygo-agent.exe'" | Where-Object { $_.CommandLine -like '* machine *' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`]);
+}
+
+export function uninstallMachineService() {
+  if (process.platform === "darwin") {
+    sh(["launchctl", "bootout", `gui/${process.getuid!()}/${M_LABEL}`]);
+    if (existsSync(mPlist())) unlinkSync(mPlist());
+  } else if (process.platform === "linux") {
+    sh(["systemctl", "--user", "disable", "--now", M_UNIT]);
+    if (existsSync(mUnit())) unlinkSync(mUnit());
+  } else {
+    sh(["schtasks", "/End", "/TN", M_TASK]);
+    sh(["schtasks", "/Delete", "/F", "/TN", M_TASK]);
+    sh(["reg", "delete", RUN_KEY, "/v", M_TASK, "/f"]);
+    stopWinMachine();
+  }
+  return machineServiceStatus();
+}

@@ -87,7 +87,8 @@ export class MM {
     let backoff = 1000;
     let lastRx = Date.now();
     let retry: ReturnType<typeof setTimeout> | null = null;
-    const reopen = () => { if (retry) return; retry = setTimeout(() => { retry = null; open(); }, backoff); backoff = Math.min(backoff * 2, 30000); };
+    let closed = false;
+    const reopen = () => { if (retry || closed) return; retry = setTimeout(() => { retry = null; open(); }, backoff); backoff = Math.min(backoff * 2, 30000); };
     const open = () => {
       const sock = new WebSocket(`${this.url.replace(/^http/, "ws")}/api/v4/websocket`, { headers: { Authorization: `Bearer ${this.token}` } } as any);
       ws = sock;
@@ -104,7 +105,7 @@ export class MM {
       sock.onclose = () => { if (ws !== sock) return; ws = null; log(`mm websocket closed, retry in ${backoff}ms`); reopen(); };
       sock.onerror = () => {};
     };
-    setInterval(() => {
+    const hb = setInterval(() => {
       if (!ws) return;
       if (Date.now() - lastRx > WS_STALE_MS) {
         const dead = ws;
@@ -117,6 +118,10 @@ export class MM {
       if (ws.readyState === WebSocket.OPEN) try { ws.send(JSON.stringify({ seq: seq++, action: "ping" })); } catch {}
     }, WS_PING_MS).unref?.();
     open();
-    return (action: string, data: any) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ seq: seq++, action, data })); };
+    const send = (action: string, data: any) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ seq: seq++, action, data })); };
+    /** Đóng hẳn (dừng bot): không nối lại. */
+    return Object.assign(send, {
+      close: () => { closed = true; clearInterval(hb); if (retry) clearTimeout(retry); const w = ws; ws = null; try { w?.close(); } catch {} },
+    });
   }
 }

@@ -81,4 +81,6 @@ export interface Engine {
   contextTokens(sessionId: string): Promise<number | null>;
   /** Hạn mức sử dụng của tài khoản engine (cửa sổ 5 giờ / tuần…); null = không biết. */
   usageLimits?(): Promise<UsageLimits | null>;
+  /** Dừng bot (runner chung): đóng kết nối / tiến trình engine riêng của bot. */
+  dispose?(): void;
 }

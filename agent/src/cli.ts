@@ -10,6 +10,10 @@
 //   codex-shared [--config <file>]                    giữ codex app-server dùng chung + chuyển tiếp TCP
 //   install-service --config <file> | uninstall-service | service-status   dịch vụ nền khi đăng nhập máy
 //   skills --bot <id> [--config <file>] [--json]       vai trò + kỹ năng của bot (app desktop hiện danh sách "Kỹ năng")
+//   machine [--config <runner.json> | --config-stdin] [--json] [--log <file>]   runner chung: mọi bot của máy trong một tiến trình
+//   ctl status | reload | drain <bot>                 điều khiển runner chung đang chạy
+//   migrate [--dry-run] [--only-server <url>] [--exclude <key>] [--owner <url>=<id>] | migrate --rollback [--from <dir>]
+//   install-machine-service [--config <runner.json>] | uninstall-machine-service | machine-service-status
 //   version
 import pkg from "../package.json";
 import { extendPath, loadConfig } from "./config";
@@ -37,14 +41,99 @@ switch (cmd) {
       if (json) process.stdout.write(JSON.stringify({ ts: Date.now(), ...ev }) + "\n");
       else if (ev.event === "error") log(`LỖI ${ev.code}: ${ev.message}${ev.doctor ? " " + JSON.stringify(ev.doctor) : ""}`);
     };
+    // Chế độ một bot (cấu hình cũ / bot cần cách ly riêng như netns): một tiến trình một bot như trước.
+    const { BotFatal } = await import("./runner");
     try {
       const cfg = await loadConfig(args);
-      await startRunner(cfg, { emit, log, selfCommand, }); // --takeover bỏ (0.4.2): bot gắn cứng một máy, không còn runner trong app
+      const bot = await startRunner(cfg, { emit, log, selfCommand, }); // --takeover bỏ (0.4.2): bot gắn cứng một máy, không còn runner trong app
+      const quit = (sig: string) => bot.stop(sig).then(() => process.exit(0));
+      process.on("SIGTERM", () => quit("SIGTERM"));
+      process.on("SIGINT", () => quit("SIGINT"));
+      // Bot tự dừng (vd. chủ không khớp): thoát mã 0 để dịch vụ nền không chạy lại liên tục.
+      bot.done.then(() => process.exit(0));
+    } catch (e: any) {
+      if (e instanceof BotFatal) process.exit(e.exitCode);
+      emit({ event: "error", code: "fatal", message: String(e?.message ?? e) });
+      log(`lỗi: ${e?.stack ?? e}`);
+      process.exit(1);
+    }
+    break;
+  }
+  case "machine": {
+    const li = args.indexOf("--log");
+    const logFile = li >= 0 ? args[li + 1] : "";
+    const { appendFileSync, mkdirSync } = await import("node:fs");
+    if (logFile) mkdirSync((await import("node:path")).dirname(logFile), { recursive: true });
+    if (logFile) process.env.FLYGO_AGENT_LOG_FILE = logFile;
+    const log = (s: string) => {
+      const line = `${new Date().toISOString()} ${s}`;
+      if (logFile) appendFileSync(logFile, line + "\n"); else (json ? console.error : console.log)(line);
+    };
+    const emit = (ev: Record<string, any>) => {
+      if (json) process.stdout.write(JSON.stringify({ ts: Date.now(), ...ev }) + "\n");
+      else if (ev.event === "error") log(`LỖI${ev.bot ? ` [${ev.bot}]` : ""} ${ev.code}: ${ev.message}`);
+    };
+    const { startSupervisor } = await import("./supervisor");
+    const ci = args.indexOf("--config");
+    const stdinConfig = args.includes("--config-stdin") ? JSON.parse(await Bun.stdin.text()) : undefined;
+    try {
+      const sup = await startSupervisor({ path: ci >= 0 ? args[ci + 1] : undefined, stdinConfig, io: { emit, log, selfCommand } });
+      log(`runner chung sẵn sàng (pid ${process.pid}, ${sup.status().bots.length} bot)`);
+      emit({ event: "machine_ready", pid: process.pid, version: pkg.version });
+      let quitting = false;
+      const quit = async (sig: string) => {
+        if (quitting) return;
+        quitting = true;
+        log(`nhận ${sig}, dừng runner chung`);
+        await sup.stopAll(sig);
+        emit({ event: "machine_stopped" });
+        process.exit(0);
+      };
+      process.on("SIGTERM", () => quit("SIGTERM"));
+      process.on("SIGINT", () => quit("SIGINT"));
     } catch (e: any) {
       emit({ event: "error", code: "fatal", message: String(e?.message ?? e) });
       log(`lỗi: ${e?.stack ?? e}`);
       process.exit(1);
     }
+    break;
+  }
+  case "ctl": {
+    const { ctl } = await import("./supervisor");
+    const sub = args[0] ?? "status";
+    const body = sub === "drain" ? { bot: args[1] } : undefined;
+    try { console.log(JSON.stringify(await ctl(sub, body), null, json ? 0 : 2)); }
+    catch (e: any) { console.error(String(e?.message ?? e)); process.exit(1); }
+    break;
+  }
+  case "migrate": {
+    const { migrate, rollback } = await import("./migrate");
+    const log = (s: string) => console.error(s);
+    const many = (flag: string) => args.flatMap((a, i) => (a === flag && args[i + 1] ? [args[i + 1]] : []));
+    const one = (flag: string) => many(flag)[0];
+    try {
+      const r = args.includes("--rollback")
+        ? await rollback({ from: one("--from"), log })
+        : await migrate({
+            selfCommand, log, dryRun: args.includes("--dry-run"), onlyServer: one("--only-server"), exclude: many("--exclude"),
+            owners: Object.fromEntries(many("--owner").map((x) => { const i = x.lastIndexOf("="); return [x.slice(0, i), x.slice(i + 1)]; })),
+          });
+      console.log(JSON.stringify(r, null, json ? 0 : 2));
+      if (!r.ok) process.exit(1);
+    } catch (e: any) { console.error(String(e?.message ?? e)); process.exit(1); }
+    break;
+  }
+  case "install-machine-service":
+  case "uninstall-machine-service":
+  case "machine-service-status": {
+    const svc = await import("./service");
+    const { MACHINE_CONFIG } = await import("./machine-config");
+    const i = args.indexOf("--config");
+    try {
+      const r = cmd === "install-machine-service" ? svc.installMachineService(selfCommand, i >= 0 ? args[i + 1] : MACHINE_CONFIG)
+        : cmd === "uninstall-machine-service" ? svc.uninstallMachineService() : svc.machineServiceStatus();
+      console.log(JSON.stringify(r));
+    } catch (e: any) { console.error(String(e?.message ?? e).replace(/\s+/g, " ").trim()); process.exit(1); }
     break;
   }
   case "doctor": {

@@ -421,6 +421,43 @@ Người dùng tag một chat (hoặc một luồng) mà bot KHÔNG là thành v
 
 Thư mục làm việc: `~/flygo-agent/workspaces/<tên kênh>/`.
 
+## Runner chung: một runner mỗi máy, nhiều bot (từ 0.7.0)
+
+Mỗi máy (mỗi người dùng hệ điều hành) chạy **một** tiến trình `flygo-agent machine`. Tiến trình này phục vụ mọi bot của chủ máy, trên mọi máy chủ chat mà chủ đã đăng nhập.
+
+- **Cấu hình:** `~/.config/flygo-agent/runner.json` (chmod 600), xem `runner.example.json`.
+  - `owners`: máy chủ chat → user id của chủ runner. App ghi mục này khi người dùng đăng nhập thành công máy chủ đó trên máy này.
+  - `defaults`: cài đặt chung cho mọi bot.
+  - `servers`: cài đặt theo máy chủ (vd. `a2a.relay`, `flygoId`).
+  - `bots[]`: mỗi bot một mục, có `key`, `serverUrl`, `botToken` (hoặc `botTokenFile`), `engine`, các trường khác như `config.json` cũ, `enabled`, `env`.
+- **Runner thuộc một người:**
+  - bot chỉ chạy khi `owners[serverUrl]` có giá trị và bot thuộc đúng người đó;
+  - relay kiểm lại chủ bot bằng quyền admin: sai thì bot bị dừng với lỗi `owner_mismatch`;
+  - người dùng chia sẻ bot cho nhau, không chia sẻ runner.
+  - Hạn chế: bot tắt A2A không qua relay, nên chỉ được kiểm bằng cấu hình.
+- **Mỗi bot vẫn tách riêng:** kết nối chat, engine, `state-<bot id>.db`, cổng HTTP nội bộ, khoá `runner-<bot id>.lock`. Lỗi của một bot không làm dừng bot khác: bot đó tự khởi động lại thưa dần.
+  - Lỗi không chữa được bằng khởi động lại (token hỏng, bot gắn máy khác, khác chủ runner, cấu hình sai) thì bot đứng ở trạng thái lỗi cho tới khi sửa cấu hình.
+- **Nạp nóng:** sửa `runner.json` là runner tự nạp lại.
+  - Bot mới thì khởi động.
+  - Bot bị xoá hoặc `enabled:false` thì **drain**: không nhận việc mới, chờ lượt đang chạy tối đa 10 phút rồi dừng.
+  - Bot bị sửa thì drain rồi khởi động lại.
+  - Bot khác không bị động tới.
+- **Điều khiển:**
+  - `flygo-agent ctl status | reload | drain <key>` (HTTP 127.0.0.1, khoá trong `~/.config/flygo-agent/machine.json`);
+  - sự kiện `--json` có thêm trường `bot` (key của bot).
+- **Dịch vụ nền:** `install-machine-service [--config <runner.json>]`, `uninstall-machine-service`, `machine-service-status`.
+  - Tên dịch vụ: macOS `vn.flygo.agent.machine`, Linux `flygo-agent-machine.service`, Windows `FlygoAgentMachine`.
+  - Log: `machine.log` trong thư mục log.
+- **Gộp máy đang chạy kiểu cũ:** `flygo-agent migrate [--dry-run] [--only-server <url>] [--exclude <key>] [--owner <url>=<user id>]`.
+  - Quét các dịch vụ `run --config …` đang bật (plist, unit cùng drop-in, Task Scheduler / khoá Run).
+  - Chỉ gộp bot của chủ runner.
+  - Sao lưu cấu hình cũ và file dịch vụ vào `legacy-<thời điểm>/` cùng `manifest.json`. File cấu hình cũ giữ nguyên chỗ.
+  - Dịch vụ cũ bị tắt rồi đổi tên thành `.migrated` (Windows: xoá task, đã lưu XML).
+  - Bot không lên trong 90 giây thì tự trả về dịch vụ cũ.
+  - `migrate --rollback [--from <dir>]` quay về đúng như trước.
+  - App máy tính tự chạy `migrate` khi mở.
+- **Không gộp:** `codex-shared` (giữ app-server Codex dùng chung, để cập nhật runner không làm mất thread), và bot cần cách ly ở mức hệ điều hành (vd. chạy trong netns riêng). Những bot này vẫn chạy `run --config <file>` (chế độ một bot) như trước.
+
 ## Cài đặt trên một máy
 
 1. Cài bun, Codex CLI và/hoặc Claude Code; đăng nhập cả hai.

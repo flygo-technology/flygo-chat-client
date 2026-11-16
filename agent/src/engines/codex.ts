@@ -100,6 +100,9 @@ export class CodexEngine implements Engine {
 
   constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void) {}
 
+  /** Đóng kết nối app-server (stdio: dừng tiến trình app-server riêng; socket: app-server dùng chung vẫn chạy). */
+  dispose() { const ws = this.ws; this.ws = null; this.ready = null; try { ws?.close(); } catch {} }
+
   /** stdio: chạy `codex app-server` riêng, nói JSON-RPC theo dòng qua stdin/stdout (Windows, hoặc khi không cần dùng chung). */
   private startStdio() {
     const proc = spawn([resolveBin(this.cfg.codex.bin ?? "codex"), "app-server", ...codexAppServerArgs(this.cfg)], { env: this.env(), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
@@ -138,7 +141,7 @@ export class CodexEngine implements Engine {
 
   /** Môi trường cho app-server: codex.home có thì đặt CODEX_HOME riêng (Codex Desktop cùng máy ghi chung ~/.codex làm app-server thoát mã 58). */
   private env() {
-    return { ...process.env, ...(this.cfg.codex.home ? { CODEX_HOME: this.cfg.codex.home } : {}) };
+    return { ...process.env, ...this.cfg.env, ...(this.cfg.codex.home ? { CODEX_HOME: this.cfg.codex.home } : {}) };
   }
 
   private async ensureServer() {

@@ -316,7 +316,7 @@ export class AntigravityEngine implements Engine {
 
   async inventory(): Promise<EngineInventory> {
     if (Date.now() - this.models.at > 600_000 || !this.models.list.length) {
-      const p = spawn([this.bin(), "models"], { env: { ...process.env, ...AGY_ENV }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+      const p = spawn([this.bin(), "models"], { env: { ...process.env, ...this.cfg.env, ...AGY_ENV }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
       const timer = setTimeout(() => p.kill(), 30_000);
       const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
       const code = await p.exited;
@@ -386,7 +386,7 @@ export class AntigravityEngine implements Engine {
     // forkFrom: agy -p chưa có tách phiên -> phiên mới (ngữ cảnh do runner đưa trong prompt).
 
     const proc = spawn(args, {
-      env: { ...process.env, ...AGY_ENV, FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "" },
+      env: { ...process.env, ...this.cfg.env, ...AGY_ENV, FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "" },
       cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: "pipe",
     });
     proc.stdin.end(); // stdin là ống rỗng: agy không chờ đăng nhập tương tác, báo lỗi ngay nếu chưa đăng nhập

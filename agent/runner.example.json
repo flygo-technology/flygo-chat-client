@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "machine": { "name": "may-cua-toi" },
+  "owners": {
+    "https://chat.example.com": "<user id của chủ runner trên máy chủ này>"
+  },
+  "defaults": {
+    "approvalTimeoutSec": 600,
+    "projectRoots": ["~/dev"],
+    "claude": { "bin": "claude" }
+  },
+  "servers": {
+    "https://chat.example.com": { "a2a": { "relay": "" } }
+  },
+  "bots": [
+    { "key": "toi-codex", "serverUrl": "https://chat.example.com", "botToken": "<token bot>", "engine": "codex" },
+    { "key": "toi-claude", "serverUrl": "https://chat.example.com", "botTokenFile": "tokens/toi-claude", "engine": "claude",
+      "claude": { "model": "sonnet" }, "env": {} }
+  ]
+}
