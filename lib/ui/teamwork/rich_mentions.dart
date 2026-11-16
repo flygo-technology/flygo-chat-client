@@ -29,12 +29,24 @@ class _MentionPicker extends StatefulWidget {
 class _MentionPickerState extends State<_MentionPicker> {
   final _q = TextEditingController();
   List<TwSubject> _people = [];
+  Map<String, bool> _usable = {};
   Timer? _deb;
 
   @override
   void initState() {
     super.initState();
     _search('');
+    _checkAgents();
+  }
+
+  /// Chỉ gợi ý agent mình được dùng (như ô Người làm).
+  Future<void> _checkAgents() async {
+    final l = widget.store.launcher;
+    final out = <String, bool>{};
+    for (final a in widget.store.agents) {
+      out[a.id] = l == null ? true : await l.canUse(a.id);
+    }
+    if (mounted) setState(() => _usable = out);
   }
 
   void _search(String q) {
@@ -58,7 +70,7 @@ class _MentionPickerState extends State<_MentionPicker> {
   @override
   Widget build(BuildContext context) {
     final q = _q.text.trim().toLowerCase();
-    final agents = widget.store.agents.where((a) => q.isEmpty || a.label.toLowerCase().contains(q)).toList();
+    final agents = widget.store.agents.where((a) => _usable[a.id] != false && (q.isEmpty || a.label.toLowerCase().contains(q))).toList();
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       sheetTitle(context, 'Nhắc tới'),
       Padding(
@@ -73,6 +85,7 @@ class _MentionPickerState extends State<_MentionPicker> {
       ),
       Flexible(
         child: ListView(shrinkWrap: true, padding: const EdgeInsets.only(bottom: 10), children: [
+          if (_people.isNotEmpty) groupLabel(context, 'Người'),
           for (final p in _people)
             ListTile(
               key: ValueKey('mention-user-${p.id}'),
@@ -81,12 +94,14 @@ class _MentionPickerState extends State<_MentionPicker> {
               title: Text(p.name),
               onTap: () => Navigator.pop(context, TwAssignee(kind: 'user', id: p.id, name: p.name)),
             ),
+          if (agents.isNotEmpty) groupLabel(context, 'Agent AI'),
           for (final a in agents)
             ListTile(
               key: ValueKey('mention-agent-${a.id}'),
               dense: true,
               leading: TwAvatar(name: a.name, id: a.id, agent: true, size: 26, border: false),
               title: Text(a.label),
+              subtitle: Text('Đọc việc này và làm theo bình luận', style: TextStyle(fontSize: 11.5, color: TwLook.of(context).ai)),
               onTap: () => Navigator.pop(context, TwAssignee(kind: 'agent', id: a.id, name: a.name)),
             ),
         ]),
@@ -219,6 +234,69 @@ class _TwRichEditorState extends State<TwRichEditor> {
   }
 
   List<TBlock>? _blocksSnapshot;
+  /// Nội dung sau khi đổi bảng Markdown thành khối bảng (thay cho widget.blocks tới khi cha đổi nội dung).
+  List<TBlock>? _folded;
+  int _foldRev = 0;
+
+  @override
+  void didUpdateWidget(TwRichEditor old) {
+    super.didUpdateWidget(old);
+    if (old.revision != widget.revision) _folded = null;
+  }
+
+  /// Khối mã trong trình soạn: giữ nguyên các dòng (không tách thành đoạn văn), sửa trong hộp riêng.
+  Widget _codeBlock(TwCodeBlock b, TwLook look) => Container(
+        key: ValueKey('ed-code-${b.id}'),
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(color: look.surface, border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(8)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(10),
+            child: Text(b.code, softWrap: false, style: TextStyle(fontFamily: 'monospace', fontFamilyFallback: const ['Menlo', 'Consolas', 'DejaVu Sans Mono'], fontSize: 13, color: look.text)),
+          ),
+          Row(children: [
+            TextButton.icon(
+              key: const ValueKey('code-edit'),
+              onPressed: () async {
+                final r = await editCode(context, b);
+                if (r != null) _ed.replaceBlock(b.id, r);
+              },
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              label: Text(b.lang == null ? 'Sửa mã' : 'Sửa mã (${b.lang})'),
+            ),
+            TextButton.icon(onPressed: () => _ed.replaceBlock(b.id, null), icon: const Icon(Icons.delete_outline, size: 16), label: const Text('Xoá')),
+          ]),
+        ]),
+      );
+
+  /// Bảng trong trình soạn: xem như khi đọc, kèm "Sửa bảng" / "Xoá bảng" (không bao giờ bị làm phẳng khi lưu).
+  Widget _tableBlock(TwTableBlock b, TwLook look) => Container(
+        key: ValueKey('ed-table-${b.id}'),
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(border: Border.all(color: look.divider, style: BorderStyle.solid), borderRadius: BorderRadius.circular(8)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TwTableView(b, style: TextStyle(fontSize: 13, color: look.text)),
+          Row(children: [
+            TextButton.icon(
+              key: const ValueKey('table-edit'),
+              onPressed: () async {
+                final r = await editTable(context, b);
+                if (r != null) _ed.replaceBlock(b.id, r);
+              },
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              label: const Text('Sửa bảng'),
+            ),
+            TextButton.icon(
+              key: const ValueKey('table-delete'),
+              onPressed: () => _ed.replaceBlock(b.id, null),
+              icon: const Icon(Icons.delete_outline, size: 16),
+              label: const Text('Xoá bảng'),
+            ),
+          ]),
+        ]),
+      );
 
   Future<void> _link() async {
     final c = _ed.focused;
@@ -277,13 +355,26 @@ class _TwRichEditorState extends State<TwRichEditor> {
   Widget build(BuildContext context) {
     final look = TwLook.of(context);
     final editor = BlockEditor(
-      blocks: widget.blocks,
+      blocks: _folded ?? widget.blocks,
       onChanged: (b) {
+        // Dán / gõ bảng Markdown: đổi các dòng | … | thành khối bảng (nạp lại trình soạn).
+        final f = foldTables(b);
+        if (f != null) {
+          b = f;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _folded = f;
+              _foldRev++;
+            });
+          });
+        }
         _blocksSnapshot = b;
         widget.onChanged(b);
       },
+      blockBuilder: (b) => b is TwTableBlock ? _tableBlock(b, look) : (b is TwCodeBlock ? _codeBlock(b, look) : null),
       controller: _ed,
-      revision: widget.revision,
+      revision: widget.revision + _foldRev,
       readOnly: widget.readOnly,
       autofocus: widget.autofocus,
       style: TextStyle(fontSize: widget.compact ? 14 : 14.5, height: 1.5, color: look.text),
@@ -305,6 +396,252 @@ class _TwRichEditorState extends State<TwRichEditor> {
 }
 
 /// Xem chữ có định dạng: tiêu đề, danh sách, ô tick, trích dẫn, mã, link; @nhắc / #việc hiện nổi màu, bấm được.
+/// Số thứ tự của mục "ol" thứ [i], tính cả số bắt đầu (start) của mục đầu danh sách.
+int olNumberFrom(List<TBlock> blocks, int i) {
+  var first = i;
+  while (first > 0 && blocks[first - 1].t == 'ol' && blocks[first - 1].ind >= blocks[i].ind) {
+    first--;
+  }
+  while (first < i && blocks[first].ind != blocks[i].ind) {
+    first++;
+  }
+  final head = blocks[first];
+  return olNumber(blocks, i) + (head is TwOlBlock ? head.start - 1 : 0);
+}
+
+/// Sửa khối mã: ô chữ nhiều dòng đơn cách + ngôn ngữ.
+Future<TwCodeBlock?> editCode(BuildContext context, TwCodeBlock b) {
+  final code = TextEditingController(text: b.code), lang = TextEditingController(text: b.lang ?? '');
+  return showDialog<TwCodeBlock>(
+    context: context,
+    builder: (d) => AlertDialog(
+      title: const Text('Sửa khối mã'),
+      content: SizedBox(
+        width: 640,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(key: const ValueKey('code-lang'), controller: lang, decoration: const InputDecoration(labelText: 'Ngôn ngữ (không bắt buộc)', isDense: true)),
+          const SizedBox(height: 10),
+          TextField(
+            key: const ValueKey('code-text'),
+            controller: code,
+            maxLines: 14,
+            minLines: 6,
+            style: const TextStyle(fontFamily: 'monospace', fontFamilyFallback: ['Menlo', 'Consolas', 'DejaVu Sans Mono'], fontSize: 13),
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: const Text('Huỷ')),
+        FilledButton(key: const ValueKey('code-save'), onPressed: () => Navigator.pop(d, TwCodeBlock(id: b.id, code: code.text, lang: lang.text.trim().isEmpty ? null : lang.text.trim())), child: const Text('Xong')),
+      ],
+    ),
+  );
+}
+
+/// Đoạn chữ có định dạng để xem: @nhắc / #việc nổi màu (bấm được), link bấm được, mã chữ đơn cách.
+InlineSpan twRunsSpan(TwLook look, List<TRun> r, TextStyle s, void Function(String kind, String id)? onMention) => TextSpan(style: s, children: [
+      for (final x in r)
+        () {
+          final m = mentionOf(x.f.a);
+          if (m != null) {
+            return TextSpan(
+              text: x.x,
+              style: s.copyWith(color: look.accent, fontWeight: FontWeight.w600, backgroundColor: look.accentSoft),
+              recognizer: onMention == null ? null : (TapGestureRecognizer()..onTap = () => onMention(m.$1, m.$2)),
+            );
+          }
+          var st = runStyle(x.f, s, look.dark);
+          if (x.f.a != null) st = st.copyWith(color: look.accent);
+          return TextSpan(
+            text: x.x,
+            style: st,
+            recognizer: x.f.a != null ? (TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(x.f.a!), mode: LaunchMode.externalApplication)) : null,
+          );
+        }(),
+    ]);
+
+/// Bảng: hàng tiêu đề đậm trên nền nhạt, viền màu đường kẻ, căn lề theo cột. Cột rộng theo nội dung (tối đa 280px, chữ
+/// xuống dòng trong ô); bảng rộng hơn chỗ thì cuộn ngang bên trong, không tràn trang.
+class TwTableView extends StatelessWidget {
+  const TwTableView(this.table, {super.key, required this.style, this.onMention, this.maxColumn = 280});
+  final TwTableBlock table;
+  final TextStyle style;
+  final void Function(String kind, String id)? onMention;
+  final double maxColumn;
+
+  @override
+  Widget build(BuildContext context) {
+    final look = TwLook.of(context);
+    final cols = table.cols;
+    if (cols == 0 || table.rows.isEmpty) return const SizedBox();
+    final s = style.copyWith(height: 1.4);
+    TextAlign al(int c) => switch (table.alignOf(c)) { 'c' => TextAlign.center, 'r' => TextAlign.right, _ => TextAlign.left };
+    return Scrollbar(
+      child: SingleChildScrollView(
+        key: const ValueKey('tw-table'),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Table(
+          defaultColumnWidth: MinColumnWidth(const IntrinsicColumnWidth(), FixedColumnWidth(maxColumn)),
+          border: TableBorder.all(color: look.divider, borderRadius: BorderRadius.circular(6)),
+          defaultVerticalAlignment: TableCellVerticalAlignment.top,
+          children: [
+            for (var r = 0; r < table.rows.length; r++)
+              TableRow(
+                decoration: r == 0 ? BoxDecoration(color: look.surface, borderRadius: const BorderRadius.vertical(top: Radius.circular(6))) : null,
+                children: [
+                  for (var c = 0; c < cols; c++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                      child: Text.rich(
+                        twRunsSpan(look, c < table.rows[r].length ? table.rows[r][c] : const [], r == 0 ? s.copyWith(fontWeight: FontWeight.w700) : s, onMention),
+                        textAlign: al(c),
+                      ),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Sửa bảng: lưới ô chữ (Markdown một dòng: **đậm**, *nghiêng*, `mã`), thêm / bớt hàng, cột. Trả về bảng mới.
+Future<TwTableBlock?> editTable(BuildContext context, TwTableBlock table) => showDialog<TwTableBlock>(context: context, builder: (c) => _TableEditor(table: table));
+
+class _TableEditor extends StatefulWidget {
+  const _TableEditor({required this.table});
+  final TwTableBlock table;
+  @override
+  State<_TableEditor> createState() => _TableEditorState();
+}
+
+class _TableEditorState extends State<_TableEditor> {
+  late final List<List<TextEditingController>> _cells = [
+    for (final r in widget.table.rows) [for (var c = 0; c < widget.table.cols; c++) TextEditingController(text: c < r.length ? runsToMarkdown(r[c]) : '')],
+  ];
+  late final List<String> _align = [for (var c = 0; c < widget.table.cols; c++) widget.table.alignOf(c)];
+
+  @override
+  void dispose() {
+    for (final r in _cells) {
+      for (final c in r) {
+        c.dispose();
+      }
+    }
+    super.dispose();
+  }
+
+  int get _cols => _cells.isEmpty ? 0 : _cells.first.length;
+
+  void _addRow() => setState(() => _cells.add([for (var c = 0; c < _cols; c++) TextEditingController()]));
+  void _addCol() => setState(() {
+        for (final r in _cells) {
+          r.add(TextEditingController());
+        }
+        _align.add('l');
+      });
+
+  TwTableBlock _result() {
+    final rows = <List<List<TRun>>>[];
+    for (var r = 0; r < _cells.length; r++) {
+      rows.add([
+        for (var c = 0; c < _cols; c++)
+          () {
+            final orig = r < widget.table.rows.length && c < widget.table.rows[r].length ? widget.table.rows[r][c] : null;
+            final text = _cells[r][c].text;
+            // Ô không sửa: giữ nguyên đoạn chữ (kể cả @nhắc, màu).
+            return orig != null && runsToMarkdown(orig) == text ? [for (final x in orig) TRun(x.x, x.f)] : inlineMarkdown(text);
+          }(),
+      ]);
+    }
+    return TwTableBlock(id: widget.table.id, rows: rows, align: _align);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final look = TwLook.of(context);
+    return AlertDialog(
+      title: const Text('Sửa bảng'),
+      content: SizedBox(
+        width: 720,
+        height: 420,
+        child: SingleChildScrollView(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                for (var c = 0; c < _cols; c++)
+                  SizedBox(
+                    width: 180,
+                    child: Row(children: [
+                      PopupMenuButton<String>(
+                        key: ValueKey('tcol-$c'),
+                        tooltip: 'Căn lề / xoá cột',
+                        icon: Icon(switch (_align[c]) { 'c' => Icons.format_align_center, 'r' => Icons.format_align_right, _ => Icons.format_align_left }, size: 18),
+                        onSelected: (v) => setState(() {
+                          if (v == 'del') {
+                            if (_cols <= 1) return;
+                            for (final r in _cells) {
+                              r.removeAt(c).dispose();
+                            }
+                            _align.removeAt(c);
+                          } else {
+                            _align[c] = v;
+                          }
+                        }),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'l', child: Text('Căn trái')),
+                          PopupMenuItem(value: 'c', child: Text('Căn giữa')),
+                          PopupMenuItem(value: 'r', child: Text('Căn phải')),
+                          PopupMenuItem(value: 'del', child: Text('Xoá cột')),
+                        ],
+                      ),
+                    ]),
+                  ),
+              ]),
+              for (var r = 0; r < _cells.length; r++)
+                Row(children: [
+                  for (var c = 0; c < _cols; c++)
+                    Container(
+                      width: 180,
+                      padding: const EdgeInsets.all(2),
+                      color: r == 0 ? look.surface : null,
+                      child: TextField(
+                        key: ValueKey('tcell-$r-$c'),
+                        controller: _cells[r][c],
+                        style: TextStyle(fontSize: 13, fontWeight: r == 0 ? FontWeight.w700 : null),
+                        decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+                      ),
+                    ),
+                  if (r > 0)
+                    IconButton(
+                      key: ValueKey('trow-del-$r'),
+                      tooltip: 'Xoá hàng',
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      onPressed: () => setState(() {
+                        for (final x in _cells.removeAt(r)) {
+                          x.dispose();
+                        }
+                      }),
+                    ),
+                ]),
+            ]),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(key: const ValueKey('trow-add'), onPressed: _addRow, icon: const Icon(Icons.add, size: 18), label: const Text('Thêm hàng')),
+        TextButton.icon(key: const ValueKey('tcol-add'), onPressed: _addCol, icon: const Icon(Icons.view_column_outlined, size: 18), label: const Text('Thêm cột')),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Huỷ')),
+        FilledButton(key: const ValueKey('table-save'), onPressed: () => Navigator.pop(context, _result()), child: const Text('Xong')),
+      ],
+    );
+  }
+}
+
 class TwRichView extends StatelessWidget {
   const TwRichView(this.blocks, {super.key, this.onMention, this.style});
   final List<TBlock> blocks;
@@ -315,30 +652,36 @@ class TwRichView extends StatelessWidget {
   Widget build(BuildContext context) {
     final look = TwLook.of(context);
     final base = style ?? DefaultTextStyle.of(context).style.copyWith(height: 1.55, color: look.text);
-    InlineSpan runs(List<TRun> r, TextStyle s) => TextSpan(style: s, children: [
-          for (final x in r)
-            () {
-              final m = mentionOf(x.f.a);
-              if (m != null) {
-                return TextSpan(
-                  text: x.x,
-                  style: s.copyWith(color: look.accent, fontWeight: FontWeight.w600, backgroundColor: look.accentSoft),
-                  recognizer: onMention == null ? null : (TapGestureRecognizer()..onTap = () => onMention!(m.$1, m.$2)),
-                );
-              }
-              var st = runStyle(x.f, s, look.dark);
-              if (x.f.a != null) st = st.copyWith(color: look.accent);
-              return TextSpan(
-                text: x.x,
-                style: st,
-                recognizer: x.f.a != null ? (TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(x.f.a!), mode: LaunchMode.externalApplication)) : null,
-              );
-            }(),
-        ]);
+    InlineSpan runs(List<TRun> r, TextStyle s) => twRunsSpan(look, r, s, onMention);
+    // Nội dung cũ có bảng Markdown dạng đoạn văn: hiện thành bảng.
+    final blocks = foldTables(this.blocks) ?? this.blocks;
     final out = <Widget>[];
     for (var i = 0; i < blocks.length; i++) {
       final b = blocks[i];
       final ind = 18.0 * b.ind;
+      if (b is TwTableBlock) {
+        out.add(Padding(padding: EdgeInsets.only(left: ind, top: 4, bottom: 4), child: TwTableView(b, style: base, onMention: onMention)));
+        continue;
+      }
+      if (b.t == 'code') {
+        // Khối mã: chữ thuần (không định dạng), ghép các dòng mã liền nhau, cuộn ngang khi dài.
+        final lines = [b.text];
+        while (b is! TwCodeBlock && i + 1 < blocks.length && blocks[i + 1].t == 'code' && blocks[i + 1] is! TwCodeBlock) {
+          lines.add(blocks[++i].text);
+        }
+        out.add(Container(
+          key: const ValueKey('tw-code'),
+          width: double.infinity,
+          margin: EdgeInsets.only(left: ind, top: 4, bottom: 4),
+          decoration: BoxDecoration(color: look.surface, borderRadius: BorderRadius.circular(6), border: Border.all(color: look.divider)),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(10),
+            child: Text(lines.join('\n'), softWrap: false, style: base.copyWith(fontFamily: 'monospace', fontFamilyFallback: const ['Menlo', 'Consolas', 'DejaVu Sans Mono'], fontSize: (base.fontSize ?? 14) - 1, height: 1.45)),
+          ),
+        ));
+        continue;
+      }
       switch (b.t) {
         case 'hr':
           out.add(Divider(color: look.divider));
@@ -354,13 +697,6 @@ class TwRichView extends StatelessWidget {
             decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider, width: 3))),
             child: Text.rich(runs(b.r, base.copyWith(color: look.sub))),
           ));
-        case 'code':
-          out.add(Container(
-            margin: EdgeInsets.only(left: ind, top: 2, bottom: 2),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: look.surface, borderRadius: BorderRadius.circular(6)),
-            child: Text.rich(runs(b.r, base.copyWith(fontFamily: 'monospace', fontSize: 13))),
-          ));
         case 'check':
           out.add(Padding(
             padding: EdgeInsets.only(left: ind),
@@ -372,7 +708,11 @@ class TwRichView extends StatelessWidget {
         case 'ul' || 'ol':
           out.add(Padding(
             padding: EdgeInsets.only(left: ind),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [bulletOf(blocks, i, base) ?? const SizedBox(width: 22), const SizedBox(width: 4), Expanded(child: Text.rich(runs(b.r, base)))]),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              (b.t == 'ol' ? SizedBox(width: 26, child: Text('${olNumberFrom(blocks, i)}.', textAlign: TextAlign.right, style: base)) : bulletOf(blocks, i, base)) ?? const SizedBox(width: 22),
+              const SizedBox(width: 4),
+              Expanded(child: Text.rich(runs(b.r, base))),
+            ]),
           ));
         default:
           out.add(Padding(padding: EdgeInsets.only(left: ind), child: Text.rich(runs(b.r, base))));

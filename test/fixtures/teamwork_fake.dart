@@ -25,9 +25,48 @@ Future<void> twFonts() async {
   await load('Roboto', roboto);
   await load('Noto Sans', roboto);
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
+  // Chữ đơn cách cho ô mã / khối mã (ảnh chụp đọc được); không có thì bỏ qua.
+  const mono = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
+  if (File(mono).existsSync()) await (FontLoader('monospace')..addFont(Future.value(ByteData.sublistView(File(mono).readAsBytesSync())))).load();
 }
 
 final twNow = DateTime.utc(2026, 11, 19, 3, 0);
+
+/// Mô tả mẫu có bảng (như agent viết): "Quản lý nhóm", 15 tool, ô có `mã`.
+final twTableDesc = [
+  {'id': 'h', 't': 'h3', 'r': [{'x': 'Quản lý nhóm'}]},
+  {'id': 'p', 't': 'p', 'r': [{'x': 'Các tool MCP cần cho phần quản lý nhóm, quyền tối thiểu của bot:'}]},
+  {
+    'id': 'tb',
+    't': 'table',
+    'align': ['l', 'l', 'c'],
+    'rows': [
+      [[{'x': 'Tool'}], [{'x': 'Input chính'}], [{'x': 'Quyền cần'}]],
+      for (final (tool, input, perm) in const [
+        ('group_list', 'không có', 'đọc'),
+        ('group_get', 'group_id', 'đọc'),
+        ('group_create', 'name, members[]', 'quản trị'),
+        ('group_rename', 'group_id, name', 'quản trị'),
+        ('group_delete', 'group_id', 'chủ nhóm'),
+        ('member_add', 'group_id, user_ids[]', 'quản trị'),
+        ('member_remove', 'group_id, user_id', 'quản trị'),
+        ('member_role', 'group_id, user_id, role (owner | admin | member)', 'chủ nhóm'),
+        ('invite_link', 'group_id, ttl', 'quản trị'),
+        ('message_send', 'group_id, text, reply_to?', 'thành viên'),
+        ('message_pin', 'group_id, message_id', 'quản trị'),
+        ('message_delete', 'group_id, message_id', 'quản trị'),
+        ('poll_create', 'group_id, question, options[]', 'thành viên'),
+        ('mute_member', 'group_id, user_id, minutes', 'quản trị'),
+        ('export_history', 'group_id, from, to — trả về tệp CSV gồm toàn bộ tin nhắn trong khoảng thời gian', 'chủ nhóm'),
+      ])
+        [
+          [{'x': tool, 'c': true}],
+          [{'x': input}],
+          [{'x': perm, if (perm == 'chủ nhóm') 'b': true}],
+        ],
+    ],
+  },
+];
 
 Map<String, dynamic> _st(String id, String name, String color, String cat, int pos, {int? wip, bool start = false, bool review = false, bool admin = false, bool closeSubs = false}) => {
       'id': id,
@@ -146,6 +185,9 @@ class FakeTw {
         {'emoji': 'rocket', 'users': ['u-hung'], 'count': 1},
       ],
       'attachments': [],
+      'runs': [
+        {'id': 'r-old', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'state': 'review'},
+      ],
     },
     {
       'id': 'c2',
@@ -167,6 +209,30 @@ class FakeTw {
       ],
       'attachments': [
         {'id': 'f-log', 'task_id': 't-32', 'comment_id': 'c2', 'name': 'test-ton-kho.log', 'size': 2048, 'mime': 'text/plain', 'source': 'upload'},
+      ],
+    },
+    {
+      'id': 'c4',
+      'task_id': 't-32',
+      'parent_id': null,
+      'author': 'u-lan',
+      'author_name': 'Lan',
+      'via': 'app',
+      'blocks': [
+        {
+          'id': 'b4',
+          't': 'p',
+          'r': [
+            {'x': '@Claude', 'm': {'k': 'agent', 'id': 'b-claude'}},
+            {'x': ' viết giúp tài liệu API phần tồn kho cho nhóm app.'},
+          ],
+        },
+      ],
+      'created_at': twNow.millisecondsSinceEpoch - 600000,
+      'reactions': [],
+      'attachments': [],
+      'runs': [
+        {'id': 'r-c4', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'running'},
       ],
     },
   ];
@@ -348,6 +414,7 @@ class FakeTw {
                   {'id': 'd4', 't': 'ul', 'r': [{'x': 'Tồn kho lấy từ phần mềm kho, '}, {'x': 'không', 'i': true}, {'x': ' nhập tay'}]},
                   {'id': 'd5', 't': 'ul', 'r': [{'x': 'Lỗi đồng bộ quá 15 phút thì báo '}, {'x': '@Hùng', 'm': {'k': 'user', 'id': 'u-hung'}}]},
                 ],
+              if (t['id'] == 't-38') 'description': twTableDesc,
             },
             'subtasks': subs,
             'links': t['id'] == 't-32'
@@ -501,7 +568,13 @@ class FakeTw {
 class FakeLauncher implements TwAgentLauncher {
   final launched = <(String, String, String)>[];
   final stopped = <String>[];
+  final posted = <(String, String)>[];
   Set<String> allowed = {'b-claude', 'b-codex'};
+  Set<String> usable = {};
+  @override
+  Future<bool> sessionUsable(String channelId, String botId) async => usable.contains(channelId);
+  @override
+  Future<void> post(String channelId, String text) async => posted.add((channelId, text));
   @override
   Future<bool> canUse(String botId) async => allowed.contains(botId);
   @override

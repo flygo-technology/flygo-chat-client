@@ -214,7 +214,7 @@ class TwApi {
     return res.bodyBytes;
   }
 
-  // ------------------------------------------------------------ hoạt động, agent, AI
+  // ------------------------------------------------------------ hoạt động, agent
   Future<List<TwActivity>> activity(String taskId) async => [for (final a in _list(await get('/api/tasks/$taskId/activity'), 'activity')) TwActivity.fromJson(a)];
   Future<List<TwRun>> start(String taskId) async {
     final j = await post('/api/tasks/$taskId/start');
@@ -235,7 +235,6 @@ class TwApi {
 
   Future<void> reportRun(String runId, String state, {String? sessionChannel, String? error}) => post('/api/runs/$runId', {'state': state, 'session_channel': ?sessionChannel, 'error': ?error});
   Future<void> cancelRun(String runId) => post('/api/runs/$runId/cancel');
-  Future<TwAiResult> ai(String taskId, String action, {String? question}) async => TwAiResult.fromJson(await post('/api/tasks/$taskId/ai', {'action': action, 'question': ?question}));
 
   // ------------------------------------------------------------ bộ lọc, thông báo, tìm kiếm
   Future<List<TwView>> views(String pid) async => [for (final v in _list(await get('/api/projects/$pid/views'), 'views')) TwView.fromJson(v)];

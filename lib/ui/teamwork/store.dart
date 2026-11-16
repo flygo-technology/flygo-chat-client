@@ -24,6 +24,12 @@ abstract class TwAgentLauncher {
   /// Gửi lời dừng vào phiên [channelId] (nếu phiên ở máy này).
   Future<void> stop(String channelId);
 
+  /// Phiên [channelId] còn dùng được (còn tồn tại, mình là chủ, có agent [botId]).
+  Future<bool> sessionUsable(String channelId, String botId);
+
+  /// Gửi [text] vào phiên sẵn có [channelId].
+  Future<void> post(String channelId, String text);
+
   /// Mở phiên trong chat.
   void open(String channelId);
 }
@@ -491,7 +497,16 @@ class TwStore extends ChangeNotifier {
           continue;
         }
         final d = await api.task(r.taskId.isNotEmpty ? r.taskId : r.taskKey);
-        final ch = await l.launch(r.botId, '${d.task.key} ${d.task.title}', claimed.$2 ?? briefOf(d, api.taskLink(d.task.key)));
+        final brief = claimed.$2 ?? briefOf(d, api.taskLink(d.task.key));
+        // @nhắc agent: tiếp tục trong phiên sẵn có của việc này nếu còn dùng được, không thì mở phiên mới.
+        final hint = claimed.$1.sessionHint ?? r.sessionHint;
+        String ch;
+        if (hint != null && await l.sessionUsable(hint, r.botId)) {
+          await l.post(hint, brief);
+          ch = hint;
+        } else {
+          ch = await l.launch(r.botId, '${d.task.key} · ${d.task.title}', brief);
+        }
         await api.reportRun(r.id, 'running', sessionChannel: ch);
         taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;
       } catch (e) {
