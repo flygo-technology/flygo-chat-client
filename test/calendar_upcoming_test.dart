@@ -1,5 +1,6 @@
 // Lịch: sự kiện sắp tới + đếm ngược ở Trang chủ (dưới thẻ người dùng trên máy tính, dải gọn ở đầu trang trên điện thoại).
 // Ảnh chụp (chạy tay): UPCOMING_OUT=<thư mục> flutter test test/calendar_upcoming_test.dart
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -105,6 +106,8 @@ void main() {
     late DateTime clock;
     setUp(() {
       clock = _now;
+      upcomingDiskCache = false;
+      upcomingResetCache();
       upcomingLoader = (_) async => UpcomingData(events: _events, tz: _tz);
     });
 
@@ -230,6 +233,48 @@ void main() {
       });
     }
 
+    testWidgets('điện thoại: cuộn ra khỏi màn hình rồi quay lại vẫn hiện ngay, đang tải lại không ẩn, đếm ngược vẫn chạy', (t) async {
+      var calls = 0;
+      final slow = Completer<UpcomingData?>();
+      upcomingLoader = (_) {
+        calls++;
+        // Lần đầu có dữ liệu; các lần sau treo (mạng chậm) để xem khối có bị ẩn khi đang tải không.
+        return calls == 1 ? Future.value(UpcomingData(events: _events, tz: _tz)) : slow.future;
+      };
+      final ctl = ScrollController();
+      await pumpHost(t, const Size(390, 600), Brightness.light, (c) => ListView(controller: ctl, children: [
+            UpcomingEvents(compact: true, clock: () => clock),
+            for (var i = 0; i < 40; i++) SizedBox(height: 80, child: Text('ô $i')),
+          ]));
+      final banner = find.byKey(const ValueKey('upcoming-events'));
+      expect(banner, findsOneWidget);
+      expect(find.text('còn 40 phút'), findsOneWidget);
+      // Cuộn thật xa: ListView bỏ khối khỏi cây (State bị huỷ).
+      ctl.jumpTo(2400);
+      await t.pump();
+      expect(banner, findsNothing);
+      // Quay lại: hiện ngay ở khung hình đầu, dù lần tải mới chưa xong.
+      ctl.jumpTo(0);
+      await t.pump();
+      expect(banner, findsOneWidget);
+      expect(find.text('còn 40 phút'), findsOneWidget);
+      expect(calls, 2);
+      // Đếm ngược tự chạy, không cần tải lại.
+      clock = _now.add(const Duration(minutes: 10));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text('còn 30 phút'), findsOneWidget);
+      expect(calls, 2);
+      // Dữ liệu mới về thì mới thay.
+      slow.complete(UpcomingData(events: [_events.firstWhere((e) => e.id == 'khach')], tz: _tz));
+      await t.pump();
+      await t.pump();
+      expect(banner, findsOneWidget);
+      expect(find.text('còn 30 phút'), findsNothing);
+      expect(find.text('Gặp khách hàng'), findsOneWidget);
+      expect(t.takeException(), isNull);
+      await done(t);
+    });
+
     testWidgets('ẩn khi không dùng được Lịch, không có sự kiện, hoặc tải lỗi', (t) async {
       for (final loader in <Future<UpcomingData?> Function(String)>[
         (_) async => null,
@@ -237,6 +282,7 @@ void main() {
         (_) async => throw Exception('mất mạng'),
       ]) {
         upcomingLoader = loader;
+        upcomingResetCache();
         await pumpHost(t, const Size(390, 600), Brightness.light, (c) => ListView(children: [UpcomingEvents(compact: true, clock: () => clock)]));
         expect(find.byKey(const ValueKey('upcoming-events')), findsNothing);
         expect(t.takeException(), isNull);

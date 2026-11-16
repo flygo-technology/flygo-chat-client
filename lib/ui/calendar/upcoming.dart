@@ -1,15 +1,21 @@
 // Lịch: sự kiện sắp tới trong 7 ngày, đếm ngược trực tiếp ("còn 2 giờ 15 phút"). Máy tính: dưới thẻ người dùng ở Trang
 // chủ (tối đa 3 sự kiện). Điện thoại: dải gọn ở đầu Trang chủ (sự kiện gần nhất + số sự kiện còn lại). Bấm → mở sự kiện
 // trong Lịch. Ẩn khi người dùng không được dùng Lịch, không có sự kiện nào, hoặc tải lỗi. Tải lại mỗi 5 phút, khi app
-// quay lại, khi danh sách app đổi và sau khi đóng Lịch.
+// quay lại, khi danh sách app đổi và sau khi đóng Lịch. Danh sách đã tải giữ trong bộ nhớ (theo máy chủ + người dùng) và
+// lưu ra đĩa: khối được dựng lại (cuộn ra khỏi màn hình rồi quay lại, mở lại app) hiện ngay, không ẩn rồi mới hiện;
+// đang tải lại thì vẫn giữ danh sách cũ, chỉ thay khi có kết quả mới.
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
+import '../../config.dart' show serverKey;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
@@ -27,6 +33,63 @@ class UpcomingData {
   final MiniApp? app;
   final List<CEvent> events;
   final String tz;
+
+  Map<String, dynamic> toJson() => {if (app != null) 'app': app!.toJson(), 'events': [for (final e in events) e.toJson()], 'tz': tz};
+  static UpcomingData fromJson(Map j) => UpcomingData(
+        app: j['app'] is Map ? MiniApp.fromJson(j['app'] as Map) : null,
+        events: [for (final e in j['events'] as List? ?? const []) CEvent.fromJson(e as Map)],
+        tz: '${j['tz'] ?? kDefaultTz}',
+      );
+}
+
+// ------------------------------------------------------------ bộ nhớ đệm
+// key → dữ liệu mới nhất (null = đã biết là không dùng được Lịch). Không có key = chưa biết gì.
+final _mem = <String, UpcomingData?>{};
+final _inflight = <String, Future<void>>{};
+
+/// Kiểm thử: tắt lưu đĩa.
+@visibleForTesting
+bool upcomingDiskCache = true;
+
+/// Kiểm thử: xoá bộ nhớ đệm trong bộ nhớ.
+@visibleForTesting
+void upcomingResetCache() {
+  _mem.clear();
+  _inflight.clear();
+}
+
+Future<File?> _diskFile(String key) async {
+  if (!upcomingDiskCache) return null;
+  final dir = await getApplicationSupportDirectory();
+  final safe = key.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
+  return File('${dir.path}${Platform.pathSeparator}calendar_upcoming_$safe.json');
+}
+
+Future<void> _readDisk(String key) async {
+  try {
+    final f = await _diskFile(key);
+    if (f == null || !f.existsSync() || _mem.containsKey(key)) return;
+    final j = jsonDecode(await f.readAsString());
+    if (j is Map && !_mem.containsKey(key)) _mem[key] = UpcomingData.fromJson(j);
+  } catch (e) {
+    debugPrint('[calendar] bộ nhớ đệm sự kiện sắp tới hỏng, bỏ qua: $e');
+  }
+}
+
+Future<void> _writeDisk(String key, UpcomingData? d) async {
+  try {
+    final f = await _diskFile(key);
+    if (f == null) return;
+    if (d == null) {
+      if (f.existsSync()) await f.delete();
+      return;
+    }
+    final tmp = File('${f.path}.tmp');
+    await tmp.writeAsString(jsonEncode(d.toJson()));
+    await tmp.rename(f.path);
+  } catch (e) {
+    debugPrint('[calendar] không lưu được sự kiện sắp tới: $e');
+  }
 }
 
 final _client = http.Client();
@@ -115,16 +178,30 @@ class UpcomingEvents extends StatefulWidget {
 class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObserver {
   UpcomingData? _data;
   Timer? _tick, _refresh;
-  bool _loading = false;
+  late final String _key;
 
   DateTime get _now => widget.clock?.call() ?? DateTime.now();
 
   @override
   void initState() {
     super.initState();
+    _key = '$serverKey|${context.read<AppState>().me?.id ?? ''}';
+    // Dựng lại (cuộn ra rồi vào, đổi trang): hiện ngay danh sách đã có, không chờ tải.
+    _data = _mem[_key];
+    _sync();
     WidgetsBinding.instance.addObserver(this);
     MiniApps.changed.addListener(_reload);
-    _reload();
+    if (_mem.containsKey(_key)) {
+      _reload();
+    } else {
+      // Mở app: hiện bản lưu trên đĩa trước, rồi mới tải mới.
+      _readDisk(_key).whenComplete(() {
+        if (!mounted) return;
+        if (_mem.containsKey(_key) && _data == null) setState(() => _data = _mem[_key]);
+        _sync();
+        _reload();
+      });
+    }
     _refresh = Timer.periodic(const Duration(minutes: 5), (_) => _reload());
   }
 
@@ -143,19 +220,23 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
   }
 
   Future<void> _reload() async {
-    if (_loading || !mounted) return;
-    _loading = true;
-    final token = context.read<AppState>().token;
-    try {
-      final d = await upcomingLoader(token);
-      if (!mounted) return;
-      setState(() => _data = d);
-    } catch (e) {
-      // Lỗi mạng / máy chủ: giữ danh sách cũ (nếu có), lần sau tải lại.
-      debugPrint('[calendar] sự kiện sắp tới: $e');
-    } finally {
-      _loading = false;
-    }
+    if (!mounted) return;
+    final key = _key, token = context.read<AppState>().token;
+    // Một lần tải cho mỗi key, dù có nhiều khối (hoặc khối vừa dựng lại) cùng gọi.
+    await (_inflight[key] ??= () async {
+      try {
+        final d = await upcomingLoader(token);
+        _mem[key] = d;
+        unawaited(_writeDisk(key, d));
+      } catch (e) {
+        // Lỗi mạng / máy chủ: giữ danh sách cũ (nếu có), lần sau tải lại.
+        debugPrint('[calendar] sự kiện sắp tới: $e');
+      } finally {
+        _inflight.remove(key);
+      }
+    }());
+    if (!mounted) return;
+    if (_mem.containsKey(key) && !identical(_mem[key], _data)) setState(() => _data = _mem[key]);
     _sync();
   }
 
