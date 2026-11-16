@@ -134,7 +134,10 @@ class _TwTaskPageState extends State<TwTaskPage> {
 
   void _startEdit() {
     if (!canEdit) return;
-    store.descDrafts.putIfAbsent(t.id, () => [for (final b in t.description) b.clone()]);
+    store.descDrafts.putIfAbsent(t.id, () {
+      final copy = [for (final b in t.description) b.clone()];
+      return foldTables(copy) ?? copy;
+    });
     setState(() => _editingDesc = true);
   }
 

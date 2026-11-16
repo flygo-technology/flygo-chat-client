@@ -25,9 +25,48 @@ Future<void> twFonts() async {
   await load('Roboto', roboto);
   await load('Noto Sans', roboto);
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
+  // Chữ đơn cách cho ô mã / khối mã (ảnh chụp đọc được); không có thì bỏ qua.
+  const mono = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
+  if (File(mono).existsSync()) await (FontLoader('monospace')..addFont(Future.value(ByteData.sublistView(File(mono).readAsBytesSync())))).load();
 }
 
 final twNow = DateTime.utc(2026, 11, 19, 3, 0);
+
+/// Mô tả mẫu có bảng (như agent viết): "Quản lý nhóm", 15 tool, ô có `mã`.
+final twTableDesc = [
+  {'id': 'h', 't': 'h3', 'r': [{'x': 'Quản lý nhóm'}]},
+  {'id': 'p', 't': 'p', 'r': [{'x': 'Các tool MCP cần cho phần quản lý nhóm, quyền tối thiểu của bot:'}]},
+  {
+    'id': 'tb',
+    't': 'table',
+    'align': ['l', 'l', 'c'],
+    'rows': [
+      [[{'x': 'Tool'}], [{'x': 'Input chính'}], [{'x': 'Quyền cần'}]],
+      for (final (tool, input, perm) in const [
+        ('group_list', 'không có', 'đọc'),
+        ('group_get', 'group_id', 'đọc'),
+        ('group_create', 'name, members[]', 'quản trị'),
+        ('group_rename', 'group_id, name', 'quản trị'),
+        ('group_delete', 'group_id', 'chủ nhóm'),
+        ('member_add', 'group_id, user_ids[]', 'quản trị'),
+        ('member_remove', 'group_id, user_id', 'quản trị'),
+        ('member_role', 'group_id, user_id, role (owner | admin | member)', 'chủ nhóm'),
+        ('invite_link', 'group_id, ttl', 'quản trị'),
+        ('message_send', 'group_id, text, reply_to?', 'thành viên'),
+        ('message_pin', 'group_id, message_id', 'quản trị'),
+        ('message_delete', 'group_id, message_id', 'quản trị'),
+        ('poll_create', 'group_id, question, options[]', 'thành viên'),
+        ('mute_member', 'group_id, user_id, minutes', 'quản trị'),
+        ('export_history', 'group_id, from, to — trả về tệp CSV gồm toàn bộ tin nhắn trong khoảng thời gian', 'chủ nhóm'),
+      ])
+        [
+          [{'x': tool, 'c': true}],
+          [{'x': input}],
+          [{'x': perm, if (perm == 'chủ nhóm') 'b': true}],
+        ],
+    ],
+  },
+];
 
 Map<String, dynamic> _st(String id, String name, String color, String cat, int pos, {int? wip, bool start = false, bool review = false, bool admin = false, bool closeSubs = false}) => {
       'id': id,
@@ -348,6 +387,7 @@ class FakeTw {
                   {'id': 'd4', 't': 'ul', 'r': [{'x': 'Tồn kho lấy từ phần mềm kho, '}, {'x': 'không', 'i': true}, {'x': ' nhập tay'}]},
                   {'id': 'd5', 't': 'ul', 'r': [{'x': 'Lỗi đồng bộ quá 15 phút thì báo '}, {'x': '@Hùng', 'm': {'k': 'user', 'id': 'u-hung'}}]},
                 ],
+              if (t['id'] == 't-38') 'description': twTableDesc,
             },
             'subtasks': subs,
             'links': t['id'] == 't-32'

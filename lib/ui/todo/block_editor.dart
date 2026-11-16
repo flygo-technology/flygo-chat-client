@@ -25,6 +25,8 @@ class BlockEditorController extends ChangeNotifier {
   void addBlock({String t = 'p'}) => _s?._addAfterFocus(t);
   void focusEnd() => _s?._focusEnd();
   void refresh() => notifyListeners();
+  /// Thay khối [id] bằng [block] (null = xoá khối), báo onChanged.
+  void replaceBlock(String id, TBlock? block) => _s?._replace(id, block);
 }
 
 class BlockEditor extends StatefulWidget {
@@ -40,6 +42,7 @@ class BlockEditor extends StatefulWidget {
     this.onPasteMedia,
     this.onInsertBytes,
     this.autofocus = false,
+    this.blockBuilder,
   });
 
   final List<TBlock> blocks;
@@ -53,6 +56,8 @@ class BlockEditor extends StatefulWidget {
   final Future<bool> Function()? onPasteMedia;
   /// Ảnh chèn từ bàn phím ảo (Android: Gboard, Samsung Keyboard): dữ liệu + kiểu.
   final void Function(Uint8List data, String mime)? onInsertBytes;
+  /// Khối không phải chữ (vd bảng): trả về widget thay cho ô gõ; null = khối chữ thường.
+  final Widget? Function(TBlock block)? blockBuilder;
 
   @override
   State<BlockEditor> createState() => _BlockEditorState();
@@ -274,6 +279,20 @@ class _BlockEditorState extends State<BlockEditor> {
     if (i > 0 && i - 1 < _blocks.length) _focusBlock(_blocks[i - 1].id);
   }
 
+  void _replace(String id, TBlock? block) {
+    final i = _index(id);
+    if (i < 0) return;
+    setState(() {
+      if (block == null) {
+        _blocks.removeAt(i);
+        if (_blocks.isEmpty) _blocks.add(TBlock(t: widget.listMode ? 'check' : 'p'));
+      } else {
+        _blocks[i] = block;
+      }
+    });
+    _emit();
+  }
+
   Future<void> _paste(RichController c) async {
     if (widget.onPasteMedia != null && await widget.onPasteMedia!()) return;
     final d = await Clipboard.getData(Clipboard.kTextPlain);
@@ -337,6 +356,8 @@ class _BlockEditorState extends State<BlockEditor> {
 
   Widget _row(TBlock b, int i, {Widget? handle}) {
     final style = widget.style.copyWith(color: widget.style.color ?? Theme.of(context).colorScheme.onSurface);
+    final custom = widget.blockBuilder?.call(b);
+    if (custom != null) return custom;
     if (b.t == 'hr') {
       return Row(children: [
         Expanded(child: Divider(height: 24, thickness: 1.2, color: style.color!.withValues(alpha: .3))),

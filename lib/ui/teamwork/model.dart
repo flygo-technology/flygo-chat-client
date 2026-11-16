@@ -726,51 +726,196 @@ String mentionLink(String kind, String id) => '$kMentionScheme$kind:$id';
   return i <= 0 ? null : (rest.substring(0, i), rest.substring(i + 1));
 }
 
-List<TBlock> blocksFromJson(Object? v) {
-  if (v is String) return markdownToBlocks(v);
-  return [
-    for (final b in _maps(v))
-      () {
-        final blk = TBlock.fromJson(b);
-        final runs = _maps(b['r']);
-        for (var i = 0; i < runs.length && i < blk.r.length; i++) {
-          final m = runs[i]['m'];
-          if (m is Map) blk.r[i].f = blk.r[i].f.copyWith(a: mentionLink(_s(m['k'] ?? m['kind'], 'user'), _s(m['id'])));
-        }
-        return blk;
-      }(),
-  ];
+/// Một đoạn chữ từ JSON máy chủ (@nhắc ở thuộc tính m → link nội bộ).
+TRun _runFrom(Map m) {
+  final r = TRun.fromJson(m);
+  final mm = m['m'];
+  if (mm is Map) r.f = r.f.copyWith(a: mentionLink(_s(mm['k'] ?? mm['kind'], 'user'), _s(mm['id'])));
+  return r;
 }
 
-List<Map<String, dynamic>> blocksToJson(List<TBlock> blocks) => [
-      for (final b in blocks)
-        () {
-          final j = b.toJson();
-          final runs = (j['r'] as List).cast<Map<String, dynamic>>();
-          for (final r in runs) {
+/// Đoạn chữ → JSON máy chủ (link @nhắc → thuộc tính m). Bỏ đoạn rỗng.
+List<Map<String, dynamic>> _runsJson(List<TRun> runs) => [
+      for (final x in runs)
+        if (x.x.isNotEmpty)
+          () {
+            final r = x.toJson();
             final m = mentionOf(r['a'] as String?);
             if (m != null) {
               r.remove('a');
               r['m'] = {'k': m.$1, 'id': m.$2};
             }
-          }
-          return j;
+            return r;
+          }(),
+    ];
+
+/// Khối bảng: rows → ô → đoạn chữ, hàng 0 là tiêu đề; align theo cột ('l' | 'c' | 'r').
+class TwTableBlock extends TBlock {
+  TwTableBlock({super.id, required this.rows, List<String>? align}) : align = align ?? [], super(t: 'table');
+  List<List<List<TRun>>> rows;
+  List<String> align;
+
+  int get cols => rows.fold(0, (m, r) => r.length > m ? r.length : m);
+  String alignOf(int col) => col < align.length ? align[col] : 'l';
+
+  @override
+  String get text => rows.map((r) => r.map((c) => c.map((x) => x.x).join()).join(' | ')).join('\n');
+
+  @override
+  TwTableBlock clone() => TwTableBlock(id: id, rows: [for (final r in rows) [for (final c in r) [for (final x in c) TRun(x.x, x.f)]]], align: [...align]);
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        't': 'table',
+        'rows': [for (final r in rows) [for (final c in r) _runsJson(c)]],
+        if (align.isNotEmpty) 'align': align,
+      };
+}
+
+List<TBlock> blocksFromJson(Object? v) {
+  if (v is String) return markdownToBlocks(v);
+  return [
+    for (final b in _maps(v))
+      if (b['t'] == 'table')
+        TwTableBlock(
+          id: _ns(b['id']),
+          rows: [
+            for (final r in (b['rows'] is List ? b['rows'] as List : const []))
+              [for (final c in (r is List ? r : const [])) [for (final x in (c is List ? c : const [])) if (x is Map) _runFrom(x)]],
+          ],
+          align: _strs(b['align']),
+        )
+      else
+        () {
+          final blk = TBlock.fromJson(b);
+          blk.r = [for (final x in _maps(b['r'])) _runFrom(x)];
+          return blk;
         }(),
+  ];
+}
+
+List<Map<String, dynamic>> blocksToJson(List<TBlock> blocks) => [
+      for (final b in blocks)
+        b is TwTableBlock
+            ? b.toJson()
+            : () {
+                final j = b.toJson();
+                j['r'] = _runsJson(b.r);
+                return j;
+              }(),
     ];
 
 /// Chữ thuần của nội dung (tìm kiếm, xem trước).
 String blocksText(List<TBlock> blocks) => blocks.map((b) => b.text).where((s) => s.isNotEmpty).join('\n');
 
-/// Markdown đơn giản → khối (dùng khi máy chủ trả chữ thay cho khối, hoặc AI soạn).
+// ------------------------------------------------------------ bảng GFM
+final _sepRe = RegExp(r'^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$');
+bool _pipeRow(String l) => l.trim().contains('|') && l.trim().length > 1;
+
+/// Tách một dòng bảng thành các ô (bỏ dấu | đầu / cuối, giữ "\|").
+List<String> _cells(String line) {
+  var l = line.trim();
+  if (l.startsWith('|')) l = l.substring(1);
+  if (l.endsWith('|') && !l.endsWith(r'\|')) l = l.substring(0, l.length - 1);
+  final out = <String>[];
+  final buf = StringBuffer();
+  for (var i = 0; i < l.length; i++) {
+    if (l[i] == '\\' && i + 1 < l.length && l[i + 1] == '|') {
+      buf.write('|');
+      i++;
+    } else if (l[i] == '|') {
+      out.add(buf.toString().trim());
+      buf.clear();
+    } else {
+      buf.write(l[i]);
+    }
+  }
+  out.add(buf.toString().trim());
+  return out;
+}
+
+/// Bảng GFM bắt đầu ở dòng [i] (tiêu đề + dòng gạch + các hàng): (bảng, số dòng đã dùng) hoặc null.
+(TwTableBlock, int)? parseGfmTable(List<String> lines, int i) {
+  if (i + 1 >= lines.length || !_pipeRow(lines[i]) || !_sepRe.hasMatch(lines[i + 1]) || !lines[i + 1].contains('-')) return null;
+  final head = _cells(lines[i]);
+  final sep = _cells(lines[i + 1]);
+  final align = [
+    for (final c in sep) c.startsWith(':') && c.endsWith(':') ? 'c' : (c.endsWith(':') ? 'r' : 'l'),
+  ];
+  final rows = <List<List<TRun>>>[[for (final c in head) _inline(c)]];
+  var j = i + 2;
+  while (j < lines.length && _pipeRow(lines[j]) && !_sepRe.hasMatch(lines[j])) {
+    final cells = _cells(lines[j]);
+    rows.add([for (var k = 0; k < head.length; k++) _inline(k < cells.length ? cells[k] : '')]);
+    j++;
+  }
+  return (TwTableBlock(rows: rows, align: align.length == head.length ? align : null), j - i);
+}
+
+/// Các đoạn văn thường liên tiếp là bảng Markdown (dán từ chỗ khác, hoặc nội dung cũ) → khối bảng.
+/// Dòng có dấu | ngay sau một bảng được nối thêm làm hàng mới. Trả về null nếu không đổi gì.
+List<TBlock>? foldTables(List<TBlock> blocks) {
+  var changed = false;
+  final out = <TBlock>[];
+  var i = 0;
+  String lineOf(TBlock b) => b.t == 'p' ? blocksToMarkdown([b]) : '';
+  while (i < blocks.length) {
+    final b = blocks[i];
+    if (b.t == 'p') {
+      final lines = [for (var k = i; k < blocks.length && blocks[k].t == 'p'; k++) lineOf(blocks[k])];
+      final hit = parseGfmTable(lines, 0);
+      if (hit != null) {
+        out.add(hit.$1);
+        i += hit.$2;
+        changed = true;
+        continue;
+      }
+      final prev = out.isNotEmpty ? out.last : null;
+      final l = lineOf(b);
+      if (prev is TwTableBlock && _pipeRow(l) && l.trim().startsWith('|')) {
+        final cells = _cells(l);
+        prev.rows.add([for (var k = 0; k < prev.cols; k++) _inline(k < cells.length ? cells[k] : '')]);
+        i++;
+        changed = true;
+        continue;
+      }
+    }
+    out.add(b);
+    i++;
+  }
+  return changed ? out : null;
+}
+
+/// Markdown đơn giản → khối (máy chủ trả chữ thay cho khối, AI soạn, dán): tiêu đề, danh sách lồng nhau (2 dấu cách mỗi
+/// cấp), ô tick, trích dẫn, đường kẻ, khối mã ``` và bảng GFM.
 List<TBlock> markdownToBlocks(String md) {
   final out = <TBlock>[];
-  for (final line in md.replaceAll('\r', '').split('\n')) {
-    final l = line.trimRight();
-    if (l.isEmpty) continue;
+  final lines = md.replaceAll('\r', '').split('\n');
+  for (var n = 0; n < lines.length; n++) {
+    final l = lines[n].trimRight();
+    if (l.trim().startsWith('```')) {
+      final code = <String>[];
+      n++;
+      while (n < lines.length && !lines[n].trim().startsWith('```')) {
+        code.add(lines[n]);
+        n++;
+      }
+      out.add(TBlock(t: 'code', r: [TRun(code.join('\n'))]));
+      continue;
+    }
+    final table = parseGfmTable(lines, n);
+    if (table != null) {
+      out.add(table.$1);
+      n += table.$2 - 1;
+      continue;
+    }
+    if (l.trim().isEmpty) continue;
+    final ind = ((l.length - l.trimLeft().length) ~/ 2).clamp(0, 4);
     String t = 'p';
-    var s = l;
+    var s = l.trimLeft();
     bool done = false;
-    final ck = RegExp(r'^\s*[-*] \[( |x|X)\] ').firstMatch(s);
+    final ck = RegExp(r'^[-*] \[( |x|X)\] ').firstMatch(s);
     if (ck != null) {
       t = 'check';
       done = ck[1]!.toLowerCase() == 'x';
@@ -784,12 +929,12 @@ List<TBlock> markdownToBlocks(String md) {
     } else if (s.startsWith('# ')) {
       t = 'h1';
       s = s.substring(2);
-    } else if (RegExp(r'^\s*[-*•] ').hasMatch(s)) {
+    } else if (RegExp(r'^[-*•] ').hasMatch(s)) {
       t = 'ul';
-      s = s.replaceFirst(RegExp(r'^\s*[-*•] '), '');
-    } else if (RegExp(r'^\s*\d+[.)] ').hasMatch(s)) {
+      s = s.substring(2);
+    } else if (RegExp(r'^\d+[.)] ').hasMatch(s)) {
       t = 'ol';
-      s = s.replaceFirst(RegExp(r'^\s*\d+[.)] '), '');
+      s = s.replaceFirst(RegExp(r'^\d+[.)] '), '');
     } else if (s.startsWith('> ')) {
       t = 'quote';
       s = s.substring(2);
@@ -797,7 +942,7 @@ List<TBlock> markdownToBlocks(String md) {
       out.add(TBlock(t: 'hr'));
       continue;
     }
-    out.add(TBlock(t: t, r: _inline(s), done: done));
+    out.add(TBlock(t: t, r: _inline(s), done: done, ind: t == 'ul' || t == 'ol' || t == 'check' ? ind : 0));
   }
   return out;
 }
@@ -818,18 +963,34 @@ List<TRun> _inline(String s) {
   return out;
 }
 
-/// Khối → Markdown (bản giao việc gửi agent).
-String blocksToMarkdown(List<TBlock> blocks) {
-  final out = <String>[];
-  for (var i = 0; i < blocks.length; i++) {
-    final b = blocks[i];
-    final text = b.r.map((r) {
+/// Đoạn chữ dạng Markdown một dòng (đậm, nghiêng, mã).
+String runsToMarkdown(List<TRun> runs) => runs.map((r) {
       var x = r.x;
       if (r.f.c) x = '`$x`';
       if (r.f.b) x = '**$x**';
       if (r.f.i) x = '*$x*';
       return x;
     }).join();
+
+/// Một ô bảng sửa dạng chữ Markdown → đoạn chữ.
+List<TRun> inlineMarkdown(String s) => _inline(s);
+
+/// Khối → Markdown (bản giao việc gửi agent).
+String blocksToMarkdown(List<TBlock> blocks) {
+  final out = <String>[];
+  for (var i = 0; i < blocks.length; i++) {
+    final b = blocks[i];
+    if (b is TwTableBlock) {
+      String row(List<List<TRun>> r) => '| ${[for (var k = 0; k < b.cols; k++) k < r.length ? runsToMarkdown(r[k]).replaceAll('|', r'\|') : ''].join(' | ')} |';
+      if (b.rows.isEmpty) continue;
+      out.add(row(b.rows.first));
+      out.add('|${[for (var k = 0; k < b.cols; k++) switch (b.alignOf(k)) { 'c' => ':---:', 'r' => '---:', _ => '---' }].join('|')}|');
+      for (final r in b.rows.skip(1)) {
+        out.add(row(r));
+      }
+      continue;
+    }
+    final text = runsToMarkdown(b.r);
     final ind = '  ' * b.ind;
     out.add(switch (b.t) {
       'h1' => '# $text',
@@ -839,7 +1000,7 @@ String blocksToMarkdown(List<TBlock> blocks) {
       'ol' => '${ind}1. $text',
       'check' => '$ind- [${b.done ? 'x' : ' '}] $text',
       'quote' => '> $text',
-      'code' => '`$text`',
+      'code' => b.text.contains('\n') ? '```\n${b.text}\n```' : '`$text`',
       'hr' => '---',
       _ => text,
     });

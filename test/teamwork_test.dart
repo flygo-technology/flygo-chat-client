@@ -147,6 +147,52 @@ void main() {
     });
   });
 
+  group('bảng + Markdown', () {
+    test('GFM: bảng (căn lề, ô có mã / đậm, \\|), khối mã ```, danh sách lồng nhau', () {
+      final b = markdownToBlocks('## Quản lý nhóm\n| Tool | Input | Quyền |\n|:---|---|:---:|\n| `group_list` | a \\| b | **đọc** |\n| x | | y |\n\n```\nfinal a = 1;\n  print(a);\n```\n- một\n  - hai\n    - ba');
+      expect(b.map((x) => x.t), ['h2', 'table', 'code', 'ul', 'ul', 'ul']);
+      final t = b[1] as TwTableBlock;
+      expect(t.rows, hasLength(3));
+      expect(t.cols, 3);
+      expect(t.align, ['l', 'l', 'c']);
+      expect(t.rows[1][0].single.f.c, isTrue);
+      expect(t.rows[1][1].single.x, 'a | b');
+      expect(t.rows[1][2].single.f.b, isTrue);
+      expect(t.rows[2][1], isEmpty);
+      expect(b[2].text, 'final a = 1;\n  print(a);');
+      expect(b.skip(3).map((x) => x.ind), [0, 1, 2]);
+      expect(blocksToMarkdown([t]), startsWith('| Tool | Input | Quyền |\n|---|---|:---:|'));
+    });
+
+    test('JSON: bảng đi khứ hồi, @nhắc trong ô giữ thuộc tính m', () {
+      final json = [
+        {'id': 't', 't': 'table', 'align': ['l', 'r'], 'rows': [
+          [[{'x': 'Ai'}], [{'x': 'Số'}]],
+          [[{'x': '@Hùng', 'm': {'k': 'user', 'id': 'u-hung'}}], [{'x': '12', 'b': true}]],
+        ]},
+      ];
+      final b = blocksFromJson(json);
+      final t = b.single as TwTableBlock;
+      expect(mentionOf(t.rows[1][0].single.f.a), ('user', 'u-hung'));
+      expect(t.clone().rows[1][1].single.f.b, isTrue);
+      final back = blocksToJson(b).single;
+      expect(back['t'], 'table');
+      expect(back['rows'][1][0], [{'x': '@Hùng', 'm': {'k': 'user', 'id': 'u-hung'}}]);
+      expect(back['align'], ['l', 'r']);
+      expect(blocksText(b), contains('@Hùng | 12'));
+    });
+
+    test('dán bảng Markdown (các dòng thành đoạn văn) → khối bảng; dòng | … | sau bảng thành hàng mới', () {
+      final paras = [for (final l in ['Trước', '| A | B |', '| --- | --- |', '| 1 | 2 |', 'Sau']) TBlock.text(l)];
+      final f = foldTables(paras)!;
+      expect(f.map((x) => x.t), ['p', 'table', 'p']);
+      expect((f[1] as TwTableBlock).rows, hasLength(2));
+      final more = foldTables([...f.take(2), TBlock.text('| 3 | 4 |')])!;
+      expect((more[1] as TwTableBlock).rows, hasLength(3));
+      expect(foldTables([TBlock.text('a | b'), TBlock.text('không phải bảng')]), isNull);
+    });
+  });
+
   group('kho', () {
     test('mất mạng: sửa áp ngay trên máy, xếp hàng, có mạng thì gửi lại', () async {
       final be = FakeTw();
@@ -413,6 +459,55 @@ void main() {
       await t.tap(find.byKey(const ValueKey('desc-placeholder')));
       await settle(t, 3);
       expect(find.byKey(const ValueKey('desc-editor')), findsOneWidget);
+      await done(t, s);
+    });
+
+    testWidgets('bảng trong mô tả: tiêu đề + 15 hàng, mã trong ô; sửa giữ nguyên bảng, Sửa bảng thêm hàng', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-38', ai: false);
+      expect(find.byKey(const ValueKey('tw-table')), findsOneWidget);
+      final table = t.widget<Table>(find.descendant(of: find.byKey(const ValueKey('tw-table')), matching: find.byType(Table)));
+      expect(table.children, hasLength(16));
+      expect(find.text('Quyền cần'), findsOneWidget);
+      expect(find.text('group_list'), findsOneWidget);
+      await shot(t, 'd5g-table');
+      await t.tap(find.byKey(const ValueKey('desc-edit')));
+      await settle(t, 3);
+      expect(find.byKey(const ValueKey('table-edit')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('table-edit')));
+      await settle(t, 3);
+      expect(find.byKey(const ValueKey('tcell-0-0')), findsOneWidget);
+      await t.enterText(find.byKey(const ValueKey('tcell-1-2')), 'đọc + ghi');
+      await t.tap(find.byKey(const ValueKey('trow-add')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('table-save')));
+      await settle(t, 3);
+      await t.tap(find.byKey(const ValueKey('desc-save')));
+      await settle(t);
+      final desc = be.bodies['PATCH /tw/api/tasks/t-38']!['description'] as List;
+      final tb = desc.firstWhere((b) => b['t'] == 'table') as Map;
+      expect((tb['rows'] as List), hasLength(17));
+      expect(tb['rows'][1][0], [{'x': 'group_list', 'c': true}]); // ô không sửa giữ định dạng mã
+      expect(tb['rows'][1][2], [{'x': 'đọc + ghi'}]);
+      expect(tb['align'], ['l', 'l', 'c']);
+      expect(desc.where((b) => b['t'] == 'h3'), hasLength(1));
+      await done(t, s);
+    });
+
+    testWidgets('dán bảng Markdown vào mô tả → khối bảng, lưu dạng table', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-44', ai: false);
+      await t.tap(find.byKey(const ValueKey('desc-placeholder')));
+      await settle(t, 3);
+      await t.enterText(find.descendant(of: find.byKey(const ValueKey('desc-editor')), matching: find.byType(TextField)).first, '| Tool | Quyền |\n|---|---|\n| `chat_list` | đọc |\n| `chat_send` | ghi |');
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('table-edit')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('desc-save')));
+      await settle(t);
+      final desc = be.bodies['PATCH /tw/api/tasks/t-44']!['description'] as List;
+      final tb = desc.firstWhere((b) => b['t'] == 'table') as Map;
+      expect(tb['rows'], hasLength(3));
+      expect(tb['rows'][1][0], [{'x': 'chat_list', 'c': true}]);
       await done(t, s);
     });
 
@@ -741,6 +836,21 @@ void main() {
         await done(t, s);
       });
     }
+
+    testWidgets('điện thoại: bảng rộng cuộn ngang trong khung, không tràn trang', (t) async {
+      final s = await pump(t, size: _phone);
+      await openTaskPage(t, s, 'RA-38');
+      final tw = find.byKey(const ValueKey('tw-table'));
+      expect(tw, findsOneWidget);
+      final view = t.getRect(tw);
+      expect(view.right, lessThanOrEqualTo(390));
+      final inner = t.getSize(find.descendant(of: tw, matching: find.byType(Table)));
+      expect(inner.width, greaterThan(view.width)); // rộng hơn khung → cuộn ngang
+      await t.drag(tw, const Offset(-200, 0));
+      await settle(t, 2);
+      await shot(t, 'p10-table-scroll');
+      await done(t, s);
+    });
 
     testWidgets('điện thoại: bấm việc con vẫn mở trang mới', (t) async {
       final s = await pump(t, size: _phone);
