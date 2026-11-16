@@ -25,6 +25,13 @@ import 'fixtures/teamwork_fake.dart';
 
 const _desk = Size(1440, 900), _phone = Size(390, 844);
 
+/// Đếm số lần mở trang mới.
+class _Pushes extends NavigatorObserver {
+  int n = 0;
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => n++;
+}
+
 void main() {
   final out = Platform.environment['TW_OUT'];
   final today = DateTime.utc(2026, 11, 19);
@@ -190,7 +197,9 @@ void main() {
   // ------------------------------------------------------------ giao diện
   late FakeTw be;
   late FakeLauncher launcher;
+  late _Pushes pushes;
   setUp(() {
+    pushes = _Pushes();
     be = FakeTw();
     launcher = FakeLauncher();
   });
@@ -213,6 +222,7 @@ void main() {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: buildTheme(dark ? Brightness.dark : Brightness.light),
+        navigatorObservers: [pushes],
         home: child?.call(s) ?? TeamworkHome(store: s, ownsStore: false, initialSection: section, initialProject: project, initialView: view),
       ),
     ));
@@ -354,6 +364,85 @@ void main() {
         await done(t, s);
       });
     }
+
+    testWidgets('mô tả mặc định chỉ xem; Sửa → thanh công cụ + Lưu (base_version) / Huỷ; trống → "Thêm mô tả…"', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-32', ai: false);
+      expect(find.byKey(const ValueKey('desc-view')), findsOneWidget);
+      expect(find.byKey(const ValueKey('desc-editor')), findsNothing);
+      expect(find.text('Yêu cầu'), findsOneWidget);
+      // Chỉ ô soạn bình luận có thanh công cụ.
+      expect(find.byKey(const ValueKey('rt-mention')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('desc-edit')));
+      await settle(t, 3);
+      expect(find.byKey(const ValueKey('desc-editor')), findsOneWidget);
+      expect(find.byKey(const ValueKey('rt-mention')), findsNWidgets(2));
+      await shot(t, 'd5b-desc-edit');
+      await t.tap(find.byKey(const ValueKey('desc-cancel')));
+      await settle(t, 2);
+      expect(find.byKey(const ValueKey('desc-view')), findsOneWidget);
+      // Bấm đúp vào chữ cũng vào chế độ sửa; sửa rồi Lưu.
+      await t.tap(find.text('Yêu cầu'));
+      await t.pump(const Duration(milliseconds: 60));
+      await t.tap(find.text('Yêu cầu'));
+      await settle(t, 3);
+      expect(find.byKey(const ValueKey('desc-editor')), findsOneWidget);
+      await t.enterText(find.descendant(of: find.byKey(const ValueKey('desc-editor')), matching: find.byType(TextField)).first, 'Mục tiêu mới');
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('desc-save')));
+      await settle(t);
+      final b = be.bodies['PATCH /tw/api/tasks/t-32']!;
+      expect(b['base_version'], 3);
+      expect(((b['description'] as List).first as Map)['r'].first['x'], 'Mục tiêu mới');
+      expect(find.byKey(const ValueKey('desc-view')), findsOneWidget);
+      expect(s.descDrafts, isEmpty);
+      // Việc chưa có mô tả.
+      await t.pageBack();
+      await settle(t, 2);
+      await openTaskPage(t, s, 'RA-44', ai: false);
+      expect(find.text('Thêm mô tả…'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('desc-placeholder')));
+      await settle(t, 3);
+      expect(find.byKey(const ValueKey('desc-editor')), findsOneWidget);
+      await done(t, s);
+    });
+
+    testWidgets('máy tính: bấm việc con mở khung bên phải (không mở trang), bấm việc khác thay nội dung', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-32');
+      final before = pushes.n;
+      await t.tap(find.byKey(const ValueKey('sub-RA-63')));
+      await settle(t, 8);
+      expect(pushes.n, before);
+      expect(find.byKey(const ValueKey('task-panel')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const ValueKey('task-panel')), matching: find.text('RA-63')), findsOneWidget);
+      expect(find.byKey(const ValueKey('panel-full')), findsOneWidget);
+      expect(find.text('Tóm tắt bình luận'), findsNothing); // khung AI nhường chỗ
+      await shot(t, 'd5c-subtask-panel');
+      // Bấm liên kết RA-41 ở trang chính: khung đổi nội dung.
+      await t.tap(find.text('RA-41').first);
+      await settle(t, 8);
+      expect(pushes.n, before);
+      expect(find.descendant(of: find.byKey(const ValueKey('task-panel')), matching: find.text('Viết tài liệu hướng dẫn đại lý')), findsWidgets);
+      await t.tap(find.byKey(const ValueKey('panel-close')));
+      await settle(t, 2);
+      expect(find.byKey(const ValueKey('task-panel')), findsNothing);
+      await done(t, s);
+    });
+
+    testWidgets('máy tính: bấm thẻ Kanban mở khung bên phải; nút mở trang đầy đủ', (t) async {
+      final s = await pump(t, project: 'RA', view: 'kanban');
+      final before = pushes.n;
+      await t.tap(find.byKey(const ValueKey('card-RA-35')));
+      await settle(t, 8);
+      expect(pushes.n, before);
+      expect(find.byKey(const ValueKey('task-panel')), findsOneWidget);
+      await shot(t, 'd2b-kanban-panel');
+      await t.tap(find.byKey(const ValueKey('panel-full')));
+      await settle(t, 8);
+      expect(pushes.n, before + 1);
+      await done(t, s);
+    });
 
     testWidgets('kéo thẻ Kanban sang "Chờ duyệt" → move có status_id + before', (t) async {
       final s = await pump(t, project: 'RA', view: 'kanban');
@@ -533,6 +622,19 @@ void main() {
         await done(t, s);
       });
     }
+
+    testWidgets('điện thoại: bấm việc con vẫn mở trang mới', (t) async {
+      final s = await pump(t, size: _phone);
+      await openTaskPage(t, s, 'RA-32');
+      final before = pushes.n;
+      await t.scrollUntilVisible(find.byKey(const ValueKey('sub-RA-63')), 200, scrollable: find.byType(Scrollable).first);
+      await t.tap(find.byKey(const ValueKey('sub-RA-63')));
+      await settle(t, 8);
+      expect(pushes.n, before + 1);
+      expect(find.byKey(const ValueKey('task-panel')), findsNothing);
+      expect(find.text('Viết test tồn kho'), findsWidgets);
+      await done(t, s);
+    });
 
     testWidgets('cài đặt trạng thái trên điện thoại (sửa: màu, nhóm, bắt đầu)', (t) async {
       final s = await pump(t, size: _phone, dark: true);
