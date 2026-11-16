@@ -319,7 +319,7 @@ class FakeTw {
         if ((x = m(r'/tasks/([\w-]+)')) != null) {
           final t = task(x![1]!);
           if (req.method == 'PATCH') {
-            t.addAll(body..remove('base_version'));
+            t.addAll(Map.of(body)..remove('base_version'));
             if (body.containsKey('status_id')) t['category'] = statuses.firstWhere((s) => s['id'] == body['status_id'])['category'];
             t['version'] = (t['version'] as int) + 1;
             return _ok({'task': t});

@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../todo/model.dart';
 import 'api.dart';
 import 'live.dart';
 import 'model.dart';
@@ -51,6 +52,8 @@ class TwStore extends ChangeNotifier {
   String? error;
   /// Tăng khi một việc đổi từ ngoài (WebSocket): trang chi tiết đang mở tải lại.
   final Map<String, int> taskRev = {};
+  /// Bản nháp mô tả đang sửa theo id việc (đóng trang không mất).
+  final Map<String, List<TBlock>> descDrafts = {};
   /// Lệnh chờ gửi lại khi có mạng: {m, p, b}.
   final List<Map<String, dynamic>> queue = [];
 

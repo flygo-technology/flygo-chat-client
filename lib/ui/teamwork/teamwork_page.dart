@@ -350,6 +350,8 @@ class TwProjectScreen extends StatefulWidget {
 
 class _TwProjectScreenState extends State<TwProjectScreen> {
   late String _view = widget.initialView;
+  /// Máy tính: việc đang mở ở khung bên phải.
+  String? _panel;
   TwStore get store => widget.store;
 
   @override
@@ -394,7 +396,7 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
       return widget.embedded ? body : Scaffold(appBar: AppBar(), body: body);
     }
     final pr = f.project;
-    void open(TwTask t) => openTask(context, store, t.key);
+    void open(TwTask t) => widget.embedded ? setState(() => _panel = t.key) : openTask(context, store, t.key);
     final viewWidget = switch (_view) {
       'list' => TwListView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
       'gantt' => TwGanttView(store: store, project: f, filter: widget.filter, onOpen: open),
@@ -499,7 +501,12 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
         ]),
       ),
       if (_view != 'overview') FilterBar(store: store, project: f, filter: widget.filter, showGroup: _view == 'list', onChanged: _changed),
-      Expanded(child: viewWidget),
+      Expanded(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(child: viewWidget),
+          if (_panel != null) TwTaskSidePanel(store: store, taskKey: _panel!, onOpenTask: (k) => setState(() => _panel = k), onClose: () => setState(() => _panel = null)),
+        ]),
+      ),
     ]);
   }
 

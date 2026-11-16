@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../common.dart' show pickFilesOrReport;
 import '../todo/model.dart';
 import 'ai_panel.dart';
+import 'api.dart';
 import 'comments.dart';
 import 'look.dart';
 import 'model.dart';
@@ -20,11 +21,16 @@ Future<void> openTask(BuildContext context, TwStore store, String idOrKey) =>
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwTaskPage(store: store, idOrKey: idOrKey)));
 
 class TwTaskPage extends StatefulWidget {
-  const TwTaskPage({super.key, required this.store, required this.idOrKey, this.showAi});
+  const TwTaskPage({super.key, required this.store, required this.idOrKey, this.showAi, this.embedded = false, this.onOpenTask, this.onClose});
   final TwStore store;
   final String idOrKey;
   /// Kiểm thử / ảnh chụp: mở sẵn khung AI.
   final bool? showAi;
+  /// Nằm trong khung bên phải (máy tính): bố cục một cột, có nút đóng / mở trang đầy đủ, không có thanh ứng dụng.
+  final bool embedded;
+  /// Bấm việc con / việc liên kết: cha quyết định mở ở đâu (khung bên phải thay nội dung).
+  final void Function(String key)? onOpenTask;
+  final VoidCallback? onClose;
   @override
   State<TwTaskPage> createState() => _TwTaskPageState();
 }
@@ -32,15 +38,17 @@ class TwTaskPage extends StatefulWidget {
 class _TwTaskPageState extends State<TwTaskPage> {
   TwTaskDetail? _d;
   String? _err;
-  int _rev = -1, _descRev = 0;
+  int _rev = -1;
   late bool _ai = widget.showAi ?? true;
   String _tab = 'comments';
   List<TwActivity>? _activity;
   final _title = TextEditingController();
   final _titleFocus = FocusNode();
   final _comments = GlobalKey<TwCommentsState>();
-  Timer? _descSave;
-  List<TBlock>? _descPending;
+  /// Đang sửa mô tả; bản nháp giữ trong kho (đóng trang / mất mạng không mất, mở lại tiếp tục sửa).
+  bool _editingDesc = false, _savingDesc = false;
+  /// Việc đang mở ở khung bên phải (máy tính).
+  String? _panelKey;
   String? _addingSubFor;
   final _subCtl = TextEditingController();
 
@@ -62,7 +70,6 @@ class _TwTaskPageState extends State<TwTaskPage> {
   @override
   void dispose() {
     store.removeListener(_onStore);
-    _flushDesc();
     _title.dispose();
     _titleFocus.dispose();
     _subCtl.dispose();
@@ -83,9 +90,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
       if (store.fullOf(d.task.projectId) == null) await store.openProject(d.task.projectId);
       if (!mounted) return;
       setState(() {
-        final descChanged = _d == null || _descPending == null && blocksText(_d!.task.description) != blocksText(d.task.description);
+        final first = _d == null;
         _d = d;
-        if (descChanged) _descRev++;
+        if (first && store.descDrafts.containsKey(d.task.id)) _editingDesc = true;
         if (!_titleFocus.hasFocus) _title.text = d.task.title;
         _err = null;
       });
@@ -123,32 +130,51 @@ class _TwTaskPageState extends State<TwTaskPage> {
     await _patch({'title': v});
   }
 
-  void _descChanged(List<TBlock> b) {
-    _descPending = b;
-    _descSave?.cancel();
-    _descSave = Timer(const Duration(milliseconds: 900), _flushDesc);
+  void _startEdit() {
+    if (!canEdit) return;
+    store.descDrafts.putIfAbsent(t.id, () => [for (final b in t.description) b.clone()]);
+    setState(() => _editingDesc = true);
   }
 
-  Future<void> _flushDesc() async {
-    _descSave?.cancel();
-    final b = _descPending;
-    if (b == null || _d == null) return;
-    _descPending = null;
+  void _descChanged(List<TBlock> b) => store.descDrafts[t.id] = b;
+
+  Future<void> _cancelEdit() async {
+    final draft = store.descDrafts[t.id];
+    if (draft != null && blocksText(draft) != blocksText(t.description) && !await confirm(context, 'Bỏ thay đổi?', 'Nội dung mô tả đang sửa sẽ mất.', ok: 'Bỏ', danger: true)) return;
+    store.descDrafts.remove(t.id);
+    if (mounted) setState(() => _editingDesc = false);
+  }
+
+  /// Lưu mô tả kèm base_version: máy chủ gộp theo khối nếu có người vừa sửa.
+  Future<void> _saveDesc() async {
+    final b = store.descDrafts[t.id];
+    if (b == null || _d == null) return setState(() => _editingDesc = false);
+    setState(() => _savingDesc = true);
     try {
       final r = await store.api.updateTask(t.id, {'description': blocksToJson(b), 'base_version': t.version});
-      if (mounted) setState(() => _d!.task = r);
-    } catch (e) {
-      if (e is Exception && e.toString().contains('version')) {
-        _toast('Có người vừa sửa mô tả. Đang tải bản mới.');
-        unawaited(_load());
-      } else {
-        _toast('$e');
+      store.descDrafts.remove(t.id);
+      if (mounted) {
+        setState(() {
+          _d!.task = r;
+          _editingDesc = false;
+        });
       }
+    } catch (e) {
+      _toast(TwApi.isOffline(e) ? 'Mất mạng: bản nháp vẫn giữ trên máy, lưu lại khi có mạng' : '$e');
+    } finally {
+      if (mounted) setState(() => _savingDesc = false);
     }
   }
 
+  /// Mở việc con / việc liên kết: khung bên phải (máy tính), trang mới (điện thoại).
+  void _openSub(String key) {
+    if (widget.onOpenTask != null) return widget.onOpenTask!(key);
+    if (!widget.embedded && MediaQuery.sizeOf(context).width >= 760) return setState(() => _panelKey = key);
+    openTask(context, store, key);
+  }
+
   void _onMention(String kind, String id) {
-    if (kind == 'task') openTask(context, store, id);
+    if (kind == 'task') _openSub(id);
   }
 
   // ------------------------------------------------------------ thao tác
@@ -349,6 +375,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
     final look = TwLook.of(context);
     final w = MediaQuery.sizeOf(context).width;
     final d = _d;
+    if (d == null && widget.embedded) {
+      return Material(color: look.bg, child: Center(child: _err == null ? const CircularProgressIndicator() : Text(_err!, style: TextStyle(color: look.red))));
+    }
     if (d == null) {
       return Scaffold(
         backgroundColor: look.bg,
@@ -356,8 +385,12 @@ class _TwTaskPageState extends State<TwTaskPage> {
         body: Center(child: _err == null ? const CircularProgressIndicator() : Text(_err!, style: TextStyle(color: look.red))),
       );
     }
+    if (widget.embedded) return _embedded(look);
     final wide = w >= 760, huge = w >= 1180;
     final body = _body(look, wide);
+    final panel = _panelKey == null
+        ? null
+        : TwTaskSidePanel(store: store, taskKey: _panelKey!, onOpenTask: (k) => setState(() => _panelKey = k), onClose: () => setState(() => _panelKey = null));
     return Scaffold(
       backgroundColor: look.bg,
       appBar: AppBar(
@@ -393,8 +426,10 @@ class _TwTaskPageState extends State<TwTaskPage> {
       body: wide
           ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Expanded(child: body),
-              Container(width: 300, decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))), child: SingleChildScrollView(padding: const EdgeInsets.all(18), child: _props(look, true))),
-              if (huge && _ai)
+              if (panel == null || huge)
+                Container(width: 300, decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))), child: SingleChildScrollView(padding: const EdgeInsets.all(18), child: _props(look, true))),
+              ?panel,
+              if (panel == null && huge && _ai)
                 SizedBox(
                   width: 340,
                   child: TwAiPanel(
@@ -409,6 +444,80 @@ class _TwTaskPageState extends State<TwTaskPage> {
             ])
           : body,
     );
+  }
+
+  /// Khung bên phải: tiêu đề nhỏ (mã việc, mở trang đầy đủ, AI, đóng) + nội dung một cột.
+  Widget _embedded(TwLook look) => Material(
+        color: look.bg,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(
+            height: 48,
+            padding: const EdgeInsets.only(left: 16, right: 4),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: look.divider))),
+            child: Row(children: [
+              if (_d!.parentKey != null) ...[
+                InkWell(onTap: () => _openSub(_d!.parentKey!), child: Text(_d!.parentKey!, style: TextStyle(fontSize: 13, color: look.sub))),
+                Icon(Icons.chevron_right, size: 16, color: look.sub),
+              ],
+              Text(t.key, style: TextStyle(fontSize: 13, color: look.sub, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              IconButton(key: const ValueKey('panel-ai'), tooltip: 'AI hỗ trợ', icon: Icon(Icons.auto_awesome, size: 20, color: look.ai), onPressed: _openAi),
+              IconButton(
+                key: const ValueKey('panel-full'),
+                tooltip: 'Mở trang đầy đủ',
+                icon: const Icon(Icons.open_in_full, size: 19),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwTaskPage(store: store, idOrKey: t.key))),
+              ),
+              IconButton(key: const ValueKey('panel-close'), tooltip: 'Đóng', icon: const Icon(Icons.close, size: 20), onPressed: widget.onClose),
+            ]),
+          ),
+          Expanded(child: _body(look, false)),
+        ]),
+      );
+
+  /// Mô tả: mặc định chỉ xem; sửa bằng nút bút chì hoặc bấm đúp vào chữ, thanh công cụ chỉ hiện khi đang sửa.
+  Widget _description(TwLook look) {
+    if (_editingDesc && canEdit) {
+      return Column(key: const ValueKey('desc-editor'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TwRichEditor(blocks: store.descDrafts[t.id] ?? t.description, onChanged: _descChanged, store: store, projectId: t.projectId, autofocus: true),
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+          TextButton(key: const ValueKey('desc-cancel'), onPressed: _savingDesc ? null : _cancelEdit, child: const Text('Huỷ')),
+          const SizedBox(width: 6),
+          FilledButton(key: const ValueKey('desc-save'), onPressed: _savingDesc ? null : _saveDesc, child: const Text('Lưu')),
+        ]),
+      ]);
+    }
+    final empty = t.description.every((b) => b.t != 'hr' && b.text.trim().isEmpty);
+    if (empty) {
+      if (!canEdit) return const SizedBox();
+      return InkWell(
+        key: const ValueKey('desc-placeholder'),
+        borderRadius: BorderRadius.circular(8),
+        onTap: _startEdit,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(8)),
+          child: Text('Thêm mô tả…', style: TextStyle(color: look.sub)),
+        ),
+      );
+    }
+    return Stack(key: const ValueKey('desc-view'), children: [
+      GestureDetector(
+        onDoubleTap: canEdit ? _startEdit : null,
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.fromLTRB(2, 4, canEdit ? 40 : 2, 4),
+          child: TwRichView(t.description, onMention: _onMention),
+        ),
+      ),
+      if (canEdit)
+        Positioned(
+          right: 0,
+          top: 0,
+          child: IconButton(key: const ValueKey('desc-edit'), tooltip: 'Sửa mô tả', visualDensity: VisualDensity.compact, icon: Icon(Icons.edit_outlined, size: 18, color: look.sub), onPressed: _startEdit),
+        ),
+    ]);
   }
 
   Widget _section(String title, {String? count, List<Widget> actions = const [], Widget? extra}) => Padding(
@@ -442,10 +551,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
       ),
       if (!wide) Padding(padding: const EdgeInsets.only(top: 6), child: _props(look, false)),
       const SizedBox(height: 10),
-      if (canEdit)
-        TwRichEditor(key: const ValueKey('desc'), blocks: t.description, onChanged: _descChanged, store: store, projectId: t.projectId, revision: _descRev)
-      else if (t.description.isNotEmpty)
-        TwRichView(t.description, onMention: _onMention),
+      _description(look),
       Padding(padding: const EdgeInsets.only(top: 8), child: ReactionRow(reactions: t.reactions, me: store.meId, keyPrefix: 'trx', onToggle: _reactTask)),
       if (t.hasAgent) _agentCard(look),
       _section('Việc con',
@@ -567,7 +673,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
       final kids = childrenOf(_d!.subtasks, s.id);
       out.add(InkWell(
         key: ValueKey('sub-${s.key}'),
-        onTap: () => openTask(context, store, s.key),
+        onTap: () => _openSub(s.key),
         borderRadius: BorderRadius.circular(7),
         child: Padding(
           padding: EdgeInsets.only(left: 6.0 + depth * 22, right: 6, top: 5, bottom: 5),
@@ -760,7 +866,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: InkWell(
-                onTap: () => openTask(context, store, l.otherKey),
+                onTap: () => _openSub(l.otherKey),
                 child: Row(children: [
                   Icon(l.type == 'blocks' ? (l.fromTask == t.id ? Icons.block : Icons.subdirectory_arrow_left) : Icons.link, size: 15, color: l.type == 'blocks' && l.fromTask == t.id ? look.red : look.sub),
                   const SizedBox(width: 4),
@@ -784,5 +890,44 @@ class _TwTaskPageState extends State<TwTaskPage> {
       row('Người theo dõi', t.watchers.isEmpty ? Text('—', style: TextStyle(color: look.sub)) : Text('${t.watchers.length} người${t.watchers.contains(store.meId) ? ' (có bạn)' : ''}')),
       if (t.createdAt > 0) row('Tạo', Text(timeAgo(t.createdAt, store.now), style: TextStyle(color: look.sub))),
     ]);
+  }
+}
+
+/// Khung việc bên phải (máy tính): kéo mép trái để đổi độ rộng; bấm việc khác thì thay nội dung.
+class TwTaskSidePanel extends StatefulWidget {
+  const TwTaskSidePanel({super.key, required this.store, required this.taskKey, required this.onOpenTask, required this.onClose, this.width = 460});
+  final TwStore store;
+  final String taskKey;
+  final void Function(String key) onOpenTask;
+  final VoidCallback onClose;
+  final double width;
+  @override
+  State<TwTaskSidePanel> createState() => _TwTaskSidePanelState();
+}
+
+class _TwTaskSidePanelState extends State<TwTaskSidePanel> {
+  late double _w = widget.width;
+  @override
+  Widget build(BuildContext context) {
+    final look = TwLook.of(context);
+    return Container(
+      key: const ValueKey('task-panel'),
+      width: _w,
+      decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MouseRegion(
+          cursor: SystemMouseCursors.resizeColumn,
+          child: GestureDetector(
+            key: const ValueKey('panel-resize'),
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragUpdate: (d) => setState(() => _w = (_w - d.delta.dx).clamp(340.0, MediaQuery.sizeOf(context).width * .6)),
+            child: const SizedBox(width: 6),
+          ),
+        ),
+        Expanded(
+          child: TwTaskPage(key: ValueKey('panel-${widget.taskKey}'), store: widget.store, idOrKey: widget.taskKey, embedded: true, showAi: false, onOpenTask: widget.onOpenTask, onClose: widget.onClose),
+        ),
+      ]),
+    );
   }
 }
