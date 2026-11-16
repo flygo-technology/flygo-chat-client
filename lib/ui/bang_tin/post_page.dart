@@ -15,6 +15,7 @@ import 'bang_tin_page.dart';
 import 'editor_page.dart';
 import 'feed_widgets.dart';
 import 'gallery.dart';
+import 'photo_list.dart';
 import 'poll_widgets.dart';
 import 'reactions.dart';
 import 'share_sheet.dart';
@@ -28,6 +29,7 @@ class BangTinPostPage extends StatefulWidget {
     required this.postId,
         this.embedded = false,
     this.focusComment = false,
+    this.initialImage,
     this.onClose,
     this.onChanged,
     this.onDeleted,
@@ -42,6 +44,9 @@ class BangTinPostPage extends StatefulWidget {
 
   /// Mở xong thì đặt con trỏ vào ô bình luận.
   final bool focusComment;
+
+  /// Điện thoại, bấm ảnh thứ [initialImage] của bài nhiều ảnh trong bảng tin: mở bài cuộn tới ảnh đó.
+  final int? initialImage;
   final VoidCallback? onClose, onDeleted;
 
   /// Bài thay đổi (cảm xúc, xác nhận): báo để thẻ trong bảng tin cập nhật theo.
@@ -67,14 +72,22 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
   List<Map<String, dynamic>> _cfiles = [];
   int _cuploading = 0;
 
+  /// Khoá từng ảnh trong danh sách ảnh dọc (cuộn tới ảnh vừa bấm); người dùng đã tự cuộn thì thôi.
+  final _imageKeys = <GlobalKey>[];
+  bool _userScrolled = false;
+
   BangTinApi get api => widget.api;
   String get _pid => widget.postId;
+
+  /// Điện thoại (không phải cột phải của máy tính): ảnh xếp dọc, chụm / bấm đúp để phóng to (Sếp, 17/11).
+  bool get _vertical => !widget.embedded && MediaQuery.sizeOf(context).width < 700;
 
   @override
   void initState() {
     super.initState();
     _load().then((_) {
       if (widget.focusComment && mounted) _focus.requestFocus();
+      if ((widget.initialImage ?? 0) > 0 && mounted) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToImage());
     });
   }
 
@@ -103,6 +116,14 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  /// Cuộn tới ảnh vừa bấm, trừ ảnh đầu (để thấy cả nội dung bài) (gọi lại mỗi khi một ảnh phía trên biết tỉ lệ, vì chiều cao của nó đổi).
+  void _scrollToImage() {
+    final i = widget.initialImage;
+    if (i == null || i == 0 || _userScrolled || i >= _imageKeys.length) return;
+    final c = _imageKeys[i].currentContext;
+    if (c != null) Scrollable.ensureVisible(c);
   }
 
   void _toast(String s) => ScaffoldMessenger.of(context).showSnackBar(toast(Text(s)));
@@ -378,15 +399,26 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
           : Column(
               children: [
                 Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      children: [
-                        Center(
-                          child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: _content(context, pal, p)),
+                  child: PhotoZoomScope(
+                    api: api,
+                    builder: (context, locked) => NotificationListener<UserScrollNotification>(
+                      onNotification: (_) {
+                        _userScrolled = true;
+                        return false;
+                      },
+                      child: RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView(
+                          // Đang chụm / phóng to một ảnh: tắt cuộn để hai ngón chỉ phóng to.
+                          physics: locked ? const NeverScrollableScrollPhysics() : null,
+                          padding: const EdgeInsets.only(bottom: 16),
+                          children: [
+                            Center(
+                              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 760), child: _content(context, pal, p)),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -429,7 +461,18 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
               widget.onChanged?.call({'id': _pid, 'poll': pl});
             },
           ),
-        if (images.isNotEmpty) ...[
+        if (images.isNotEmpty && _vertical) ...[
+          const SizedBox(height: 10),
+          PhotoColumn(
+            api: api,
+            ids: images,
+            keys: [
+              for (var i = 0; i < images.length; i++)
+                if (i < _imageKeys.length) _imageKeys[i] else (_imageKeys..add(GlobalKey())).last,
+            ],
+            onAspect: () => WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToImage()),
+          ),
+        ] else if (images.isNotEmpty) ...[
           const SizedBox(height: 10),
           // Trang bài: hiện đủ mọi ảnh (lưới bảng tin chỉ 4 ô đầu).
           for (var i = 0; i < images.length; i += 4)

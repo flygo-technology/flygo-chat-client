@@ -540,14 +540,18 @@ class FeedPostCard extends StatelessWidget {
     this.onReload,
     this.selected = false,
     this.likeKey,
+    this.verticalPhotos = false,
   });
   final Map<String, dynamic> post;
   final BangTinApi api;
   final BangTinMe me;
 
   /// Mở bài; comment = true để con trỏ vào ô bình luận.
-  /// photos = true: ô "+N" của lưới ảnh, mở chi tiết bài kèm đủ ảnh.
-  final void Function({bool comment, bool photos}) onOpen;
+  /// photos = true: ô "+N" của lưới ảnh, mở chi tiết bài kèm đủ ảnh; image: cuộn tới ảnh thứ mấy (ảnh dọc).
+  final void Function({bool comment, bool photos, int? image}) onOpen;
+
+  /// Điện thoại: bấm ảnh của bài nhiều ảnh mở bài với các ảnh xếp dọc, cuộn tới ảnh vừa bấm (Sếp, 17/11).
+  final bool verticalPhotos;
   final ValueChanged<Map<String, dynamic>> onChanged;
   final VoidCallback? onViews;
 
@@ -748,7 +752,12 @@ class FeedPostCard extends StatelessWidget {
                   ids: images.take(4).toList(),
                   total: images.length < 2 ? images.length : (p['image_count'] as num?)?.toInt() ?? images.length,
                   // Ô "+N" (ảnh cuối khi bài nhiều hơn 4 ảnh): mở chi tiết bài với đủ ảnh; ô khác mở trình xem ảnh (Sếp).
-                onTap: (i) => i == 3 && ((p['image_count'] as num?)?.toInt() ?? images.length) > 4 ? onOpen(photos: true) : openBangTinGallery(context, api, images, i),
+                  // Điện thoại, bài nhiều ảnh: ô nào cũng mở bài với ảnh xếp dọc, cuộn tới ảnh vừa bấm.
+                  onTap: (i) {
+                    final n = (p['image_count'] as num?)?.toInt() ?? images.length;
+                    if (verticalPhotos && n > 1) return onOpen(photos: true, image: i);
+                    i == 3 && n > 4 ? onOpen(photos: true) : openBangTinGallery(context, api, images, i);
+                  },
                 ),
               ],
               if (files > 0)
