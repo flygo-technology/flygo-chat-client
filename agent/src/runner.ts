@@ -3346,7 +3346,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   if (outer) reportRuns.set(runId, { outer, card, reply, assigner: post.user_id, channelId: post.channel_id, postId: post.id, dir, signal: ac.signal, sent: 0 });
 
   let release = () => {};
-  gateway.start(runId, post.id);
+  gateway.start(runId, post.id, post.props as Record<string, any> | undefined);
   try {
     if (!out?.noSlot) release = await acquireSlot(ac.signal, () => { card.setStatus("queued"); reply.touch(); });
     if (card.status === "queued") card.setStatus("thinking");

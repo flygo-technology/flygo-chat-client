@@ -3361,7 +3361,7 @@ const Map<String, String> en = {
   'Cấp quyền': "Grant",
   'Đang cập nhật {0}/{1}': "Updating {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "{0} permissions couldn't be changed: {1}",
-  '1. Tải tệp zip và giải nén vào một thư mục cố định.\n2. Mở chrome://extensions (Edge: edge://extensions), bật Chế độ nhà phát triển.\n3. Bấm "Tải tiện ích đã giải nén" và chọn thư mục đó.\n4. Mở Flygo Chat trên máy này: extension tự kết nối.': '1. Download the zip and unzip it into a folder you keep.\n2. Open chrome://extensions (Edge: edge://extensions) and turn on Developer mode.\n3. Click "Load unpacked" and pick that folder.\n4. Open Flygo Chat on this computer: the extension connects by itself.',
+  '1. Tải tệp zip và giải nén vào một thư mục cố định.\n2. Mở chrome://extensions (Edge: edge://extensions), bật Chế độ nhà phát triển.\n3. Bấm "Tải tiện ích đã giải nén" và chọn thư mục đó.\n4. Bấm biểu tượng extension, nhập máy chủ và Đăng nhập Flygo: từ đó extension tự kết nối.': '1. Download the zip and unzip it into a folder you keep.\n2. Open chrome://extensions (Edge: edge://extensions) and turn on Developer mode.\n3. Click "Load unpacked" and pick that folder.\n4. Click the extension icon, enter your server and Sign in with Flygo: from then on it connects by itself.',
   'AGENT NGOÀI (MCP TOKEN)': 'EXTERNAL AGENTS (MCP TOKEN)',
   'Agent dùng trình duyệt này': 'The agent uses this browser',
   'Agent sẽ không dùng được trình duyệt này nữa. Muốn dùng lại thì mở Flygo Chat trên máy đó.': 'Agents will no longer be able to use this browser. To use it again, open Flygo Chat on that computer.',

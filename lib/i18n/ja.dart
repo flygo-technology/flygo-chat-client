@@ -2413,7 +2413,7 @@ const Map<String, String> ja = {
   'Cấp quyền': "付与",
   'Đang cập nhật {0}/{1}': "更新中 {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "{0} 件の権限を変更できませんでした: {1}",
-  '1. Tải tệp zip và giải nén vào một thư mục cố định.\n2. Mở chrome://extensions (Edge: edge://extensions), bật Chế độ nhà phát triển.\n3. Bấm "Tải tiện ích đã giải nén" và chọn thư mục đó.\n4. Mở Flygo Chat trên máy này: extension tự kết nối.': '1. zip をダウンロードし、残しておくフォルダーに展開します。\n2. chrome://extensions（Edge: edge://extensions）を開き、デベロッパーモードをオンにします。\n3.「パッケージ化されていない拡張機能を読み込む」でそのフォルダーを選びます。\n4. このパソコンで Flygo Chat を開くと、拡張機能が自動で接続します。',
+  '1. Tải tệp zip và giải nén vào một thư mục cố định.\n2. Mở chrome://extensions (Edge: edge://extensions), bật Chế độ nhà phát triển.\n3. Bấm "Tải tiện ích đã giải nén" và chọn thư mục đó.\n4. Bấm biểu tượng extension, nhập máy chủ và Đăng nhập Flygo: từ đó extension tự kết nối.': '1. zip をダウンロードし、残しておくフォルダーに展開します。\n2. chrome://extensions（Edge: edge://extensions）を開き、デベロッパーモードをオンにします。\n3.「パッケージ化されていない拡張機能を読み込む」でそのフォルダーを選びます。\n4. 拡張機能のアイコンを押し、サーバーを入力して Flygo でログインします。以降は自動で接続します。',
   'AGENT NGOÀI (MCP TOKEN)': '外部エージェント（MCP トークン）',
   'Agent dùng trình duyệt này': 'エージェントはこのブラウザーを使います',
   'Agent sẽ không dùng được trình duyệt này nữa. Muốn dùng lại thì mở Flygo Chat trên máy đó.': 'エージェントはこのブラウザーを使えなくなります。再び使うには、そのパソコンで Flygo Chat を開いてください。',

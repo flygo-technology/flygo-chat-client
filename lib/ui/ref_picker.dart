@@ -308,7 +308,7 @@ Future<RefSelection?> showRefPicker(BuildContext context, AppState app, String c
                           toggle: () => selBrowser = selBrowser?['id'] == b.id ? null : b.tag,
                           leading: Icon(Icons.public, color: b.online ? pal.accent : pal.sub),
                           title: b.name,
-                          sub: ['@${b.slug}', if (b.machineName.isNotEmpty) b.machineName, b.sameMachine ? tr('máy này') : null, b.online ? tr('trực tuyến') : tr('ngoại tuyến')]
+                          sub: ['@${b.slug}', if (b.machineName.isNotEmpty) b.machineName, b.online ? tr('trực tuyến') : tr('ngoại tuyến')]
                               .whereType<String>()
                               .join(' · '),
                         ),

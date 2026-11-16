@@ -2413,7 +2413,7 @@ const Map<String, String> zh = {
   'Cấp quyền': "授予",
   'Đang cập nhật {0}/{1}': "正在更新 {0}/{1}",
   '{0} quyền chưa đổi được: {1}': "{0} 项权限未能更改：{1}",
-  '1. Tải tệp zip và giải nén vào một thư mục cố định.\n2. Mở chrome://extensions (Edge: edge://extensions), bật Chế độ nhà phát triển.\n3. Bấm "Tải tiện ích đã giải nén" và chọn thư mục đó.\n4. Mở Flygo Chat trên máy này: extension tự kết nối.': '1. 下载 zip 并解压到一个固定的文件夹。\n2. 打开 chrome://extensions（Edge：edge://extensions），开启开发者模式。\n3. 点击“加载已解压的扩展程序”，选择该文件夹。\n4. 在这台电脑上打开 Flygo Chat，扩展会自动连接。',
+  '1. Tải tệp zip và giải nén vào một thư mục cố định.\n2. Mở chrome://extensions (Edge: edge://extensions), bật Chế độ nhà phát triển.\n3. Bấm "Tải tiện ích đã giải nén" và chọn thư mục đó.\n4. Bấm biểu tượng extension, nhập máy chủ và Đăng nhập Flygo: từ đó extension tự kết nối.': '1. 下载 zip 并解压到一个固定的文件夹。\n2. 打开 chrome://extensions（Edge：edge://extensions），开启开发者模式。\n3. 点击“加载已解压的扩展程序”，选择该文件夹。\n4. 点击扩展图标，输入服务器并用 Flygo 登录，之后会自动连接。',
   'AGENT NGOÀI (MCP TOKEN)': '外部代理（MCP 令牌）',
   'Agent dùng trình duyệt này': '代理使用此浏览器',
   'Agent sẽ không dùng được trình duyệt này nữa. Muốn dùng lại thì mở Flygo Chat trên máy đó.': '代理将无法再使用此浏览器。如需再次使用，请在那台电脑上打开 Flygo Chat。',

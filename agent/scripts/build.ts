@@ -3,8 +3,6 @@ const all = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "windows-
 const picked = process.argv.slice(2);
 for (const t of picked) if (!all.includes(t)) { console.error(`nền tảng không hỗ trợ: ${t}`); process.exit(2); }
 const targets = picked.length ? picked : all;
-// Playwright (app Trình duyệt) cần bản vá ws cho Bun trước khi đóng gói.
-if (Bun.spawnSync([process.execPath, "scripts/patch-playwright.ts"], { stdout: "inherit", stderr: "inherit" }).exitCode !== 0) process.exit(1);
 for (const t of targets) {
   const out = `dist/flygo-agent-${t}${t.startsWith("windows") ? ".exe" : ""}`;
   const p = Bun.spawnSync([process.execPath, "build", "src/cli.ts", "--compile", "--minify", `--target=bun-${t}`, ...(t.startsWith("windows") ? ["--windows-hide-console"] : []), "--outfile", out], { stdout: "pipe", stderr: "pipe" });

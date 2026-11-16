@@ -1,16 +1,15 @@
-// "Trình duyệt của tôi": các trình duyệt (extension Flygo Browser Bridge) đã nối với tài khoản, qua phần server của app
-// "Trình duyệt" (vn.flygo.browser) ở <máy chủ chat>/__apps/browser. Dùng cho tag @trình-duyệt khi chat với agent và màn
-// Cài đặt › Trình duyệt của tôi.
+// "Trình duyệt của tôi": các trình duyệt (extension Flygo Browser Bridge) nối với tài khoản qua WebSocket bridge của
+// Flygo Gateway (app vn.flygo.clients ở <máy chủ chat>/__apps/gateway). Dùng cho tag @trình-duyệt khi chat với agent và
+// màn Cài đặt › Trình duyệt của tôi.
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import 'flygo_id.dart';
 
-const kBrowserApp = 'vn.flygo.browser';
+const kBrowserApp = 'vn.flygo.clients';
 
 class MyBrowser {
   MyBrowser(this.raw);
@@ -21,13 +20,11 @@ class MyBrowser {
   String get engine => '${raw['engine'] ?? ''}';
   String get os => '${raw['os'] ?? ''}';
   String get machineName => '${raw['machine_name'] ?? ''}';
-  String? get machine => raw['machine'] as String?;
   bool get online => raw['online'] == true;
   bool get isDefault => raw['default'] == true;
   String? get via => raw['via'] as String?;
   Map<String, dynamic>? get inUseBy => raw['in_use_by'] as Map<String, dynamic>?;
   int get lastSeen => (raw['last_seen'] as num?)?.toInt() ?? 0;
-  bool get sameMachine => machine != null && machine == MyBrowsers.machineIdSync;
 
   /// props.flygo_browser của tin gửi cho agent.
   Map<String, dynamic> get tag => {'id': id, 'slug': slug, 'name': name};
@@ -39,7 +36,7 @@ class MyBrowsers {
   static DateTime _at = DateTime.fromMillisecondsSinceEpoch(0);
   static Map<String, dynamic> prefs = {};
 
-  static String get base => '${kServerUrl.replaceAll(RegExp(r'/+$'), '')}/__apps/browser';
+  static String get base => '${kServerUrl.replaceAll(RegExp(r'/+$'), '')}/__apps/gateway';
   static List<MyBrowser> get cached => _cache;
 
   static Future<Map<String, String>> _headers(String chatToken, {bool json = false}) async {
@@ -108,26 +105,4 @@ class MyBrowsers {
 
   static Future<void> revokeMcpToken(String chatToken, String id) async =>
       _decode(await http.delete(Uri.parse('$base/api/mcp-tokens/$id'), headers: await _headers(chatToken)));
-
-  // ---------------------------------------------------------------- mã máy (cùng công thức với runner flygo-agent)
-  static String? machineIdSync;
-
-  /// sha256("flygo-machine/v1:" + mã máy của hệ điều hành, viết thường), 32 ký tự hex. Chỉ máy tính; điện thoại trả null.
-  static Future<String?> machineId() async {
-    if (machineIdSync != null) return machineIdSync;
-    String? raw;
-    try {
-      if (Platform.isLinux) {
-        raw = (await File('/etc/machine-id').readAsString()).trim();
-      } else if (Platform.isMacOS) {
-        final r = await Process.run('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice']);
-        raw = RegExp(r'"IOPlatformUUID"\s*=\s*"([^"]+)"').firstMatch('${r.stdout}')?.group(1);
-      } else if (Platform.isWindows) {
-        final r = await Process.run('reg', ['query', r'HKLM\SOFTWARE\Microsoft\Cryptography', '/v', 'MachineGuid']);
-        raw = RegExp(r'MachineGuid\s+REG_SZ\s+(\S+)').firstMatch('${r.stdout}')?.group(1);
-      }
-    } catch (_) {}
-    if (raw == null || raw.isEmpty) return null;
-    return machineIdSync = sha256.convert(utf8.encode('flygo-machine/v1:${raw.trim().toLowerCase()}')).toString().substring(0, 32);
-  }
 }

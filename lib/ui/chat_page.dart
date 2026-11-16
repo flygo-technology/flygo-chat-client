@@ -4456,11 +4456,10 @@ class _ComposerState extends State<_Composer> {
     });
     _aiApp = context.read<AppState>();
     _aiApp.aiAsk.addListener(_onAiAsk);
-    // Chat với agent: nạp sẵn danh sách trình duyệt (gợi ý @) và mã máy (agent biết trình duyệt nào cùng máy với mình).
+    // Chat với agent: nạp sẵn danh sách trình duyệt (gợi ý @).
     final here = _aiApp.channels[widget.channelId];
     if (here != null && (here.isAi || _aiApp.isAgentDm(here))) {
       MyBrowsers.list(_aiApp.token).ignore();
-      if (isDesktop) MyBrowsers.machineId().ignore();
     }
     Drafts.load().then((_) {
       if (!mounted || widget.editing != null || _ctl.text.isNotEmpty) return;
@@ -5735,8 +5734,6 @@ class _ComposerState extends State<_Composer> {
             if (widget.threadRoot != null && widget.replyTo != null) 'flygo_quote': widget.replyTo!.id,
             if (_a2aPeers.isNotEmpty) 'flygo_a2a_peers': [for (final x in _a2aPeers) Map.of(x)],
             'flygo_browser': ?_browser,
-            // Mã máy (băm) của máy gửi tin: agent biết trình duyệt nào cùng máy với người dùng.
-            if (_browser != null || _agentChat(app)) 'flygo_machine': ?MyBrowsers.machineIdSync,
             if (_research) 'flygo_mode': 'research',
             if (_tagPeopleProps(text).isNotEmpty) 'flygo_tag_people': _tagPeopleProps(text),
             'flygo_refs': ?_pendingRefs,

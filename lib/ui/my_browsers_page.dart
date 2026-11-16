@@ -30,7 +30,6 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
   @override
   void initState() {
     super.initState();
-    MyBrowsers.machineId().ignore();
     _load();
   }
 
@@ -186,7 +185,7 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
                   Flexible(child: Text(b.name, style: const TextStyle(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),
                   if (b.isDefault) Padding(padding: const EdgeInsets.only(left: 6), child: Icon(Icons.star_rounded, size: 16, color: pal.accent)),
                 ]),
-                Text(['@${b.slug}', b.engine, b.os, b.machineName, if (b.sameMachine) tr('máy này')].where((x) => x.isNotEmpty).join(' · '),
+                Text(['@${b.slug}', b.engine, b.os, b.machineName].where((x) => x.isNotEmpty).join(' · '),
                     style: TextStyle(fontSize: 12.5, color: pal.sub)),
                 Text(status, style: TextStyle(fontSize: 12.5, color: use != null ? const Color(0xFFFF2BD6) : pal.sub)),
               ]),

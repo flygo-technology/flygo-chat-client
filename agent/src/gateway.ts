@@ -11,7 +11,7 @@ export interface FlygoIdConfig {
 }
 
 interface Ticket { token: string; exp: number; receipt: boolean }
-interface Run { postId: string; ticket?: Ticket; pending?: Promise<Ticket>; failed?: string; logged?: boolean }
+interface Run { postId: string; ctx?: string; ticket?: Ticket; pending?: Promise<Ticket>; failed?: string; logged?: boolean }
 
 export interface GatewayTool { name: string; description?: string; inputSchema: any; outputSchema?: any; annotations?: any; _meta?: Record<string, unknown> }
 
@@ -74,7 +74,7 @@ export function createGatewayRuns(o: {
     const t = await fresh(run);
     const r = await f(o.flygoId!.gatewayUrl, {
       method: "POST",
-      headers: { Authorization: `Bearer ${t.token}`, "content-type": "application/json", Accept: "application/json, text/event-stream" },
+      headers: { Authorization: `Bearer ${t.token}`, "content-type": "application/json", Accept: "application/json, text/event-stream", ...(run.ctx ? { "X-Flygo-Context": run.ctx } : {}) },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       signal: AbortSignal.timeout(120_000),
     });
@@ -91,8 +91,14 @@ export function createGatewayRuns(o: {
 
   return {
     enabled,
-    /** Lượt mới theo tin kích hoạt (để lấy biên nhận). */
-    start(key: string, postId: string) { if (enabled && postId) runs.set(key, { postId }); },
+    /** Lượt mới theo tin kích hoạt (để lấy biên nhận). [props] của tin: trình duyệt được tag (props.flygo_browser) đi kèm
+     * mọi lệnh gọi gateway của lượt trong header X-Flygo-Context (gợi ý cho app, không cấp quyền). */
+    start(key: string, postId: string, props?: Record<string, any>) {
+      if (!enabled || !postId) return;
+      const b = props?.flygo_browser;
+      const browser = b && typeof b === "object" ? String(b.id ?? b.slug ?? "") || undefined : typeof b === "string" ? b : undefined;
+      runs.set(key, { postId, ctx: Buffer.from(JSON.stringify({ run: key, ...(browser ? { browser } : {}) })).toString("base64url") });
+    },
     end(key: string) { runs.delete(key); },
     /** Tool của gateway cho lượt; lỗi thì trả rỗng (ghi log một lần). */
     async tools(key: string): Promise<GatewayTool[]> {
