@@ -1,4 +1,5 @@
-// TeamWork: mở phiên agent khi một việc được "Bắt đầu" (bấm nút, hoặc kéo vào trạng thái bắt đầu). Máy chủ tạo lượt chạy
+// TeamWork: mở phiên agent khi một việc được "Bắt đầu" (bấm nút, kéo vào trạng thái bắt đầu) hoặc khi agent được @nhắc
+// trong bình luận (gửi tiếp vào phiên cũ của việc nếu còn). Máy chủ tạo lượt chạy
 // (queued) cho người bấm; app của người đó nhận lượt chạy, mở một phiên AI mới với agent dưới tên người đó (như tab Agents)
 // và gửi bản giao việc. Agent dùng tool TeamWork qua Gateway bằng vé của người giao: chỉ có đúng quyền của người đó.
 import 'package:flutter/material.dart';
@@ -39,6 +40,22 @@ class AppAgentLauncher implements TwAgentLauncher {
   Future<void> stop(String channelId) async {
     if (!state.channels.containsKey(channelId)) return;
     await state.send(channelId, 'Dừng việc này: người giao đã huỷ hoặc giao cho người khác. Không làm tiếp, không sửa gì thêm.');
+  }
+
+  @override
+  Future<bool> sessionUsable(String channelId, String botId) async {
+    final c = state.channels[channelId];
+    if (c == null || c.deleteAt != 0) return false;
+    try {
+      return (await state.channelUsers(channelId)).any((u) => u.id == botId);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> post(String channelId, String text) async {
+    await state.send(channelId, text, props: {'flygo_app': 'vn.flygo.teamwork'});
   }
 
   @override

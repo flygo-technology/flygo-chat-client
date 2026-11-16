@@ -185,6 +185,9 @@ class FakeTw {
         {'emoji': 'rocket', 'users': ['u-hung'], 'count': 1},
       ],
       'attachments': [],
+      'runs': [
+        {'id': 'r-old', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'state': 'review'},
+      ],
     },
     {
       'id': 'c2',
@@ -206,6 +209,30 @@ class FakeTw {
       ],
       'attachments': [
         {'id': 'f-log', 'task_id': 't-32', 'comment_id': 'c2', 'name': 'test-ton-kho.log', 'size': 2048, 'mime': 'text/plain', 'source': 'upload'},
+      ],
+    },
+    {
+      'id': 'c4',
+      'task_id': 't-32',
+      'parent_id': null,
+      'author': 'u-lan',
+      'author_name': 'Lan',
+      'via': 'app',
+      'blocks': [
+        {
+          'id': 'b4',
+          't': 'p',
+          'r': [
+            {'x': '@Claude', 'm': {'k': 'agent', 'id': 'b-claude'}},
+            {'x': ' viết giúp tài liệu API phần tồn kho cho nhóm app.'},
+          ],
+        },
+      ],
+      'created_at': twNow.millisecondsSinceEpoch - 600000,
+      'reactions': [],
+      'attachments': [],
+      'runs': [
+        {'id': 'r-c4', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'running'},
       ],
     },
   ];
@@ -541,7 +568,13 @@ class FakeTw {
 class FakeLauncher implements TwAgentLauncher {
   final launched = <(String, String, String)>[];
   final stopped = <String>[];
+  final posted = <(String, String)>[];
   Set<String> allowed = {'b-claude', 'b-codex'};
+  Set<String> usable = {};
+  @override
+  Future<bool> sessionUsable(String channelId, String botId) async => usable.contains(channelId);
+  @override
+  Future<void> post(String channelId, String text) async => posted.add((channelId, text));
   @override
   Future<bool> canUse(String botId) async => allowed.contains(botId);
   @override

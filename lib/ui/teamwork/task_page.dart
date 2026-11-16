@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 
 import '../common.dart' show pickFilesOrReport;
 import '../todo/model.dart';
-import 'ai_panel.dart';
 import 'api.dart';
 import 'comments.dart';
 import 'look.dart';
@@ -24,7 +23,7 @@ class TwTaskPage extends StatefulWidget {
   const TwTaskPage({super.key, required this.store, required this.idOrKey, this.showAi, this.embedded = false, this.onOpenTask, this.onClose});
   final TwStore store;
   final String idOrKey;
-  /// Kiểm thử / ảnh chụp: mở sẵn khung AI.
+  /// Không còn dùng (khung AI đã bỏ); giữ để gọi cũ không lỗi.
   final bool? showAi;
   /// Nằm trong khung bên phải (máy tính): bố cục một cột, có nút đóng / mở trang đầy đủ, không có thanh ứng dụng.
   final bool embedded;
@@ -40,7 +39,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
   String? _err;
   int _rev = -1;
   /// Cột phải (máy tính): comments | activity | ai.
-  late String _right = widget.showAi == true ? 'ai' : 'comments';
+  String _right = 'comments';
   String _tab = 'comments';
   List<TwActivity>? _activity;
   final _title = TextEditingController();
@@ -169,6 +168,15 @@ class _TwTaskPageState extends State<TwTaskPage> {
     } finally {
       if (mounted) setState(() => _savingDesc = false);
     }
+  }
+
+  /// Phiên mới nhất của từng agent trên việc này.
+  Map<String, String> get _sessions {
+    final out = <String, String>{};
+    for (final r in _d?.runs ?? const <TwRun>[]) {
+      if (r.sessionChannel != null) out.putIfAbsent(r.botId, () => r.sessionChannel!);
+    }
+    return out;
   }
 
   /// Mở việc con / việc liên kết: khung bên phải (máy tính), trang mới (điện thoại).
@@ -365,14 +373,6 @@ class _TwTaskPageState extends State<TwTaskPage> {
     }
   }
 
-  void _assignAgent() async {
-    final r = await pickAssignees(context, store, current: t.assignees, projectId: t.projectId);
-    if (r == null) return;
-    await store.setAssignees(t, r);
-    unawaited(_load(quiet: true));
-  }
-
-  void _openAi() => showAiSheet(context, store, _d!, onChanged: () => _load(quiet: true), onDraft: (b) => _comments.currentState?.setDraft(b), onAssignAgent: _assignAgent);
 
   // ------------------------------------------------------------ giao diện
   @override
@@ -408,7 +408,6 @@ class _TwTaskPageState extends State<TwTaskPage> {
         Text(t.key, style: crumb.copyWith(color: wide ? look.text : look.sub, fontWeight: wide ? FontWeight.w700 : null)),
       ]),
       actions: [
-        if (!wide) IconButton(key: const ValueKey('ai-open'), tooltip: 'AI hỗ trợ', icon: Icon(Icons.auto_awesome, color: look.ai), onPressed: _openAi),
         if (wide) IconButton(tooltip: 'Chép link', iconSize: 20, icon: const Icon(Icons.link), onPressed: () => _menu('copy')),
         IconButton(
           key: const ValueKey('watch'),
@@ -519,9 +518,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
         onSubmitted: (_) => _saveTitle(),
       );
 
-  /// Cột phải: tab Bình luận / Hoạt động / AI hỗ trợ; ô soạn bình luận ghim dưới cùng.
+  /// Cột phải: tab Bình luận / Hoạt động; ô soạn bình luận ghim dưới cùng (@nhắc agent để nó làm theo).
   Widget _rightTabs(TwLook look) {
-    Widget tab(String k, String label, {IconData? icon}) => InkWell(
+    Widget tab(String k, String label) => InkWell(
           key: ValueKey('tab-$k'),
           onTap: () {
             setState(() => _right = k);
@@ -531,24 +530,13 @@ class _TwTaskPageState extends State<TwTaskPage> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
             decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _right == k ? look.accent : Colors.transparent, width: 2))),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (icon != null) ...[Icon(icon, size: 15, color: look.ai), const SizedBox(width: 5)],
               Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _right == k ? look.accent : look.sub)),
             ]),
           ),
         );
     final content = switch (_right) {
       'activity' => SingleChildScrollView(padding: const EdgeInsets.fromLTRB(14, 6, 14, 20), child: _activityList(look)),
-      'ai' => TwAiPanel(
-          store: store,
-          detail: _d!,
-          onChanged: () => _load(quiet: true),
-          onDraft: (b) {
-            setState(() => _right = 'comments');
-            WidgetsBinding.instance.addPostFrameCallback((_) => _comments.currentState?.setDraft(b));
-          },
-          onAssignAgent: _assignAgent,
-        ),
-      _ => TwComments(key: _comments, store: store, task: t, onMention: _onMention, canComment: p != null, pinned: true),
+      _ => TwComments(key: _comments, store: store, task: t, onMention: _onMention, sessions: _sessions, canComment: p != null, pinned: true),
     };
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Container(
@@ -557,7 +545,6 @@ class _TwTaskPageState extends State<TwTaskPage> {
         child: Row(children: [
           tab('comments', 'Bình luận${t.commentCount > 0 ? ' ${t.commentCount}' : ''}'),
           tab('activity', 'Hoạt động'),
-          tab('ai', 'AI hỗ trợ', icon: Icons.auto_awesome),
         ]),
       ),
       Expanded(child: content),
@@ -620,17 +607,6 @@ class _TwTaskPageState extends State<TwTaskPage> {
           count: direct.isEmpty ? null : '$doneN/${direct.length}',
           extra: direct.isEmpty ? null : ThinProgress(doneN / direct.length),
           actions: [
-            if (canEdit)
-              TextButton.icon(
-                key: const ValueKey('ai-breakdown'),
-                style: btn.copyWith(foregroundColor: WidgetStatePropertyAll(look.ai)),
-                onPressed: () => MediaQuery.sizeOf(context).width >= 760 && !widget.embedded ? setState(() {
-                  _panelKey = null;
-                  _right = 'ai';
-                }) : _openAi(),
-                icon: const Icon(Icons.auto_awesome, size: 15),
-                label: Text(dense && !widget.embedded ? 'AI chia nhỏ' : 'AI'),
-              ),
             if (canEdit) TextButton.icon(key: const ValueKey('sub-add'), style: btn, onPressed: () => setState(() => _addingSubFor = t.id), icon: const Icon(Icons.add, size: 16), label: const Text('Thêm')),
           ]),
       ..._subtree(t.id, 0, look),
@@ -665,7 +641,6 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ],
               Text(t.key, style: TextStyle(fontSize: 13, color: look.sub, fontWeight: FontWeight.w600)),
               const Spacer(),
-              IconButton(key: const ValueKey('panel-ai'), tooltip: 'AI hỗ trợ', icon: Icon(Icons.auto_awesome, size: 20, color: look.ai), onPressed: _openAi),
               IconButton(
                 key: const ValueKey('panel-full'),
                 tooltip: 'Mở trang đầy đủ',
@@ -755,7 +730,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
       ]),
       Divider(height: 1, color: look.divider),
       if (_tab == 'comments')
-        TwComments(key: _comments, store: store, task: t, onMention: _onMention, canComment: p != null)
+        TwComments(key: _comments, store: store, task: t, onMention: _onMention, sessions: _sessions, canComment: p != null)
       else
         _activityList(look),
     ]));

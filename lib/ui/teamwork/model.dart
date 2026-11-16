@@ -298,9 +298,18 @@ class TwRun {
     this.error,
     this.createdAt = 0,
     this.updatedAt = 0,
+    this.kind = 'start',
+    this.commentId,
+    this.sessionHint,
   });
   final String id, taskId, taskKey, botId, botName, startedBy;
   String state; // queued | running | review | done | failed | cancelled | blocked
+  /// start (Bắt đầu / trạng thái bắt đầu) | mention (@nhắc agent trong bình luận).
+  final String kind;
+  /// Bình luận đã @nhắc agent (lượt chạy mention).
+  final String? commentId;
+  /// Phiên sẵn có của việc + agent + người này: gửi tiếp vào đó thay vì mở phiên mới.
+  final String? sessionHint;
   String? sessionChannel, error;
   int createdAt, updatedAt;
   bool get active => state == 'queued' || state == 'running';
@@ -316,9 +325,15 @@ class TwRun {
         error: _ns(m['error']),
         createdAt: _i(m['created_at']),
         updatedAt: _i(m['updated_at']),
+        kind: _s(m['kind'], 'start'),
+        commentId: _ns(m['comment_id']),
+        sessionHint: _ns(m['session_hint']),
       );
   Map<String, dynamic> toJson() => {
         'id': id,
+        'kind': kind,
+        'comment_id': commentId,
+        'session_hint': sessionHint,
         'task_id': taskId,
         'task_key': taskKey,
         'bot_id': botId,
@@ -560,9 +575,12 @@ class TwComment {
     this.reactions = const [],
     this.attachments = const [],
     this.agentName,
+    this.runs = const [],
   });
   final String id, taskId, author, authorName, via;
   final String? agentName;
+  /// Lượt chạy agent mà bình luận này (@nhắc agent) tạo ra.
+  List<TwRun> runs;
   final String? parentId;
   List<TBlock> blocks;
   final int createdAt;
@@ -588,6 +606,7 @@ class TwComment {
         reactions: [for (final r in _maps(m['reactions'])) TwReaction.fromJson(r)],
         attachments: [for (final a in _maps(m['attachments'])) TwAttachment.fromJson(a)],
         agentName: _ns(m['agent_name']),
+        runs: [for (final r in _maps(m['runs'])) TwRun.fromJson(r)],
       );
 }
 
@@ -664,44 +683,6 @@ class TwNotification {
   Map<String, dynamic> toJson() => {'id': id, 'type': type, 'text': text, 'task_key': taskKey, 'task_id': taskId, 'project_id': projectId, 'actor_name': actorName, 'at': at, 'read': read};
 }
 
-/// Kết quả "AI hỗ trợ": chữ, đề xuất việc con, đề xuất người làm + ngày. Không ghi gì cho tới khi người dùng duyệt.
-class TwAiResult {
-  const TwAiResult({this.text, this.subtasks = const [], this.suggestion});
-  final String? text;
-  final List<TwAiSubtask> subtasks;
-  final TwAiSuggestion? suggestion;
-  factory TwAiResult.fromJson(Map j) => TwAiResult(
-        text: _ns(j['text']),
-        subtasks: [for (final s in _maps(j['subtasks'])) TwAiSubtask.fromJson(s)],
-        suggestion: j['suggestion'] is Map ? TwAiSuggestion.fromJson(j['suggestion'] as Map) : null,
-      );
-}
-
-class TwAiSubtask {
-  TwAiSubtask({required this.title, this.assignee, this.start, this.due, this.selected = true});
-  String title;
-  TwAssignee? assignee;
-  DateTime? start, due;
-  bool selected;
-  factory TwAiSubtask.fromJson(Map m) => TwAiSubtask(
-        title: _s(m['title']),
-        assignee: m['assignee'] is Map
-            ? TwAssignee.fromJson(m['assignee'] as Map)
-            : (_ns(m['assignee']) == null ? null : TwAssignee(kind: 'user', id: _s(m['assignee']), name: _s(m['assignee_name'], _s(m['assignee'])))),
-        start: parseDay(m['start']),
-        due: parseDay(m['due']),
-      );
-}
-
-class TwAiSuggestion {
-  const TwAiSuggestion({this.assignees = const [], this.start, this.due, this.reason = ''});
-  final List<TwAssignee> assignees;
-  final DateTime? start, due;
-  final String reason;
-  factory TwAiSuggestion.fromJson(Map m) =>
-      TwAiSuggestion(assignees: [for (final a in _maps(m['assignees'])) TwAssignee(kind: _s(a['kind'], 'user'), id: _s(a['id']), name: _s(a['name'], _s(a['id'])))], start: parseDay(m['start']), due: parseDay(m['due']), reason: _s(m['reason']));
-}
-
 /// Bộ lọc đã lưu.
 class TwView {
   TwView({required this.id, required this.name, this.shared = false, this.query = const {}, this.owner = ''});
@@ -773,6 +754,28 @@ class TwTableBlock extends TBlock {
       };
 }
 
+/// Khối mã nhiều dòng (một khối cho cả đoạn), kèm ngôn ngữ nếu có. Không định dạng chữ bên trong.
+class TwCodeBlock extends TBlock {
+  TwCodeBlock({super.id, required String code, this.lang}) : super(t: 'code', r: [TRun(code)]);
+  String? lang;
+  String get code => r.map((x) => x.x).join();
+  set code(String v) => r = [TRun(v)];
+  @override
+  TwCodeBlock clone() => TwCodeBlock(id: id, code: code, lang: lang);
+  @override
+  Map<String, dynamic> toJson() => {'id': id, 't': 'code', 'r': [if (code.isNotEmpty) {'x': code}], if (lang != null && lang!.isNotEmpty) 'lang': lang};
+}
+
+/// Mục danh sách số bắt đầu khác 1 (máy chủ gửi start).
+class TwOlBlock extends TBlock {
+  TwOlBlock({super.id, super.r, super.ind, required this.start}) : super(t: 'ol');
+  int start;
+  @override
+  TBlock clone() => t == 'ol' ? TwOlBlock(id: id, r: [for (final x in r) TRun(x.x, x.f)], ind: ind, start: start) : TBlock(id: id, t: t, r: [for (final x in r) TRun(x.x, x.f)], done: done, ind: ind);
+  @override
+  Map<String, dynamic> toJson() => {...super.toJson(), if (t == 'ol') 'start': start};
+}
+
 List<TBlock> blocksFromJson(Object? v) {
   if (v is String) return markdownToBlocks(v);
   return [
@@ -786,10 +789,31 @@ List<TBlock> blocksFromJson(Object? v) {
           ],
           align: _strs(b['align']),
         )
+      else if (b['t'] == 'code')
+        TwCodeBlock(id: _ns(b['id']), code: [for (final x in _maps(b['r'])) _s(x['x'])].join(), lang: _ns(b['lang']))
+      else if (b['t'] == 'ol' && b['start'] is num && (b['start'] as num).toInt() != 1)
+        TwOlBlock(id: _ns(b['id']), r: [for (final x in _maps(b['r'])) _runFrom(x)], ind: _i(b['ind']), start: (b['start'] as num).toInt())
       else
         () {
           final blk = TBlock.fromJson(b);
           blk.r = [for (final x in _maps(b['r'])) _runFrom(x)];
+          // Kiểu khối lạ (bản máy chủ mới hơn) không có chữ: hiện chữ của mọi chuỗi bên trong để không mất nội dung.
+          if (blk.r.isEmpty && !const ['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'check', 'quote', 'hr'].contains(blk.t)) {
+            final words = <String>[];
+            void walk(Object? x) {
+              if (x is Map) {
+                if (x['x'] is String) words.add(x['x'] as String);
+                x.forEach((k, v) => k == 'x' ? null : walk(v));
+              } else if (x is List) {
+                x.forEach(walk);
+              }
+            }
+
+            walk(b);
+            blk
+              ..t = 'p'
+              ..r = [TRun(words.join(' '))];
+          }
           return blk;
         }(),
   ];
@@ -797,7 +821,7 @@ List<TBlock> blocksFromJson(Object? v) {
 
 List<Map<String, dynamic>> blocksToJson(List<TBlock> blocks) => [
       for (final b in blocks)
-        b is TwTableBlock
+        b is TwTableBlock || b is TwCodeBlock
             ? b.toJson()
             : () {
                 final j = b.toJson();
@@ -901,7 +925,7 @@ List<TBlock> markdownToBlocks(String md) {
         code.add(lines[n]);
         n++;
       }
-      out.add(TBlock(t: 'code', r: [TRun(code.join('\n'))]));
+      out.add(TwCodeBlock(code: code.join('\n'), lang: l.trim().substring(3).trim().isEmpty ? null : l.trim().substring(3).trim()));
       continue;
     }
     final table = parseGfmTable(lines, n);
@@ -1000,7 +1024,7 @@ String blocksToMarkdown(List<TBlock> blocks) {
       'ol' => '${ind}1. $text',
       'check' => '$ind- [${b.done ? 'x' : ' '}] $text',
       'quote' => '> $text',
-      'code' => b.text.contains('\n') ? '```\n${b.text}\n```' : '`$text`',
+      'code' => '```${b is TwCodeBlock ? b.lang ?? '' : ''}\n${b.text}\n```',
       'hr' => '---',
       _ => text,
     });

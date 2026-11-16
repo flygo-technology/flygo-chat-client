@@ -1,6 +1,6 @@
 // TeamWork / Làm việc nhóm: dữ liệu (đọc JSON, @nhắc, Markdown, thứ tự, lọc / nhóm, Gantt, bản giao việc), kho (hàng đợi
 // khi mất mạng, nhận lượt chạy agent) và giao diện với backend giả (dự án, Kanban kéo thả, Danh sách, Gantt kéo dời,
-// chi tiết việc, bình luận, cảm xúc, AI hỗ trợ, cài đặt trạng thái, Việc của tôi, tạo việc giao agent, thông báo).
+// chi tiết việc, bình luận, cảm xúc, @nhắc agent, cài đặt trạng thái, Việc của tôi, tạo việc giao agent, thông báo).
 // Ảnh chụp (chạy tay): TW_OUT=<thư mục> flutter test test/teamwork_test.dart (máy tính 1440x900, điện thoại 390x844, sáng + tối).
 import 'dart:async';
 import 'dart:io';
@@ -194,6 +194,25 @@ void main() {
   });
 
   group('kho', () {
+    test('lượt chạy @nhắc: gửi vào phiên sẵn có (session_hint) nếu còn dùng được, không thì mở phiên mới', () async {
+      final be = FakeTw();
+      final l = FakeLauncher()..usable = {'ch-1'};
+      final s = newTwStore(be, launcher: l);
+      await s.refresh();
+      be.runs.addAll([
+        {'id': 'r-m1', 'kind': 'mention', 'task_id': 't-32', 'comment_id': 'c1', 'bot_id': 'b-codex', 'bot_name': 'Codex', 'started_by': 'u-lan', 'state': 'queued', 'session_hint': 'ch-1'},
+        {'id': 'r-m2', 'kind': 'mention', 'task_id': 't-32', 'comment_id': 'c1', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'started_by': 'u-lan', 'state': 'queued', 'session_hint': 'ch-gone'},
+      ]);
+      await s.checkRuns();
+      expect(l.posted, [('ch-1', 'BRIEF RA-32')]);
+      expect(l.launched.single.$1, 'b-claude');
+      expect(l.launched.single.$2, 'RA-32 · API đặt hàng + đồng bộ tồn kho');
+      expect(be.runs[0]['state'], 'running');
+      expect(be.runs[0]['session_channel'], 'ch-1');
+      expect(be.runs[1]['session_channel'], 'ch-new-b-claude');
+      s.dispose();
+    });
+
     test('mất mạng: sửa áp ngay trên máy, xếp hàng, có mạng thì gửi lại', () async {
       final be = FakeTw();
       final s = newTwStore(be);
@@ -224,7 +243,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(l.launched, hasLength(1));
       expect(l.launched.single.$1, 'b-claude');
-      expect(l.launched.single.$2, 'RA-30 Tóm tắt phản hồi khảo sát 120 đại lý');
+      expect(l.launched.single.$2, 'RA-30 · Tóm tắt phản hồi khảo sát 120 đại lý');
       expect(l.launched.single.$3, 'BRIEF RA-30');
       final run = be.runs.single;
       expect(run['state'], 'running');
@@ -359,7 +378,7 @@ void main() {
         await done(t, s);
       });
 
-      testWidgets('chi tiết việc: mô tả, việc con, tệp, bình luận của agent, AI hỗ trợ ($sfx)', (t) async {
+      testWidgets('chi tiết việc: mô tả, việc con, tệp, bình luận của agent, không còn AI hỗ trợ ($sfx)', (t) async {
         final s = await pump(t, dark: dark, project: 'RA');
         await openTaskPage(t, s, 'RA-32');
         expect(find.text('Việc con'), findsOneWidget);
@@ -368,17 +387,15 @@ void main() {
         expect(find.text('Danh mục hàng.xlsx'), findsOneWidget);
         expect(find.text('Agent · thay Minh'), findsOneWidget);
         expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
-        expect(find.text('Tóm tắt bình luận'), findsNothing);
-        await shot(t, 'd5-task-$sfx');
-        await t.tap(find.byKey(const ValueKey('tab-ai')));
-        await settle(t, 2);
-        expect(find.text('Tóm tắt bình luận'), findsOneWidget);
+        expect(find.byKey(const ValueKey('tab-ai')), findsNothing);
+        expect(find.text('AI hỗ trợ'), findsNothing);
+        expect(find.byKey(const ValueKey('ai-breakdown')), findsNothing);
+        expect(find.byKey(const ValueKey('tab-comments')), findsOneWidget);
+        expect(find.byKey(const ValueKey('tab-activity')), findsOneWidget);
         expect(find.byKey(const ValueKey('agent-card')), findsOneWidget);
         expect(find.textContaining('Chặn'), findsOneWidget);
-        await t.tap(find.byKey(const ValueKey('ai-summarize')));
-        await settle(t);
-        expect(find.textContaining('Rủi ro trễ hạn'), findsOneWidget);
-        await shot(t, 'd5e-ai-tab-$sfx');
+        expect(find.text('Codex đã trả lời'), findsOneWidget); // bình luận @nhắc agent
+        await shot(t, 'd5-task-$sfx');
         await done(t, s);
       });
 
@@ -541,7 +558,6 @@ void main() {
       await openTaskPage(t, s, 'RA-32');
       expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
       expect(find.byKey(const ValueKey('right-col')), findsOneWidget);
-      expect(find.byKey(const ValueKey('ai-open')), findsNothing);
       await done(t, s);
 
       final m = await pump(t, size: const Size(1024, 768), project: 'RA');
@@ -549,7 +565,7 @@ void main() {
       expect(find.byKey(const ValueKey('props-left')), findsNothing);
       expect(find.byKey(const ValueKey('right-col')), findsOneWidget);
       expect(find.byKey(const ValueKey('p-status')), findsOneWidget); // chip dưới tiêu đề
-      expect(find.byKey(const ValueKey('tab-ai')), findsOneWidget);
+      expect(find.byKey(const ValueKey('tab-activity')), findsOneWidget);
       await shot(t, 'd5d-medium');
       await t.tap(find.byKey(const ValueKey('sub-RA-63')));
       await settle(t, 8);
@@ -559,7 +575,6 @@ void main() {
       final ph = await pump(t, size: _phone, project: 'RA');
       await openTaskPage(t, ph, 'RA-32');
       expect(find.byKey(const ValueKey('right-col')), findsNothing);
-      expect(find.byKey(const ValueKey('ai-open')), findsOneWidget);
       await done(t, ph);
     });
 
@@ -728,24 +743,42 @@ void main() {
       await done(t, s);
     });
 
-    testWidgets('AI chia nhỏ → duyệt → tạo việc con; Bắt đầu agent mở phiên', (t) async {
+    testWidgets('@nhắc: gợi ý người và agent; agent → thuộc tính m + dòng nhắc; trạng thái agent dưới bình luận', (t) async {
       final s = await pump(t, project: 'RA');
       await openTaskPage(t, s, 'RA-32');
-      await t.tap(find.byKey(const ValueKey('ai-breakdown')).first);
-      await settle(t, 2);
-      await t.tap(find.byKey(const ValueKey('ai-breakdown')).last);
-      await settle(t);
-      expect(find.text('Đề xuất 2 việc con'), findsOneWidget);
-      await t.tap(find.byKey(const ValueKey('ai-sub-1'))); // bỏ chọn việc thứ hai
+      // Bình luận đã @nhắc agent: dòng trạng thái + Mở phiên (phiên lấy từ lượt chạy của việc).
+      expect(find.text('Codex đã trả lời'), findsOneWidget);
+      expect(find.text('Claude đang xử lý…'), findsOneWidget);
+      expect(find.byKey(const ValueKey('runline-open-b-codex')), findsOneWidget);
+      await t.ensureVisible(find.byKey(const ValueKey('comment-send')));
       await t.pump();
-      await t.tap(find.byKey(const ValueKey('ai-add-subtasks')));
+      await t.tap(find.byKey(const ValueKey('rt-mention')).last);
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('mention-user-u-hung')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mention-agent-b-claude')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mention-agent-b-codex')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('mention-agent-b-claude')));
+      await settle(t, 3);
+      expect(find.text('Claude sẽ đọc việc này và làm theo bình luận'), findsOneWidget);
+      await shot(t, 'd5h-agent-mention');
+      await t.tap(find.byKey(const ValueKey('comment-send')));
       await settle(t);
-      final creates = be.calls.where((c) => c == 'POST /tw/api/projects/p-ra/tasks').length;
-      expect(creates, 1);
-      final b = be.bodies['POST /tw/api/projects/p-ra/tasks']!;
-      expect(b['title'], 'Khoá tồn kho theo mã hàng khi đặt đơn');
-      expect(b['parent_id'], 't-32');
-      expect(b['assignees'], [{'kind': 'user', 'id': 'u-minh', 'name': 'Minh'}]);
+      final runs = ((be.bodies['POST /tw/api/tasks/t-32/comments']!['blocks'] as List).first as Map)['r'] as List;
+      expect(runs.any((r) => (r as Map)['m'] != null && r['m']['k'] == 'agent' && r['m']['id'] == 'b-claude'), isTrue);
+      expect(find.byKey(const ValueKey('agent-hint')), findsNothing);
+      await done(t, s);
+    });
+
+    testWidgets('@nhắc: agent không được dùng thì không gợi ý', (t) async {
+      launcher.allowed = {'b-claude'};
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-32');
+      await t.ensureVisible(find.byKey(const ValueKey('comment-send')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('rt-mention')).last);
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('mention-agent-b-claude')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mention-agent-b-codex')), findsNothing);
       await done(t, s);
     });
 
@@ -815,13 +848,8 @@ void main() {
         await settle(t, 8);
         expect(find.byKey(const ValueKey('p-status')), findsOneWidget);
         expect(find.text('Viết test tồn kho'), findsOneWidget);
+        expect(find.byKey(const ValueKey('ai-open')), findsNothing);
         await shot(t, 'p3-task-$sfx');
-        await t.tap(find.byKey(const ValueKey('ai-open')));
-        await settle(t, 4);
-        await t.tap(find.byKey(const ValueKey('ai-breakdown')).last);
-        await settle(t);
-        expect(find.textContaining('Thêm cả 2'), findsOneWidget);
-        await shot(t, 'p4-ai-$sfx');
         await done(t, s);
       });
 
