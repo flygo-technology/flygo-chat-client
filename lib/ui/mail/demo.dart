@@ -393,7 +393,7 @@ class DemoMailApi extends MailApi {
   }
 
   @override
-  Future<void> send(MailDraft d, {String? draftId}) {
+  Future<void> send(MailDraft d, {String? draftId, DateTime? sendAt}) {
     if (draftId != null) _threads.removeWhere((t) => t.id == draftId && t.draft);
     final msg = _m(_meP, d.to, Duration.zero, d.html, att: d.attachments, cc: d.cc);
     final t = d.threadId == null ? null : _threads.where((x) => x.id == d.threadId).firstOrNull;

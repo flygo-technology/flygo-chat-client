@@ -39,7 +39,10 @@ abstract class MailApi {
   Future<MailAttachment> upload(File file, {String? name, String? type});
   Future<String> saveDraft(MailDraft d);
   Future<void> deleteDraft(String id);
-  Future<void> send(MailDraft d, {String? draftId});
+  /// [sendAt] = hẹn giờ gửi (máy chủ giữ ở Đã lên lịch và tự gửi đúng giờ).
+  Future<void> send(MailDraft d, {String? draftId, DateTime? sendAt});
+  /// Huỷ hẹn giờ gửi (thư trở lại Thư nháp).
+  Future<void> cancelScheduled(String draftId) => throw MailException(501, 'Máy chủ thư chưa hỗ trợ hẹn giờ gửi');
   /// Tải tệp đính kèm về máy (thư mục tạm), trả đường dẫn tệp.
   Future<File> download(MailAttachment a);
   /// AI đọc cuộc hội thoại: task = summary (tóm tắt + việc cần làm) | draft (thêm bản nháp trả lời theo [instruction] / [tone]).
@@ -160,7 +163,11 @@ class HttpMailApi extends MailApi {
   Future<void> deleteDraft(String id) async => _json(await _send('DELETE', _uri('/drafts/${Uri.encodeComponent(id)}')));
 
   @override
-  Future<void> send(MailDraft d, {String? draftId}) async => _post('/send', {...d.toJson(), 'draftId': ?draftId});
+  Future<void> send(MailDraft d, {String? draftId, DateTime? sendAt}) async =>
+      _post('/send', {...d.toJson(), 'draftId': ?draftId, if (sendAt != null) 'sendAt': sendAt.toUtc().toIso8601String()});
+
+  @override
+  Future<void> cancelScheduled(String draftId) async => _json(await _send('DELETE', _uri('/scheduled/${Uri.encodeComponent(draftId)}')));
 
   @override
   MailAdminApi adminApi() => HttpMailAdminApi(base: base, id: id, client: _http);
