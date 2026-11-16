@@ -29,7 +29,11 @@ class StyledBubble extends StatelessWidget {
     this.radius = const BorderRadius.all(Radius.circular(18)),
     this.padding = const EdgeInsets.fromLTRB(12, 7, 10, 7),
     this.against,
+    this.mirror = false,
   });
+
+  /// Tin người khác (căn trái): lật hình trang trí.
+  final bool mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +47,7 @@ class StyledBubble extends StatelessWidget {
     if (s == null || !s.decorated) return box;
     return Padding(
       padding: EdgeInsets.only(top: top ? s.roomTop(scale) : 0, bottom: bottom ? s.roomBottom(scale) : 0),
-      child: CustomPaint(foregroundPainter: BubbleDecoPainter(style: s, fill: fill, top: top, bottom: bottom, scale: scale), child: box),
+      child: CustomPaint(foregroundPainter: BubbleDecoPainter(style: s, fill: fill, top: top, bottom: bottom, scale: scale, mirror: mirror), child: box),
     );
   }
 }

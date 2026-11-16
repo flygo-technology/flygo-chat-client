@@ -65,12 +65,12 @@ List<BubbleStyle> get bubbleStyles => [
       BubbleStyle('sotay', tr('Sổ tay'), const Color(0xFFFFFBE6), group: 'vanphong', top: 6, bottom: 10, paintTop: _spiral, paintBottom: _pen),
       BubbleStyle('kepgiay', tr('Kẹp giấy'), const Color(0xFFE3F2FD), group: 'vanphong', top: 12, paintTop: _clipAndPin),
       BubbleStyle('lich', tr('Hạn chót'), const Color(0xFFE8EAF6), group: 'vanphong', top: 12, bottom: 10, paintTop: _calendar, paintBottom: _alarmClock),
-      BubbleStyle('laptop', tr('Laptop'), const Color(0xFFECEFF1), group: 'vanphong', top: 12, bottom: 14, paintTop: _wifi, paintBottom: _laptop),
+      BubbleStyle('laptop', tr('Laptop'), const Color(0xFFECEFF1), group: 'vanphong', top: 12, bottom: 16, paintTop: _wifi, paintBottom: _laptop),
       BubbleStyle('ytuong', tr('Ý tưởng'), const Color(0xFFFFF9C4), group: 'vanphong', top: 16, bottom: 8, paintTop: _bulb, paintBottom: _sparkles),
       BubbleStyle('tenlua', tr('Khởi động'), const Color(0xFF3949AB), group: 'vanphong', top: 16, bottom: 8, paintTop: _rocket, paintBottom: _nightStars),
       BubbleStyle('tangtruong', tr('Tăng trưởng'), const Color(0xFF2E7D32), group: 'vanphong', bottom: 12, paintBottom: _barChart),
       BubbleStyle('thanhtich', tr('Thành tích'), const Color(0xFFFFE082), group: 'vanphong', top: 16, bottom: 12, paintTop: _trophy, paintBottom: _medal),
-      BubbleStyle('daduyet', tr('Đã duyệt'), const Color(0xFFFFFDF5), group: 'vanphong', bottom: 18, paintBottom: _stamp),
+      BubbleStyle('daduyet', tr('Đã duyệt'), const Color(0xFFFFFDF5), group: 'vanphong', bottom: 20, paintBottom: _stamp),
       BubbleStyle('hoptac', tr('Hợp tác'), const Color(0xFFE1F5FE), group: 'vanphong', top: 16, paintTop: _handshake),
       BubbleStyle('baoho', tr('An toàn'), const Color(0xFF455A64), group: 'vanphong', top: 10, bottom: 12, paintTop: _hardHat, paintBottom: _cone),
       BubbleStyle('thangmay', tr('Thang máy'), const Color(0xFFCFD8DC), group: 'vanphong', top: 22, paintTop: _elevator, paintBottom: _callPanel),
@@ -83,7 +83,7 @@ List<BubbleStyle> get bubbleStyles => [
       BubbleStyle('hoasen', tr('Hoa sen'), const Color(0xFFFCE4EC), group: 'vietnam', bottom: 12, top: 10, paintTop: _lotusBud, paintBottom: _lotus),
       BubbleStyle('nonla', tr('Nón lá'), const Color(0xFFFFF8E1), group: 'vietnam', top: 14, paintTop: _nonLa),
       BubbleStyle('denlong', tr('Đèn ông sao'), const Color(0xFFFFE0B2), group: 'vietnam', top: 18, paintTop: _starLantern),
-      BubbleStyle('caphe', tr('Cà phê phin'), const Color(0xFF6D4C41), group: 'vietnam', bottom: 10, paintBottom: _phin),
+      BubbleStyle('caphe', tr('Cà phê phin'), const Color(0xFF6D4C41), group: 'vietnam', bottom: 26, paintBottom: _phin),
       // Linh vật
       BubbleStyle('meo', tr('Mèo văn phòng'), const Color(0xFFFFCC80), group: 'linhvat', top: 10, bottom: 8, paintTop: _catEars, paintBottom: _catPaws),
       BubbleStyle('cun', tr('Cún'), const Color(0xFFFFF3E0), group: 'linhvat', top: 18, bottom: 6, paintTop: _pup, paintBottom: _pupTail),
@@ -199,19 +199,28 @@ class BubbleDecoPainter extends CustomPainter {
   final Color fill;
   final bool top, bottom;
   final double scale;
-  const BubbleDecoPainter({required this.style, required this.fill, this.top = true, this.bottom = true, this.scale = 1});
+  /// Lật ngang (tin người khác, căn trái): hình hướng ra phía ngoài như tin của mình, phần ở mép trong sang mép trong.
+  final bool mirror;
+  const BubbleDecoPainter(
+      {required this.style, required this.fill, this.top = true, this.bottom = true, this.scale = 1, this.mirror = false});
 
   @override
   void paint(Canvas canvas, Size size) {
     final b = Offset.zero & size;
     final u = scale * kBubbleArt;
+    if (mirror) {
+      canvas.save();
+      canvas.translate(size.width, 0);
+      canvas.scale(-1, 1);
+    }
     if (top) style._top?.call(canvas, b, fill, u);
     if (bottom) style._bottom?.call(canvas, b, fill, u);
+    if (mirror) canvas.restore();
   }
 
   @override
   bool shouldRepaint(BubbleDecoPainter o) =>
-      o.style.id != style.id || o.fill != fill || o.top != top || o.bottom != bottom || o.scale != scale;
+      o.style.id != style.id || o.fill != fill || o.top != top || o.bottom != bottom || o.scale != scale || o.mirror != mirror;
 }
 
 // ------------------------------------------------------------------------------------------------ nét vẽ chung
@@ -302,7 +311,7 @@ void _lotusBud(Canvas c, Rect b, Color fill, double u) {
 }
 
 void _lotus(Canvas c, Rect b, Color fill, double u) {
-  final o = Offset(b.left + 8 * u, b.bottom + 4 * u);
+  final o = Offset(b.left + 7 * u, b.bottom + 6 * u);
   // Lá sen nằm ngang dưới hoa.
   final leaf = Path()..addOval(Rect.fromCenter(center: o + Offset(4 * u, 5 * u), width: 30 * u, height: 8 * u));
   _draw(c, leaf, const Color(0xFF66BB6A), u, w: .9);
@@ -352,7 +361,7 @@ void _luckyMoney(Canvas c, Rect b, Color fill, double u) {
 }
 
 void _starLantern(Canvas c, Rect b, Color fill, double u) {
-  final o = Offset(b.right - 18 * u, b.top - 7 * u);
+  final o = Offset(b.right - 18 * u, b.top - 8.5 * u);
   c.drawLine(Offset(o.dx + 10 * u, b.top - 22 * u), o + Offset(0, -9.5 * u), _s(u, const Color(0xFF8D6E63), .9));
   final s = _star(o, 9.5 * u, inner: .45);
   _draw(c, s, const Color(0xFFE53935), u);
@@ -370,7 +379,8 @@ void _starLantern(Canvas c, Rect b, Color fill, double u) {
 }
 
 void _phin(Canvas c, Rect b, Color fill, double u) {
-  final x = b.right - 6 * u, bot = b.bottom + 8 * u;
+  // Ly nằm dưới góc phải, chỉ chạm mép dưới (không lấn vào chữ / giờ gửi).
+  final x = b.right - 12 * u, bot = b.bottom + 25 * u;
   // Ly thuỷ tinh: lớp sữa trắng, cà phê.
   final glass = Path()
     ..moveTo(x - 6.5 * u, bot - 13 * u)
@@ -432,7 +442,7 @@ void _pen(Canvas c, Rect b, Color fill, double u) {
 
 void _clipAndPin(Canvas c, Rect b, Color fill, double u) {
   // Kẹp giấy: hai vòng lồng nhau, kẹp qua mép trên.
-  final x = b.left + 20 * u, y0 = b.top - 11 * u, y1 = b.top + 4.5 * u;
+  final x = b.left + 20 * u, y0 = b.top - 13 * u, y1 = b.top + 1 * u;
   final p = Path()
     ..moveTo(x + 2.5 * u, y1 - 3 * u)
     ..lineTo(x + 2.5 * u, y0 + 4 * u)
@@ -491,7 +501,7 @@ void _wifi(Canvas c, Rect b, Color fill, double u) {
 }
 
 void _laptop(Canvas c, Rect b, Color fill, double u) {
-  final l = b.left - 10 * u, bot = b.bottom + 12 * u;
+  final l = b.left - 10 * u, bot = b.bottom + 14 * u;
   final screen = Rect.fromLTWH(l + 3 * u, bot - 18 * u, 22 * u, 14 * u);
   _draw(c, _rr(screen, 1.8 * u), const Color(0xFF37474F), u);
   c.drawRect(screen.deflate(1.8 * u), _f(const Color(0xFF64B5F6)));
@@ -580,7 +590,7 @@ void _nightStars(Canvas c, Rect b, Color fill, double u) {
 }
 
 void _barChart(Canvas c, Rect b, Color fill, double u) {
-  final base = b.bottom + 10 * u, x = b.right - 18 * u;
+  final base = b.bottom + 10 * u, x = b.right - 10 * u;
   c.drawLine(Offset(x - 3 * u, base), Offset(x + 26 * u, base), _s(u, _ink, 1.2));
   for (final (i, h, col) in [(0, 8.0, Color(0xFFFFCA28)), (1, 13.0, Color(0xFFFFA000)), (2, 19.0, Color(0xFFFF6F00))]) {
     _draw(c, _rr(Rect.fromLTWH(x + i * 7.5 * u, base - h * u, 5.5 * u, h * u), 1 * u), col, u, w: .9);
@@ -634,7 +644,7 @@ void _medal(Canvas c, Rect b, Color fill, double u) {
 }
 
 void _stamp(Canvas c, Rect b, Color fill, double u) {
-  final o = Offset(b.right + 1 * u, b.bottom + 6 * u);
+  final o = Offset(b.right - 1 * u, b.bottom + 7.5 * u);
   const red = Color(0xFFD32F2F);
   _rotated(c, o, -.26, () {
     c.drawCircle(o, 12 * u, _f(Colors.white.withValues(alpha: .55)));
@@ -849,26 +859,57 @@ void _fallingPetals(Canvas c, Rect b, double u, Color col) {
 void _maiPetals(Canvas c, Rect b, Color fill, double u) => _fallingPetals(c, b, u, const Color(0xFFFFC107));
 void _daoPetals(Canvas c, Rect b, Color fill, double u) => _fallingPetals(c, b, u, const Color(0xFFF8A5C2));
 
-/// Bánh chưng vuông lá dong + lạt tre, cạnh là miếng bánh cắt lộ nếp trắng, đỗ vàng, thịt.
+/// Bánh chưng nhìn nghiêng: mặt trên lá dong sáng, hai mặt bên đậm, hai lạt tre buộc chéo chữ thập; cạnh là miếng bánh cắt.
 void _banhChung(Canvas c, Rect b, Color fill, double u) {
-  final r = Rect.fromLTWH(b.right - 14 * u, b.bottom - 6 * u, 20 * u, 19 * u);
-  _draw(c, _rr(r, 2 * u), const Color(0xFF2E7D32), u, w: 1.2);
-  // Gân lá dong.
-  for (var i = 1; i < 6; i++) {
-    c.drawLine(Offset(r.left + i * r.width / 6, r.top + 1.5 * u), Offset(r.left + i * r.width / 6 - 2 * u, r.bottom - 1.5 * u),
-        _s(u, const Color(0xFF66BB6A), .5));
+  final x = b.right - 2 * u, bot = b.bottom + 15 * u;
+  const w = 10.0, d = 5.0, h = 9.0; // nửa bề rộng, độ sâu mặt trên, chiều cao
+  final top = Path()
+    ..moveTo(x - w * u, bot - (h + d) * u)
+    ..lineTo(x, bot - (h + 2 * d) * u)
+    ..lineTo(x + w * u, bot - (h + d) * u)
+    ..lineTo(x, bot - h * u)
+    ..close();
+  final left = Path()
+    ..moveTo(x - w * u, bot - (h + d) * u)
+    ..lineTo(x, bot - h * u)
+    ..lineTo(x, bot)
+    ..lineTo(x - w * u, bot - d * u)
+    ..close();
+  final right = Path()
+    ..moveTo(x + w * u, bot - (h + d) * u)
+    ..lineTo(x, bot - h * u)
+    ..lineTo(x, bot)
+    ..lineTo(x + w * u, bot - d * u)
+    ..close();
+  _draw(c, left, const Color(0xFF2E7D32), u);
+  _draw(c, right, const Color(0xFF1B5E20), u);
+  _draw(c, top, const Color(0xFF66BB6A), u);
+  // Gân lá trên mặt trên.
+  for (final t in [.3, .7]) {
+    c.drawLine(Offset(x - w * u * (1 - t), bot - (h + d + d * t) * u), Offset(x + w * u * t, bot - (h + d * t) * u - d * u * (1 - t)),
+        _s(u, const Color(0xFFA5D6A7), .5));
   }
-  final lat = _s(u, const Color(0xFFF3E5AB), 1.8);
-  for (final t in [.33, .67]) {
-    c.drawLine(Offset(r.left + r.width * t, r.top), Offset(r.left + r.width * t, r.bottom), lat);
-    c.drawLine(Offset(r.left, r.top + r.height * t), Offset(r.right, r.top + r.height * t), lat);
+  // Hai lạt tre: mỗi lạt chạy qua giữa mặt trên rồi xuống mặt bên.
+  final lat = Paint()
+    ..color = const Color(0xFFF3E5AB)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2 * u
+    ..strokeCap = StrokeCap.butt;
+  final edge = _s(u, const Color(0xFF8D6E63), .5);
+  for (final sgn in [-1.0, 1.0]) {
+    final p = Path()
+      ..moveTo(x + sgn * w / 2 * u, bot - (h + 1.5 * d) * u)
+      ..lineTo(x - sgn * w / 2 * u, bot - (h + .5 * d) * u)
+      ..lineTo(x - sgn * w / 2 * u, bot - .5 * d * u);
+    c.drawPath(p, lat);
+    c.drawPath(p, edge);
   }
-  // Miếng cắt.
-  final sl = Rect.fromLTWH(r.left - 13 * u, r.bottom - 10 * u, 10 * u, 10 * u);
+  // Miếng bánh cắt: vỏ lá xanh, nếp trắng, nhân đỗ vàng, thịt.
+  final sl = Rect.fromLTWH(x - (w + 12) * u, bot - 9 * u, 9 * u, 9 * u);
   _draw(c, _rr(sl, 1 * u), const Color(0xFF43A047), u);
-  c.drawRect(sl.deflate(1.4 * u), _f(const Color(0xFFFFFDE7)));
-  c.drawRect(Rect.fromCenter(center: sl.center, width: 4.6 * u, height: 4.6 * u), _f(const Color(0xFFFFC107)));
-  c.drawCircle(sl.center, 1.3 * u, _f(const Color(0xFFA1887F)));
+  c.drawRect(sl.deflate(1.3 * u), _f(const Color(0xFFFFFDE7)));
+  c.drawRect(Rect.fromCenter(center: sl.center, width: 4.2 * u, height: 4.2 * u), _f(const Color(0xFFFFC107)));
+  c.drawCircle(sl.center, 1.2 * u, _f(const Color(0xFFA1887F)));
 }
 
 void _luckyMoneyTop(Canvas c, Rect b, Color fill, double u) {
@@ -1499,4 +1540,179 @@ void _snowCap(Canvas c, Rect b, Color fill, double u) {
 void _snowflakesBottom(Canvas c, Rect b, Color fill, double u) {
   _snowflake(c, Offset(b.right - 4 * u, b.bottom + 4 * u), 3.6 * u, u, const Color(0xFF90CAF9));
   _snowflake(c, Offset(b.right - 14 * u, b.bottom + 6 * u), 2.2 * u, u, const Color(0xFFBBDEFB));
+}
+
+// ------------------------------------------------------------------------------------------------ cỡ to "ôm bong bóng" (bản demo)
+
+/// Bản demo cỡ to (~2 lần): linh vật bám hai chân lên mép trên, đuôi vòng ra cạnh bên, chân sau ló dưới đáy.
+/// Chưa có trong màn chọn — chờ Sếp chọn cỡ.
+List<BubbleStyle> get bubbleHugDemo => [
+      BubbleStyle('meo-to', tr('Mèo văn phòng'), const Color(0xFFFFE0B2), group: 'linhvat', top: 30, bottom: 6, paintTop: _catHug, paintBottom: _hugBackPawsCat),
+      BubbleStyle('cun-to', tr('Cún'), const Color(0xFFFFF3E0), group: 'linhvat', top: 30, bottom: 6, paintTop: _pupHug, paintBottom: _hugBackPawsPup),
+      BubbleStyle('munoel-to', tr('Mũ Noel'), const Color(0xFFC62828), group: 'giangsinh', top: 30, bottom: 12, paintTop: _santaHatHug, paintBottom: _hollyBig),
+      BubbleStyle('hoamai-to', tr('Hoa mai'), const Color(0xFFFFF3C4), group: 'tet', top: 18, bottom: 12, paintTop: _maiHug, paintBottom: _maiPetalsBig),
+    ];
+
+const _hugK = 1.9;
+
+/// Vẽ phần đầu linh vật cỡ thường ở cỡ [_hugK], dịch lên để chân chỉ chạm mép (không lấn vào chữ).
+void _hugTop(Canvas c, Rect b, double u, BubbleDecoFn head, Color fill) =>
+    head(c, b.translate(0, -2.6 * u), fill, u * _hugK);
+
+/// Đuôi thò ra từ sau cạnh phải bong bóng, cong lên.
+void _sideTail(Canvas c, Rect b, double u, Color col, {Color? stripe}) {
+  final y = b.top + math.min(b.height * .55, 22 * u);
+  final p = Path()
+    ..moveTo(b.right - 2 * u, y + 4 * u)
+    ..cubicTo(b.right + 9 * u, y + 5 * u, b.right + 8.5 * u, y - 9 * u, b.right + 3 * u, y - 11 * u);
+  c.drawPath(p, _s(u, _ink, 6.6));
+  c.drawPath(p, _s(u, col, 4.8));
+  if (stripe != null) {
+    for (final m in p.computeMetrics()) {
+      for (var d = 6 * u; d < m.length - 3 * u; d += 6 * u) {
+        final t = m.getTangentForOffset(d)!;
+        final n = Offset(-t.vector.dy, t.vector.dx) * 2.2 * u;
+        c.drawLine(t.position - n, t.position + n, _s(u, stripe, 1.3));
+      }
+    }
+  }
+}
+
+void _catHead(Canvas c, Rect b, Color fill, double u) {
+  const fur = Color(0xFFF4A259), stripe = Color(0xFFD9822B);
+  final o = _peekPaws(c, b, u, fur);
+  for (final s in [-1.0, 1.0]) {
+    final ear = Path()
+      ..moveTo(o.dx + s * 8.4 * u, o.dy - 1 * u)
+      ..lineTo(o.dx + s * 7.4 * u, o.dy - 11 * u)
+      ..lineTo(o.dx + s * 1.8 * u, o.dy - 6.8 * u)
+      ..close();
+    _draw(c, ear, fur, u);
+    c.drawPath(
+        Path()
+          ..moveTo(o.dx + s * 6.8 * u, o.dy - 3.2 * u)
+          ..lineTo(o.dx + s * 6.6 * u, o.dy - 8.4 * u)
+          ..lineTo(o.dx + s * 3.6 * u, o.dy - 6 * u)
+          ..close(),
+        _f(const Color(0xFFF8BBD0)));
+  }
+  _draw(c, _oval(o, 9.4 * u, 7.8 * u), fur, u);
+  for (final dx in [-2.0, 0.0, 2.0]) {
+    c.drawLine(o + Offset(dx * u, -7.4 * u), o + Offset(dx * .7 * u, -4.8 * u), _s(u, stripe, .9));
+  }
+  c.drawPath(_oval(o + Offset(0, 3 * u), 4.6 * u, 3.2 * u), _f(const Color(0xFFFFF3E0)));
+  _eyes(c, o, u, dy: -1);
+  c.drawPath(Path()..moveTo(o.dx - 1.1 * u, o.dy + 1.2 * u)..lineTo(o.dx + 1.1 * u, o.dy + 1.2 * u)..lineTo(o.dx, o.dy + 2.3 * u)..close(),
+      _f(const Color(0xFFF06292)));
+  _smile(c, o + Offset(0, 2.6 * u), u);
+  for (final s in [-1.0, 1.0]) {
+    for (final dy in [1.4, 3.0]) {
+      c.drawLine(o + Offset(s * 4.6 * u, dy * u), o + Offset(s * 9.6 * u, (dy * 1.4 - 1.4) * u), _s(u, _ink.withValues(alpha: .55), .45));
+    }
+  }
+  _blush(c, o, u, gap: 6.2, dy: 2.6);
+}
+
+void _catHug(Canvas c, Rect b, Color fill, double u) {
+  _sideTail(c, b, u, const Color(0xFFF4A259), stripe: const Color(0xFFD9822B));
+  _hugTop(c, b, u, _catHead, fill);
+}
+
+void _pupHug(Canvas c, Rect b, Color fill, double u) {
+  _sideTail(c, b, u, const Color(0xFFE8954A));
+  _hugTop(c, b, u, _pup, fill);
+}
+
+void _backPaws(Canvas c, Rect b, double u, Color col) {
+  for (final dx in [22.0, 36.0]) {
+    final o = Offset(b.right - dx * 1.6 * u, b.bottom + 1.6 * u);
+    _draw(c, _oval(o, 5 * u, 3.6 * u), col, u);
+    for (final t in [-1.8, 0.0, 1.8]) {
+      c.drawLine(o + Offset(t * u, 1 * u), o + Offset(t * u, 3.2 * u), _s(u, _ink.withValues(alpha: .6), .7));
+    }
+  }
+}
+
+void _hugBackPawsCat(Canvas c, Rect b, Color fill, double u) => _backPaws(c, b, u, const Color(0xFFF4A259));
+void _hugBackPawsPup(Canvas c, Rect b, Color fill, double u) => _backPaws(c, b, u, const Color(0xFFFFF3E0));
+
+/// Mũ Noel to đội lên góc trái: vành lông trắng ôm theo góc bo của bong bóng, chóp mũ rủ sang phải.
+void _santaHatHug(Canvas c, Rect b, Color fill, double u) {
+  final l = b.left, t = b.top;
+  final rad = math.min(18.0, b.height / 2);
+  final hat = Path()
+    ..moveTo(l + 2 * u, t - 2 * u)
+    ..cubicTo(l + 6 * u, t - 30 * u, l + 40 * u, t - 34 * u, l + 64 * u, t - 20 * u)
+    ..quadraticBezierTo(l + 56 * u, t - 14 * u, l + 50 * u, t - 2 * u)
+    ..close();
+  _draw(c, hat, const Color(0xFFE53935), u, w: 1.4);
+  // Nếp gấp trên thân mũ.
+  c.drawPath(
+      Path()
+        ..moveTo(l + 30 * u, t - 24 * u)
+        ..quadraticBezierTo(l + 44 * u, t - 22 * u, l + 52 * u, t - 15 * u),
+      _s(u, const Color(0xFFB71C1C), 1));
+  // Vành lông: chạy dọc cạnh trái, vòng qua góc bo, dọc mép trên.
+  final brim = Path()
+    ..moveTo(l - 1 * u, t + rad + 6 * u)
+    ..lineTo(l - 1 * u, t + rad)
+    ..arcToPoint(Offset(l + rad, t - 1 * u), radius: Radius.circular(rad + 1 * u))
+    ..lineTo(l + 52 * u, t - 1 * u);
+  c.drawPath(brim, _s(u, _ink, 8.6));
+  c.drawPath(brim, _s(u, Colors.white, 7));
+  for (final m in brim.computeMetrics()) {
+    for (var d = 3 * u; d < m.length; d += 5 * u) {
+      final p = m.getTangentForOffset(d)!.position;
+      c.drawCircle(p + Offset(.6 * u, -1.4 * u), .9 * u, _f(const Color(0xFFE0E0E0)));
+    }
+  }
+  _draw(c, _oval(Offset(l + 66 * u, t - 17 * u), 6 * u, 6 * u), Colors.white, u, w: 1.2);
+}
+
+void _hollyBig(Canvas c, Rect b, Color fill, double u) {
+  c.save();
+  c.translate(b.right, b.bottom);
+  c.scale(1.7);
+  c.translate(-b.right, -b.bottom);
+  _holly(c, b.translate(-2 * u, 1 * u), fill, u);
+  c.restore();
+}
+
+/// Cành mai to chạy dọc mép trên, nhiều hoa, ló ra cả hai đầu.
+void _maiHug(Canvas c, Rect b, Color fill, double u) {
+  const wood = Color(0xFF5D4037);
+  final end = math.min(b.width * .8, 120 * u);
+  final p = Path()
+    ..moveTo(b.left - 14 * u, b.top + 12 * u)
+    ..quadraticBezierTo(b.left - 2 * u, b.top - 8 * u, b.left + end * .5, b.top - 6 * u)
+    ..quadraticBezierTo(b.left + end * .8, b.top - 5 * u, b.left + end, b.top - 12 * u);
+  c.drawPath(p, _s(u, wood, 3.4));
+  final twig = Path()
+    ..moveTo(b.left + end * .35, b.top - 6.5 * u)
+    ..quadraticBezierTo(b.left + end * .4, b.top - 13 * u, b.left + end * .48, b.top - 16 * u);
+  c.drawPath(twig, _s(u, wood, 2));
+  var i = 0;
+  for (final m in [...p.computeMetrics(), ...twig.computeMetrics()]) {
+    for (var d = 8 * u; d < m.length; d += 13 * u) {
+      final pos = m.getTangentForOffset(d)!.position;
+      final big = i++ % 3 != 1;
+      if (big) {
+        _flower(c, pos + Offset(0, -2 * u), 7 * u, const Color(0xFFFFC107), const Color(0xFFE65100), u, rot: i * .5);
+        for (var k = 0; k < 5; k++) {
+          final a = i * .5 + k * 2 * math.pi / 5 - math.pi / 2;
+          c.drawLine(pos + Offset(0, -2 * u), pos + Offset(0, -2 * u) + Offset(math.cos(a), math.sin(a)) * 3.4 * u, _s(u, const Color(0xFFE65100), .5));
+        }
+      } else {
+        _draw(c, _oval(pos + Offset(1 * u, -3.5 * u), 2.8 * u, 2.8 * u), const Color(0xFFFFD54F), u, w: .8);
+        _draw(c, _oval(pos + Offset(-2 * u, 2 * u), 2 * u, 1.2 * u), const Color(0xFF7CB342), u, w: .6);
+      }
+    }
+  }
+}
+
+void _maiPetalsBig(Canvas c, Rect b, Color fill, double u) {
+  for (final (dx, dy, r, a) in [(-6.0, 4.0, 3.6, .4), (6.0, 8.5, 2.8, 1.3), (-16.0, 9.0, 2.4, 2.2), (-28.0, 5.0, 2.0, .9)]) {
+    final o = Offset(b.right + dx * u, b.bottom + dy * u);
+    _rotated(c, o, a, () => _draw(c, _oval(o, r * u, r * .6 * u), const Color(0xFFFFC107), u, w: .6));
+  }
 }
