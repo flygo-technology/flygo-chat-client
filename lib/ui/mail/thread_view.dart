@@ -1,9 +1,11 @@
 // Thư: xem một cuộc hội thoại. Thư cũ thu gọn (bấm để mở), thư cuối mở sẵn; tệp đính kèm dạng thẻ (mở / chia sẻ);
 // Trả lời / Trả lời tất cả / Chuyển tiếp; thêm vào Lịch, gửi vào chat.
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../open_file.dart' show openLocalFile;
+import 'attachments.dart';
 import 'compose.dart';
 import 'html_view.dart';
 import 'model.dart';
@@ -17,6 +19,9 @@ class MailHooks {
 
   /// Gửi tóm tắt thư vào một cuộc trò chuyện.
   static Future<void> Function(BuildContext context, String text)? sendToChat;
+
+  /// Lưu tệp vào Drive của người dùng (mail_page gắn khi có app Drive). Null = ẩn nút.
+  static SaveToDrive? saveToDrive;
 
   /// Mở / chia sẻ tệp đã tải về máy.
   static Future<void> Function(BuildContext context, String path, MailAttachment a) openFile = (context, path, a) async {
@@ -229,6 +234,33 @@ class ThreadViewState extends State<ThreadView> {
         setState(() {});
       },
     );
+  }
+
+  late final _files = AttachmentFiles(store.api);
+
+  void _view(List<MailAttachment> items, int i) => Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => AttachmentViewer(items: items, index: i, files: _files, onOpenExternal: _openAttachment, saveToDrive: MailHooks.saveToDrive),
+      ));
+
+  Future<void> _download(MailAttachment a) async {
+    try {
+      final p = await downloadAttachment(context, _files, a);
+      if (p != null) _snack('Đã lưu vào Tải về: ${p.split(Platform.pathSeparator).last}');
+    } catch (e) {
+      _snack('Không tải được "${a.name}": $e');
+    }
+  }
+
+  Future<void> _saveToDrive(List<MailAttachment> list) async {
+    final save = MailHooks.saveToDrive;
+    if (save == null) return;
+    try {
+      _snack(list.length > 1 ? 'Đang chuẩn bị ${list.length} tệp…' : 'Đang chuẩn bị "${list.first.name}"…');
+      final files = [for (final a in list) ((await _files.file(a)).path, a.name)];
+      if (mounted) await save(context, files);
+    } catch (e) {
+      _snack('Không lưu được vào Drive: $e');
+    }
   }
 
   Future<void> _openAttachment(MailAttachment a) async {
@@ -641,15 +673,36 @@ class ThreadViewState extends State<ThreadView> {
                   MailHtml(m.html, style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text), inlineImage: store.api.inlineImage),
                   if (m.attachments.isNotEmpty) ...[
                     Divider(color: mc.line, height: 24),
-                    Text(
-                      '${m.attachments.length} tệp đính kèm',
-                      style: TextStyle(fontWeight: FontWeight.w500, color: mc.text),
-                    ),
+                    Row(children: [
+                      Expanded(
+                        child: Text(
+                          '${m.attachments.length} tệp đính kèm',
+                          style: TextStyle(fontWeight: FontWeight.w500, color: mc.text),
+                        ),
+                      ),
+                      if (m.attachments.length > 1 && MailHooks.saveToDrive != null)
+                        TextButton.icon(
+                          key: const ValueKey('att-drive-all'),
+                          onPressed: () => _saveToDrive(m.attachments),
+                          icon: const Icon(Icons.add_to_drive_rounded, size: 18),
+                          label: const Text('Lưu tất cả vào Drive'),
+                        ),
+                    ]),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 12,
                       runSpacing: 12,
-                      children: [for (final a in m.attachments) _AttachmentCard(a, onOpen: () => _openAttachment(a), phone: !widget.wide)],
+                      children: [
+                        for (final (i, a) in m.attachments.indexed)
+                          _AttachmentCard(
+                            a,
+                            files: _files,
+                            onOpen: () => _view(m.attachments, i),
+                            onDownload: () => _download(a),
+                            onDrive: MailHooks.saveToDrive == null ? null : () => _saveToDrive([a]),
+                            phone: !widget.wide,
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                   ],
@@ -664,9 +717,11 @@ class ThreadViewState extends State<ThreadView> {
 }
 
 class _AttachmentCard extends StatelessWidget {
-  const _AttachmentCard(this.a, {required this.onOpen, this.phone = false});
+  const _AttachmentCard(this.a, {required this.files, required this.onOpen, required this.onDownload, this.onDrive, this.phone = false});
   final MailAttachment a;
-  final VoidCallback onOpen;
+  final AttachmentFiles files;
+  final VoidCallback onOpen, onDownload;
+  final VoidCallback? onDrive;
   final bool phone;
 
   @override
@@ -674,6 +729,11 @@ class _AttachmentCard extends StatelessWidget {
     final mc = MailColors.of(context);
     final (icon, color) = attachmentIcon(a);
     final w = phone ? (MediaQuery.sizeOf(context).width - 100) / 2 : 180.0;
+    Widget act(IconData i, String tip, VoidCallback? f, Key key) => SizedBox(
+          width: 30,
+          height: 30,
+          child: IconButton(key: key, tooltip: tip, padding: EdgeInsets.zero, iconSize: 17, onPressed: f, icon: Icon(i, color: mc.muted)),
+        );
     return Tooltip(
       message: a.name,
       child: Material(
@@ -687,31 +747,25 @@ class _AttachmentCard extends StatelessWidget {
           onTap: onOpen,
           child: SizedBox(
             width: w,
-            height: 116,
+            height: 132,
             child: Column(
               children: [
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    decoration: a.kind == 'img' ? const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF9EC5FF), Color(0xFFD6B4FF)])) : null,
-                    child: Icon(a.kind == 'img' ? Icons.image_outlined : icon, size: 40, color: a.kind == 'img' ? Colors.white : color),
-                  ),
-                ),
+                Expanded(child: SizedBox(width: double.infinity, child: AttachmentThumb(a, files: files))),
                 Container(
                   color: mc.surface,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 2, 4),
                   child: Row(
                     children: [
                       Icon(icon, size: 16, color: color),
                       const SizedBox(width: 6),
                       Expanded(
-                        child: Text(
-                          a.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: mc.text),
-                        ),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                          Text(a.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: mc.text)),
+                          Text(fmtSize(a.size), style: TextStyle(fontSize: 11, color: mc.muted)),
+                        ]),
                       ),
-                      Text(fmtSize(a.size), style: TextStyle(fontSize: 11, color: mc.muted)),
+                      act(Icons.download_rounded, 'Tải về', onDownload, ValueKey('att-dl-${a.id}')),
+                      if (onDrive != null) act(Icons.add_to_drive_rounded, 'Lưu vào Drive', onDrive, ValueKey('att-dr-${a.id}')),
                     ],
                   ),
                 ),

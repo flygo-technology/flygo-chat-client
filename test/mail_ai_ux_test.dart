@@ -4,7 +4,9 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/ui/mail/attachments.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
+import 'package:flygo_chat/ui/mail/thread_view.dart' show MailHooks;
 import 'package:flygo_chat/ui/mail/html_view.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
@@ -211,5 +213,45 @@ void main() {
     await t.pump(const Duration(milliseconds: 50));
     expect(asked, '/mail/api/attachments/e1/a1?mailbox=x%40y.vn');
     expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('tệp đính kèm: nút Tải về / Lưu vào Drive trên thẻ, Lưu tất cả, mở trình xem vuốt được', (t) async {
+    t.view.physicalSize = const Size(1440, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    AttachmentThumb.pdfThumbs = false;
+    final saved = <List<String>>[];
+    MailHooks.saveToDrive = (context, files) async => saved.add([for (final f in files) f.$2]);
+    addTearDown(() => MailHooks.saveToDrive = null);
+    final store = MailStore(DemoMailApi());
+    await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    final withAtt = store.items.firstWhere((x) => x.attachments.length > 1);
+    t.state<MailHomeState>(find.byType(MailHome)).openThread(withAtt);
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    final a0 = withAtt.attachments[0], a1 = withAtt.attachments[1];
+    await t.ensureVisible(find.byKey(ValueKey('att-dr-${a0.id}')));
+    await t.tap(find.byKey(ValueKey('att-dr-${a0.id}')));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await t.pump();
+    expect(saved.last, [a0.name]);
+    await t.tap(find.byKey(const ValueKey('att-drive-all')));
+    for (var i = 0; i < 5 && saved.length < 2; i++) {
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await t.pump();
+    }
+    expect(saved.last, [for (final a in withAtt.attachments) a.name]);
+    await t.tap(find.text(a0.name).first);
+    await t.pumpAndSettle();
+    expect(find.byType(AttachmentViewer), findsOneWidget);
+    expect(find.byKey(const ValueKey('att-download')), findsOneWidget);
+    expect(find.byKey(const ValueKey('att-drive')), findsOneWidget);
+    await t.fling(find.byType(PageView), const Offset(-600, 0), 1200);
+    await t.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, a1.name), findsOneWidget);
   });
 }

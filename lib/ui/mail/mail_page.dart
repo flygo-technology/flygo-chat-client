@@ -14,6 +14,9 @@ import '../app_route.dart';
 import '../desk_tabs.dart' show DeskTabScope;
 import '../forward_page.dart';
 import '../calendar/calendar_entry.dart' show openCalendarCreate;
+import '../drive/drive_page.dart' show openDrive;
+import '../drive/pickers.dart' show pickDriveFolder;
+import '../drive/session.dart' show DriveSession;
 import '../theme.dart' show toast;
 import 'admin_page.dart';
 import 'api.dart';
@@ -86,6 +89,25 @@ bool isMailDemo(MiniApp app) => app.baseUrl.startsWith('demo:') || app.feature('
 
 /// Gắn móc nối mặc định: gửi vào chat bằng trang Chuyển tiếp của app, tạo sự kiện bằng app Lịch.
 void installMailHooks() {
+  // Lưu tệp đính kèm vào Drive của chính người dùng (drive-gw, vé của họ): chọn thư mục rồi tải lên nền.
+  MailHooks.saveToDrive ??= (context, files) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final s = await DriveSession.current(context.read<AppState>());
+    if (s == null) {
+      messenger.showSnackBar(toast(const Text('Bạn chưa được cấp app Drive')));
+      return;
+    }
+    if (!context.mounted) return;
+    final title = files.length > 1 ? 'Lưu ${files.length} tệp vào Drive' : 'Lưu "${files.first.$2}" vào Drive';
+    final dir = await pickDriveFolder(context, s, title: title, ok: 'Lưu vào đây');
+    if (dir == null) return;
+    await s.uploads.add(files, dir, origin: 'mail', copy: true);
+    final app = s.app;
+    messenger.showSnackBar(SnackBar(
+      content: Text(files.length > 1 ? 'Đang lưu ${files.length} tệp vào Drive ($dir)' : 'Đang lưu "${files.first.$2}" vào Drive ($dir)'),
+      action: app == null || !context.mounted ? null : SnackBarAction(label: 'Mở trong Drive', onPressed: () => openDrive(context, app, path: dir)),
+    ));
+  };
   MailHooks.sendToChat ??= (context, text) => Navigator.of(context).push(AppPageRoute(builder: (_) => ForwardPage.share(sharedText: text)));
   MailHooks.createEvent ??= (context, {required title, required guestEmails, required description}) =>
       openCalendarCreate(context, title: title, guestEmails: guestEmails, description: description);
