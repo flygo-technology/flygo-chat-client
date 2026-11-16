@@ -1,8 +1,11 @@
 import 'dart:async';
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
+import 'package:flygo_chat/ui/mail/html_view.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
@@ -190,5 +193,23 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('Hẹn giờ gửi'), findsWidgets);
     expect(find.text('Sáng mai'), findsOneWidget);
+  });
+
+  testWidgets('ảnh dán trong thư (cid -> /mail/api/attachments) hiện ngay, có đăng nhập', (t) async {
+    final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+    String? asked;
+    await t.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MailHtml('<p>Xem ảnh</p><img src="/mail/api/attachments/e1/a1?mailbox=x%40y.vn" alt="image.png" width="300">',
+            inlineImage: (p) async {
+          asked = p;
+          return png;
+        }),
+      ),
+    ));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    expect(asked, '/mail/api/attachments/e1/a1?mailbox=x%40y.vn');
+    expect(find.byType(Image), findsOneWidget);
   });
 }

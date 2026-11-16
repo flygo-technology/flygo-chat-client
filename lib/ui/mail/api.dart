@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 // Thư (vn.flygo.mail): lớp gọi backend thư. Giao diện chỉ dùng MailApi; có hai bản:
 // - HttpMailApi: gọi <base_url>/mail/api/* của backend (Worker flygo-inbox) bằng vé Flygo ID (native giữ vé, tự gia hạn);
 // - DemoMailApi (demo.dart): dữ liệu mẫu trong bộ nhớ để xem thử / chụp ảnh / test.
@@ -45,6 +46,8 @@ abstract class MailApi {
   Future<void> cancelScheduled(String draftId) => throw MailException(501, 'Máy chủ thư chưa hỗ trợ hẹn giờ gửi');
   /// Tải tệp đính kèm về máy (thư mục tạm), trả đường dẫn tệp.
   Future<File> download(MailAttachment a);
+  /// Ảnh dán trong thân thư (cid: -> /mail/api/attachments/..., cần đăng nhập): trả byte ảnh, null nếu không tải được.
+  Future<Uint8List?> inlineImage(String path) async => null;
   /// AI đọc cuộc hội thoại: task = summary (tóm tắt + việc cần làm) | draft (thêm bản nháp trả lời theo [instruction] / [tone]).
   /// AI chỉ soạn nháp, không bao giờ tự gửi.
   Future<MailAiResult> ai(String threadId, {String task = 'draft', String instruction = '', String tone = ''}) =>
@@ -193,6 +196,13 @@ class HttpMailApi extends MailApi {
 
   @override
   Future<MailDigest> aiDigest() async => MailDigest.fromJson(await _post('/ai/digest', {}) as Map);
+
+  @override
+  Future<Uint8List?> inlineImage(String path) async {
+    if (!path.startsWith('/mail/api/attachments/')) return null;
+    final res = await _send('GET', _uri(path));
+    return res.statusCode == 200 ? res.bodyBytes : null;
+  }
 
   @override
   Future<File> download(MailAttachment a) async {

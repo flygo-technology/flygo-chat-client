@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 // Thư: vẽ nội dung HTML của thư bằng widget (không dùng WebView, không chạy script, không tải ảnh ngoài khi chưa cho phép).
 // Hỗ trợ phần hay gặp trong thư công việc: đoạn, xuống dòng, đậm/nghiêng/gạch chân, link, tiêu đề, danh sách,
 // trích dẫn, bảng đơn giản, ảnh. Phần trích dẫn thư cũ (.gq / .gmail_quote / blockquote cite) thu gọn sau nút "…".
@@ -33,8 +34,10 @@ bool _isQuote(dom.Element e) =>
     e.classes.contains('gq') || e.classes.contains('gmail_quote') || (e.localName == 'blockquote' && e.attributes['type'] == 'cite');
 
 class MailHtml extends StatefulWidget {
-  const MailHtml(this.html, {super.key, this.style, this.loadImages = false, this.onLink});
+  const MailHtml(this.html, {super.key, this.style, this.loadImages = false, this.onLink, this.inlineImage});
   final String html;
+  /// Tải ảnh dán trong thư (đường dẫn /mail/api/attachments/..., có đăng nhập). Luôn hiện, vì là tệp của chính thư.
+  final Future<Uint8List?> Function(String path)? inlineImage;
   final TextStyle? style;
   /// Cho tải ảnh từ mạng (mặc định tắt để không bị theo dõi mở thư).
   final bool loadImages;
@@ -46,6 +49,7 @@ class MailHtml extends StatefulWidget {
 
 class _MailHtmlState extends State<MailHtml> {
   bool _showQuote = false;
+  final _inline = <String, Future<Uint8List?>>{};
   final _recognizers = <TapGestureRecognizer>[];
 
   @override
@@ -83,7 +87,7 @@ class _MailHtmlState extends State<MailHtml> {
         q.remove();
       }
     }
-    final blocks = _Builder(context, base, _open, _recognizers, widget.loadImages).blocks(body.nodes);
+    final blocks = _Builder(context, base, _open, _recognizers, widget.loadImages, widget.inlineImage, _inline).blocks(body.nodes);
     return SelectionArea(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ...blocks,
@@ -110,7 +114,9 @@ class _MailHtmlState extends State<MailHtml> {
 }
 
 class _Builder {
-  _Builder(this.context, this.base, this.open, this.recognizers, this.loadImages);
+  _Builder(this.context, this.base, this.open, this.recognizers, this.loadImages, [this.inlineImage, this.inlineCache = const {}]);
+  final Future<Uint8List?> Function(String path)? inlineImage;
+  final Map<String, Future<Uint8List?>> inlineCache;
   final BuildContext context;
   final TextStyle base;
   final void Function(String href) open;
@@ -284,6 +290,23 @@ class _Builder {
     final alt = e.attributes['alt'] ?? '';
     final w = double.tryParse(e.attributes['width'] ?? '');
     if (w != null && w <= 2) return null; // ảnh theo dõi 1x1
+    final load = inlineImage;
+    if (load != null && src.startsWith('/mail/api/attachments/')) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: w ?? 600),
+          child: FutureBuilder<Uint8List?>(
+            future: inlineCache.putIfAbsent(src, () => load(src)),
+            builder: (context, snap) => snap.data != null
+                ? Image.memory(snap.data!, errorBuilder: (_, _, _) => _altBox(alt.isEmpty ? 'Ảnh' : alt))
+                : snap.connectionState == ConnectionState.done
+                    ? _altBox(alt.isEmpty ? 'Ảnh' : alt)
+                    : const SizedBox(width: 48, height: 48, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+          ),
+        ),
+      );
+    }
     if (loadImages && (src.startsWith('https://') || src.startsWith('http://'))) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
