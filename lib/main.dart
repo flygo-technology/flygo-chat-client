@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'browser/browser_pairing.dart';
 import 'ui/shell_highlight.dart' show registerAiFontLicenses;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -443,7 +444,10 @@ class _RootState extends State<Root> {
       _onPushAccept();
       // Nhận chia sẻ từ app khác (ảnh, tệp, chữ, link): mở "Gửi tới…" khi đã đăng nhập.
       ShareIntake.start(navigatorKey, session);
+      // Extension Flygo Browser Bridge trên máy này tự ghép cặp với tài khoản đang đăng nhập.
+      BrowserPairing.start(a, navigatorKey);
     }
+    if (a == null) BrowserPairing.stop();
     if (a != null && a.sessionExpired) _expired();
   }
 

@@ -2450,4 +2450,5 @@ const Map<String, String> ko = {
   'Đã đổi tên': '이름을 바꿨어요',
   'Đặt làm mặc định': '기본값으로 설정',
   'Đổi tên trình duyệt': '브라우저 이름 바꾸기',
+  'Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).': '브라우저 "{0}"을(를) 이 계정에 연결했어요. 내 에이전트가 사용할 수 있어요(태그 @{1}).',
 };
