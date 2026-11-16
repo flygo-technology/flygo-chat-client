@@ -5,13 +5,13 @@ const SERVER = "https://chat.test", ID = "https://chat.test/flygo-id", GW = "htt
 
 function setup(opts: { receipt?: string | null; gatewayDown?: boolean; expiresIn?: number } = {}) {
   let t = 1_000_000;
-  const calls: { url: string; body?: any; auth?: string }[] = [];
+  const calls: { url: string; body?: any; auth?: string; ctx?: string }[] = [];
   const logs: string[] = [];
   let n = 0;
   const fetchImpl = (async (input: any, init?: any) => {
     const url = String(input);
     const body = init?.body ? JSON.parse(init.body) : undefined;
-    calls.push({ url, body, auth: init?.headers?.Authorization });
+    calls.push({ url, body, auth: init?.headers?.Authorization, ctx: init?.headers?.["X-Flygo-Context"] });
     if (url.startsWith(`${SERVER}/plugins/vn.flygo.sso/flygo/receipts/`)) {
       return Response.json({ post_id: "p1", receipts: opts.receipt ? [{ bot_id: "b1", receipt: opts.receipt }] : [] });
     }
@@ -46,6 +46,18 @@ describe("gateway runs", () => {
     expect(mint.auth).toBe("Bearer bot-tok");
     expect(calls.find((c) => c.url === GW)!.auth).toBe("Bearer tk1");
     expect(JSON.stringify(tools)).not.toContain("tk1");
+  });
+
+  test("trình duyệt được tag (props.flygo_browser) đi kèm mọi lệnh gọi gateway của lượt (X-Flygo-Context)", async () => {
+    const { gw, calls } = setup({ receipt: "rc.jwt" });
+    gw.start("r1", "p1", { flygo_browser: { id: "br1", slug: "chrome-van-phong", name: "Chrome văn phòng" } });
+    await gw.tools("r1");
+    await gw.call("r1", "vn_x__read", {});
+    const ctx = calls.filter((c) => c.url === GW).map((c) => JSON.parse(Buffer.from(String(c.ctx), "base64url").toString()));
+    expect(ctx).toEqual([{ run: "r1", browser: "br1" }, { run: "r1", browser: "br1" }]);
+    gw.start("r2", "p2");
+    await gw.tools("r2");
+    expect(JSON.parse(Buffer.from(String(calls.filter((c) => c.url === GW).at(-1)!.ctx), "base64url").toString())).toEqual({ run: "r2" });
   });
 
   test("gần hết hạn thì gia hạn bằng renew; hết hạn hẳn thì xin lại bằng biên nhận", async () => {

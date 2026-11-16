@@ -2,6 +2,7 @@ import '../i18n/i18n.dart';
 
 import 'package:flutter/material.dart';
 
+import '../browser/my_browsers.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'ai_panel.dart';
@@ -29,12 +30,17 @@ class RefSelection {
   final List<RefItem> refs;
   final List<Map<String, dynamic>> agents;
   final List<MmUser> people; // tab Danh bạ: chèn @tên
-  const RefSelection(this.refs, this.agents, this.people);
+  /// Tab Trình duyệt: trình duyệt agent dùng cho tin này (props.flygo_browser {id, slug, name}); null = không tag.
+  final Map<String, dynamic>? browser;
+  const RefSelection(this.refs, this.agents, this.people, {this.browser});
 }
 
-/// Bảng chọn 4 tab: Chat / Luồng / Dự án / Danh bạ (chọn nhiều; tab Dự án chọn một phiên mỗi dự án).
+/// Bảng chọn 5 tab: Chat / Luồng / Dự án / Danh bạ / Trình duyệt (chọn nhiều; tab Dự án chọn một phiên mỗi dự án; tab
+/// Trình duyệt chọn một trình duyệt cho agent dùng).
 Future<RefSelection?> showRefPicker(BuildContext context, AppState app, String currentId,
-    {List<RefItem> refs = const [], List<Map<String, dynamic>> agents = const []}) {
+    {List<RefItem> refs = const [], List<Map<String, dynamic>> agents = const [], Map<String, dynamic>? browser}) {
+  Map<String, dynamic>? selBrowser = browser;
+  final browsers = MyBrowsers.list(app.token);
   final selRefs = {for (final r in refs) r.key: r};
   final selAgents = {for (final a in agents) a['session_id'] as String: a};
   final selPeople = <String, MmUser>{};
@@ -179,13 +185,13 @@ Future<RefSelection?> showRefPicker(BuildContext context, AppState app, String c
 
       void flipOpen(String k) => open.contains(k) ? open.remove(k) : open.add(k);
       void flip(RefItem r) => selRefs.containsKey(r.key) ? selRefs.remove(r.key) : selRefs[r.key] = r;
-      final n = selRefs.length + selAgents.length + selPeople.length;
+      final n = selRefs.length + selAgents.length + selPeople.length + (selBrowser == null ? 0 : 1);
       return Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
         child: SizedBox(
         height: MediaQuery.sizeOf(ctx).height * .8 - MediaQuery.viewInsetsOf(ctx).bottom * .5,
         child: DefaultTabController(
-          length: 4,
+          length: 5,
           initialIndex: currentProject != null ? 2 : 0,
           child: Column(children: [
             TabBar(
@@ -193,7 +199,7 @@ Future<RefSelection?> showRefPicker(BuildContext context, AppState app, String c
               unselectedLabelColor: pal.sub,
               indicatorColor: pal.accent,
               isScrollable: false,
-              tabs: [Tab(text: tr('Chat')), Tab(text: tr('Luồng')), Tab(text: tr('Dự án')), Tab(text: tr('Danh bạ'))],
+              tabs: [Tab(text: tr('Chat')), Tab(text: tr('Luồng')), Tab(text: tr('Dự án')), Tab(text: tr('Danh bạ')), Tab(text: tr('Trình duyệt'))],
             ),
             Expanded(
               child: TabBarView(children: [
@@ -281,6 +287,34 @@ Future<RefSelection?> showRefPicker(BuildContext context, AppState app, String c
                         sub: '@${u.username}',
                       ),
                 ]),
+                // Trình duyệt (extension Flygo Browser Bridge) của tài khoản: agent dùng trình duyệt được chọn cho tin này.
+                FutureBuilder<List<MyBrowser>>(
+                  future: browsers,
+                  builder: (ctx, snap) {
+                    final list = (snap.data ?? const <MyBrowser>[]).where((b) => match('${b.name} ${b.slug} ${b.machineName}')).toList();
+                    if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+                    if (list.isEmpty) {
+                      return Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(tr('Chưa có trình duyệt nào. Cài extension Flygo Browser Bridge vào Chrome / Edge trên máy có Flygo Chat.'),
+                            textAlign: TextAlign.center, style: TextStyle(color: pal.sub)),
+                      );
+                    }
+                    return ListView(children: [
+                      for (final b in list)
+                        tile(
+                          on: selBrowser?['id'] == b.id,
+                          radio: true,
+                          toggle: () => selBrowser = selBrowser?['id'] == b.id ? null : b.tag,
+                          leading: Icon(Icons.public, color: b.online ? pal.accent : pal.sub),
+                          title: b.name,
+                          sub: ['@${b.slug}', if (b.machineName.isNotEmpty) b.machineName, b.online ? tr('trực tuyến') : tr('ngoại tuyến')]
+                              .whereType<String>()
+                              .join(' · '),
+                        ),
+                    ]);
+                  },
+                ),
               ]),
             ),
             // Ô tìm kiếm cố định dưới danh sách; gõ chữ thì có nút ✕ để xoá.
@@ -328,7 +362,7 @@ Future<RefSelection?> showRefPicker(BuildContext context, AppState app, String c
                             .firstOrNull;
                         if (bot != null) agents.add({...a, 'bot_id': bot.id, 'username': bot.username});
                       }
-                      if (ctx.mounted) Navigator.pop(ctx, RefSelection(selRefs.values.toList(), agents, selPeople.values.toList()));
+                      if (ctx.mounted) Navigator.pop(ctx, RefSelection(selRefs.values.toList(), agents, selPeople.values.toList(), browser: selBrowser));
                     },
                     child: Text(tr('Xong')),
                   ),
