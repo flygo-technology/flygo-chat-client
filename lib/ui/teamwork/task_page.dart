@@ -734,9 +734,16 @@ class _TwTaskPageState extends State<TwTaskPage> {
               ],
               Text(t.key, style: TextStyle(fontSize: 13, color: look.sub, fontWeight: FontWeight.w600)),
               const Spacer(),
-              if (widget.preview)
-                TextButton.icon(key: const ValueKey('preview-full'), onPressed: () => widget.onOpenFull?.call(t.key), icon: const Icon(Icons.open_in_full, size: 16), label: const Text('Mở toàn trang'))
-              else
+              if (widget.preview) ...[
+                FilledButton.tonalIcon(
+                  key: const ValueKey('preview-full'),
+                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                  onPressed: () => widget.onOpenFull?.call(t.key),
+                  icon: const Icon(Icons.open_in_full, size: 16),
+                  label: const Text('Mở toàn trang'),
+                ),
+                IconButton(key: const ValueKey('preview-expand'), tooltip: 'Mở toàn trang', icon: const Icon(Icons.open_in_full, size: 19), onPressed: () => widget.onOpenFull?.call(t.key)),
+              ] else
                 IconButton(
                   key: const ValueKey('panel-full'),
                   tooltip: 'Mở trang đầy đủ',

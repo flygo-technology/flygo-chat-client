@@ -137,23 +137,7 @@ class _ProjectCardState extends State<ProjectCard> {
                 Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: CategoryBar(p.counts, height: 4)),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                  child: Row(children: [
-                    Expanded(
-                      child: Row(children: [
-                        TwChip(kProjectStatusNames[p.status]!, color: sc),
-                        const SizedBox(width: 8),
-                        Flexible(child: Text('${p.doneCount}/${p.total} xong', maxLines: 1, overflow: TextOverflow.clip, softWrap: false, style: meta)),
-                        if (p.due != null) ...[
-                          const SizedBox(width: 8),
-                          Icon(Icons.event_outlined, size: 13, color: look.sub),
-                          const SizedBox(width: 2),
-                          Text(dShort(p.due!), maxLines: 1, softWrap: false, style: meta),
-                        ],
-                      ]),
-                    ),
-                    const SizedBox(width: 6),
-                    TwAvatars(p.memberPreview, size: 22, max: 3),
-                  ]),
+                  child: _MetaRow(project: p, statusColor: sc, style: meta),
                 ),
               ]),
               Positioned(
@@ -189,6 +173,59 @@ class _ProjectCardState extends State<ProjectCard> {
         ),
       ),
     );
+  }
+}
+
+/// Dòng thông tin của thẻ dự án: trạng thái + "x/y xong" + hạn luôn hiện đủ (không cắt); avatar thành viên co lại (tối đa 3 +
+/// "+N") rồi bỏ hẳn khi không còn chỗ; hết chỗ nữa thì bỏ hạn trước, không bao giờ cắt số việc.
+class _MetaRow extends StatelessWidget {
+  const _MetaRow({required this.project, required this.statusColor, required this.style});
+  final TwProject project;
+  final Color statusColor;
+  final TextStyle style;
+  static const _av = 22.0;
+
+  static double _avatarsWidth(int shown, int total) => shown <= 0 ? 0 : _av + (shown - 1) * _av * .7 + (total > shown ? _av * .9 + 3 : 0);
+
+  @override
+  Widget build(BuildContext context) {
+    final look = TwLook.of(context);
+    final p = project;
+    final base = DefaultTextStyle.of(context).style;
+    final scaler = MediaQuery.textScalerOf(context);
+    double w(String t, TextStyle st) => (TextPainter(text: TextSpan(text: t, style: base.merge(st)), textDirection: TextDirection.ltr, textScaler: scaler, maxLines: 1)..layout()).width;
+    final status = kProjectStatusNames[p.status]!;
+    final counts = '${p.doneCount}/${p.total} xong';
+    final due = p.due == null ? null : dShort(p.due!);
+    return LayoutBuilder(builder: (context, c) {
+      final chipW = w(status, const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)) + 16;
+      final countW = w(counts, style) + 1;
+      final dueW = due == null ? 0.0 : 8 + 13 + 2 + w(due, style) + 1;
+      final members = p.memberPreview;
+      var showDue = due != null;
+      var text = chipW + 8 + countW + (showDue ? dueW : 0);
+      if (text > c.maxWidth && showDue) {
+        showDue = false;
+        text = chipW + 8 + countW;
+      }
+      var shown = members.length.clamp(0, 3);
+      while (shown > 0 && text + 6 + _avatarsWidth(shown, members.length) > c.maxWidth) {
+        shown--;
+      }
+      return Row(children: [
+        TwChip(status, color: statusColor),
+        const SizedBox(width: 8),
+        Text(counts, key: ValueKey('counts-${p.key}'), maxLines: 1, softWrap: false, style: style),
+        if (showDue) ...[
+          const SizedBox(width: 8),
+          Icon(Icons.event_outlined, size: 13, color: look.sub),
+          const SizedBox(width: 2),
+          Text(due!, maxLines: 1, softWrap: false, style: style),
+        ],
+        const Spacer(),
+        if (shown > 0) TwAvatars(members, size: _av, max: shown),
+      ]);
+    });
   }
 }
 

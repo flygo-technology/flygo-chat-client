@@ -361,9 +361,11 @@ void main() {
         await shot(t, 'd3-list-$sfx');
         if (!dark) {
           await t.tap(find.descendant(of: find.byKey(const ValueKey('row-RA-44')), matching: find.byType(Checkbox)));
-          await t.pump(const Duration(milliseconds: 400));
+          await t.pump();
+          expect(find.text('Đã chọn 1 việc'), findsOneWidget); // ô chọn đổi ngay
+          expect(find.byKey(const ValueKey('task-preview')), findsNothing); // không mở hộp xem nhanh
           await t.tap(find.descendant(of: find.byKey(const ValueKey('row-RA-41')), matching: find.byType(Checkbox)));
-          await t.pump(const Duration(milliseconds: 400));
+          await t.pump();
           expect(find.text('Đã chọn 2 việc'), findsOneWidget);
           await t.tap(find.byKey(const ValueKey('bulk-status')));
           await settle(t, 3);
@@ -586,18 +588,16 @@ void main() {
       await done(t, ph);
     });
 
-    Future<void> dbl(WidgetTester t, Finder f) async {
-      await t.tap(f);
-      await t.pump(const Duration(milliseconds: 60));
-      await t.tap(f);
-      await settle(t, 8);
-    }
-
-    testWidgets('máy tính: bấm thẻ Kanban → xem nhanh (không mở trang); bấm đúp → trang đầy đủ; Danh sách cũng vậy', (t) async {
+    testWidgets('máy tính: bấm thẻ Kanban → xem nhanh ngay (không mở trang, không bấm đúp); nút mở rộng → trang đầy đủ; Danh sách cũng vậy', (t) async {
       final s = await pump(t, project: 'RA', view: 'kanban');
       final before = pushes.n;
+      // Không còn xử lý bấm đúp trên thẻ / dòng.
+      for (final w in t.widgetList<InkWell>(find.descendant(of: find.byKey(const ValueKey('card-RA-32')), matching: find.byType(InkWell)))) {
+        expect(w.onDoubleTap, isNull);
+      }
       await t.tap(find.byKey(const ValueKey('card-RA-32')));
-      await t.pump(const Duration(milliseconds: 400)); // chờ quá thời gian bấm đúp
+      await t.pump(); // mở ngay, không chờ
+      expect(find.byKey(const ValueKey('task-preview')), findsOneWidget);
       await settle(t, 8);
       expect(pushes.n, before);
       expect(find.byKey(const ValueKey('task-preview')), findsOneWidget);
@@ -611,7 +611,6 @@ void main() {
       await shot(t, 'd2c-kanban-preview');
       // Bấm việc con trong hộp: đổi nội dung, không mở trang.
       await t.tap(find.descendant(of: dlg, matching: find.byKey(const ValueKey('sub-RA-63'))));
-      await t.pump(const Duration(milliseconds: 400));
       await settle(t, 6);
       expect(pushes.n, before);
       expect(find.descendant(of: dlg, matching: find.text('Viết test tồn kho')), findsWidgets);
@@ -619,8 +618,11 @@ void main() {
       await t.sendKeyEvent(LogicalKeyboardKey.escape);
       await settle(t, 3);
       expect(find.byKey(const ValueKey('task-preview')), findsNothing);
-      // Bấm đúp: trang đầy đủ, không hiện hộp.
-      await dbl(t, find.byKey(const ValueKey('card-RA-35')));
+      // Nút mở rộng góc phải: trang đầy đủ, đóng hộp.
+      await t.tap(find.byKey(const ValueKey('card-RA-35')));
+      await settle(t, 6);
+      await t.tap(find.byKey(const ValueKey('preview-expand')));
+      await settle(t, 8);
       expect(pushes.n, before + 1);
       expect(find.byKey(const ValueKey('task-preview')), findsNothing);
       expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
@@ -630,14 +632,36 @@ void main() {
       await t.tap(find.byKey(const ValueKey('view-list')));
       await settle(t, 3);
       await t.tap(find.byKey(const ValueKey('row-RA-44')));
-      await t.pump(const Duration(milliseconds: 400));
-      await settle(t, 6);
+      await t.pump();
       expect(find.byKey(const ValueKey('task-preview')), findsOneWidget);
+      await settle(t, 6);
       await t.tap(find.byKey(const ValueKey('preview-full')));
       await settle(t, 8);
       expect(pushes.n, before + 2);
       expect(find.byKey(const ValueKey('task-preview')), findsNothing);
       await done(t, s);
+    });
+
+    testWidgets('thẻ dự án rộng 260 / 300 / 340, 5 thành viên: số việc không bị cắt, không tràn', (t) async {
+      final members = [for (final id in ['u-lan', 'u-minh', 'u-hung', 'u-thu', 'u-ha']) {'kind': 'user', 'id': id, 'name': id}];
+      be.projects.first['member_preview'] = members;
+      be.projects.first['counts'] = {'backlog': 18, 'started': 9, 'closed': 4, 'done': 123, 'total': 154};
+      for (final w in [260.0, 300.0, 340.0]) {
+        final s = await pump(t, child: (s) => Scaffold(body: Center(child: SizedBox(width: w, height: 158, child: ListenableBuilder(listenable: s, builder: (c, _) {
+              final p = s.projects.where((x) => x.key == 'RA').firstOrNull;
+              return p == null ? const SizedBox() : ProjectCard(project: p, store: s, onTap: () {});
+            })))));
+        await t.runAsync(s.refresh);
+        await settle(t, 3);
+        final f = find.byKey(const ValueKey('counts-RA'));
+        expect(f, findsOneWidget, reason: 'rộng $w');
+        final para = t.renderObject<RenderParagraph>(find.descendant(of: f, matching: find.byType(RichText)));
+        expect(para.didExceedMaxLines, isFalse);
+        final tp = TextPainter(text: para.text, textDirection: TextDirection.ltr, maxLines: 1)..layout();
+        expect(para.size.width, greaterThanOrEqualTo(tp.width - 0.5), reason: 'rộng $w: "123/154 xong" bị cắt');
+        expect(find.text('123/154 xong'), findsOneWidget);
+        await done(t, s);
+      }
     });
 
     testWidgets('cột bình luận thu gọn thành dải 40px (nhớ trên máy); khung việc con vẫn mở bên phải', (t) async {

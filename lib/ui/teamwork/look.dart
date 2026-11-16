@@ -200,12 +200,12 @@ class TwAvatars extends StatelessWidget {
     final extra = people.length - shown.length;
     return SizedBox(
       height: size,
-      width: shown.isEmpty ? 0 : size + (shown.length - 1) * size * .7 + (extra > 0 ? size * .9 : 0),
+      width: shown.isEmpty ? 0 : size + (shown.length - 1) * size * .7 + (extra > 0 ? size * .9 + 3 : 0),
       child: Stack(children: [
         for (var i = 0; i < shown.length; i++) Positioned(left: i * size * .7, child: TwAvatar.of(shown[i], size: size)),
         if (extra > 0)
           Positioned(
-            left: shown.length * size * .7 + 2,
+            left: size + (shown.length - 1) * size * .7 + 3,
             top: 0,
             bottom: 0,
             child: Center(child: Text('+$extra', style: TextStyle(fontSize: size * .45, color: TwLook.of(context).sub))),

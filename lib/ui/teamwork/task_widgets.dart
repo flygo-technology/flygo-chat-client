@@ -131,12 +131,10 @@ List<TaskGroup> groupTasks(List<TwTask> tasks, TwFilter f, TwProjectFull? p, Dat
 
 /// Thẻ việc (Kanban, danh sách điện thoại).
 class TaskCard extends StatelessWidget {
-  const TaskCard({super.key, required this.task, required this.store, this.onTap, this.onDoubleTap, this.dragging = false, this.showProject = false});
+  const TaskCard({super.key, required this.task, required this.store, this.onTap, this.dragging = false, this.showProject = false});
   final TwTask task;
   final TwStore store;
   final VoidCallback? onTap;
-  /// Bấm đúp (máy tính): mở trang việc đầy đủ; bấm một lần thì xem nhanh.
-  final VoidCallback? onDoubleTap;
   final bool dragging, showProject;
 
   @override
@@ -155,7 +153,6 @@ class TaskCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
-        onDoubleTap: onDoubleTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
