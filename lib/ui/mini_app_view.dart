@@ -17,6 +17,10 @@ import '../state/app_state.dart';
 import 'bang_tin/bang_tin_page.dart' show kBangTinTab, openBangTin;
 import 'flows/flows_page.dart' show openFlowsHome;
 import 'todo/todo_page.dart' show openTodo;
+import 'contacts/api.dart' show kContactsScreen;
+import 'contacts/directory_view.dart';
+import 'contacts/dm_link.dart' show openContact;
+import '../push/push_service.dart' show PushService;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -53,6 +57,23 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'todo') {
     tab?.onTitle?.call(app.name);
     await openTodo(context, app, noteId: path == null ? null : RegExp(r'^/n/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1));
+    return;
+  }
+  // Danh bạ khách là tab "Khách" của Danh bạ: mở Danh bạ ở tab đó (link /c/<id> mở thẳng một liên hệ).
+  if (app.nativeScreen == kContactsScreen) {
+    final id = path == null ? null : RegExp(r'^/c/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1);
+    if (id != null) return openContact(context, id);
+    tab?.onTitle?.call(tr('Danh bạ'));
+    await nav.push(AppPageRoute(
+        builder: (ctx) => Scaffold(
+              backgroundColor: Pal.of(ctx).bg,
+              appBar: AppBar(title: Text(tr('Danh bạ'))),
+              body: DirectoryView(guests: true, onOpen: (ch) {
+                Navigator.of(ctx).pop();
+                PushService.openChannel.value = null;
+                PushService.openChannel.value = ch;
+              }),
+            )));
     return;
   }
   if (app.nativeScreen == 'show') {
@@ -226,7 +247,8 @@ class _MiniAppsSectionState extends State<MiniAppsSection> with WidgetsBindingOb
 
   @override
   Widget build(BuildContext context) {
-    final apps = [for (final a in _apps) if ((widget.only == null || widget.only!.contains(a.id)) && !widget.except.contains(a.id)) a];
+    // Danh bạ khách không có ô riêng: nằm trong ô Danh bạ (tab Khách).
+    final apps = [for (final a in _apps) if ((widget.only == null || widget.only!.contains(a.id)) && !widget.except.contains(a.id) && a.nativeScreen != kContactsScreen) a];
     if (apps.isEmpty && !widget.showEmpty) return const SizedBox.shrink();
     Widget tileOf(MiniApp a) => widget.tile(
         a.iconIsUrl ? MiniAppIcon(a, size: 62, radius: 18) : miniAppTileColor(a) != null ? MiniAppIcon(a, size: 34) : MiniAppIcon(a),
