@@ -479,10 +479,21 @@ class _SpaceWindowState extends State<SpaceWindow> {
       _newTab(url: url);
       return _tab.state.id;
     };
+    host.notice.addListener(_onNotice);
+  }
+
+  /// Trang trong cửa sổ này gọi plugin ký mà engine không làm được: báo rõ thay vì im lặng.
+  void _onNotice() {
+    final n = host.notice.value;
+    if (n == null || !mounted || !_tabs.any((t) => t.state.id == n.$1)) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(n.$2), duration: const Duration(seconds: 8)));
   }
 
   @override
   void dispose() {
+    host.notice.removeListener(_onNotice);
     for (final t in _tabs) {
       host.tabClosed(t.state);
     }

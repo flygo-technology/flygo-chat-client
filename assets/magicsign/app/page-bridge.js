@@ -61,6 +61,28 @@
     });
   }
 
+  // Diagnostics for kyso-trace.log: what reached this frame and the page's
+  // own script errors once it talks to a plugin. Short text only: message
+  // kinds, error messages and script paths, never payloads or page content.
+  let traces = 0;
+  const trace = (e) => {
+    if (traces++ < 100) post({ k: "trace", e: String(e).slice(0, 240) });
+  };
+  const where = (file, line) => {
+    try {
+      const url = new URL(file);
+      return ` @ ${url.origin}${url.pathname}:${line ?? "?"}`;
+    } catch {
+      return file ? ` @ ${String(file).split("?")[0]}:${line ?? "?"}` : "";
+    }
+  };
+  window.addEventListener("error", (event) => {
+    if (pluginUsed) trace(`lỗi JS: ${event.message}${where(event.filename, event.lineno)}`);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    if (pluginUsed) trace(`promise lỗi: ${event.reason?.message ?? event.reason}`);
+  });
+
   /** Same rules as the server: exact origin, `https://*.example.vn` or `*`. */
   function originAllowed(origin, patterns) {
     return (patterns || []).some((pattern) => {
@@ -83,11 +105,19 @@
     pagePort.postMessage({ t: "config", enabled, ports, debug: logging });
   }
 
+  // iOS / macOS send base64 ("b64:..."): the plugin quotes the reply into a
+  // JS string without escaping backslashes, which breaks any JSON inside.
+  function decodeNative(data) {
+    if (typeof data !== "string" || !data.startsWith("b64:")) return data;
+    return new TextDecoder().decode(Uint8Array.from(atob(data.slice(4)), (c) => c.charCodeAt(0)));
+  }
+
   function onNative(event) {
     let message;
     try {
-      message = JSON.parse(event.data);
-    } catch {
+      message = JSON.parse(decodeNative(event.data));
+    } catch (error) {
+      trace(`tin từ app hỏng (${typeof event.data}, ${String(event.data ?? "").length}B): ${error?.message ?? error}`);
       return;
     }
     // Android answers this frame only; iOS answers the main frame.
@@ -108,9 +138,15 @@
         sendConfig();
         break;
       }
-      case "port":
+      case "port": {
+        const t = message.message?.t;
+        if (t && t !== "log") {
+          pluginUsed = true;
+          trace(`nhận ${t} #${message.message.id ?? ""}${pagePort ? "" : " nhưng chưa có kênh inject.js"}`);
+        }
         pagePort?.postMessage(message.message);
         break;
+      }
       case "web": {
         const resolve = webWaiters.get(message.rid);
         webWaiters.delete(message.rid);

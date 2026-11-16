@@ -5,8 +5,10 @@
 //   node tool/kyso_frames_probe/run.mjs   (PW=playwright-core module, PW_WEBKIT=WebKit pw_run.sh if not the bundled one)
 //
 // The page (main origin) has a same-origin iframe and a cross-origin iframe. Each opens
-// ws://localhost:11984/plugin like MISA meInvoice and sends GetRawVersion; the fake engine echoes it.
+// ws://localhost:11984/plugin like MISA meInvoice and sends GetRawVersion; the fake engine answers with JSON
+// that holds the request (JSON inside JSON, like the MISA adapter's replies).
 // Expected: main and same-origin iframe get the echo; the cross-origin iframe gets nothing.
+// KYSO_RAW=1 sends replies without base64, as before the fix: the JSON breaks and nothing arrives.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,7 +26,7 @@ const probe = (name) => `<!doctype html><meta charset="utf-8"><body><script>
   setTimeout(() => {
     const ws = new WebSocket("ws://localhost:11984/plugin");
     ws.onopen = () => ws.send(JSON.stringify({ action: "GetRawVersion", from: ${JSON.stringify(name)} }));
-    ws.onmessage = (e) => { window.__result = "msg " + e.data; };
+    ws.onmessage = (e) => { window.__result = "msg " + JSON.parse(e.data).echo; };
     ws.onerror = () => { window.__result = window.__result || "error"; };
   }, 300);
 </script>`;
@@ -52,8 +54,14 @@ const sockets = new Map();
 // Native side: requests from any frame, replies only to the main frame.
 await page.exposeBinding('__nativePost', async ({ frame }, data) => {
   const message = JSON.parse(data);
-  const reply = (body) =>
-    page.mainFrame().evaluate((text) => window.__nativeIn && window.__nativeIn(text), JSON.stringify({ fid: message.fid, ...body }));
+  // Like the app on iOS / macOS: base64 (runtime.dart _appleSafe) unless KYSO_RAW=1, then through the
+  // plugin's quoting: '<data>' with only ' escaped (WebMessage.jsData), evaluated in the main frame.
+  const reply = (body) => {
+    const json = JSON.stringify({ fid: message.fid, ...body });
+    const data = process.env.KYSO_RAW === '1' ? json : `b64:${Buffer.from(json, 'utf8').toString('base64')}`;
+    const literal = `'${data.replaceAll("'", "\\'")}'`;
+    return page.mainFrame().evaluate((source) => window.__nativeIn && window.__nativeIn((0, eval)(source)), literal);
+  };
   if (message.k === 'hello') return reply({ k: 'config', config: { enabled: true, ports: [11984], debug: null }, changed: false });
   if (message.k !== 'port') return;
   const inner = message.message;
@@ -61,7 +69,9 @@ await page.exposeBinding('__nativePost', async ({ frame }, data) => {
     sockets.set(`${message.fid}:${inner.id}`, frame.url());
     return reply({ k: 'port', message: { t: 'ws_opened', id: inner.id, protocol: '' } });
   }
-  if (inner.t === 'ws_send') return reply({ k: 'port', message: { t: 'ws_msg', id: inner.id, text: `echo:${inner.text}` } });
+  if (inner.t === 'ws_send') {
+    return reply({ k: 'port', message: { t: 'ws_msg', id: inner.id, text: JSON.stringify({ jsCallBackFn: 'cb', echo: inner.text, note: "a'b\\c" }) } });
+  }
 });
 
 const fakeNative = `(() => {
@@ -86,6 +96,6 @@ await browser.close();
 server.close();
 
 console.log(JSON.stringify(results, null, 2));
-const ok = /echo:.*"main"/.test(results.main || '') && /echo:.*"same"/.test(results.same || '') && !/echo/.test(results.cross || '');
+const ok = /"from":"main"/.test(results.main || '') && /"from":"same"/.test(results.same || '') && !/"from"/.test(results.cross || '');
 console.log(ok ? 'PASS' : 'FAIL');
 process.exit(ok ? 0 : 1);

@@ -168,6 +168,28 @@ String _traceUrl(Object? url) {
   return u == null ? '?' : '${u.scheme}://${u.host}:${u.port}${u.path}';
 }
 
+String _clip(Object? text, [int max = 200]) {
+  final s = '${text ?? ''}'.replaceAll(RegExp(r'\s+'), ' ');
+  return s.length > max ? '${s.substring(0, max)}…' : s;
+}
+
+/// Một tin của kênh plugin cho nhật ký: loại, mã socket/yêu cầu, kích thước; không ghi nội dung.
+String _traceFrame(Object? message) {
+  if (message is! Map) return '?';
+  final parts = <String>['${message['t']}'];
+  if (message['id'] != null) parts.add('#${message['id']}');
+  if (message['method'] != null) parts.add('${message['method']}');
+  if (message['status'] != null) parts.add('status ${message['status']}');
+  for (final key in const ['text', 'binary', 'body']) {
+    final v = message[key];
+    if (v is String) parts.add('$key ${v.length}B');
+  }
+  if (message['code'] != null) parts.add('code ${message['code']}');
+  final why = message['reason'] ?? message['error'];
+  if (why != null && '$why'.isNotEmpty) parts.add(_clip(why, 160));
+  return parts.join(' ');
+}
+
 /// Một khung của website đang nói chuyện với app.
 class _Frame {
   _Frame(this.fid, this.origin, this.isMain, this.post, this.tab);
@@ -178,7 +200,17 @@ class _Frame {
   final KysoTab tab;
   int? port;
 
-  void send(Map<String, dynamic> message) => post(jsonEncode({'fid': fid, ...message}));
+  /// Socket plugin đã gửi tin mà chưa có phản hồi: id → đồng hồ báo "chưa trả lời" vào nhật ký.
+  final waiting = <Object?, Timer>{};
+  int traced = 0;
+
+  void send(Map<String, dynamic> message) {
+    try {
+      post(jsonEncode({'fid': fid, ...message}));
+    } catch (e) {
+      kysoTrace('tab ${tab.id}: không gửi được tin về trang: ${_clip(e)}');
+    }
+  }
 }
 
 /// Những gì host biết về một tab trình duyệt ký số.
@@ -251,6 +283,13 @@ class KysoHost {
 
   /// Trạng thái kết nối (state, user, serverUrl…), làm mới sau mỗi thay đổi.
   final status = ValueNotifier<Map<String, dynamic>>(const {});
+
+  /// Thông báo cho người dùng khi trang gọi plugin ký mà không được (chưa đăng nhập, mất kết nối…): cửa sổ Ký
+  /// số hiện thành SnackBar. (tab, nội dung)
+  final notice = ValueNotifier<(int, String, int)?>(null);
+  int _notices = 0;
+  void _notify(KysoTab tab, String text) => notice.value = (tab.id, text, ++_notices);
+  static final _engineFailure = RegExp('đăng nhập|kết nối|máy chủ', caseSensitive: false);
 
   /// Mở một URL trong tab mới (window.open, tabs.create); giao diện đặt.
   int? Function(String url)? openUrl;
@@ -413,7 +452,7 @@ class KysoHost {
   Future<dynamic> _engineCall(String body, Map<String, dynamic> arguments) async {
     await _engineReady.future;
     final result = await _engineView?.callAsyncJavaScript(functionBody: body, arguments: arguments);
-    if (result?.error != null) debugPrint('[kyso engine] ${result!.error}');
+    if (result?.error != null) kysoTrace('engine call lỗi: ${_clip(result!.error)}');
     return result?.value;
   }
 
@@ -599,10 +638,18 @@ class KysoHost {
         return true;
       case 'port.post':
         final message = call['message'];
-        if (message is Map && (message['t'] == 'ws_closed' || message['t'] == 'ws_opened' || message['error'] != null)) {
-          kysoTrace('port ${call['port']} ${message['t']} ${message['code'] ?? ''} ${message['reason'] ?? message['error'] ?? ''}');
+        final frame = _ports[call['port']];
+        if (message is Map && message['t'] != 'log') {
+          kysoTrace('port ${call['port']} ← ${_traceFrame(message)}${frame == null ? ' (trang đã đóng)' : ''}');
+          if (message['t'] == 'ws_msg' || message['t'] == 'ws_closed') frame?.waiting.remove(message['id'])?.cancel();
+          // Engine chưa nối được máy chủ ký (chưa đăng nhập, mất mạng…): người dùng phải thấy, trang ký thường chỉ
+          // báo "chưa cài plugin". Lỗi riêng của adapter (sai origin, dò cổng) thì không báo.
+          final why = message['t'] == 'ws_closed' ? message['reason'] : message['error'];
+          if (why is String && _engineFailure.hasMatch(why) && !why.contains('adapter') && frame != null) {
+            _notify(frame.tab, 'Ký số: $why');
+          }
         }
-        _ports[call['port']]?.send({'k': 'port', 'message': message});
+        frame?.send({'k': 'port', 'message': message});
         return true;
       case 'port.disconnect':
         final frame = _ports.remove(call['port']);
@@ -825,10 +872,17 @@ class KysoHost {
         message?.data?.toString(),
         sourceOrigin,
         isMainFrame,
-        (data) => replyProxy.postMessage(WebMessage(data: data)),
+        (data) => replyProxy.postMessage(WebMessage(data: _appleSafe(data))),
       ),
     ));
   }
+
+  /// iOS / macOS: flutter_inappwebview đưa tin trả lời vào trang bằng `'<data>'` và chỉ escape dấu `'`, nên mọi `\`
+  /// của JSON bị nuốt (`\"` thành `"`), JSON.parse trong page-bridge.js lỗi và tin bị bỏ im lặng. Tin không có
+  /// `\` (ws_opened, config, http_res base64) vẫn tới, còn ws_msg của plugin (JSON trong JSON) thì không: meInvoice
+  /// mở được socket nhưng không bao giờ nhận trả lời. Gửi base64 (chỉ chữ, số, + / =) cho page-bridge.js giải mã.
+  static String _appleSafe(String data) =>
+      Platform.isIOS || Platform.isMacOS ? 'b64:${base64Encode(utf8.encode(data))}' : data;
 
   Future<void> _fromWebsite(
     KysoTab tab,
@@ -864,8 +918,33 @@ class KysoHost {
         frame.send({'k': 'config', 'config': _pageConfig(), 'changed': false});
       case 'port':
         final inner = message['message'];
-        if (inner is Map && (inner['t'] == 'ws_open' || inner['t'] == 'http')) {
+        final opening = inner is Map && (inner['t'] == 'ws_open' || inner['t'] == 'http');
+        if (opening) {
           kysoTrace('tab ${tab.id} ${isMainFrame ? 'main' : 'iframe'} $origin ${inner['t']} ${inner['method'] ?? ''} ${_traceUrl(inner['url'])}');
+        } else if (inner is Map && inner['t'] != 'log') {
+          kysoTrace('tab ${tab.id} → ${_traceFrame(inner)}');
+        }
+        // Chưa đăng nhập máy chủ ký số: báo ngay cho trang và người dùng, không để engine chờ rồi im lặng.
+        if (opening && !loggedIn) {
+          const why = 'Chưa đăng nhập máy chủ ký số, hãy mở lại ô Ký số để đăng nhập';
+          kysoTrace('tab ${tab.id}: từ chối ${inner['t']} #${inner['id']}: chưa đăng nhập');
+          frame.send({
+            'k': 'port',
+            'message': inner['t'] == 'http'
+                ? {'t': 'http_res', 'id': inner['id'], 'error': why}
+                : {'t': 'ws_closed', 'id': inner['id'], 'code': 1006, 'reason': why},
+          });
+          _notify(tab, why);
+          return;
+        }
+        if (inner is Map && inner['t'] == 'ws_send') {
+          final id = inner['id'];
+          final sentFrame = frame;
+          sentFrame.waiting[id] ??= Timer(const Duration(seconds: 30), () {
+            sentFrame.waiting.remove(id);
+            final s = status.value;
+            kysoTrace('tab ${tab.id}: socket #$id chưa có phản hồi sau 30 giây (engine ${s['state']}${s['error'] != null ? ' · ${s['error']}' : ''})');
+          });
         }
         // Giữ thứ tự của trang: mở port trước tin đầu tiên.
         final current = frame;
@@ -878,6 +957,9 @@ class KysoHost {
           }
           await _engineCall('window.__ms.portMessage(id, message);', {'id': current.port, 'message': message['message']});
         }).catchError((Object error) => kysoTrace('port lỗi: $error'));
+      case 'trace':
+        // Sự kiện của page-bridge.js (đã nhận tin, lỗi JS của trang): chỉ chữ ngắn, giới hạn mỗi khung.
+        if (frame.traced++ < 200) kysoTrace('tab ${tab.id} ${isMainFrame ? 'main' : 'iframe'}: ${_clip(message['e'], 240)}');
       case 'web':
         final request = Map<String, dynamic>.from(message['message'] as Map? ?? const {});
         if (!manifest.messages.contains(request['t'])) return;
@@ -891,6 +973,10 @@ class KysoHost {
     final gone = _frames.values.where((frame) => frame.tab == tab).toList();
     for (final frame in gone) {
       _frames.remove(frame.fid);
+      for (final timer in frame.waiting.values) {
+        timer.cancel();
+      }
+      frame.waiting.clear();
       final port = frame.port;
       if (port == null) continue;
       _ports.remove(port);
