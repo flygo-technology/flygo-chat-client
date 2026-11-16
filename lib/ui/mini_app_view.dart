@@ -27,6 +27,10 @@ import 'calendar/calendar_page.dart' show openCalendar;
 import 'dich/dich_page.dart' show kDichScreen, openDich;
 import 'teamwork/api.dart' show kTwScreen;
 import 'teamwork/teamwork_page.dart' show openTeamwork;
+import 'contacts/api.dart' show kContactsScreen;
+import 'contacts/directory_view.dart';
+import 'contacts/dm_link.dart' show openContact;
+import '../push/push_service.dart' show PushService;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -104,6 +108,23 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == kDichScreen) {
     tab?.onTitle?.call(app.name);
     await openDich(context, app);
+    return;
+  }
+  // Danh bạ khách là tab "Khách" của Danh bạ: mở Danh bạ ở tab đó (link /c/<id> mở thẳng một liên hệ).
+  if (app.nativeScreen == kContactsScreen) {
+    final id = path == null ? null : RegExp(r'^/c/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1);
+    if (id != null) return openContact(context, id);
+    tab?.onTitle?.call(tr('Danh bạ'));
+    await nav.push(AppPageRoute(
+        builder: (ctx) => Scaffold(
+              backgroundColor: Pal.of(ctx).bg,
+              appBar: AppBar(title: Text(tr('Danh bạ'))),
+              body: DirectoryView(guests: true, onOpen: (ch) {
+                Navigator.of(ctx).pop();
+                PushService.openChannel.value = null;
+                PushService.openChannel.value = ch;
+              }),
+            )));
     return;
   }
   if (app.nativeScreen == 'show') {
@@ -288,7 +309,7 @@ class _MiniAppsSectionState extends State<MiniAppsSection> with WidgetsBindingOb
         if ((widget.only == null || widget.only!.contains(a.id) || (native && a.nativeScreen != null)) &&
             !widget.except.contains(a.id) &&
             !(native && widget.only == null && a.nativeScreen != null))
-          a
+          if (a.nativeScreen != kContactsScreen) a // Danh bạ khách không có ô riêng: nằm trong ô Danh bạ (tab Khách).
     ];
     if (apps.isEmpty && !widget.showEmpty) return const SizedBox.shrink();
     Widget tileOf(MiniApp a) => widget.tile(

@@ -76,6 +76,7 @@ import 'forms/dm_link.dart' show FormsOpenButton, formsFormOf;
 import 'reports/dm_link.dart' show ReportsOpenButton, reportsLinkOf;
 import 'calendar/dm_link.dart' show CalendarOpenButton, calendarEventOf;
 import 'teamwork/dm_link.dart' show TeamworkOpenButton, teamworkTaskOf;
+import 'contacts/dm_link.dart' show ContactOpenButton, contactOf;
 import 'bank_card.dart' show BankTxnCard, bankTxnOf;
 import 'flygo_card.dart' show FlygoCard, flygoCardOf;
 import 'desk_tabs.dart' show DeskTab, openTabHook;
@@ -2847,6 +2848,7 @@ class _Bubble extends StatelessWidget {
       // Tin của bot Lịch (nhắc, lời mời, đổi giờ, huỷ): mở thẳng sự kiện. Nút trả lời lời mời do Mattermost vẽ.
       if (!hidden && calendarEventOf(post) != null)
         CalendarOpenButton(eventId: calendarEventOf(post)!.$1, rid: calendarEventOf(post)!.$2, kind: post.props['flygo_kind'] as String?),
+      if (!hidden && contactOf(post) != null) ContactOpenButton(contactId: contactOf(post)!),
       // Gợi ý trả lời trong cuộc họp (runner: props.flygo_meet_suggestion): đưa lên màn hình / đọc cho cả phòng.
       if (post.props['flygo_meet_suggestion'] is Map) _MeetSuggestionActions(app: app, s: (post.props['flygo_meet_suggestion'] as Map).cast<String, dynamic>()),
       // Tách / chuyển phiên AI (runner 0.6.60: props.flygo_session_handoff): nút mở phiên mới / xem phiên cũ.

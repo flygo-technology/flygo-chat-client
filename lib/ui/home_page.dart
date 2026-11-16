@@ -22,6 +22,7 @@ import 'flows/workflow_page.dart' show WorkflowPage;
 import 'flows/process_list.dart' show openProcess;
 import 'flows/flow_experimental.dart' show FlowExperimentalBadge, flowExperimentalMsg, showFlowExperimental;
 import 'flows/flows_org.dart' show FlowsOrgPage;
+import 'contacts/directory_view.dart';
 import '../api/flows_api.dart' show FlowDefInfo, FlowsApi;
 import 'chat_page.dart';
 import 'ai_panel.dart';
@@ -1019,7 +1020,7 @@ class _HomePageState extends State<HomePage> {
 
     return {
       'contacts': (Icons.contacts_rounded, const Color(0xFF2F80ED), tr('Danh bạ'), 0,
-          () => _push(nav, tr('Danh bạ'), (ctx) => PeopleView(header: const SizedBox.shrink(), onOpen: (id) => openChat(ctx, id)))),
+          () => _push(nav, tr('Danh bạ'), (ctx) => DirectoryView(onOpen: (id) => openChat(ctx, id)))),
       // Phòng ban (trưởng / phó / thành viên): ai cũng xem, quản trị sửa (lib/ui/flows/flows_org.dart).
       'org': (Icons.account_tree_rounded, const Color(0xFF0D9488), tr('Tổ chức'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => FlowsOrgPage(app: app, api: FlowsApi(app.token))))),
@@ -2010,7 +2011,7 @@ class _HomePageState extends State<HomePage> {
         Scaffold(backgroundColor: pal.bg, appBar: AppBar(title: Text(title), automaticallyImplyLeading: false), body: body);
     return switch (id) {
             kBangTinTab => const BangTinTab(),
-      'contacts' => titled(tr('Danh bạ'), PeopleView(header: const SizedBox.shrink(), onOpen: _open)),
+      'contacts' => titled(tr('Danh bạ'), DirectoryView(onOpen: _open)),
       'org' => FlowsOrgPage(app: app, api: FlowsApi(app.token)),
       'delegations' => FlowDelegationsPage(app: app),
       'calls' => titled(tr('Lịch sử cuộc gọi'), CallHistoryView(header: const SizedBox.shrink(), onOpen: _open)),
