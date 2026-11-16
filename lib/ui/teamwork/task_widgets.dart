@@ -159,7 +159,7 @@ class TaskCard extends StatelessWidget {
             Row(children: [
               PriorityIcon(t.priority, size: 15),
               const SizedBox(width: 6),
-              Text(t.key, style: meta.copyWith(fontWeight: FontWeight.w600)),
+              KeyText(t.key, style: meta.copyWith(fontWeight: FontWeight.w600)),
               if (showProject && p != null) ...[const SizedBox(width: 6), Flexible(child: Text(p.project.name, overflow: TextOverflow.ellipsis, style: meta))],
               const Spacer(),
               TwAvatars(t.assignees, size: 22, max: 3),

@@ -37,6 +37,9 @@ Future<TwStore> teamworkStore(BuildContext context, MiniApp app) async {
   if (id == null) throw StateError('Máy chủ này chưa có Flygo ID');
   final s = TwStore(TwApi(base: app.baseUrl, id: id), cacheKey: '${serverKey}_${state.me?.id ?? 'me'}'.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_'));
   s.launcher = AppAgentLauncher(state);
+  // Độ rộng khung việc bên phải: nhớ trên máy này (tuỳ chọn giao diện của app).
+  s.panelWidth = await state.uiPref<double>('teamwork_panel_width');
+  s.savePanelWidth = (w) => state.setUiPref('teamwork_panel_width', w);
   return s;
 }
 
@@ -350,8 +353,9 @@ class TwProjectScreen extends StatefulWidget {
 
 class _TwProjectScreenState extends State<TwProjectScreen> {
   late String _view = widget.initialView;
-  /// Máy tính: việc đang mở ở khung bên phải.
-  String? _panel;
+  /// Mục mở đầu của tab Cài đặt (nút "Mời" mở thẳng Thành viên).
+  String? _settingsTab;
+  int _settingsRev = 0;
   TwStore get store => widget.store;
 
   @override
@@ -376,7 +380,14 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
     widget.onView?.call(v);
   }
 
-  void _settings([String tab = 'statuses']) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwSettingsPage(store: store, projectId: widget.projectId, initialTab: tab)));
+  /// Mở tab Cài đặt của dự án (ngay trong màn hình dự án).
+  void _settings([String? tab]) {
+    setState(() {
+      _settingsTab = tab;
+      _settingsRev++;
+    });
+    _setView('settings');
+  }
 
   Future<void> _create([String? statusId]) async {
     final f = store.fullOf(widget.projectId);
@@ -396,14 +407,15 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
       return widget.embedded ? body : Scaffold(appBar: AppBar(), body: body);
     }
     final pr = f.project;
-    void open(TwTask t) => widget.embedded ? setState(() => _panel = t.key) : openTask(context, store, t.key);
+    void open(TwTask t) => openTask(context, store, t.key);
     final viewWidget = switch (_view) {
       'list' => TwListView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
       'gantt' => TwGanttView(store: store, project: f, filter: widget.filter, onOpen: open),
       'overview' => _overview(f, look),
+      'settings' => TwSettingsPage(key: ValueKey('settings-$_settingsRev'), store: store, projectId: pr.id, inline: true, initialTab: _settingsTab ?? (twWide(context) ? 'statuses' : null)),
       _ => TwBoardView(store: store, project: f, filter: widget.filter, onOpen: open, onCreate: _create),
     };
-    final tabs = [('list', Icons.view_list_outlined, 'Danh sách'), ('kanban', Icons.view_kanban_outlined, 'Kanban'), ('gantt', Icons.timeline, 'Gantt'), ('overview', Icons.description_outlined, 'Tổng quan')];
+    final tabs = [('list', Icons.view_list_outlined, 'Danh sách'), ('kanban', Icons.view_kanban_outlined, 'Kanban'), ('gantt', Icons.timeline, 'Gantt'), ('overview', Icons.description_outlined, 'Tổng quan'), ('settings', Icons.tune, 'Cài đặt')];
     final users = [for (final m in f.members) if (m.subjectType == 'user') TwAssignee(kind: 'user', id: m.subjectId, name: m.name)];
     final groups = f.members.where((m) => m.subjectType == 'dept').map((m) => m.name).toList();
     if (!widget.embedded) {
@@ -421,21 +433,13 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
               icon: Icon(widget.filter.active ? Icons.filter_alt : Icons.filter_list),
               onPressed: () => twSheet(context, builder: (c) => Padding(padding: const EdgeInsets.only(bottom: 16), child: FilterBar(store: store, project: f, filter: widget.filter, compact: true, onChanged: _changed))),
             ),
-            PopupMenuButton<String>(
-              onSelected: _settings,
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'statuses', child: Text('Trạng thái & quy trình')),
-                PopupMenuItem(value: 'members', child: Text('Thành viên & quyền')),
-                PopupMenuItem(value: 'general', child: Text('Cài đặt dự án')),
-              ],
-            ),
           ],
         ),
         body: Column(children: [
           SizedBox(
             height: 42,
             child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(12, 4, 12, 6), children: [
-              for (final (k, _, label) in tabs.take(3))
+              for (final (k, _, label) in tabs.where((x) => x.$1 != 'overview'))
                 Padding(
                   padding: const EdgeInsets.only(right: 4),
                   child: ChoiceChip(
@@ -453,7 +457,7 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
           ),
           Expanded(child: viewWidget),
         ]),
-        floatingActionButton: pr.canEdit ? FloatingActionButton(key: const ValueKey('fab-task'), backgroundColor: look.accent, foregroundColor: Colors.white, onPressed: _create, child: const Icon(Icons.add)) : null,
+        floatingActionButton: pr.canEdit && _view != 'settings' ? FloatingActionButton(key: const ValueKey('fab-task'), backgroundColor: look.accent, foregroundColor: Colors.white, onPressed: _create, child: const Icon(Icons.add)) : null,
       );
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -461,19 +465,22 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
         height: 56,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: look.divider))),
+        // Phần tên giãn hết chỗ còn lại (Expanded), nhóm nút luôn sát mép phải.
         child: Row(children: [
-          ProjectBadge(pr, size: 26),
-          const SizedBox(width: 10),
-          Flexible(child: Text(pr.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
-          const SizedBox(width: 10),
-          TwChip(kProjectStatusNames[pr.status]!, color: hexColor(kProjectStatusColors[pr.status]), icon: Icons.radio_button_checked),
-          if (groups.isNotEmpty) ...[const SizedBox(width: 8), Flexible(child: Text('· ${groups.join(' + ')}', overflow: TextOverflow.ellipsis, style: TextStyle(color: look.sub, fontSize: 13)))],
-          const Spacer(),
+          Expanded(
+            child: Row(children: [
+              ProjectBadge(pr, size: 26),
+              const SizedBox(width: 10),
+              Flexible(child: Text(pr.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+              const SizedBox(width: 10),
+              TwChip(kProjectStatusNames[pr.status]!, color: hexColor(kProjectStatusColors[pr.status]), icon: Icons.radio_button_checked),
+              if (groups.isNotEmpty) ...[const SizedBox(width: 8), Flexible(child: Text('· ${groups.join(' + ')}', overflow: TextOverflow.ellipsis, style: TextStyle(color: look.sub, fontSize: 13)))],
+            ]),
+          ),
+          const SizedBox(width: 12),
           TwAvatars(users, size: 28, max: 5),
           const SizedBox(width: 10),
           if (pr.canAdmin) OutlinedButton.icon(key: const ValueKey('invite'), onPressed: () => _settings('members'), icon: const Icon(Icons.person_add_alt, size: 18), label: const Text('Mời')),
-          const SizedBox(width: 6),
-          IconButton(key: const ValueKey('project-settings'), tooltip: 'Cài đặt dự án', onPressed: () => _settings(), icon: const Icon(Icons.tune)),
           const SizedBox(width: 6),
           if (pr.canEdit) FilledButton.icon(key: const ValueKey('new-task'), onPressed: _create, icon: const Icon(Icons.add, size: 18), label: const Text('Việc mới')),
         ]),
@@ -500,13 +507,8 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
             ),
         ]),
       ),
-      if (_view != 'overview') FilterBar(store: store, project: f, filter: widget.filter, showGroup: _view == 'list', onChanged: _changed),
-      Expanded(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Expanded(child: viewWidget),
-          if (_panel != null) TwTaskSidePanel(store: store, taskKey: _panel!, onOpenTask: (k) => setState(() => _panel = k), onClose: () => setState(() => _panel = null)),
-        ]),
-      ),
+      if (_view != 'overview' && _view != 'settings') FilterBar(store: store, project: f, filter: widget.filter, showGroup: _view == 'list', onChanged: _changed),
+      Expanded(child: viewWidget),
     ]);
   }
 

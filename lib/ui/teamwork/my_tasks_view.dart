@@ -50,6 +50,7 @@ class _TwMyTasksViewState extends State<TwMyTasksView> {
           ? (a.due ?? DateTime.utc(9999)).compareTo(b.due ?? DateTime.utc(9999))
           : (a.priority == 0 ? 9 : a.priority).compareTo(b.priority == 0 ? 9 : b.priority));
     }
+    final keyW = keyColumnWidth(context, list.map((t) => t.key), _keyStyle(look));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SizedBox(
         height: 46,
@@ -68,7 +69,7 @@ class _TwMyTasksViewState extends State<TwMyTasksView> {
                   padding: const EdgeInsets.only(top: 14, bottom: 4),
                   child: Text('$title · ${items.length}', style: TextStyle(fontWeight: FontWeight.w700, color: color)),
                 ),
-                for (final t in items) _row(t, look, wide, color != null),
+                for (final t in items) _row(t, look, wide, color != null, keyW),
               ],
             if (list.isEmpty) Padding(padding: const EdgeInsets.all(40), child: Center(child: Text('Không có việc nào đang mở', style: TextStyle(color: look.sub)))),
           ]),
@@ -77,7 +78,9 @@ class _TwMyTasksViewState extends State<TwMyTasksView> {
     ]);
   }
 
-  Widget _row(TwTask t, TwLook look, bool wide, bool late) {
+  TextStyle _keyStyle(TwLook look) => TextStyle(fontSize: 12, color: look.sub, fontWeight: FontWeight.w600);
+
+  Widget _row(TwTask t, TwLook look, bool wide, bool late, double keyW) {
     final p = widget.store.projectById(t.projectId);
     return InkWell(
       key: ValueKey('mine-row-${t.key}'),
@@ -86,13 +89,13 @@ class _TwMyTasksViewState extends State<TwMyTasksView> {
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: look.divider))),
         child: Row(children: [
-          if (wide) ...[PriorityIcon(t.priority), const SizedBox(width: 8), SizedBox(width: 64, child: Text(t.key, style: TextStyle(fontSize: 12, color: look.sub, fontWeight: FontWeight.w600)))],
+          if (wide) ...[PriorityIcon(t.priority), const SizedBox(width: 8), SizedBox(width: keyW, child: KeyText(t.key, style: _keyStyle(look)))],
           StatusRing(widget.store.statusOf(t)),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t.title, style: const TextStyle(fontWeight: FontWeight.w500)),
-              if (!wide) Text('${t.key} · ${t.due == null ? '—' : dRel(t.due!, widget.store.today)}', style: TextStyle(fontSize: 12, color: late ? look.red : look.sub)),
+              Text(t.title, maxLines: wide ? 1 : 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
+              if (!wide) Text('${t.key} · ${t.due == null ? '—' : dRel(t.due!, widget.store.today)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: late ? look.red : look.sub)),
             ]),
           ),
           if (t.run?.active ?? false) Padding(padding: const EdgeInsets.only(right: 8), child: Icon(Icons.autorenew_rounded, size: 16, color: look.ai)),

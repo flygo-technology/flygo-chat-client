@@ -48,8 +48,9 @@ class _TwTaskPageState extends State<TwTaskPage> {
   final _comments = GlobalKey<TwCommentsState>();
   /// Đang sửa mô tả; bản nháp giữ trong kho (đóng trang / mất mạng không mất, mở lại tiếp tục sửa).
   bool _editingDesc = false, _savingDesc = false;
-  /// Việc đang mở ở khung bên phải (máy tính).
+  /// Việc đang mở ở khung bên phải (máy tính) và độ rộng khung (kéo mép trái để đổi).
   String? _panelKey;
+  double? _panelW;
   String? _addingSubFor;
   final _subCtl = TextEditingController();
 
@@ -441,11 +442,13 @@ class _TwTaskPageState extends State<TwTaskPage> {
           Expanded(child: _center(look, chips: !huge)),
           Container(
             key: const ValueKey('right-col'),
-            width: huge ? 420 : 360,
+            width: _panelKey == null ? (huge ? 420 : 360) : _panelWidth(w),
             decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))),
             child: _panelKey == null
                 ? _rightTabs(look)
-                : KeyedSubtree(
+                : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    _resizeHandle(look, w),
+                    Expanded(child: KeyedSubtree(
                     key: const ValueKey('task-panel'),
                     child: TwTaskPage(
                       key: ValueKey('panel-$_panelKey'),
@@ -455,12 +458,37 @@ class _TwTaskPageState extends State<TwTaskPage> {
                       onOpenTask: (k) => setState(() => _panelKey = k == t.key ? null : k),
                       onClose: () => setState(() => _panelKey = null),
                     ),
-                  ),
+                  )),
+                  ]),
           ),
         ]),
       ),
     );
   }
+
+  /// Độ rộng khung việc bên phải: mặc định 40% cửa sổ, trong khoảng 380px..65%.
+  double _panelWidth(double w) => (_panelW ?? store.panelWidth ?? w * .4).clamp(380.0, w * .65);
+
+  Widget _resizeHandle(TwLook look, double w) => MouseRegion(
+        cursor: SystemMouseCursors.resizeLeftRight,
+        child: GestureDetector(
+          key: const ValueKey('panel-resize'),
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: (d) => setState(() => _panelW = (_panelWidth(w) - d.delta.dx).clamp(380.0, w * .65)),
+          onHorizontalDragEnd: (_) {
+            final v = _panelW;
+            if (v == null) return;
+            store.panelWidth = v;
+            store.savePanelWidth?.call(v);
+          },
+          child: Container(
+            width: 10,
+            color: look.surface,
+            alignment: Alignment.center,
+            child: Container(width: 3, height: 36, decoration: BoxDecoration(color: look.divider, borderRadius: BorderRadius.circular(2))),
+          ),
+        ),
+      );
 
   /// Giữa (máy tính): tiêu đề, (chip thuộc tính khi vừa), agent, mô tả, việc con, tệp.
   Widget _center(TwLook look, {required bool chips}) => SingleChildScrollView(
@@ -800,6 +828,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
 
   List<Widget> _subtree(String parentId, int depth, TwLook look) {
     final out = <Widget>[];
+    final keyW = keyColumnWidth(context, _d!.subtasks.map((x) => x.key), TextStyle(fontSize: 11.5, color: look.sub));
     for (final s in childrenOf(_d!.subtasks, parentId)) {
       final st = p?.status(s.statusId);
       final done = st?.isDone ?? false;
@@ -822,7 +851,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
                 child: Icon(done ? Icons.check_box : Icons.check_box_outline_blank, size: 17, color: done ? look.ok : look.sub),
               ),
               const SizedBox(width: 8),
-              SizedBox(width: 52, child: Text(s.key, style: TextStyle(fontSize: 11.5, color: look.sub))),
+              SizedBox(width: keyW, child: KeyText(s.key, style: TextStyle(fontSize: 11.5, color: look.sub))),
               Expanded(
                 child: Text(s.title,
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: done ? look.sub : look.text, decoration: done ? TextDecoration.lineThrough : null)),
@@ -1062,44 +1091,5 @@ class _TwTaskPageState extends State<TwTaskPage> {
           child: Text('Tạo bởi ${t.createdByName.isEmpty ? t.createdBy : t.createdByName} · ${dLong(DateTime.fromMillisecondsSinceEpoch(t.createdAt))}', style: TextStyle(fontSize: 11.5, color: look.sub)),
         ),
     ]);
-  }
-}
-
-/// Khung việc bên phải (máy tính): kéo mép trái để đổi độ rộng; bấm việc khác thì thay nội dung.
-class TwTaskSidePanel extends StatefulWidget {
-  const TwTaskSidePanel({super.key, required this.store, required this.taskKey, required this.onOpenTask, required this.onClose, this.width = 460});
-  final TwStore store;
-  final String taskKey;
-  final void Function(String key) onOpenTask;
-  final VoidCallback onClose;
-  final double width;
-  @override
-  State<TwTaskSidePanel> createState() => _TwTaskSidePanelState();
-}
-
-class _TwTaskSidePanelState extends State<TwTaskSidePanel> {
-  late double _w = widget.width;
-  @override
-  Widget build(BuildContext context) {
-    final look = TwLook.of(context);
-    return Container(
-      key: const ValueKey('task-panel'),
-      width: _w,
-      decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        MouseRegion(
-          cursor: SystemMouseCursors.resizeColumn,
-          child: GestureDetector(
-            key: const ValueKey('panel-resize'),
-            behavior: HitTestBehavior.opaque,
-            onHorizontalDragUpdate: (d) => setState(() => _w = (_w - d.delta.dx).clamp(340.0, MediaQuery.sizeOf(context).width * .6)),
-            child: const SizedBox(width: 6),
-          ),
-        ),
-        Expanded(
-          child: TwTaskPage(key: ValueKey('panel-${widget.taskKey}'), store: widget.store, idOrKey: widget.taskKey, embedded: true, showAi: false, onOpenTask: widget.onOpenTask, onClose: widget.onClose),
-        ),
-      ]),
-    );
   }
 }
