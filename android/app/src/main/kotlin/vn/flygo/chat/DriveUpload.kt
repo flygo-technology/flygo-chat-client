@@ -26,7 +26,10 @@ class DriveUploadService : Service() {
             MethodChannel(messenger, "flygo/drive_upload").setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
-                        "start", "update" -> {
+                        // Play chưa khai báo quyền FOREGROUND_SERVICE_DATA_SYNC (Sếp, 2026-11-16): tạm không mở dịch vụ nền,
+                        // tải lên chạy khi app còn mở và tiếp tục khi mở lại app.
+                        "start", "update", "stop" -> result.success(null)
+                        "start_fg", "update_fg" -> {
                             val i = Intent(context, DriveUploadService::class.java)
                                 .putExtra("title", call.argument<String>("title") ?: "")
                                 .putExtra("text", call.argument<String>("text") ?: "")
