@@ -77,7 +77,7 @@ import '../browser/browser_page.dart' show KysoHomePage;
 import 'package:flygo_chat/ui/app_route.dart';
 
 /// Tiêu đề nhóm Tổ chức / Danh bạ / Ủy quyền / Lịch sử cuộc gọi / Máy tính. Trước là "Công việc"; đổi thành "Văn phòng"
-/// khi app Todo đổi tên thành "Công việc" (Sếp, 2026-11-15), để không có hai nhãn "Công việc". Mọi chỗ so nhóm này
+/// khi app Todo đổi tên thành "Công việc" (Sếp, 2026-11-15), để không có hai nhãn "Công việc"; app đó nay tên "Ghi chú" (2026-11-17). Mọi chỗ so nhóm này
 /// dùng hàm này, không so với chữ.
 String youWorkGroupTitle() => tr('Văn phòng');
 

@@ -180,7 +180,7 @@ class _ReminderFormState extends State<_ReminderForm> {
           ]),
         ],
         const SizedBox(height: 8),
-        Text(tr('Đến giờ, bot Công việc sẽ nhắn riêng cho bạn trong chat.'), style: TextStyle(fontSize: 12.5, color: sub)),
+        Text(tr('Đến giờ, bot Ghi chú sẽ nhắn riêng cho bạn trong chat.'), style: TextStyle(fontSize: 12.5, color: sub)),
         const SizedBox(height: 12),
         Row(children: [
           if (widget.cur != null) TextButton.icon(icon: const Icon(Icons.notifications_off_outlined), label: Text(tr('Bỏ lời nhắc')), onPressed: () => Navigator.pop(context, (value: null))),

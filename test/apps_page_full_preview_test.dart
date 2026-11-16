@@ -134,7 +134,7 @@ void main() {
                       (Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat', 3),
                       (Icons.auto_awesome_rounded, const Color(0xFFD97757), 'Dự án AI', 1),
                     ]),
-                    ...minis(pal, [(Icons.campaign_rounded, const Color(0xFFE67E22), 'Bảng tin'), (Icons.sticky_note_2_rounded, const Color(0xFFF2B01E), 'Công việc')]),
+                    ...minis(pal, [(Icons.campaign_rounded, const Color(0xFFE67E22), 'Bảng tin'), (Icons.sticky_note_2_rounded, const Color(0xFFF2B01E), 'Ghi chú')]),
                     ...icons(pal, [
                       (Icons.contacts_rounded, const Color(0xFF2F80ED), 'Danh bạ', 0),
                       (Icons.assignment_ind_rounded, const Color(0xFFE08A1E), 'Ủy quyền', 0),
@@ -286,7 +286,7 @@ void main() {
                   ),
                   grid(pal, 'Chính', [
                     ...icons(pal, [(Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat', 3), (Icons.auto_awesome_rounded, const Color(0xFFD97757), 'Dự án AI', 1)]),
-                    ...minis(pal, [(Icons.campaign_rounded, const Color(0xFFE67E22), 'Bảng tin'), (Icons.sticky_note_2_rounded, const Color(0xFFF2B01E), 'Công việc')]),
+                    ...minis(pal, [(Icons.campaign_rounded, const Color(0xFFE67E22), 'Bảng tin'), (Icons.sticky_note_2_rounded, const Color(0xFFF2B01E), 'Ghi chú')]),
                     ...icons(pal, [(Icons.contacts_rounded, const Color(0xFF2F80ED), 'Danh bạ', 0), (Icons.call_rounded, const Color(0xFFE53935), 'Lịch sử cuộc gọi', 0), (Icons.computer_rounded, const Color(0xFF5B6CFF), 'Máy tính', 0)]),
                   ]),
                   grid(pal, 'Ứng dụng', minis(pal, [(Icons.insights_rounded, const Color(0xFF2F80ED), 'Báo cáo kinh doanh'), (Icons.mail_rounded, const Color(0xFFEA4335), 'Gmail'), (Icons.receipt_long_rounded, const Color(0xFF16A34A), 'Hoá đơn')])),
