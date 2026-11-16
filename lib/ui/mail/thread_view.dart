@@ -638,7 +638,7 @@ class ThreadViewState extends State<ThreadView> {
                 ),
                 if (open) ...[
                   const SizedBox(height: 10),
-                  MailHtml(m.html, style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text)),
+                  MailHtml(m.html, style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text), inlineImage: store.api.inlineImage),
                   if (m.attachments.isNotEmpty) ...[
                     Divider(color: mc.line, height: 24),
                     Text(
