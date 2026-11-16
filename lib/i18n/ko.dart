@@ -2466,4 +2466,8 @@ const Map<String, String> ko = {
   'còn {0} giờ {1} phút': '{0}시간 {1}분 남음',
   'còn {0} ngày': '{0}일 남음',
   'còn {0} ngày {1} giờ': '{0}일 {1}시간 남음',
+  // Lịch: sự kiện chỉ thông báo.
+  'Chỉ thông báo (không cần trả lời)': '알림만 (응답 불필요)',
+  'Chỉ thông báo, không cần trả lời': '알림만, 응답 불필요',
+  '{0} người liên quan': '관련자 {0}명',
 };

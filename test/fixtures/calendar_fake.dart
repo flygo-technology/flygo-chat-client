@@ -504,6 +504,10 @@ void calendarWidgetTests() {
           await t.tap(find.byKey(const ValueKey('channel-c-tech')));
           await settle(t);
           expect(find.text('Nhóm Kỹ thuật (8)'), findsOneWidget);
+          // Chỉ thông báo.
+          await t.ensureVisible(find.byKey(const ValueKey('notice-toggle')));
+          await t.tap(find.byKey(const ValueKey('notice-toggle')));
+          await t.pump();
           // Tab tìm thời gian.
           await t.tap(find.byKey(const ValueKey('ed-tab-1')));
           await settle(t);
@@ -524,6 +528,7 @@ void calendarWidgetTests() {
           expect(be.bodies[k]!['title'], 'Phỏng vấn ứng viên vòng 2');
           expect(be.bodies[k]!.containsKey('start'), isFalse);
           expect((be.bodies[k]!['attendees'] as List).map((a) => a['principal']), contains('ch:c-tech'));
+          expect(be.bodies[k]!['notice'], isTrue);
         }
         s.dispose();
         await done(t);
@@ -680,5 +685,23 @@ void calendarWidgetTests() {
         await done(t);
       });
     }
+
+    testWidgets('sự kiện chỉ thông báo: không hỏi trả lời, "người liên quan"', (t) async {
+      final ev = be.events.firstWhere((e) => e['id'] == 'ev-lift');
+      ev..['notice'] = true..['my_rsvp'] = 'yes'..['can_rsvp'] = false;
+      for (final a in ev['attendees'] as List) {
+        (a as Map)['rsvp'] = 'yes';
+      }
+      final s = await pump(t, size: _phone, view: 'agenda');
+      await t.scrollUntilVisible(find.byKey(const ValueKey('tile-ev-lift')), 200, scrollable: find.byType(Scrollable).last);
+      await t.tap(find.byKey(const ValueKey('tile-ev-lift')));
+      await settle(t);
+      expect(find.text('Bạn sẽ tham dự chứ?'), findsNothing);
+      expect(find.textContaining('mời bạn tham gia sự kiện này'), findsNothing);
+      expect(find.textContaining('người liên quan'), findsOneWidget);
+      expect(find.text('Chỉ thông báo, không cần trả lời'), findsOneWidget);
+      s.dispose();
+      await done(t);
+    });
   });
 }

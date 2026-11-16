@@ -212,7 +212,7 @@ class _EventDetailState extends State<EventDetail> {
     for (final a in e.attendees) {
       counts[a.rsvp] = (counts[a.rsvp] ?? 0) + 1;
     }
-    final summary = [
+    final summary = e.notice ? tr('Chỉ thông báo, không cần trả lời') : [
       if ((counts['yes'] ?? 0) > 0) tr('{0} có', [counts['yes']]),
       if ((counts['no'] ?? 0) > 0) tr('{0} không', [counts['no']]),
       if ((counts['maybe'] ?? 0) > 0) tr('{0} có thể', [counts['maybe']]),
@@ -236,7 +236,7 @@ class _EventDetailState extends State<EventDetail> {
       if (e.busyOnly)
         _row(Icons.lock_outline_rounded, Text(tr('Bạn chỉ xem được giờ bận của lịch này'), style: TextStyle(color: pal.sub)))
       else ...[
-        if (e.pendingInvite && e.organizerName.isNotEmpty)
+        if (e.pendingInvite && !e.notice && e.organizerName.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 14, left: 40),
             child: Container(
@@ -284,7 +284,7 @@ class _EventDetailState extends State<EventDetail> {
           _row(
               Icons.people_outline_rounded,
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(tr('{0} khách', [e.attendees.length]), style: const TextStyle(fontSize: 14)),
+                Text(e.notice ? tr('{0} người liên quan', [e.attendees.length]) : tr('{0} khách', [e.attendees.length]), style: const TextStyle(fontSize: 14)),
                 if (summary.isNotEmpty) Text(summary, style: TextStyle(fontSize: 12.5, color: pal.sub)),
                 const SizedBox(height: 6),
                 for (final a in orgFirst.take(widget.popover ? 8 : 100))

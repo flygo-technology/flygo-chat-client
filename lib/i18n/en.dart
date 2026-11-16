@@ -3414,4 +3414,8 @@ const Map<String, String> en = {
   'còn {0} giờ {1} phút': 'in {0} h {1} min',
   'còn {0} ngày': 'in {0} d',
   'còn {0} ngày {1} giờ': 'in {0} d {1} h',
+  // Lịch: sự kiện chỉ thông báo.
+  'Chỉ thông báo (không cần trả lời)': 'Notice only (no reply needed)',
+  'Chỉ thông báo, không cần trả lời': 'Notice only, no reply needed',
+  '{0} người liên quan': '{0} people involved',
 };

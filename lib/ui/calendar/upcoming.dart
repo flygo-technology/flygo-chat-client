@@ -355,7 +355,7 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
               style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: fg, fontFeatures: const [FontFeature.tabularFigures()])),
         ),
       ),
-      if (e.pendingInvite) ...[
+      if (e.pendingInvite && !e.notice) ...[
         const SizedBox(width: 6),
         Text(tr('Chưa trả lời'), style: TextStyle(fontSize: 12, color: Pal.of(context).sub)),
       ],

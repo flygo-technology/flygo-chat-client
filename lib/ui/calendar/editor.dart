@@ -38,6 +38,7 @@ class EventDraft {
     this.visibility = 'default',
     this.color,
     this.conference,
+    this.notice = false,
     List<CAttendee>? guests,
     Map<String, bool>? guestPerms,
     List<CFile>? files,
@@ -49,7 +50,7 @@ class EventDraft {
 
   String? id;
   String calendarId, title, description, location, tz, visibility;
-  bool allDay, busy;
+  bool allDay, busy, notice;
   DateTime start, end;
   String? rrule, color;
   CConference? conference;
@@ -73,6 +74,7 @@ class EventDraft {
         visibility: e.visibility,
         color: e.color,
         conference: e.conference,
+        notice: e.notice,
         guests: [for (final a in e.attendees) CAttendee.fromJson(a.toJson())],
         guestPerms: {...e.guestPerms},
         files: [...e.attachments],
@@ -111,6 +113,7 @@ class EventDraft {
         'conference': conference?.toJson(),
         'attendees': [for (final g in guests) if (!g.organizer) {'principal': g.principal, 'optional': g.optional}],
         'guest_perms': guestPerms,
+        'notice': notice,
         'attachments': [for (final f in files) f.id],
         'reminders': [for (final r in reminders) r.toJson()],
       };
@@ -430,6 +433,15 @@ class _EventEditorState extends State<EventEditor> {
         const SizedBox(height: 4),
         if (!hasOrg) row(CAttendee(principal: 'mm:${store.meId}', id: store.meId, name: store.meName, rsvp: 'yes', organizer: true), me: true),
         for (final g in [...d.guests]..sort((a, b) => (b.organizer ? 1 : 0) - (a.organizer ? 1 : 0))) row(g),
+        // Chỉ thông báo: khách nhận tin "Thông báo sự kiện" không có nút trả lời, nhắc theo lời nhắc của mình (Sếp, 2026-11-17).
+        InkWell(
+          key: const ValueKey('notice-toggle'),
+          onTap: () => setState(() => d.notice = !d.notice),
+          child: Row(children: [
+            Checkbox(value: d.notice, onChanged: (v) => setState(() => d.notice = v ?? false)),
+            Expanded(child: Text(tr('Chỉ thông báo (không cần trả lời)'), style: const TextStyle(fontSize: 14))),
+          ]),
+        ),
         const SizedBox(height: 12),
         Text(tr('Khách có quyền'), style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
         perm('modify', 'Sửa sự kiện'),

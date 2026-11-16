@@ -2466,4 +2466,8 @@ const Map<String, String> zh = {
   'còn {0} giờ {1} phút': '还有 {0} 小时 {1} 分钟',
   'còn {0} ngày': '还有 {0} 天',
   'còn {0} ngày {1} giờ': '还有 {0} 天 {1} 小时',
+  // Lịch: sự kiện chỉ thông báo.
+  'Chỉ thông báo (không cần trả lời)': '仅通知（无需回复）',
+  'Chỉ thông báo, không cần trả lời': '仅通知，无需回复',
+  '{0} người liên quan': '{0} 位相关人员',
 };

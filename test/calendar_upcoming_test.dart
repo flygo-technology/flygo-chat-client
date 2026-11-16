@@ -275,6 +275,15 @@ void main() {
       await done(t);
     });
 
+    testWidgets('sự kiện chỉ thông báo: không có nhãn "Chưa trả lời"', (t) async {
+      final pccc = _events.firstWhere((e) => e.id == 'pccc').clone()..notice = true;
+      upcomingLoader = (_) async => UpcomingData(events: [pccc], tz: _tz);
+      await pumpHost(t, const Size(1280, 900), Brightness.light, (c) => ListView(children: [UpcomingEvents(clock: () => clock)]));
+      expect(find.text('Kiểm tra PCCC – Văn phòng'), findsOneWidget);
+      expect(find.text('Chưa trả lời'), findsNothing);
+      await done(t);
+    });
+
     testWidgets('ẩn khi không dùng được Lịch, không có sự kiện, hoặc tải lỗi', (t) async {
       for (final loader in <Future<UpcomingData?> Function(String)>[
         (_) async => null,

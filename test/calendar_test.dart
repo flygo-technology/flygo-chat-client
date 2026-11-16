@@ -2,6 +2,7 @@
 // (tuần, tháng, lịch biểu, chi tiết, trình sửa, chia sẻ, tạo nhanh, mở từ app khác).
 // Ảnh chụp (chạy tay): CAL_OUT=<thư mục> flutter test test/calendar_test.dart
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/ui/calendar/editor.dart';
 import 'package:flygo_chat/ui/calendar/layout.dart';
 import 'package:flygo_chat/ui/calendar/lunar.dart';
 import 'package:flygo_chat/ui/calendar/model.dart';
@@ -111,6 +112,19 @@ void main() {
       final a = CEvent.fromJson({'id': 'e3', 'all_day': true, 'start': '2026-11-19', 'end': '2026-11-21'});
       expect(a.wallEnd('UTC'), DateTime.utc(2026, 11, 21));
       expect(a.showsAllDay('UTC'), isTrue);
+    });
+    test('sự kiện chỉ thông báo: đọc / ghi, trình sửa gửi notice', () {
+      expect(CEvent.fromJson({'id': 'e1', 'start': '2026-11-17T14:30'}).notice, isFalse);
+      final e = CEvent.fromJson({'id': 'e1', 'title': 'Kiểm tra PCCC', 'start': '2026-11-17T14:30', 'end': '2026-11-17T16:00', 'notice': true, 'my_rsvp': 'yes', 'can_rsvp': false,
+        'attendees': [{'principal': 'mm:u1', 'name': 'Thu Hà', 'rsvp': 'yes'}]});
+      expect(e.notice, isTrue);
+      expect(e.canRsvp, isFalse);
+      expect(e.clone().notice, isTrue);
+      final d = EventDraft.fromEvent(e);
+      expect(d.notice, isTrue);
+      expect(d.body()['notice'], isTrue);
+      d.notice = false;
+      expect(d.body()['notice'], isFalse);
     });
     test('cài đặt + lịch mặc định', () {
       final s = CSettings.fromJson(const {});

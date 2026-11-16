@@ -2466,4 +2466,8 @@ const Map<String, String> ja = {
   'còn {0} giờ {1} phút': 'あと {0} 時間 {1} 分',
   'còn {0} ngày': 'あと {0} 日',
   'còn {0} ngày {1} giờ': 'あと {0} 日 {1} 時間',
+  // Lịch: sự kiện chỉ thông báo.
+  'Chỉ thông báo (không cần trả lời)': 'お知らせのみ（返信不要）',
+  'Chỉ thông báo, không cần trả lời': 'お知らせのみ・返信不要',
+  '{0} người liên quan': '関係者 {0} 人',
 };

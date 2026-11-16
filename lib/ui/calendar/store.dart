@@ -373,6 +373,7 @@ class CalStore extends ChangeNotifier {
         'color': e.color,
         'attendees': [for (final a in e.attendees) if (!a.organizer) {'principal': a.principal, 'optional': a.optional}],
         'guest_perms': e.guestPerms,
+        'notice': e.notice,
         'reminders': [for (final r in e.reminders) r.toJson()],
         'attachments': [for (final f in e.attachments) f.id],
       };

@@ -243,6 +243,7 @@ class CEvent {
     this.canEdit = true,
     this.canRsvp = false,
     this.busyOnly = false,
+    this.notice = false,
     this.updated = 0,
     this.seq = 0,
   })  : instanceId = instanceId ?? (rid == null ? id : '$id~$rid'),
@@ -278,6 +279,9 @@ class CEvent {
   List<CReminder> reminders;
   String? myRsvp;
   bool canEdit, canRsvp, busyOnly;
+
+  /// Chỉ thông báo: khách không cần trả lời (không có nút), được nhắc theo người tổ chức.
+  bool notice;
   int updated, seq;
 
   bool get cancelled => status == 'cancelled';
@@ -346,6 +350,7 @@ class CEvent {
       canEdit: _b(m['can_edit'], true),
       canRsvp: _b(m['can_rsvp']),
       busyOnly: _b(m['busy_only']),
+      notice: _b(m['notice']),
       updated: _i(m['updated']),
       seq: _i(m['seq']),
     );
@@ -384,6 +389,7 @@ class CEvent {
         'can_edit': canEdit,
         'can_rsvp': canRsvp,
         'busy_only': busyOnly,
+        'notice': notice,
         'updated': updated,
         'seq': seq,
       };
