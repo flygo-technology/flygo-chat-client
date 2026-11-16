@@ -250,6 +250,11 @@ class _TwRichEditorState extends State<TwRichEditor> {
           b(Icons.format_italic_rounded, 'Nghiêng', cur.i, () => c!.toggle('i')),
           b(Icons.format_underlined_rounded, 'Gạch chân', cur.u, () => c!.toggle('u')),
           b(Icons.strikethrough_s_rounded, 'Gạch ngang', cur.s, () => c!.toggle('s')),
+          if (widget.compact) ...[
+            sep(),
+            b(Icons.alternate_email_rounded, 'Nhắc người / agent (@)', false, () => _mention(), key: const ValueKey('rt-mention')),
+            b(Icons.tag_rounded, 'Nhắc việc (#)', false, () => _task(), key: const ValueKey('rt-task')),
+          ],
           sep(),
           if (!widget.compact) b(Icons.title_rounded, 'Tiêu đề', t == 'h3', () => _ed.setType(t == 'h3' ? 'p' : 'h3')),
           b(Icons.format_list_bulleted_rounded, 'Gạch đầu dòng', t == 'ul', () => _ed.setType(t == 'ul' ? 'p' : 'ul')),
@@ -259,8 +264,10 @@ class _TwRichEditorState extends State<TwRichEditor> {
           b(Icons.code_rounded, 'Mã', cur.c, () => c!.toggle('c')),
           sep(),
           b(Icons.link_rounded, 'Link', cur.a != null, _link),
-          b(Icons.alternate_email_rounded, 'Nhắc người / agent (@)', false, () => _mention(), key: const ValueKey('rt-mention')),
-          b(Icons.tag_rounded, 'Nhắc việc (#)', false, () => _task(), key: const ValueKey('rt-task')),
+          if (!widget.compact) ...[
+            b(Icons.alternate_email_rounded, 'Nhắc người / agent (@)', false, () => _mention(), key: const ValueKey('rt-mention')),
+            b(Icons.tag_rounded, 'Nhắc việc (#)', false, () => _task(), key: const ValueKey('rt-task')),
+          ],
         ]),
       ),
     );
@@ -307,7 +314,7 @@ class TwRichView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final look = TwLook.of(context);
-    final base = style ?? TextStyle(fontSize: 14, height: 1.55, color: look.text);
+    final base = style ?? DefaultTextStyle.of(context).style.copyWith(height: 1.55, color: look.text);
     InlineSpan runs(List<TRun> r, TextStyle s) => TextSpan(style: s, children: [
           for (final x in r)
             () {

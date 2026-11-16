@@ -322,14 +322,18 @@ void main() {
         expect(find.text('Viết test tồn kho'), findsOneWidget);
         expect(find.text('Danh mục hàng.xlsx'), findsOneWidget);
         expect(find.text('Agent · thay Minh'), findsOneWidget);
-        expect(find.text('AI hỗ trợ'), findsOneWidget);
+        expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
+        expect(find.text('Tóm tắt bình luận'), findsNothing);
+        await shot(t, 'd5-task-$sfx');
+        await t.tap(find.byKey(const ValueKey('tab-ai')));
+        await settle(t, 2);
         expect(find.text('Tóm tắt bình luận'), findsOneWidget);
         expect(find.byKey(const ValueKey('agent-card')), findsOneWidget);
         expect(find.textContaining('Chặn'), findsOneWidget);
         await t.tap(find.byKey(const ValueKey('ai-summarize')));
         await settle(t);
         expect(find.textContaining('Rủi ro trễ hạn'), findsOneWidget);
-        await shot(t, 'd5-task-$sfx');
+        await shot(t, 'd5e-ai-tab-$sfx');
         await done(t, s);
       });
 
@@ -427,7 +431,36 @@ void main() {
       await t.tap(find.byKey(const ValueKey('panel-close')));
       await settle(t, 2);
       expect(find.byKey(const ValueKey('task-panel')), findsNothing);
+      expect(find.byKey(const ValueKey('tab-comments')), findsOneWidget); // về lại các tab của việc cha
+      expect(find.text('Agent · thay Minh'), findsOneWidget);
       await done(t, s);
+    });
+
+    testWidgets('bố cục theo độ rộng: 3 cột (≥1180), 2 cột + chip (760–1180), một cột (điện thoại)', (t) async {
+      final s = await pump(t, project: 'RA');
+      await openTaskPage(t, s, 'RA-32');
+      expect(find.byKey(const ValueKey('props-left')), findsOneWidget);
+      expect(find.byKey(const ValueKey('right-col')), findsOneWidget);
+      expect(find.byKey(const ValueKey('ai-open')), findsNothing);
+      await done(t, s);
+
+      final m = await pump(t, size: const Size(1024, 768), project: 'RA');
+      await openTaskPage(t, m, 'RA-32');
+      expect(find.byKey(const ValueKey('props-left')), findsNothing);
+      expect(find.byKey(const ValueKey('right-col')), findsOneWidget);
+      expect(find.byKey(const ValueKey('p-status')), findsOneWidget); // chip dưới tiêu đề
+      expect(find.byKey(const ValueKey('tab-ai')), findsOneWidget);
+      await shot(t, 'd5d-medium');
+      await t.tap(find.byKey(const ValueKey('sub-RA-63')));
+      await settle(t, 8);
+      expect(find.byKey(const ValueKey('task-panel')), findsOneWidget);
+      await done(t, m);
+
+      final ph = await pump(t, size: _phone, project: 'RA');
+      await openTaskPage(t, ph, 'RA-32');
+      expect(find.byKey(const ValueKey('right-col')), findsNothing);
+      expect(find.byKey(const ValueKey('ai-open')), findsOneWidget);
+      await done(t, ph);
     });
 
     testWidgets('máy tính: bấm thẻ Kanban mở khung bên phải; nút mở trang đầy đủ', (t) async {

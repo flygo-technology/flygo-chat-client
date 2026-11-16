@@ -39,7 +39,8 @@ class _TwTaskPageState extends State<TwTaskPage> {
   TwTaskDetail? _d;
   String? _err;
   int _rev = -1;
-  late bool _ai = widget.showAi ?? true;
+  /// Cột phải (máy tính): comments | activity | ai.
+  late String _right = widget.showAi == true ? 'ai' : 'comments';
   String _tab = 'comments';
   List<TwActivity>? _activity;
   final _title = TextEditingController();
@@ -387,63 +388,235 @@ class _TwTaskPageState extends State<TwTaskPage> {
     }
     if (widget.embedded) return _embedded(look);
     final wide = w >= 760, huge = w >= 1180;
-    final body = _body(look, wide);
-    final panel = _panelKey == null
-        ? null
-        : TwTaskSidePanel(store: store, taskKey: _panelKey!, onOpenTask: (k) => setState(() => _panelKey = k), onClose: () => setState(() => _panelKey = null));
+    final crumb = TextStyle(fontSize: 13, color: look.sub);
+    final appBar = AppBar(
+      backgroundColor: look.bg,
+      surfaceTintColor: Colors.transparent,
+      toolbarHeight: wide ? 44 : kToolbarHeight,
+      titleSpacing: 0,
+      shape: wide ? Border(bottom: BorderSide(color: look.divider)) : null,
+      title: Row(children: [
+        if (p != null && wide) ...[ProjectBadge(p!.project), const SizedBox(width: 8), Flexible(child: Text(p!.project.name, overflow: TextOverflow.ellipsis, style: crumb)), Icon(Icons.chevron_right, size: 18, color: look.sub)],
+        if (d.parentKey != null) ...[
+          InkWell(onTap: () => openTask(context, store, d.parentKey!), child: Text(d.parentKey!, style: crumb)),
+          Icon(Icons.chevron_right, size: 18, color: look.sub),
+        ],
+        Text(t.key, style: crumb.copyWith(color: wide ? look.text : look.sub, fontWeight: wide ? FontWeight.w700 : null)),
+      ]),
+      actions: [
+        if (!wide) IconButton(key: const ValueKey('ai-open'), tooltip: 'AI hỗ trợ', icon: Icon(Icons.auto_awesome, color: look.ai), onPressed: _openAi),
+        if (wide) IconButton(tooltip: 'Chép link', iconSize: 20, icon: const Icon(Icons.link), onPressed: () => _menu('copy')),
+        IconButton(
+          key: const ValueKey('watch'),
+          iconSize: wide ? 20 : 24,
+          tooltip: t.watchers.contains(store.meId) ? 'Bỏ theo dõi' : 'Theo dõi',
+          icon: Icon(t.watchers.contains(store.meId) ? Icons.notifications_active : Icons.notifications_none, color: t.watchers.contains(store.meId) ? look.accent : null),
+          onPressed: _watch,
+        ),
+        PopupMenuButton<String>(
+          iconSize: wide ? 20 : 24,
+          onSelected: _menu,
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'copy', child: Text('Chép link')),
+            if (canEdit) const PopupMenuItem(value: 'delete', child: Text('Xoá việc')),
+          ],
+        ),
+      ],
+    );
+    if (!wide) return Scaffold(backgroundColor: look.bg, appBar: appBar, body: _body(look, false));
+    // Máy tính: chữ nhỏ gọn (13px), cột thuộc tính trái (rộng), giữa nội dung, phải bình luận / hoạt động / AI.
     return Scaffold(
       backgroundColor: look.bg,
-      appBar: AppBar(
-        backgroundColor: look.bg,
-        surfaceTintColor: Colors.transparent,
-        titleSpacing: 0,
-        title: Row(children: [
-          if (p != null && wide) ...[ProjectBadge(p!.project), const SizedBox(width: 8), Text(p!.project.name, style: TextStyle(fontSize: 13.5, color: look.sub)), Icon(Icons.chevron_right, size: 18, color: look.sub)],
-          if (d.parentKey != null) ...[
-            InkWell(onTap: () => openTask(context, store, d.parentKey!), child: Text(d.parentKey!, style: TextStyle(fontSize: 13.5, color: look.sub))),
-            Icon(Icons.chevron_right, size: 18, color: look.sub),
-          ],
-          Text(t.key, style: TextStyle(fontSize: 13.5, color: look.sub)),
-        ]),
-        actions: [
-          if (!huge) IconButton(key: const ValueKey('ai-open'), tooltip: 'AI hỗ trợ', icon: Icon(Icons.auto_awesome, color: look.ai), onPressed: _openAi),
-          if (huge && !_ai) IconButton(key: const ValueKey('ai-open'), tooltip: 'AI hỗ trợ', icon: Icon(Icons.auto_awesome, color: look.ai), onPressed: () => setState(() => _ai = true)),
-          IconButton(
-            key: const ValueKey('watch'),
-            tooltip: t.watchers.contains(store.meId) ? 'Bỏ theo dõi' : 'Theo dõi',
-            icon: Icon(t.watchers.contains(store.meId) ? Icons.notifications_active : Icons.notifications_none, color: t.watchers.contains(store.meId) ? look.accent : null),
-            onPressed: _watch,
-          ),
-          PopupMenuButton<String>(
-            onSelected: _menu,
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'copy', child: Text('Chép link')),
-              if (canEdit) const PopupMenuItem(value: 'delete', child: Text('Xoá việc')),
-            ],
-          ),
-        ],
-      ),
-      body: wide
-          ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Expanded(child: body),
-              if (panel == null || huge)
-                Container(width: 300, decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))), child: SingleChildScrollView(padding: const EdgeInsets.all(18), child: _props(look, true))),
-              ?panel,
-              if (panel == null && huge && _ai)
-                SizedBox(
-                  width: 340,
-                  child: TwAiPanel(
-                    store: store,
-                    detail: d,
-                    onChanged: () => _load(quiet: true),
-                    onDraft: (b) => _comments.currentState?.setDraft(b),
-                    onAssignAgent: _assignAgent,
-                    onClose: () => setState(() => _ai = false),
+      appBar: appBar,
+      body: DefaultTextStyle.merge(
+        style: TextStyle(fontSize: 13, color: look.text),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (huge)
+            Container(
+              key: const ValueKey('props-left'),
+              width: 250,
+              decoration: BoxDecoration(color: look.surface, border: Border(right: BorderSide(color: look.divider))),
+              child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 24), child: _props(look, true)),
+            ),
+          Expanded(child: _center(look, chips: !huge)),
+          Container(
+            key: const ValueKey('right-col'),
+            width: huge ? 420 : 360,
+            decoration: BoxDecoration(border: Border(left: BorderSide(color: look.divider))),
+            child: _panelKey == null
+                ? _rightTabs(look)
+                : KeyedSubtree(
+                    key: const ValueKey('task-panel'),
+                    child: TwTaskPage(
+                      key: ValueKey('panel-$_panelKey'),
+                      store: store,
+                      idOrKey: _panelKey!,
+                      embedded: true,
+                      onOpenTask: (k) => setState(() => _panelKey = k == t.key ? null : k),
+                      onClose: () => setState(() => _panelKey = null),
+                    ),
                   ),
-                ),
-            ])
-          : body,
+          ),
+        ]),
+      ),
     );
+  }
+
+  /// Giữa (máy tính): tiêu đề, (chip thuộc tính khi vừa), agent, mô tả, việc con, tệp.
+  Widget _center(TwLook look, {required bool chips}) => SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 14, 24, 32),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _titleField(19),
+          if (chips) Padding(padding: const EdgeInsets.only(top: 6), child: _props(look, false, dense: true)),
+          if (t.hasAgent) _agentRow(look),
+          const SizedBox(height: 10),
+          _description(look),
+          Padding(padding: const EdgeInsets.only(top: 4), child: ReactionRow(reactions: t.reactions, me: store.meId, keyPrefix: 'trx', onToggle: _reactTask)),
+          ..._subtasksSection(look, dense: true),
+          ..._attachmentsSection(look, dense: true),
+        ]),
+      );
+
+  Widget _titleField(double size) => TextField(
+        key: const ValueKey('task-title'),
+        controller: _title,
+        focusNode: _titleFocus,
+        readOnly: !canEdit,
+        maxLines: null,
+        style: TextStyle(fontSize: size, fontWeight: FontWeight.w700, height: 1.3),
+        decoration: const InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 4)),
+        onSubmitted: (_) => _saveTitle(),
+      );
+
+  /// Cột phải: tab Bình luận / Hoạt động / AI hỗ trợ; ô soạn bình luận ghim dưới cùng.
+  Widget _rightTabs(TwLook look) {
+    Widget tab(String k, String label, {IconData? icon}) => InkWell(
+          key: ValueKey('tab-$k'),
+          onTap: () {
+            setState(() => _right = k);
+            if (k == 'activity') _loadActivity();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _right == k ? look.accent : Colors.transparent, width: 2))),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (icon != null) ...[Icon(icon, size: 15, color: look.ai), const SizedBox(width: 5)],
+              Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _right == k ? look.accent : look.sub)),
+            ]),
+          ),
+        );
+    final content = switch (_right) {
+      'activity' => SingleChildScrollView(padding: const EdgeInsets.fromLTRB(14, 6, 14, 20), child: _activityList(look)),
+      'ai' => TwAiPanel(
+          store: store,
+          detail: _d!,
+          onChanged: () => _load(quiet: true),
+          onDraft: (b) {
+            setState(() => _right = 'comments');
+            WidgetsBinding.instance.addPostFrameCallback((_) => _comments.currentState?.setDraft(b));
+          },
+          onAssignAgent: _assignAgent,
+        ),
+      _ => TwComments(key: _comments, store: store, task: t, onMention: _onMention, canComment: p != null, pinned: true),
+    };
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: look.divider))),
+        child: Row(children: [
+          tab('comments', 'Bình luận${t.commentCount > 0 ? ' ${t.commentCount}' : ''}'),
+          tab('activity', 'Hoạt động'),
+          tab('ai', 'AI hỗ trợ', icon: Icons.auto_awesome),
+        ]),
+      ),
+      Expanded(child: content),
+    ]);
+  }
+
+  /// Agent được giao, một dòng: avatar, tên, trạng thái, Mở phiên / Dừng / Bắt đầu.
+  Widget _agentRow(TwLook look) {
+    final runs = _d!.runs;
+    return Container(
+      key: const ValueKey('agent-card'),
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: look.aiSoft, borderRadius: BorderRadius.circular(8)),
+      child: Column(children: [
+        for (final a in t.assignees.where((a) => a.isAgent))
+          () {
+            final run = runs.where((r) => r.botId == a.id).firstOrNull;
+            final btn = TextButton.styleFrom(visualDensity: VisualDensity.compact);
+            return SizedBox(
+              height: 36,
+              child: Row(children: [
+                TwAvatar.of(a, size: 22, border: false),
+                const SizedBox(width: 8),
+                Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(width: 8),
+                if (run?.active ?? false) Padding(padding: const EdgeInsets.only(right: 4), child: Icon(Icons.autorenew_rounded, size: 14, color: look.ai)),
+                Expanded(
+                  child: Text(run == null ? 'chưa bắt đầu' : '${kRunStateNames[run.state] ?? run.state}${run.error == null ? '' : ': ${run.error}'}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: look.ai)),
+                ),
+                if (run?.sessionChannel != null && store.launcher != null)
+                  TextButton(key: ValueKey('run-open-${a.id}'), style: btn, onPressed: () => store.launcher!.open(run!.sessionChannel!), child: const Text('Mở phiên')),
+                if (run != null && run.active)
+                  TextButton(
+                    key: ValueKey('run-cancel-${a.id}'),
+                    style: btn,
+                    onPressed: () async {
+                      await store.cancelRun(run);
+                      unawaited(_load(quiet: true));
+                    },
+                    child: const Text('Dừng'),
+                  ),
+                if (canEdit && !runs.any((r) => r.active) && a == t.assignees.where((x) => x.isAgent).first)
+                  TextButton.icon(key: const ValueKey('agent-start'), style: btn.copyWith(foregroundColor: WidgetStatePropertyAll(look.ai)), onPressed: _start, icon: const Icon(Icons.play_arrow_rounded, size: 18), label: const Text('Bắt đầu')),
+              ]),
+            );
+          }(),
+      ]),
+    );
+  }
+
+  List<Widget> _subtasksSection(TwLook look, {bool dense = false}) {
+    final direct = childrenOf(_d!.subtasks, t.id);
+    final doneN = direct.where((s) => p?.status(s.statusId)?.isDone ?? false).length;
+    final btn = TextButton.styleFrom(visualDensity: VisualDensity.compact);
+    return [
+      _section('Việc con',
+          dense: dense,
+          count: direct.isEmpty ? null : '$doneN/${direct.length}',
+          extra: direct.isEmpty ? null : ThinProgress(doneN / direct.length),
+          actions: [
+            if (canEdit)
+              TextButton.icon(
+                key: const ValueKey('ai-breakdown'),
+                style: btn.copyWith(foregroundColor: WidgetStatePropertyAll(look.ai)),
+                onPressed: () => MediaQuery.sizeOf(context).width >= 760 && !widget.embedded ? setState(() {
+                  _panelKey = null;
+                  _right = 'ai';
+                }) : _openAi(),
+                icon: const Icon(Icons.auto_awesome, size: 15),
+                label: Text(dense && !widget.embedded ? 'AI chia nhỏ' : 'AI'),
+              ),
+            if (canEdit) TextButton.icon(key: const ValueKey('sub-add'), style: btn, onPressed: () => setState(() => _addingSubFor = t.id), icon: const Icon(Icons.add, size: 16), label: const Text('Thêm')),
+          ]),
+      ..._subtree(t.id, 0, look),
+      if (_addingSubFor == t.id) _subInput(t.id),
+    ];
+  }
+
+  List<Widget> _attachmentsSection(TwLook look, {bool dense = false}) {
+    final d = _d!;
+    final btn = TextButton.styleFrom(visualDensity: VisualDensity.compact);
+    return [
+      _section('Tệp', dense: dense, count: d.attachments.isEmpty ? null : '${d.attachments.length}', actions: [
+        if (canEdit) TextButton.icon(key: const ValueKey('att-drive'), style: btn, onPressed: _drive, icon: const Icon(Icons.add_to_drive, size: 15), label: const Text('Từ Drive')),
+        if (canEdit) TextButton.icon(key: const ValueKey('att-upload'), style: btn, onPressed: _upload, icon: const Icon(Icons.upload, size: 15), label: const Text('Tải lên')),
+      ]),
+      if (d.attachments.isNotEmpty) Wrap(spacing: 8, runSpacing: 8, children: [for (final a in d.attachments) _attTile(a, look)]),
+    ];
   }
 
   /// Khung bên phải: tiêu đề nhỏ (mã việc, mở trang đầy đủ, AI, đóng) + nội dung một cột.
@@ -451,8 +624,8 @@ class _TwTaskPageState extends State<TwTaskPage> {
         color: look.bg,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Container(
-            height: 48,
-            padding: const EdgeInsets.only(left: 16, right: 4),
+            height: 44,
+            padding: const EdgeInsets.only(left: 14, right: 2),
             decoration: BoxDecoration(border: Border(bottom: BorderSide(color: look.divider))),
             child: Row(children: [
               if (_d!.parentKey != null) ...[
@@ -471,7 +644,7 @@ class _TwTaskPageState extends State<TwTaskPage> {
               IconButton(key: const ValueKey('panel-close'), tooltip: 'Đóng', icon: const Icon(Icons.close, size: 20), onPressed: widget.onClose),
             ]),
           ),
-          Expanded(child: _body(look, false)),
+          Expanded(child: DefaultTextStyle.merge(style: TextStyle(fontSize: 13, color: look.text), child: _body(look, false, compact: true))),
         ]),
       );
 
@@ -520,71 +693,31 @@ class _TwTaskPageState extends State<TwTaskPage> {
     ]);
   }
 
-  Widget _section(String title, {String? count, List<Widget> actions = const [], Widget? extra}) => Padding(
-        padding: const EdgeInsets.only(top: 20, bottom: 6),
+  Widget _section(String title, {String? count, List<Widget> actions = const [], Widget? extra, bool dense = false}) => Padding(
+        padding: EdgeInsets.only(top: dense ? 14 : 20, bottom: dense ? 2 : 6),
         child: Row(children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: dense ? 13.5 : null)),
           if (count != null) ...[const SizedBox(width: 8), Text(count, style: TextStyle(color: TwLook.of(context).sub))],
-          if (extra != null) ...[const SizedBox(width: 10), Flexible(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 160), child: extra))] else const Spacer(),
-          if (extra != null) const SizedBox(width: 10),
+          if (extra != null) ...[const SizedBox(width: 10), Flexible(flex: 2, child: ConstrainedBox(constraints: BoxConstraints(maxWidth: dense ? 110 : 140), child: extra))],
+          const Spacer(flex: 8),
           ...actions,
         ]),
       );
 
-  Widget _body(TwLook look, bool wide) {
-    final d = _d!;
-    final sub = d.subtasks;
-    final direct = childrenOf(sub, t.id);
-    final doneN = direct.where((s) => p?.status(s.statusId)?.isDone ?? false).length;
+  /// Một cột (điện thoại, khung bên phải): tiêu đề, chip thuộc tính, mô tả, agent, việc con, tệp, bình luận / hoạt động.
+  Widget _body(TwLook look, bool wide, {bool compact = false}) {
     return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(wide ? 32 : 16, 8, wide ? 32 : 16, 40),
+        padding: EdgeInsets.fromLTRB(compact ? 14 : 16, compact ? 10 : 8, compact ? 14 : 16, 40),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      TextField(
-        key: const ValueKey('task-title'),
-        controller: _title,
-        focusNode: _titleFocus,
-        readOnly: !canEdit,
-        maxLines: null,
-        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-        decoration: const InputDecoration(border: InputBorder.none, isDense: true),
-        onSubmitted: (_) => _saveTitle(),
-      ),
-      if (!wide) Padding(padding: const EdgeInsets.only(top: 6), child: _props(look, false)),
+      _titleField(compact ? 17 : 22),
+      Padding(padding: const EdgeInsets.only(top: 6), child: _props(look, false, dense: compact)),
       const SizedBox(height: 10),
       _description(look),
       Padding(padding: const EdgeInsets.only(top: 8), child: ReactionRow(reactions: t.reactions, me: store.meId, keyPrefix: 'trx', onToggle: _reactTask)),
-      if (t.hasAgent) _agentCard(look),
-      _section('Việc con',
-          count: direct.isEmpty ? null : '$doneN/${direct.length}',
-          extra: direct.isEmpty ? null : ThinProgress(doneN / direct.length),
-          actions: [
-            if (canEdit)
-              TextButton.icon(
-                key: const ValueKey('ai-breakdown'),
-                style: TextButton.styleFrom(foregroundColor: look.ai, backgroundColor: look.aiSoft, visualDensity: VisualDensity.compact),
-                onPressed: () => MediaQuery.sizeOf(context).width >= 1180 ? setState(() => _ai = true) : _openAi(),
-                icon: const Icon(Icons.auto_awesome, size: 16),
-                label: Text(wide ? 'AI chia nhỏ' : 'AI'),
-              ),
-            const SizedBox(width: 6),
-            if (canEdit)
-              OutlinedButton.icon(
-                key: const ValueKey('sub-add'),
-                style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                onPressed: () => setState(() => _addingSubFor = t.id),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Thêm'),
-              ),
-          ]),
-      ..._subtree(t.id, 0, look),
-      if (_addingSubFor == t.id) _subInput(t.id),
-      _section('Tệp đính kèm', count: d.attachments.isEmpty ? null : '${d.attachments.length}', actions: [
-        if (canEdit) OutlinedButton.icon(key: const ValueKey('att-drive'), style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact), onPressed: _drive, icon: const Icon(Icons.add_to_drive, size: 16), label: const Text('Từ Drive')),
-        const SizedBox(width: 6),
-        if (canEdit) OutlinedButton.icon(key: const ValueKey('att-upload'), style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact), onPressed: _upload, icon: const Icon(Icons.upload, size: 16), label: const Text('Tải lên')),
-      ]),
-      if (d.attachments.isNotEmpty) Wrap(spacing: 10, runSpacing: 10, children: [for (final a in d.attachments) _attTile(a, look)]),
-      const SizedBox(height: 18),
+      if (t.hasAgent) compact ? _agentRow(look) : _agentCard(look),
+      ..._subtasksSection(look, dense: compact),
+      ..._attachmentsSection(look, dense: compact),
+      const SizedBox(height: 14),
       Row(children: [
         _tabBtn('comments', 'Bình luận ${t.commentCount > 0 ? t.commentCount : ''}'.trim(), look),
         _tabBtn('activity', 'Hoạt động', look),
@@ -671,27 +804,36 @@ class _TwTaskPageState extends State<TwTaskPage> {
       final st = p?.status(s.statusId);
       final done = st?.isDone ?? false;
       final kids = childrenOf(_d!.subtasks, s.id);
-      out.add(InkWell(
-        key: ValueKey('sub-${s.key}'),
-        onTap: () => _openSub(s.key),
-        borderRadius: BorderRadius.circular(7),
-        child: Padding(
-          padding: EdgeInsets.only(left: 6.0 + depth * 22, right: 6, top: 5, bottom: 5),
-          child: Row(children: [
-            InkWell(
-              key: ValueKey('subck-${s.key}'),
-              onTap: canEdit ? () => _toggleSub(s) : null,
-              child: Icon(done ? Icons.check_box : Icons.check_box_outline_blank, size: 19, color: done ? look.ok : look.sub),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(s.title, style: TextStyle(color: done ? look.sub : look.text, decoration: done ? TextDecoration.lineThrough : null))),
-            if (kids.isNotEmpty) Text('${kids.where((k) => p?.status(k.statusId)?.isDone ?? false).length}/${kids.length}  ', style: TextStyle(fontSize: 12, color: look.sub)),
-            if (s.run?.active ?? false) Padding(padding: const EdgeInsets.only(right: 6), child: Text('đang làm', style: TextStyle(fontSize: 12, color: look.ai, fontWeight: FontWeight.w600))),
-            if (s.due != null) Padding(padding: const EdgeInsets.only(right: 6), child: Text(dShort(s.due!), style: TextStyle(fontSize: 12, color: look.sub))),
-            TwAvatars(s.assignees, size: 22, max: 2),
-            if (canEdit && depth < 2)
-              IconButton(tooltip: 'Thêm việc con', visualDensity: VisualDensity.compact, iconSize: 16, onPressed: () => setState(() => _addingSubFor = s.id), icon: Icon(Icons.add, color: look.sub)),
-          ]),
+      final sel = s.key == _panelKey;
+      out.add(Material(
+        color: sel ? look.accentSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          key: ValueKey('sub-${s.key}'),
+          onTap: () => _openSub(s.key),
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            height: 30,
+            child: Row(children: [
+              SizedBox(width: 6.0 + depth * 20),
+              InkWell(
+                key: ValueKey('subck-${s.key}'),
+                onTap: canEdit ? () => _toggleSub(s) : null,
+                child: Icon(done ? Icons.check_box : Icons.check_box_outline_blank, size: 17, color: done ? look.ok : look.sub),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(width: 52, child: Text(s.key, style: TextStyle(fontSize: 11.5, color: look.sub))),
+              Expanded(
+                child: Text(s.title,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: done ? look.sub : look.text, decoration: done ? TextDecoration.lineThrough : null)),
+              ),
+              if (kids.isNotEmpty) Text('${kids.where((k) => p?.status(k.statusId)?.isDone ?? false).length}/${kids.length}  ', style: TextStyle(fontSize: 11.5, color: look.sub)),
+              if (s.run?.active ?? false) Padding(padding: const EdgeInsets.only(right: 6), child: Icon(Icons.autorenew_rounded, size: 14, color: look.ai)),
+              if (s.due != null) Padding(padding: const EdgeInsets.only(right: 6), child: Text(dShort(s.due!), style: TextStyle(fontSize: 11.5, color: look.sub))),
+              TwAvatars(s.assignees, size: 18, max: 2),
+              const SizedBox(width: 6),
+            ]),
+          ),
         ),
       ));
       out.addAll(_subtree(s.id, depth + 1, look));
@@ -730,13 +872,13 @@ class _TwTaskPageState extends State<TwTaskPage> {
           : null,
       borderRadius: BorderRadius.circular(9),
       child: Container(
-        width: 230,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        width: 200,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(9)),
         child: Row(children: [
           Container(
-            width: 32,
-            height: 32,
+            width: 26,
+            height: 26,
             alignment: Alignment.center,
             decoration: BoxDecoration(color: colors[a.ext] ?? look.sub, borderRadius: BorderRadius.circular(7)),
             child: Text(a.ext.isEmpty ? '?' : a.ext.substring(0, a.ext.length.clamp(0, 4)), style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w700)),
@@ -797,13 +939,13 @@ class _TwTaskPageState extends State<TwTaskPage> {
   }
 
   /// Thuộc tính: cột phải (máy tính) hoặc hàng chip (điện thoại).
-  Widget _props(TwLook look, bool column) {
+  Widget _props(TwLook look, bool column, {bool dense = false}) {
     final f = p;
     final st = store.statusOf(t);
     final late = t.due != null && t.due!.isBefore(store.today) && !(st?.isClosed ?? false);
     if (!column) {
       Widget chip(Widget child, VoidCallback? onTap, {Key? key}) => TwPill(key: key, onTap: canEdit ? onTap : null, child: child);
-      return Wrap(spacing: 6, runSpacing: 6, children: [
+      return Wrap(spacing: dense ? 5 : 6, runSpacing: dense ? 5 : 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
         chip(Row(mainAxisSize: MainAxisSize.min, children: [StatusRing(st), const SizedBox(width: 6), Text(st?.name ?? '—')]), _pickStatus, key: const ValueKey('p-status')),
         chip(Row(mainAxisSize: MainAxisSize.min, children: [PriorityIcon(t.priority), const SizedBox(width: 4), Text(kPriorityNames[t.priority]!)]), () async {
           final v = await pickPriority(context, current: t.priority);
@@ -819,16 +961,26 @@ class _TwTaskPageState extends State<TwTaskPage> {
           onTap: canEdit ? onTap : null,
           borderRadius: BorderRadius.circular(6),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 2),
-            child: Row(crossAxisAlignment: top ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
-              SizedBox(width: 96, child: Text(label, style: TextStyle(color: look.sub, fontSize: 13))),
-              Expanded(child: DefaultTextStyle.merge(style: const TextStyle(fontSize: 13), child: value)),
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: TextStyle(color: look.sub, fontSize: 11.5, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 3),
+              DefaultTextStyle.merge(style: const TextStyle(fontSize: 13), child: value),
             ]),
           ),
         );
     final links = _d!.links;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      row('Trạng thái', Row(children: [StatusRing(st), const SizedBox(width: 6), Flexible(child: Text(st?.name ?? '—')), const Icon(Icons.expand_more, size: 16)]), onTap: _pickStatus, key: const ValueKey('p-status')),
+      row(
+        'Trạng thái',
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(color: look.bg, border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(7)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [StatusRing(st), const SizedBox(width: 6), Flexible(child: Text(st?.name ?? '—')), const SizedBox(width: 4), const Icon(Icons.expand_more, size: 16)]),
+        ),
+        onTap: _pickStatus,
+        key: const ValueKey('p-status'),
+      ),
       row(
         'Người làm',
         t.assignees.isEmpty
@@ -843,8 +995,18 @@ class _TwTaskPageState extends State<TwTaskPage> {
         final v = await pickPriority(context, current: t.priority);
         if (v != null) await _patch({'priority': v});
       }, key: const ValueKey('p-priority')),
-      row('Bắt đầu', Text(t.start == null ? '—' : dLong(t.start!)), onTap: () => _pickDate('start'), key: const ValueKey('p-start')),
-      row('Hạn', Text(t.due == null ? '—' : dLong(t.due!), style: TextStyle(fontWeight: FontWeight.w700, color: late ? look.red : null)), onTap: () => _pickDate('due'), key: const ValueKey('p-due')),
+      row(
+        'Ngày',
+        Row(children: [
+          InkWell(key: const ValueKey('p-start'), onTap: canEdit ? () => _pickDate('start') : null, child: Text(t.start == null ? 'Bắt đầu' : dShort(t.start!), style: TextStyle(color: t.start == null ? look.sub : null))),
+          Text('  –  ', style: TextStyle(color: look.sub)),
+          InkWell(
+            key: const ValueKey('p-due'),
+            onTap: canEdit ? () => _pickDate('due') : null,
+            child: Text(t.due == null ? 'Hạn' : dLong(t.due!), style: TextStyle(fontWeight: FontWeight.w700, color: t.due == null ? look.sub : (late ? look.red : null))),
+          ),
+        ]),
+      ),
       row('Ước lượng', Text(t.estimate?.label ?? '—'), onTap: _estimate),
       row(
         'Nhãn',
@@ -888,7 +1050,17 @@ class _TwTaskPageState extends State<TwTaskPage> {
         top: true,
       ),
       row('Người theo dõi', t.watchers.isEmpty ? Text('—', style: TextStyle(color: look.sub)) : Text('${t.watchers.length} người${t.watchers.contains(store.meId) ? ' (có bạn)' : ''}')),
-      if (t.createdAt > 0) row('Tạo', Text(timeAgo(t.createdAt, store.now), style: TextStyle(color: look.sub))),
+      if (f?.project.chatChannel != null && store.launcher != null)
+        row(
+          'Chat',
+          Row(children: [Icon(Icons.forum_outlined, size: 15, color: look.accent), const SizedBox(width: 5), Text('Mở kênh của dự án', style: TextStyle(color: look.accent))]),
+          onTap: () => store.launcher!.open(f!.project.chatChannel!),
+        ),
+      if (t.createdAt > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Text('Tạo bởi ${t.createdByName.isEmpty ? t.createdBy : t.createdByName} · ${dLong(DateTime.fromMillisecondsSinceEpoch(t.createdAt))}', style: TextStyle(fontSize: 11.5, color: look.sub)),
+        ),
     ]);
   }
 }

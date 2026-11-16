@@ -154,9 +154,12 @@ class TwProject {
     this.defaultStatusId,
     this.memberPreview = const [],
     this.updatedAt = 0,
+    this.chatChannel,
   });
   final String id;
   String key, name, color, status, owner, myRole;
+  /// Kênh chat gắn với dự án (bot đăng sự kiện vào đó).
+  String? chatChannel;
   List<TBlock> description;
   List<String> deptIds, deptNames;
   DateTime? start, due;
@@ -192,6 +195,7 @@ class TwProject {
         defaultStatusId: _ns(m['default_status_id']),
         memberPreview: [for (final a in _maps(m['member_preview'] ?? m['members_preview'])) TwAssignee.fromJson(a)],
         updatedAt: _i(m['updated_at']),
+        chatChannel: _ns(m['chat_channel']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -213,6 +217,7 @@ class TwProject {
         'default_status_id': defaultStatusId,
         'member_preview': [for (final a in memberPreview) a.toJson()],
         'updated_at': updatedAt,
+        'chat_channel': chatChannel,
       };
 }
 
@@ -370,6 +375,7 @@ class TwTask {
     this.reactions = const [],
     this.blockedBy = const [],
     this.statusInfo,
+    this.createdByName = '',
   });
   final String id, projectId;
   int number;
@@ -391,6 +397,7 @@ class TwTask {
   List<String> blockedBy;
   /// Trạng thái kèm theo (danh sách "Việc của tôi", tìm kiếm: dự án có thể chưa tải cấu hình).
   TwStatus? statusInfo;
+  String createdByName;
 
   bool get hasAgent => assignees.any((a) => a.isAgent);
   /// % xong: chỉnh tay, hoặc theo việc con.
@@ -427,6 +434,7 @@ class TwTask {
         run: m['agent_run'] is Map ? TwRun.fromJson(m['agent_run'] as Map) : null,
         reactions: [for (final r in _maps(m['reactions'])) TwReaction.fromJson(r)],
         blockedBy: _strs(m['blocked_by']),
+        createdByName: _s(m['created_by_name']),
         statusInfo: m['status'] is Map
             ? TwStatus.fromJson(m['status'] as Map)
             : (m['category'] != null ? TwStatus(id: _s(m['status_id']), name: _s(m['status_name']), category: _s(m['category']), color: _s(m['status_color'], _catColor(_s(m['category'])))) : null),
@@ -463,6 +471,7 @@ class TwTask {
         'agent_run': run?.toJson(),
         'reactions': [for (final r in reactions) r.toJson()],
         'blocked_by': blockedBy,
+        'created_by_name': createdByName,
         if (statusInfo != null) 'status': statusInfo!.toJson(),
       };
 
