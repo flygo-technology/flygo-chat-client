@@ -75,6 +75,7 @@ import 'mail/dm_link.dart' show MailOpenButton, mailThreadOf;
 import 'forms/dm_link.dart' show FormsOpenButton, formsFormOf;
 import 'reports/dm_link.dart' show ReportsOpenButton, reportsLinkOf;
 import 'calendar/dm_link.dart' show CalendarOpenButton, calendarEventOf;
+import 'teamwork/dm_link.dart' show TeamworkOpenButton, teamworkTaskOf;
 import 'bank_card.dart' show BankTxnCard, bankTxnOf;
 import 'flygo_card.dart' show FlygoCard, flygoCardOf;
 import 'desk_tabs.dart' show DeskTab, openTabHook;
@@ -2838,6 +2839,7 @@ class _Bubble extends StatelessWidget {
       if (!hidden && bangTinPostOf(post) != null) BangTinOpenButton(postId: bangTinPostOf(post)!),
       // Tin của bot Todo (nhắc việc, được chia sẻ): mở thẳng ghi chú.
       if (!hidden && todoNoteOf(post) != null) TodoOpenButton(noteId: todoNoteOf(post)!),
+      if (!hidden && teamworkTaskOf(post) != null) TeamworkOpenButton(taskKey: teamworkTaskOf(post)!),
       if (!hidden)
         if (mailThreadOf(post) case (final tid, final mb)?) MailOpenButton(threadId: tid, mailbox: mb),
       if (!hidden && formsFormOf(post) != null) FormsOpenButton(formId: formsFormOf(post)!),

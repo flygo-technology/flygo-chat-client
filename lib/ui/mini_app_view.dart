@@ -25,6 +25,8 @@ import 'drive/drive_page.dart' show openDrive;
 import 'reports/reports_page.dart' show openReports;
 import 'calendar/calendar_page.dart' show openCalendar;
 import 'dich/dich_page.dart' show kDichScreen, openDich;
+import 'teamwork/api.dart' show kTwScreen;
+import 'teamwork/teamwork_page.dart' show openTeamwork;
 import 'show_page.dart';
 import 'theme.dart';
 import 'desk_tabs.dart' show DeskTabScope;
@@ -92,6 +94,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
     tab?.onTitle?.call(app.name);
     final m = path == null ? null : RegExp(r'^/e/([A-Za-z0-9_-]{6,40})(?:\?rid=([0-9T:-]{10,16}))?').firstMatch(path);
     await openCalendar(context, app, eventId: m?.group(1), rid: m?.group(2) == null ? null : Uri.decodeComponent(m!.group(2)!));
+    return;
+  }
+  if (app.nativeScreen == kTwScreen) {
+    tab?.onTitle?.call(app.name);
+    await openTeamwork(context, app, taskKey: path == null ? null : RegExp(r'^/t/([A-Z][A-Z0-9]{1,5}-\d{1,7})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == kDichScreen) {
@@ -172,6 +179,7 @@ const _tileIcons = <String, IconData>{
   'notes': Icons.sticky_note_2_rounded,
   'wiki': Icons.menu_book_rounded,
   'assignment': Icons.assignment_rounded,
+  'teamwork': Icons.view_kanban_rounded,
 };
 
 /// Màu ô của app (manifest "tile.color"), hoặc null nếu app không khai.
