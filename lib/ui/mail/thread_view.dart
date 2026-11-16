@@ -175,7 +175,7 @@ class ThreadViewState extends State<ThreadView> {
       if (r.draft.trim().isEmpty) {
         _snack('AI chưa soạn được thư trả lời, thử lại sau');
       } else {
-        reply('reply', null, r.draft);
+        reply('all', null, r.draft);
       }
     } catch (e) {
       if (mounted) _snack('AI lỗi: $e');
@@ -204,7 +204,7 @@ class ThreadViewState extends State<ThreadView> {
     if (t == null) return;
     var args = replyArgs(kind, t, m ?? t.messages.last, store.me?.person.email ?? '');
     if (body.isNotEmpty) {
-      args = ComposeArgs(to: args.to, cc: args.cc, subject: args.subject, body: body, quote: args.quote, threadId: args.threadId, attachments: args.attachments, kind: args.kind);
+      args = args.withBody(body);
     }
     if (widget.inlineReply != null && widget.wide) {
       setState(() => _inline = args);
@@ -335,8 +335,6 @@ class ThreadViewState extends State<ThreadView> {
       body = const Center(child: CircularProgressIndicator());
     } else {
       final pad = widget.wide ? 72.0 : 16.0;
-      final last = t.messages.last;
-      final others = {last.from.email, ...last.to.map((p) => p.email), ...last.cc.map((p) => p.email)}..remove(store.me?.person.email);
       body = ListView(
         controller: _scroll,
         padding: const EdgeInsets.only(bottom: 48),
@@ -389,8 +387,7 @@ class ThreadViewState extends State<ThreadView> {
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  _replyBtn(Icons.reply, 'Trả lời', () => reply('reply')),
-                  if (others.length > 1) _replyBtn(Icons.reply_all, 'Trả lời tất cả', () => reply('all')),
+                  _replyBtn(Icons.reply, 'Trả lời', () => reply('all')),
                   _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
                   if (!store.readOnly)
                     OutlinedButton.icon(
@@ -428,7 +425,7 @@ class ThreadViewState extends State<ThreadView> {
       ],
       MenuEntry(s.important ? 'Đánh dấu là không quan trọng' : 'Đánh dấu là quan trọng', Icons.label_important_outline, () => act(s.important ? MailAction.unimportant : MailAction.important)),
       MenuEntry(s.starred ? 'Bỏ gắn dấu sao' : 'Thêm dấu sao', Icons.star_outline, () => act(s.starred ? MailAction.unstar : MailAction.star)),
-      MenuEntry('Trả lời', Icons.reply, () => reply('reply')),
+      MenuEntry('Trả lời', Icons.reply, () => reply('all')),
       MenuEntry('Chuyển tiếp', Icons.forward, () => reply('fwd')),
     ]);
   }
@@ -531,7 +528,7 @@ class ThreadViewState extends State<ThreadView> {
           const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 8, children: [
             FilledButton.icon(
-              onPressed: r == null || r.draft.isEmpty || _aiBusy ? null : () => reply('reply', null, r.draft),
+              onPressed: r == null || r.draft.isEmpty || _aiBusy ? null : () => reply('all', null, r.draft),
               icon: const Icon(Icons.edit_note, size: 18),
               label: const Text('Dùng bản nháp'),
             ),

@@ -166,6 +166,10 @@ class DemoMailApi extends MailApi {
   MailAdminApi adminApi() => _admin;
 
   @override
+  Future<MailAiResult> aiRevise({String? threadId, required String draft, String instruction = ''}) async =>
+      MailAiResult(draft: '${draft.trim()}\n\n(Đã sửa theo yêu cầu: ${instruction.isEmpty ? 'trình bày lại' : instruction})');
+
+  @override
   Future<MailDigest> aiDigest() async {
     final ts = _threads.where((t) => t.box == 'inbox' && t.category == 'primary' && t.unread && !t.draft).toList();
     return MailDigest(

@@ -91,4 +91,43 @@ void main() {
     expect(find.byKey(const ValueKey('mail-other-boxes')), findsOneWidget);
     expect(t.takeException(), isNull);
   });
+
+  testWidgets('khung trả lời: mặc định Trả lời tất cả, đổi được trước khi gửi; AI sửa theo lệnh, có hoàn tác', (t) async {
+    t.view.physicalSize = const Size(1440, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final store = MailStore(DemoMailApi());
+    await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    t.state<MailHomeState>(find.byType(MailHome)).openThread(store.items.first);
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    await t.tap(find.widgetWithText(OutlinedButton, 'Trả lời').first);
+    for (var i = 0; i < 5; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byKey(const ValueKey('mail-reply-mode')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const ValueKey('mail-reply-mode')), matching: find.text('Trả lời tất cả')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('mail-reply-mode')));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Trả lời').last);
+    await t.pumpAndSettle();
+    expect(find.descendant(of: find.byKey(const ValueKey('mail-reply-mode')), matching: find.text('Trả lời')), findsOneWidget);
+
+    await t.tap(find.byKey(const ValueKey('mail-ai-revise-btn')));
+    await t.pump();
+    expect(find.byKey(const ValueKey('mail-ai-revise')), findsOneWidget);
+    await t.enterText(find.descendant(of: find.byKey(const ValueKey('mail-ai-revise')), matching: find.byType(TextField)), 'ngắn gọn hơn');
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    for (var i = 0; i < 5; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.textContaining('Đã sửa theo yêu cầu: ngắn gọn hơn'), findsWidgets);
+    await t.tap(find.text('Hoàn tác'));
+    await t.pump();
+    expect(find.textContaining('Đã sửa theo yêu cầu'), findsNothing);
+  });
 }

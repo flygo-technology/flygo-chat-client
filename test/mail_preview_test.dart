@@ -80,7 +80,7 @@ void main() {
         await t.pump(const Duration(milliseconds: 50));
       }
       await save(t, 'desktop-$th-3-thread');
-      await t.tap(find.text('Trả lời tất cả').last);
+      await t.tap(find.text('Trả lời').last);
       await t.pump(const Duration(milliseconds: 100));
       await t.enterText(find.byType(TextField).last, 'Cảm ơn chị, em xác nhận lịch 9h thứ Năm.');
       await t.tap(find.text('Soạn thư').first);
