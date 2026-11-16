@@ -66,6 +66,7 @@ import 'bang_tin/bang_tin_page.dart' show BangTinTab, bangTinApp, kBangTinTab;
 import 'bang_tin/bang_tin_service.dart' show BangTinService;
 import 'desk_tabs.dart';
 import 'devices_page.dart';
+import 'my_browsers_page.dart';
 import 'mail/mail_page.dart' show openMailAdmin;
 import 'users_admin_page.dart';
 import 'wallpaper.dart';
@@ -98,6 +99,8 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'settings',
         // Thiết bị đang đăng nhập, khoá bảo mật (Flygo ID).
         'devices',
+        // Trình duyệt cho agent điều khiển (extension Flygo Browser Bridge).
+        'browsers',
         // Điện thoại: quét QR để đăng nhập máy tính cùng mạng LAN (ngay sau Cài đặt).
         if (!desktop) 'qr',
         'assistants',
@@ -135,7 +138,7 @@ List<String> _workAppOrder(Iterable<String> ids) {
   return [...order.where(all.contains), ...all.where((id) => !order.contains(id))];
 }
 
-const kDeskTabApps = {'meet', 'zalo', 'wechat', 'wallpaper', 'devices', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
+const kDeskTabApps = {'meet', 'zalo', 'wechat', 'wallpaper', 'devices', 'browsers', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
 
 /// Màn hình chính. Màn hình rộng (máy tính) chia hai cột, vùng nội dung chia được tới 4 ô; màn hình hẹp
 /// (điện thoại) có thanh tab nổi ở dưới như WhatsApp iOS.
@@ -1044,6 +1047,9 @@ class _HomePageState extends State<HomePage> {
       'settings': (Icons.settings_rounded, const Color(0xFF14A38B), tr('Cài đặt'), 0, () => _openProfile(nav())),
       'devices': (Icons.devices_rounded, const Color(0xFF2563EB), tr('Thiết bị'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const DevicesPage()))),
+      // Trình duyệt (extension Flygo Browser Bridge) cho agent điều khiển (lib/ui/my_browsers_page.dart).
+      'browsers': (Icons.public, const Color(0xFF00B8D4), tr('Trình duyệt'), 0,
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const MyBrowsersPage()))),
       'wallpaper': (Icons.wallpaper_rounded, const Color(0xFF0EA5E9), tr('Hình nền'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const WallpaperPage()))),
       // Zalo / WeChat (mục Chính của Trang chủ): đang phát triển, mở tab báo "Chức năng đang phát triển".
@@ -2025,6 +2031,7 @@ class _HomePageState extends State<HomePage> {
       'blocked' => const BlockedUsersPage(),
       'wallpaper' => const WallpaperPage(),
       'devices' => const DevicesPage(),
+      'browsers' => const MyBrowsersPage(),
       'users' => KysoApi.flygoId == null ? const _Welcome() : UsersAdminPage(id: KysoApi.flygoId!),
       'zalo' || 'wechat' => Scaffold(
           backgroundColor: pal.bg,

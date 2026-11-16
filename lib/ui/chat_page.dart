@@ -1,4 +1,5 @@
 import '../i18n/i18n.dart';
+import '../browser/my_browsers.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' show Random, cos, pi, sin, sqrt;
@@ -4455,6 +4456,12 @@ class _ComposerState extends State<_Composer> {
     });
     _aiApp = context.read<AppState>();
     _aiApp.aiAsk.addListener(_onAiAsk);
+    // Chat với agent: nạp sẵn danh sách trình duyệt (gợi ý @) và mã máy (agent biết trình duyệt nào cùng máy với mình).
+    final here = _aiApp.channels[widget.channelId];
+    if (here != null && (here.isAi || _aiApp.isAgentDm(here))) {
+      MyBrowsers.list(_aiApp.token).ignore();
+      if (isDesktop) MyBrowsers.machineId().ignore();
+    }
     Drafts.load().then((_) {
       if (!mounted || widget.editing != null || _ctl.text.isNotEmpty) return;
       final d = Drafts.get(_draftKey);
@@ -4505,6 +4512,8 @@ class _ComposerState extends State<_Composer> {
   final List<RefItem> _refs = [];
   // Người chọn ở tab Danh bạ của nút @ (chèn @tên vào ô nhắn tin; còn @tên lúc gửi thì thành chip trên tin).
   final List<MmUser> _tagPeople = [];
+  // Trình duyệt được tag (gõ @ hoặc tab Trình duyệt): agent dùng trình duyệt này (props.flygo_browser {id, slug, name}).
+  Map<String, dynamic>? _browser;
 
   // ---------------------------------------------------------------- chọn trợ lý trong chat AI cột phải
   String? _aiBot;
@@ -4689,9 +4698,10 @@ class _ComposerState extends State<_Composer> {
 
   /// Mở bảng chọn tag chat / luồng / agent (dùng chung cho nút @ và menu "+").
   Future<void> _pickRefs(AppState app) async {
-    final r = await showRefPicker(context, app, widget.channelId, refs: _refs, agents: _a2aPeers);
+    final r = await showRefPicker(context, app, widget.channelId, refs: _refs, agents: _a2aPeers, browser: _browser);
     if (r == null || !mounted) return;
     setState(() {
+      _browser = r.browser;
       _refs
         ..clear()
         ..addAll(r.refs);
@@ -5724,6 +5734,9 @@ class _ComposerState extends State<_Composer> {
             // Trang luồng: trả lời một tin trong luồng (vẫn gửi vào luồng, kèm trích dẫn tin đó).
             if (widget.threadRoot != null && widget.replyTo != null) 'flygo_quote': widget.replyTo!.id,
             if (_a2aPeers.isNotEmpty) 'flygo_a2a_peers': [for (final x in _a2aPeers) Map.of(x)],
+            'flygo_browser': ?_browser,
+            // Mã máy (băm) của máy gửi tin: agent biết trình duyệt nào cùng máy với người dùng.
+            if (_browser != null || _agentChat(app)) 'flygo_machine': ?MyBrowsers.machineIdSync,
             if (_research) 'flygo_mode': 'research',
             if (_tagPeopleProps(text).isNotEmpty) 'flygo_tag_people': _tagPeopleProps(text),
             'flygo_refs': ?_pendingRefs,
@@ -5742,6 +5755,7 @@ class _ComposerState extends State<_Composer> {
     _aiQuote = '';
     // Tag đã đi theo tin này: không giữ sang tin sau.
     _a2aPeers.clear();
+    _browser = null;
     _research = false;
     _tagPeople.clear();
     _ctl.clear();
@@ -6236,6 +6250,7 @@ class _ComposerState extends State<_Composer> {
       setState(() {
         _mentionIndex = 0;
         _mentionList = [
+          ..._browserMentions(q),
           for (final c in sessions) MmUser({'id': c.id, 'username': aiSessionLabel(c), 'first_name': aiSessionLabel(c), '_session': true}),
           MmUser({'id': '__deeper', 'username': '', 'first_name': tr('Tag sâu hơn: chat, luồng, dự án khác, danh bạ'), '_deeper': true}),
         ];
@@ -6269,14 +6284,32 @@ class _ComposerState extends State<_Composer> {
           ...[...members, ...others].where((u) => myBots.contains(u.id)),
           ...[...members, ...others].where((u) => !myBots.contains(u.id)),
         ].where((u) => u.id != app.me?.id && match(u) && app.canCallBot(u, myBots)).take(8),
+        if (_agentChat(app)) ..._browserMentions(q),
         ...specials,
       ];
     });
   }
 
+  /// Gợi ý @trình-duyệt (extension Flygo Browser Bridge của tài khoản) khi chat với agent.
+  List<MmUser> _browserMentions(String q) => [
+        for (final b in MyBrowsers.cached)
+          if (_browser?['id'] != b.id && (q.isEmpty || b.slug.contains(q) || b.name.toLowerCase().contains(q)))
+            MmUser({'id': 'browser:${b.id}', 'username': b.slug, 'first_name': '🌐 ${b.name}${b.online ? '' : ' (${tr('ngoại tuyến')})'}', '_browser': b.tag}),
+      ].take(4).toList();
+
   void _insertMention(MmUser u) {
     final t = _ctl.text;
     final end = _ctl.selection.baseOffset < 0 ? t.length : _ctl.selection.baseOffset;
+    // Trình duyệt: bỏ "@…" đang gõ, gắn chip trình duyệt (props.flygo_browser) cho tin sắp gửi.
+    if (u.raw['_browser'] is Map) {
+      _ctl.value = TextEditingValue(text: t.replaceRange(_mentionStart, end, ''), selection: TextSelection.collapsed(offset: _mentionStart));
+      setState(() {
+        _mentionList = [];
+        _browser = Map<String, dynamic>.from(u.raw['_browser'] as Map);
+      });
+      _focus.requestFocus();
+      return;
+    }
     // Phiên cùng dự án / "Tag sâu hơn": bỏ "@…" đang gõ, nối A2A (chip phía trên ô nhập) hoặc mở bảng chọn.
     if (u.raw['_session'] == true || u.raw['_deeper'] == true) {
       _ctl.value = TextEditingValue(text: t.replaceRange(_mentionStart, end, ''), selection: TextSelection.collapsed(offset: _mentionStart));
@@ -6641,7 +6674,7 @@ class _ComposerState extends State<_Composer> {
                   _CircleBtn(
                     pal: pal,
                     tooltip: tr('Tag chat, luồng hoặc agent khác cho trợ lý'),
-                    on: _refs.isNotEmpty || _a2aPeers.isNotEmpty,
+                    on: _refs.isNotEmpty || _a2aPeers.isNotEmpty || _browser != null,
                     child: Text('@', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: pal.accentText)),
                     onTap: () => _pickRefs(app),
                   ),
@@ -6663,6 +6696,15 @@ class _ComposerState extends State<_Composer> {
                       avatar: const Icon(Icons.travel_explore_rounded, size: 16, color: Color(0xFFD97757)),
                       label: Text(tr('Nghiên cứu sâu'), style: const TextStyle(fontSize: 13, color: Color(0xFFD97757))),
                       onDeleted: () => setState(() => _research = false),
+                    ),
+                  if (_browser case final b?)
+                    InputChip(
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      avatar: Icon(Icons.public, size: 16, color: pal.accentText),
+                      label: Text('@${b['slug']} · ${b['name']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.accentText)),
+                      tooltip: tr('Agent dùng trình duyệt này'),
+                      onDeleted: () => setState(() => _browser = null),
                     ),
                   for (final peer in _a2aPeers)
                       InputChip(

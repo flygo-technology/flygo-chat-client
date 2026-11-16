@@ -6,11 +6,15 @@
   "scripts": {
     "start": "bun src/cli.ts run",
     "check": "bunx tsc --noEmit",
-    "build": "bun scripts/build.ts"
+    "build": "bun scripts/build.ts",
+    "postinstall": "bun scripts/patch-playwright.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@playwright/mcp": "0.0.85",
+    "playwright-core": "1.66.0-alpha-2026-11-09",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/bun": "latest",
