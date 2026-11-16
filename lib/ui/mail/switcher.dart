@@ -44,7 +44,7 @@ class AccessChip extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(i, size: small ? 11 : 13, color: c),
         const SizedBox(width: 3),
-        Text(accessName(access), style: TextStyle(fontSize: small ? 10.5 : 11.5, color: c, fontWeight: FontWeight.w600)),
+        Flexible(child: Text(accessName(access), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: small ? 10.5 : 11.5, color: c, fontWeight: FontWeight.w600))),
       ]),
     );
   }

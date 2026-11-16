@@ -130,4 +130,29 @@ void main() {
     await t.pump();
     expect(find.textContaining('Đã sửa theo yêu cầu'), findsNothing);
   });
+
+  testWidgets('điện thoại: bấm avatar mở bộ chọn hộp thư và đổi được hộp', (t) async {
+    t.view.physicalSize = const Size(412, 915);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final store = MailStore(DemoMailApi());
+    await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    final before = store.me!.current.id;
+    final other = store.me!.boxes.firstWhere((b) => b.id != before);
+    await t.tap(find.byKey(const ValueKey('mail-switcher')));
+    await t.pumpAndSettle();
+    expect(find.text(other.id), findsWidgets);
+    await t.tap(find.text(other.id).last);
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(store.me!.current.id, other.id);
+    // nút "Xem hòm thư khác" cũng mở được
+    await t.tap(find.byKey(const ValueKey('mail-other-boxes')));
+    await t.pumpAndSettle();
+    expect(find.text(before), findsWidgets);
+  });
 }

@@ -911,9 +911,9 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Row(children: [
-                      Text(cur.shared ? 'Hộp chung' : 'Được chia sẻ', style: TextStyle(fontSize: 11.5, color: mc.muted)),
+                      Flexible(child: Text(cur.shared ? 'Hộp chung' : 'Được chia sẻ', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: mc.muted))),
                       const SizedBox(width: 6),
-                      AccessChip(cur.access, small: true),
+                      Flexible(child: AccessChip(cur.access, small: true)),
                     ]),
                   ),
               ]),
@@ -924,7 +924,8 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
               onPressed: () => _switcher(wide: wide),
               style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10)),
               icon: Badge(isLabelVisible: otherUnread > 0, smallSize: 8, backgroundColor: mc.danger, child: const Icon(Icons.swap_horiz, size: 18)),
-              label: const Text('Xem hòm thư khác'),
+              // Điện thoại: nhãn ngắn để địa chỉ hộp thư không bị ép mất chỗ (nút bị đẩy ra ngoài màn hình).
+              label: Text(wide ? 'Xem hòm thư khác' : 'Đổi hộp'),
             ),
           if (me.has('ai') && !me.readOnly)
             wide
