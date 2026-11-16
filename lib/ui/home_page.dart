@@ -27,6 +27,7 @@ import '../api/flows_api.dart' show FlowDefInfo, FlowsApi;
 import 'chat_page.dart';
 import 'ai_panel.dart';
 import 'ai_consent.dart';
+import 'calendar/upcoming.dart';
 import 'edit_profile_page.dart';
 import 'three_finger_swipe.dart';
 import 'common.dart';
@@ -1236,6 +1237,8 @@ class _HomePageState extends State<HomePage> {
             ),
           ]),
         ),
+        // Điện thoại: sự kiện Lịch sắp tới (đếm ngược) ở đầu trang, ẩn khi không có (Sếp, 2026-11-17).
+        if (phone) UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), compact: true),
         // Mục Chính: Chat, Trợ lý, Quy trình và Trình chiếu (mini app của máy chủ, tải về sau).
         MiniAppsSection(
           key: ValueKey('main-$kServerUrl'),
@@ -1349,7 +1352,11 @@ class _HomePageState extends State<HomePage> {
             width: c.maxWidth / 3,
             child: Column(children: [
               Expanded(
-                child: ListView(padding: EdgeInsets.only(top: 24 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), bottom: 16), children: [card]),
+                child: ListView(padding: EdgeInsets.only(top: 24 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), bottom: 16), children: [
+                  card,
+                  // Sự kiện Lịch sắp tới (đếm ngược) dưới thẻ người dùng, ẩn khi không có (Sếp, 2026-11-17).
+                  UpcomingEvents(key: ValueKey('upcoming-$kServerUrl')),
+                ]),
               ),
               // Dưới cùng cột trái: tên công ty bên trái, Đăng xuất bên phải (đối diện nhau).
               Padding(
