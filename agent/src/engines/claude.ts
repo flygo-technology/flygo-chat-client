@@ -2,6 +2,7 @@
 // Quyền: công cụ ngoài allowedTools được hỏi qua tool MCP flygo_chat.approve (--permission-prompt-tool)
 // -> runner hiện yêu cầu duyệt trên Flygo.
 import { claudeReadOnly, desktopMcp } from "../desktop-mcp";
+import { mergeDeny, TW_CLAUDE_DENY } from "../teamwork";
 import { normTodos } from "../todos";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { base, clip, commandLabel, hostOf, mcpFromName } from "../labels";
@@ -122,6 +123,17 @@ function supportsStreamInput(bin: string): Promise<boolean> {
  *  mcp_add tự mở hộp duyệt riêng trên app nên không xin duyệt hai lần. */
 const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add"];
 
+/** Quyền của lượt Claude. fullAccess / "luôn cho phép" / bypassPermissions: không hỏi, không deny (như trước).
+ *  Lượt TeamWork không cần duyệt (twBypass): --permission-mode bypassPermissions NHƯNG vẫn giữ deny (cấu hình + TW_CLAUDE_DENY);
+ *  Claude Code vẫn chặn theo deny trong chế độ bypass (đã kiểm với 2.1.x: Read / Bash bị cấm trả về permission_denials). */
+export function claudePerms(cfg: Config, input: Pick<TurnInput, "bypass" | "mode" | "twBypass">) {
+  const full = !!cfg.claude.fullAccess || !!input.bypass || input.mode === "bypassPermissions";
+  if (!full && input.twBypass) return { full: false, permMode: "bypassPermissions", permissions: { defaultMode: "bypassPermissions", deny: mergeDeny(cfg.claude.deny, TW_CLAUDE_DENY) } };
+  // Chế độ quyền: thủ công = default (hỏi trước mọi thay đổi), acceptEdits, plan (lập kế hoạch, ExitPlanMode xin duyệt), auto (Claude tự xét).
+  const permMode = ({ manual: "default", acceptEdits: "acceptEdits", plan: "plan", auto: "auto", bypassPermissions: "bypassPermissions" } as const)[input.mode ?? "manual"];
+  return { full, permMode: full ? "bypassPermissions" : permMode, permissions: full ? { defaultMode: "bypassPermissions" } : { defaultMode: permMode, deny: cfg.claude.deny } };
+}
+
 export class ClaudeEngine implements Engine {
   name = "claude" as const;
   private initSkills: string[] = []; // kỹ năng claude nạp (sự kiện init của lượt gần nhất)
@@ -160,14 +172,12 @@ export class ClaudeEngine implements Engine {
     // Không nạp settings cá nhân (~/.claude/settings.json có thể allow Bash/Write hoặc bypass);
     // quyền của phiên chỉ gồm allowedTools + deny của runner, còn lại hỏi Sếp qua Flygo.
     // claude.fullAccess: toàn quyền, không hỏi, không deny.
-    const full = !!this.cfg.claude.fullAccess || !!input.bypass || input.mode === "bypassPermissions";
-    // Chế độ quyền: thủ công = default (hỏi trước mọi thay đổi), acceptEdits, plan (lập kế hoạch, ExitPlanMode xin duyệt), auto (Claude tự xét).
-    const permMode = ({ manual: "default", acceptEdits: "acceptEdits", plan: "plan", auto: "auto", bypassPermissions: "bypassPermissions" } as const)[input.mode ?? "manual"];
+    const { full, permMode, permissions } = claudePerms(this.cfg, input);
     // AskUserQuestion: hook PreToolUse (chạy ở mọi chế độ quyền, kể cả bypass) gọi `flygo-agent ask-hook` -> runner hỏi trên Flygo,
     // trả câu trả lời về trong cùng lượt (updatedInput.answers).
     const hookCmd = [this.mcpCommand.command, ...this.mcpCommand.args.slice(0, -1), "ask-hook"].map((x) => `"${x}"`).join(" ");
     const settings = JSON.stringify({
-      permissions: full ? { defaultMode: "bypassPermissions" } : { defaultMode: permMode, deny: this.cfg.claude.deny },
+      permissions,
       hooks: { PreToolUse: [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: hookCmd, timeout: 86400 }] }] },
       // Tắt auto-memory của Claude Code: nó ghi theo thư mục làm việc, mà nhiều phiên dùng chung thư mục (luồng bí mật dùng thư mục
       // chat cha, chat AI riêng dùng thư mục nhóm) -> ghi nhớ của phiên này lộ sang phiên khác. Ghi nhớ lâu dài của bot: memory.md riêng.
@@ -183,11 +193,11 @@ export class ClaudeEngine implements Engine {
       "--output-format", "stream-json", "--verbose", "--include-partial-messages",
       "--setting-sources", "project,local",
       "--settings", settings,
-      "--permission-mode", full ? "bypassPermissions" : permMode,
+      "--permission-mode", permMode,
       "--mcp-config", mcpConfig,
       // --permission-prompt-tool luôn có (cả toàn quyền): claude -p chỉ bật AskUserQuestion khi có nơi trả lời câu hỏi.
       "--permission-prompt-tool", "mcp__flygo_chat__approve",
-      ...(full ? [] : ["--allowedTools", [...this.cfg.claude.allowedTools, ...A2A_TOOLS, ...ALWAYS_OK, ...claudeReadOnly(desktopMcp(this.cfg))].join(",")]),
+      ...(full || input.twBypass ? [] : ["--allowedTools", [...this.cfg.claude.allowedTools, ...A2A_TOOLS, ...ALWAYS_OK, ...claudeReadOnly(desktopMcp(this.cfg))].join(",")]),
       "--append-system-prompt", input.persona,
       ...(input.addDirs ?? []).flatMap((d) => ["--add-dir", d]),
     ];

@@ -8,6 +8,7 @@
 // -p không hỏi được người dùng: công cụ cần duyệt mà không ai duyệt thì agy "từ chối mềm". Vì vậy hook tự hỏi runner rồi trả
 // auto_approve / deny; hook không chạy được thì công cụ bị từ chối (an toàn).
 import { desktopMcp } from "../desktop-mcp";
+import { mergeDeny, TW_AGY_DENY } from "../teamwork";
 import { normTodos } from "../todos";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -103,11 +104,22 @@ export function approvalInput(name: string, a: any): { tool_name: string; input:
 }
 
 // ---------------------------------------------------------------- hook PreToolUse (lệnh `flygo-agent agy-hook`)
+const TW_PROTECTED = [".ssh", ".config/flygo-agent", ".codex/auth.json", ".aws", ".claude/.credentials.json", ".netrc", ".git-credentials", ".docker/config.json", ".kube", ".gnupg", ".config/gh"];
+/** Danh sách cấm của lượt TeamWork (agy): lệnh xoá / sudo, mọi tham chiếu tới thư mục khoá / token. */
+export function twDenied(input: any): boolean {
+  const s = JSON.stringify(input ?? {}).replace(/\\\\/g, "/");
+  if (TW_PROTECTED.some((p) => s.includes(p))) return true;
+  const cmd = String(input?.CommandLine ?? input?.command ?? input?.cmd ?? "");
+  return /(^|[;&|`\s(])(rm|rmdir|unlink|shred|sudo)(\s|$)/.test(cmd);
+}
+
 export type HookDecision = { decision: "allow" | "auto_approve" | "deny"; reason?: string };
 /** Hook quyết theo chế độ quyền: "ask" = phải hỏi người dùng qua runner. */
-export function hookPlan(name: string, mode: PermMode | string): HookDecision | "ask" {
+export function hookPlan(name: string, mode: PermMode | string, input?: any): HookDecision | "ask" {
   const c = toolClass(name);
   if (c === "flygo") return { decision: "auto_approve" }; // tool của runner: runner tự xin duyệt khi cần
+  // Lượt TeamWork không cần duyệt: tự duyệt mọi thứ TRỪ thao tác thuộc danh sách cấm (xoá, sudo, đọc khoá / token).
+  if (mode === "teamwork") return twDenied(input) ? { decision: "deny", reason: "Thao tác bị cấm khi chạy không cần duyệt (xoá tệp, sudo, đọc khoá / token)." } : { decision: "auto_approve" };
   if (mode === "bypassPermissions") return { decision: "auto_approve" };
   if (c === "read") return { decision: "allow" };
   if (mode === "plan") return { decision: "deny", reason: "Đang ở chế độ Lập kế hoạch: chỉ đọc và tìm hiểu, không sửa tệp hay chạy lệnh. Trả lời bằng kế hoạch rồi chờ người dùng đổi chế độ." };
@@ -126,7 +138,7 @@ export async function runAgyHook(args: string[], stdin: string): Promise<HookDec
   const call = ev.toolCall ?? ev.tool_call ?? ev.tool ?? {};
   const name = String(call.name ?? call.toolName ?? ev.toolName ?? ev.tool_name ?? "");
   const a = call.args ?? call.arguments ?? call.input ?? call.parameters ?? ev.toolInput ?? ev.tool_input ?? {};
-  const plan = hookPlan(name, mode);
+  const plan = hookPlan(name, mode, a);
   if (plan !== "ask") return plan;
   if (!url || !key) return { decision: "deny", reason: "Không xin duyệt được lúc này (runner không chạy)." };
   const { tool_name, input } = approvalInput(name, typeof a === "string" ? (() => { try { return JSON.parse(a); } catch { return { value: a }; } })() : a);
@@ -331,9 +343,9 @@ export class AntigravityEngine implements Engine {
   }
 
   /** Luật quyền của lượt (--settings): đọc được mọi nơi trừ luật cấm, tool flygo_chat luôn được phép. */
-  settings(full: boolean) {
+  settings(full: boolean, tw = false) {
     const home = homedir();
-    const deny = (this.cfg.agy.deny ?? []).map((r) => r.replace(/\(~(?=[/\\)])/, `(${home}`));
+    const deny = (tw ? mergeDeny(this.cfg.agy.deny, TW_AGY_DENY) : this.cfg.agy.deny ?? []).map((r) => r.replace(/\(~(?=[/\\)])/, `(${home}`));
     return full ? { permissions: { allow: ["mcp(flygo_chat/*)"] } }
       : { toolPermission: "request-review", permissions: { allow: ["mcp(flygo_chat/*)", "read_file(*)", "read_url(*)"], deny } };
   }
@@ -353,13 +365,15 @@ export class AntigravityEngine implements Engine {
 
   async runTurn(input: TurnInput, hooks: TurnHooks, signal: AbortSignal): Promise<TurnResult> {
     const full = !!this.cfg.agy.fullAccess || !!input.bypass || input.mode === "bypassPermissions";
-    const mode: PermMode = full ? "bypassPermissions" : input.mode ?? "manual";
+    // TeamWork không cần duyệt: không --dangerously-skip-permissions; hook tự duyệt trừ danh sách cấm, settings giữ deny.
+    const tw = !full && !!input.twBypass;
+    const mode = (full ? "bypassPermissions" : tw ? "teamwork" : input.mode ?? "manual") as PermMode;
     const runKey = input.mcpEnv.RUN_KEY || crypto.randomUUID();
     const dir = this.prepareRunDir(input, runKey, mode);
     // Phiên mới: kèm persona vào tin đầu (dự phòng nếu AGENTS.md của thư mục lượt không được nạp).
     const prompt = input.sessionId ? input.prompt : `<system_instructions>\n${input.persona}\n</system_instructions>\n\n${input.prompt}`;
     const args = [this.bin(), "-p", prompt, "--output-format", "stream-json", "--add-dir", dir, ...(input.addDirs ?? []).flatMap((d) => ["--add-dir", d]),
-      "--settings", JSON.stringify(this.settings(full))];
+      "--settings", JSON.stringify(this.settings(full, tw))];
     if (full) args.push("--dangerously-skip-permissions");
     else if (mode === "acceptEdits") args.push("--mode", "accept-edits");
     else if (mode === "auto") args.push("--mode", "auto");

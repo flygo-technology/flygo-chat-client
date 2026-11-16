@@ -72,6 +72,20 @@ export function sandboxPolicyFor(_cfg: Config, _input: { bypass?: boolean; mode?
   return { type: "dangerFullAccess" };
 }
 
+/** Quyền mỗi lượt Codex. Lượt TeamWork không cần duyệt (twBypass): approvalPolicy "never" nhưng sandbox workspace-write
+ *  (ghi trong thư mục làm việc, có mạng nếu cấu hình cho phép) thay vì toàn quyền đĩa: Codex không có danh sách cấm. */
+export function codexTurnPerms(cfg: Config, input: Pick<TurnInput, "bypass" | "readOnly" | "mode" | "twBypass" | "cwd">): Record<string, unknown> {
+  if (input.readOnly) return { approvalPolicy: "never", approvalsReviewer: "user", sandboxPolicy: { type: "readOnly" } };
+  if (input.twBypass && !input.bypass) {
+    return { approvalPolicy: "never", approvalsReviewer: "user", sandboxPolicy: { type: "workspaceWrite", writableRoots: [input.cwd], networkAccess: cfg.codex.network !== false } };
+  }
+  return {
+    approvalPolicy: input.bypass ? "never" : "on-request",
+    approvalsReviewer: !input.bypass && input.mode === "auto" ? "auto_review" : "user",
+    sandboxPolicy: sandboxPolicyFor(cfg, input),
+  };
+}
+
 export class CodexEngine implements Engine {
   name = "codex" as const;
   private ws: WebSocket | null = null;
@@ -484,9 +498,7 @@ export class CodexEngine implements Engine {
         // Ghi đè quyền mỗi lượt (có hiệu lực cho cả lượt sau nên luôn gửi): "luôn cho phép" -> never + toàn quyền.
         // Chế độ quyền: thủ công = chỉ đọc, mọi thay đổi xin duyệt; chấp nhận chỉnh sửa = sandbox cấu hình (mặc định);
         // lập kế hoạch = chỉ đọc (runner dặn chỉ đưa kế hoạch); tự động = Codex tự xét yêu cầu quyền (auto_review).
-        approvalPolicy: input.bypass || input.readOnly ? "never" : "on-request",
-        approvalsReviewer: !input.bypass && input.mode === "auto" ? "auto_review" : "user",
-        sandboxPolicy: input.readOnly ? { type: "readOnly" } : sandboxPolicyFor(this.cfg, input),
+        ...codexTurnPerms(this.cfg, input),
       });
       turnId = tr.turn?.id ?? turnId;
       // Tin mới của người dùng trong lúc lượt đang chạy: đưa thẳng vào lượt (turn/steer) thay vì xếp hàng lượt sau.

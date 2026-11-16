@@ -54,6 +54,7 @@ export interface TurnInput {
   fallbackModel?: string; // model mặc định của bot: model đã chọn bị upstream từ chối thì chạy lại bằng model này (Codex)
   addDirs?: string[]; // thư mục thêm (Claude: --add-dir; dùng cho kỹ năng riêng của bot)
   bypass?: boolean; // chủ bot "luôn cho phép" phạm vi này: không hỏi duyệt, toàn quyền
+  twBypass?: boolean; // lượt TeamWork không cần duyệt (token hợp lệ + chủ bot + công tắc bật): không hỏi duyệt nhưng GIỮ danh sách cấm
   extMcp?: Record<string, { url: string; headers: Record<string, string> }>; // MCP bên ngoài (Streamable HTTP) của chủ bot đang bật
   research?: boolean; // Nghiên cứu sâu: Codex bật tìm web trực tiếp (web_search = "live")
   mode?: PermMode; // chế độ quyền của lượt (thiếu = mặc định của engine: Claude thủ công, Codex chấp nhận chỉnh sửa)
