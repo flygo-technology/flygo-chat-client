@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/browser/flygo_id.dart';
 import 'package:flygo_chat/config.dart' show debugIsDesktop;
+import 'package:flygo_chat/data/image_disk_cache.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/ui/home_page.dart' show debugMobileTabBar;
 import 'package:flygo_chat/state/app_state.dart';
@@ -20,6 +21,7 @@ import 'package:flygo_chat/ui/bang_tin/bang_tin_page.dart';
 import 'package:flygo_chat/ui/bang_tin/bang_tin_service.dart';
 import 'package:flygo_chat/ui/bang_tin/dm_link.dart';
 import 'package:flygo_chat/ui/bang_tin/editor_page.dart';
+import 'package:flygo_chat/ui/bang_tin/photo_list.dart';
 import 'package:flygo_chat/ui/bang_tin/post_page.dart';
 import 'package:flygo_chat/ui/bang_tin/reactions.dart';
 import 'package:flygo_chat/ui/bang_tin/share_sheet.dart';
@@ -112,6 +114,10 @@ Map<String, dynamic> _post(String id, String body,
 
 void main() {
   final out = Platform.environment['BT_OUT'];
+  // Bộ nhớ đệm ảnh trên đĩa vào thư mục tạm (không có path_provider khi chạy test), để ảnh trong bài hiện được.
+  final cacheDir = Directory.systemTemp.createTempSync('bang-tin-img');
+  ImageDiskCache.instance = ImageDiskCache(dir: () async => cacheDir);
+  tearDownAll(() => cacheDir.deleteSync(recursive: true));
   final app = AppState('t')..me = MmUser({'id': 'me', 'username': 'ba', 'first_name': 'Ba'});
   final calls = <String>[];
   final files = <String, Uint8List>{};
@@ -380,8 +386,8 @@ void main() {
     expect(calls, contains('PATCH /bt/api/posts/p2'));
   });
 
-  testWidgets('bấm ảnh trong bài: mở trình xem ảnh toàn màn hình như chat, nút X để đóng', (t) async {
-    await pump(t, BangTinHome(api: api(), title: 'Bảng tin'), size: const Size(420, 1900));
+  testWidgets('máy tính: bấm ảnh trong bài mở trình xem ảnh toàn màn hình như chat, nút X để đóng', (t) async {
+    await pump(t, BangTinHome(api: api(), title: 'Bảng tin'), size: const Size(1440, 1900));
     final img = find.byType(BangTinImage).first;
     await t.ensureVisible(img);
     await t.pump();
@@ -393,6 +399,162 @@ void main() {
     await t.pump();
     await t.pump(const Duration(seconds: 1));
     expect(find.byType(GalleryViewer), findsNothing);
+  });
+
+  // Điện thoại: mở bài nhiều ảnh từ ảnh thứ [image] (ảnh trên thẻ ở bảng tin), chờ ảnh dọc hiện đủ.
+  Future<void> openPhotos(WidgetTester t, {int image = 0, Brightness theme = Brightness.light}) async {
+    // Ảnh đang tải / giải mã dở từ test trước (vùng thời gian giả đã hết) không bao giờ xong: làm mới bộ nhớ ảnh.
+    imageCache
+      ..clear()
+      ..clearLiveImages();
+    ImageDiskCache.instance = ImageDiskCache(dir: () async => cacheDir);
+    // Bảng tin dựng lười: mở ở khung cao cho thẻ có ảnh hiện ra, rồi thu về cỡ điện thoại.
+    await pump(t, BangTinHome(api: api(), title: 'Bảng tin'), size: const Size(420, 1900), theme: theme);
+    final img = find.byType(BangTinImage).at(image);
+    await t.ensureVisible(img);
+    await t.pump();
+    await t.tap(img);
+    t.view.physicalSize = const Size(420, 900);
+    // Ảnh giải mã ngoài khung giả lập (đọc tỉ lệ ảnh): chờ vài lượt.
+    for (var i = 0; i < 6; i++) {
+      await settle(t, 3);
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 600)));
+    }
+    await settle(t, 2);
+  }
+
+  Finder postScroll() => find.descendant(of: find.byType(BangTinPostPage), matching: find.byType(Scrollable)).first;
+  Finder photos() => find.descendant(of: find.byType(PhotoColumn), matching: find.byType(BangTinImage));
+  PhotoZoomScopeState zoom(WidgetTester t) => t.state<PhotoZoomScopeState>(find.byType(PhotoZoomScope));
+
+  testWidgets('điện thoại: bấm ảnh của bài nhiều ảnh mở bài với 5 ảnh xếp dọc, tràn ngang, không mở trình xem', (t) async {
+    await openPhotos(t);
+    expect(find.byType(GalleryViewer), findsNothing);
+    expect(find.text('Bài viết'), findsOneWidget);
+    expect(photos(), findsNWidgets(5));
+    // Xếp dọc: cùng toạ độ x, rộng bằng màn hình, ảnh sau nằm dưới ảnh trước; đúng tỉ lệ 600×400.
+    final r = [for (var i = 0; i < 5; i++) t.getRect(photos().at(i))];
+    for (var i = 1; i < 5; i++) {
+      expect(r[i].left, r[0].left);
+      expect(r[i].top, greaterThan(r[i - 1].bottom - 1));
+    }
+    expect(r[0].width, 420);
+    expect(r[0].height, closeTo(280, 1));
+    await shot(t, 'bang-tin-30-anh-doc');
+  });
+
+  testWidgets('điện thoại: bấm ảnh thứ 3 trên bảng tin thì mở bài cuộn tới ảnh thứ 3', (t) async {
+    await openPhotos(t, image: 2);
+    final top = t.getRect(photos().at(2)).top;
+    expect(top, greaterThanOrEqualTo(0));
+    expect(top, lessThan(200));
+    expect(t.state<ScrollableState>(postScroll()).position.pixels, greaterThan(300));
+  });
+
+  testWidgets('điện thoại: chụm hai ngón phóng to một ảnh, thu nhỏ hết cỡ là về danh sách ảnh dọc đúng chỗ', (t) async {
+    await openPhotos(t);
+    await t.drag(postScroll(), const Offset(0, -250));
+    await t.pumpAndSettle();
+    final pos = t.state<ScrollableState>(postScroll()).position.pixels;
+    final c = t.getCenter(photos().at(1));
+    // Phóng to: hai ngón đặt trên ảnh thứ 2 rồi kéo ra xa.
+    final a = await t.startGesture(c - const Offset(20, 0), pointer: 1);
+    await t.pump(const Duration(milliseconds: 20));
+    final b = await t.startGesture(c + const Offset(20, 0), pointer: 2);
+    for (var i = 1; i <= 8; i++) {
+      await a.moveTo(c - Offset(20 + 10.0 * i, 0));
+      await b.moveTo(c + Offset(20 + 10.0 * i, 0));
+      await t.pump(const Duration(milliseconds: 16));
+    }
+    await a.up();
+    await b.up();
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isTrue);
+    expect(find.byKey(const ValueKey('bt-photo-zoom')), findsOneWidget);
+    expect(find.byTooltip('Thu nhỏ'), findsOneWidget);
+    expect(t.state<ScrollableState>(postScroll()).position.pixels, pos);
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 600)));
+    await settle(t, 2);
+    await shot(t, 'bang-tin-31-phong-to');
+    // Thu nhỏ hết cỡ trên lớp phóng to: về danh sách, vị trí cuộn giữ nguyên.
+    final d = await t.startGesture(c - const Offset(100, 0), pointer: 3);
+    await t.pump(const Duration(milliseconds: 20));
+    final e = await t.startGesture(c + const Offset(100, 0), pointer: 4);
+    for (var i = 1; i <= 9; i++) {
+      await d.moveTo(c - Offset(100 - 10.0 * i, 0));
+      await e.moveTo(c + Offset(100 - 10.0 * i, 0));
+      await t.pump(const Duration(milliseconds: 16));
+    }
+    await d.up();
+    await e.up();
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isFalse);
+    expect(find.byKey(const ValueKey('bt-photo-zoom')), findsNothing);
+    expect(t.state<ScrollableState>(postScroll()).position.pixels, pos);
+    expect(photos(), findsNWidgets(5));
+  });
+
+  testWidgets('điện thoại: chụm hai ngón mà chưa phóng to (thả ngay) thì vẫn ở danh sách', (t) async {
+    await openPhotos(t);
+    final c = t.getCenter(photos().at(0));
+    final a = await t.startGesture(c - const Offset(30, 0), pointer: 1);
+    final b = await t.startGesture(c + const Offset(30, 0), pointer: 2);
+    await a.moveTo(c - const Offset(31, 0));
+    await t.pump();
+    await a.up();
+    await b.up();
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isFalse);
+  });
+
+  testWidgets('điện thoại: bấm đúp phóng to ảnh, bấm đúp lần nữa (hoặc nút quay lại) về danh sách', (t) async {
+    await openPhotos(t);
+    final c = t.getCenter(photos().at(0));
+    Future<void> doubleTap() async {
+      await t.tapAt(c);
+      await t.pump(const Duration(milliseconds: 80));
+      await t.tapAt(c);
+      await t.pumpAndSettle();
+    }
+
+    await doubleTap();
+    expect(zoom(t).zoomed, isTrue);
+    await doubleTap();
+    expect(zoom(t).zoomed, isFalse);
+    expect(find.text('Bài viết'), findsOneWidget);
+    await doubleTap();
+    expect(zoom(t).zoomed, isTrue);
+    // Nút quay lại khi đang phóng to: chỉ thu nhỏ, không rời trang bài.
+    await t.binding.handlePopRoute();
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isFalse);
+    expect(find.text('Bài viết'), findsOneWidget);
+  });
+
+  testWidgets('điện thoại: bấm giữ ảnh hiện Lưu ảnh / Sao chép ảnh / Xem toàn màn hình (mở trình xem của chat)', (t) async {
+    await openPhotos(t);
+    await t.longPress(photos().at(1));
+    await t.pumpAndSettle();
+    expect(find.text('Lưu ảnh'), findsOneWidget);
+    expect(find.text('Sao chép ảnh'), findsOneWidget);
+    await t.tap(find.text('Xem toàn màn hình'));
+    await settle(t, 4);
+    expect(find.byType(GalleryViewer), findsOneWidget);
+    expect(find.text('2/5'), findsOneWidget);
+  });
+
+  testWidgets('điện thoại nền tối: ảnh dọc và phóng to', (t) async {
+    await openPhotos(t, theme: Brightness.dark);
+    await shot(t, 'bang-tin-32-anh-doc-toi');
+    final c = t.getCenter(photos().at(0));
+    await t.tapAt(c);
+    await t.pump(const Duration(milliseconds: 80));
+    await t.tapAt(c);
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isTrue);
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 600)));
+    await settle(t, 2);
+    await shot(t, 'bang-tin-33-phong-to-toi');
   });
 
   testWidgets('menu bài người khác: không có Sửa bài; có Lưu ảnh (bài có ảnh), Xác nhận đã đọc (bài cần xác nhận)', (t) async {

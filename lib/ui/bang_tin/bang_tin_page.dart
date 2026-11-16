@@ -195,7 +195,7 @@ class _BangTinHomeState extends State<BangTinHome> {
     ];
   });
 
-    Future<void> _open(String id, {bool comment = false, bool photos = false}) async {
+    Future<void> _open(String id, {bool comment = false, bool photos = false, int? image}) async {
     final me = _me ?? await _waitMe();
     if (me == null || !mounted) return;
     _patch({'id': id, 'read': true});
@@ -205,7 +205,7 @@ class _BangTinHomeState extends State<BangTinHome> {
     }
     await Navigator.of(context).push(
       AppPageRoute(
-        builder: (_) => BangTinPostPage(api: api, me: me, postId: id, focusComment: comment),
+        builder: (_) => BangTinPostPage(api: api, me: me, postId: id, focusComment: comment, initialImage: image),
       ),
     );
     _load();
@@ -508,7 +508,8 @@ class _BangTinHomeState extends State<BangTinHome> {
                 api: api,
                 me: me,
                 selected: _wide && _side == p['id'],
-                onOpen: ({bool comment = false, bool photos = false}) => _open('${p['id']}', comment: comment, photos: photos),
+                verticalPhotos: !_wide,
+                onOpen: ({bool comment = false, bool photos = false, int? image}) => _open('${p['id']}', comment: comment, photos: photos, image: image),
                 onChanged: _patch,
                 onViews: () => _views(p),
                 onEdit: () => _edit('${p['id']}'),
