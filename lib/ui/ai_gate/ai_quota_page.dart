@@ -56,12 +56,12 @@ class _AiQuotaPageState extends State<AiQuotaPage> {
                 Center(child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(color: stateColor(q.state).withValues(alpha: .16), borderRadius: BorderRadius.circular(12)),
-                  child: Text('${stateLabel(q.state)} · ${tr('Hạng {0}', [q.tierName])}', style: TextStyle(color: stateColor(q.state), fontWeight: FontWeight.w600)),
+                  child: Text('${stateLabel(q.state)} · ${q.tierLabel}', style: TextStyle(color: stateColor(q.state), fontWeight: FontWeight.w600)),
                 )),
                 const SizedBox(height: 22),
                 _row(pal, Icons.today_rounded, tr('Hôm nay'), '${q.dayPct}%', bar: q.dayPct),
                 _row(pal, Icons.calendar_month_rounded, tr('Tháng này'), '${q.usedPct}%', bar: q.usedPct),
-                if (q.smartLeft != null) _row(pal, Icons.auto_awesome_rounded, tr('Lượt Nâng cao còn lại'), '${q.smartLeft}'),
+                if (q.smartLeft != null) _row(pal, Icons.auto_awesome_rounded, tr('Lượt mức Nâng cao còn lại'), '${q.smartLeft}'),
                 _row(pal, Icons.bolt_rounded, tr('Mức Cơ bản'), q.state == 'blocked' ? tr('Tạm dừng') : tr('Dùng thoải mái')),
                 if (q.resetsAt != null) _row(pal, Icons.restart_alt_rounded, tr('Làm mới'), '${q.resetsAt!.day.toString().padLeft(2, '0')}/${q.resetsAt!.month.toString().padLeft(2, '0')} · 00:00'),
                 const SizedBox(height: 16),
@@ -156,7 +156,7 @@ class AiUsageCard extends StatelessWidget {
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(color: stateColor(q.state).withValues(alpha: .16), borderRadius: BorderRadius.circular(10)),
-      child: Text('${stateLabel(q.state)} · ${q.tierName}', style: TextStyle(fontSize: 12, color: stateColor(q.state), fontWeight: FontWeight.w600)),
+      child: Text('${stateLabel(q.state)} · ${q.tierLabel}', style: TextStyle(fontSize: 12, color: stateColor(q.state), fontWeight: FontWeight.w600)),
     );
     final title = Row(children: [
       Icon(Icons.data_usage_rounded, size: 18, color: pal.accent),
@@ -166,7 +166,7 @@ class AiUsageCard extends StatelessWidget {
     ]);
     final note = Text(
       [
-        if (q.smartLeft != null) tr('Còn {0} lượt Nâng cao', ['${q.smartLeft}']),
+        if (q.smartLeft != null) tr('Còn {0} lượt mức Nâng cao', ['${q.smartLeft}']),
         if (reset.isNotEmpty) tr('Làm mới {0}', [reset]),
       ].join(' · '),
       style: TextStyle(fontSize: 12.5, color: pal.sub),

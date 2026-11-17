@@ -29,6 +29,8 @@ class AiQuota {
   String get user => '${j['user'] ?? ''}';
   String get tier => '${j['tier'] ?? ''}';
   String get tierName => '${j['tier_name'] ?? j['tier'] ?? ''}';
+  /// "Hạng Cơ bản": luôn có chữ Hạng để không lẫn với mức AI ("Mức Cơ bản").
+  String get tierLabel => aiTierLabel(tierName);
   /// ok | warn (≥80%) | degraded (hết, đang dùng model rẻ) | blocked
   String get state => '${j['state'] ?? 'ok'}';
   int get usedPct => (j['used_pct'] as num?)?.toInt() ?? 0;
@@ -71,7 +73,14 @@ class AiModel {
 }
 
 /// Tên hiển thị của mức AI.
-String aiModelName(String alias) => switch (alias) { 'flygo-fast' => 'Cơ bản', 'flygo-smart' => 'Nâng cao', 'flygo-agent' => 'Chuyên gia', _ => alias };
+/// Tên hạng luôn kèm chữ "Hạng" (Sếp 2026-11-17: hạng và mức AI trùng tên Cơ bản / Nâng cao).
+String aiTierLabel(Object? name) {
+  final n = '${name ?? ''}';
+  return n.isEmpty || n.startsWith('Hạng') ? n : 'Hạng $n';
+}
+
+/// Tên mức AI luôn kèm chữ "Mức" (Mức Cơ bản / Mức Nâng cao / Mức Chuyên gia).
+String aiModelName(String alias) => switch (alias) { 'flygo-fast' => 'Mức Cơ bản', 'flygo-smart' => 'Mức Nâng cao', 'flygo-agent' => 'Mức Chuyên gia', _ => alias };
 
 class AiGateApi {
   AiGateApi({required this.base, required this.ticket, http.Client? client}) : _http = client ?? http.Client();

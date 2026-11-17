@@ -387,8 +387,8 @@ class _AiAdminPageState extends State<AiAdminPage> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
-                Expanded(flex: 22, child: sortHead('user', tr('Người dùng'))),
-                Expanded(flex: 14, child: _k(pal, tr('Hạng · phòng ban'))),
+                Expanded(flex: 19, child: sortHead('user', tr('Người dùng'))),
+                Expanded(flex: 19, child: _k(pal, tr('Hạng · phòng ban'))),
                 for (final a in _aliasIds) Expanded(flex: 14, child: Row(children: [_dot(a), const SizedBox(width: 5), Flexible(child: _k(pal, tr(aiModelName(a))))])),
                 Expanded(flex: 10, child: sortHead('month', tr('Tổng tháng'))),
                 Expanded(flex: 12, child: _k(pal, tr('Trạng thái'))),
@@ -431,8 +431,8 @@ class _AiAdminPageState extends State<AiAdminPage> {
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: pal.divider))),
         child: Row(children: [
-          Expanded(flex: 22, child: Text(u.user, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: pal.text))),
-          Expanded(flex: 14, child: Text('${u.tierName}${'${u.j['dept'] ?? ''}'.isEmpty ? '' : ' · ${u.j['dept']}'}', overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text, fontSize: 12.5))),
+          Expanded(flex: 19, child: Text(u.user, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: pal.text))),
+          Expanded(flex: 19, child: Text('${u.tierLabel}${'${u.j['dept'] ?? ''}'.isEmpty ? '' : ' · ${u.j['dept']}'}', overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text, fontSize: 12.5))),
           for (final a in _aliasIds) Expanded(flex: 14, child: _modelCell(pal, ms[a])),
           Expanded(flex: 10, child: Text('${u.usedPct}%', style: TextStyle(fontSize: 12, color: pal.sub))),
           Expanded(flex: 12, child: Align(alignment: Alignment.centerLeft, child: _chip(pal, u.access ? stateLabel(u.state) : tr('Chưa mở'), u.access ? stateColor(u.state) : pal.sub))),
@@ -448,10 +448,10 @@ class _AiAdminPageState extends State<AiAdminPage> {
           padding: const EdgeInsets.symmetric(vertical: 9),
           decoration: BoxDecoration(border: Border(bottom: BorderSide(color: pal.divider))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text(u.user, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: pal.text))),
-              _chip(pal, u.tierName, pal.accent),
-              const SizedBox(width: 5),
+            Text(u.user, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: pal.text)),
+            const SizedBox(height: 4),
+            Wrap(spacing: 5, runSpacing: 4, children: [
+              _chip(pal, u.tierLabel, pal.accent),
               _chip(pal, u.access ? stateLabel(u.state) : tr('Chưa mở'), u.access ? stateColor(u.state) : pal.sub),
             ]),
             const SizedBox(height: 6),
@@ -553,8 +553,8 @@ class _AiAdminPageState extends State<AiAdminPage> {
               initialValue: tier,
               decoration: InputDecoration(labelText: tr('Hạng'), border: const OutlineInputBorder()),
               items: [
-                DropdownMenuItem(value: null, child: Text(tr('Mặc định ({0})', ['${(tiers[def] as Map?)?['name'] ?? def}']))),
-                for (final e in tiers.entries) DropdownMenuItem(value: e.key, child: Text('${(e.value as Map)['name'] ?? e.key}')),
+                DropdownMenuItem(value: null, child: Text(tr('Mặc định ({0})', [aiTierLabel((tiers[def] as Map?)?['name'] ?? def)]))),
+                for (final e in tiers.entries) DropdownMenuItem(value: e.key, child: Text(aiTierLabel((e.value as Map)['name'] ?? e.key))),
               ],
               onChanged: (v) => set(() => tier = v),
             ),
@@ -609,7 +609,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
     final mc = {for (final a in _aliasIds) a: TextEditingController()};
     final ok = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
       final pal = Pal.of(ctx);
-      final opts = by == 'tier' ? {for (final e in tiers.entries) e.key: '${(e.value as Map)['name'] ?? e.key}'} : {for (final d in depts) d: d};
+      final opts = by == 'tier' ? {for (final e in tiers.entries) e.key: aiTierLabel((e.value as Map)['name'] ?? e.key)} : {for (final d in depts) d: d};
       final count = (_users ?? const <AiQuota>[]).where((u) => by == 'tier' ? (u.tier == value) : '${u.j['dept'] ?? ''}' == value).length;
       return AlertDialog(
         title: Text(tr('Sửa hàng loạt')),
@@ -634,7 +634,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
             initialValue: newTier,
             isExpanded: true,
             decoration: InputDecoration(isDense: true, labelText: tr('Đổi hạng thành'), border: const OutlineInputBorder()),
-            items: [DropdownMenuItem(value: null, child: Text(tr('Giữ nguyên'))), for (final e in tiers.entries) DropdownMenuItem(value: e.key, child: Text('${(e.value as Map)['name'] ?? e.key}'))],
+            items: [DropdownMenuItem(value: null, child: Text(tr('Giữ nguyên'))), for (final e in tiers.entries) DropdownMenuItem(value: e.key, child: Text(aiTierLabel((e.value as Map)['name'] ?? e.key)))],
             onChanged: (v) => set(() => newTier = v),
           ),
           const SizedBox(height: 10),
@@ -882,9 +882,10 @@ class _AiAdminPageState extends State<AiAdminPage> {
                   decoration: BoxDecoration(border: Border.all(color: pal.divider), borderRadius: BorderRadius.circular(10)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      Text('${(e.value as Map)['name'] ?? e.key}', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
-                      if (e.key == def) ...[const SizedBox(width: 6), _chip(pal, tr('mặc định'), const Color(0xFF3DD68C))],
-                      const Spacer(),
+                      Expanded(child: Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                        Text(aiTierLabel((e.value as Map)['name'] ?? e.key), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+                        if (e.key == def) _chip(pal, tr('mặc định'), const Color(0xFF3DD68C)),
+                      ])),
                       _k(pal, tr('{0} người', ['${members(e.key)}'])),
                       Icon(Icons.chevron_right_rounded, color: pal.sub),
                     ]),
@@ -925,7 +926,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
                 child: Row(children: [
                   Expanded(flex: 22, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      Flexible(child: Text('${(e.value as Map)['name'] ?? e.key}', overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: pal.text))),
+                      Flexible(child: Text(aiTierLabel((e.value as Map)['name'] ?? e.key), overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: pal.text))),
                       if (e.key == def) ...[const SizedBox(width: 6), _chip(pal, tr('mặc định'), const Color(0xFF3DD68C))],
                     ]),
                     _k(pal, tr('{0} người', ['${members(e.key)}'])),
@@ -975,7 +976,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
     final ok = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
       final pal = Pal.of(ctx);
       return AlertDialog(
-        title: Text('${tr('Hạng')} ${t['name'] ?? id}'),
+        title: Text(aiTierLabel(t['name'] ?? id)),
         content: SizedBox(width: 460, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           for (final a in _aliasIds) ...[
             Row(key: ValueKey('tier-model-$a'), children: [
@@ -1028,7 +1029,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
   }
 
   // ---------------------------------------------------------------- mức AI & model
-  String _aliasName(String a) => switch (a) { 'flygo-fast' => tr('Cơ bản'), 'flygo-smart' => tr('Nâng cao'), 'flygo-agent' => tr('Chuyên gia'), _ => a };
+  String _aliasName(String a) => switch (a) { 'flygo-fast' || 'flygo-smart' || 'flygo-agent' => tr(aiModelName(a)), _ => a };
   IconData _aliasIcon(String a) => switch (a) { 'flygo-fast' => Icons.bolt_rounded, 'flygo-smart' => Icons.auto_awesome_rounded, _ => Icons.smart_toy_rounded };
 
   Widget _aliasesCard(Pal pal) => _card(pal, key: const ValueKey('ai-aliases'), icon: Icons.alt_route_rounded, title: tr('Mức AI & model'), children: [

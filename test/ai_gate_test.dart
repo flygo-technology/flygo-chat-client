@@ -200,9 +200,9 @@ void main() {
     expect(g.calls, contains('PUT /__apps/ai/admin/api/providers/gemini/key'));
     expect(g.bodies.last, containsPair('key', 'AIzaSy-test-key-1234'));
     expect(find.textContaining('AIzaSy'), findsNothing); // khoá không hiện lại ở đâu
-    await t.ensureVisible(find.text('Cơ bản · flygo-fast'));
+    await t.ensureVisible(find.text('Mức Cơ bản · flygo-fast'));
     await settle(t);
-    await t.tap(find.text('Cơ bản · flygo-fast'));
+    await t.tap(find.text('Mức Cơ bản · flygo-fast'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await settle(t);
     expect(find.text('Dự phòng 1'), findsOneWidget);
@@ -217,7 +217,7 @@ void main() {
   testWidgets('hạn mức từng model: cột trong bảng, chỉnh riêng một người, sửa hàng loạt', (t) async {
     final g = FakeGate();
     await app(t, const Size(1440, 1180), Brightness.dark, AiAdminPage(api: g.api));
-    expect(find.descendant(of: find.byKey(const ValueKey('ai-users')), matching: find.text('Nâng cao')), findsWidgets);
+    expect(find.descendant(of: find.byKey(const ValueKey('ai-users')), matching: find.text('Mức Nâng cao')), findsWidgets);
     expect(find.textContaining('20\$'), findsWidgets); expect(find.byKey(const ValueKey('custom-flygo-smart')), findsOneWidget); // lan: Nâng cao riêng 20$
     await t.ensureVisible(find.text('lan@flygo.vn'));
     await settle(t);
