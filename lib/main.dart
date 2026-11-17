@@ -23,6 +23,7 @@ import 'data/models.dart';
 import 'browser/browser_dock.dart';
 import 'browser/flygo_id.dart';
 import 'security/device_key.dart';
+import 'security/passkey_gate.dart';
 import 'security/verify_page.dart';
 import 'ui/share_intake.dart';
 import 'ui/app_route.dart';
@@ -858,9 +859,13 @@ class _RootState extends State<Root> {
           key: ValueKey(Object.hash(a, appLanguage.value)), onLogout: _logout, onSwitchServer: _switchServer, solo: kWindowSection);
     }
     // Tài khoản được cấp mật khẩu (có dấu phải đổi): đổi mật khẩu lần đầu trước khi vào app.
+    // Passkey bắt buộc (security/passkey_gate.dart): phiên mới phải xác thực passkey trên máy này.
     return PasswordGate(
       onLogout: _logout,
-      child: HomePage(key: ValueKey(Object.hash(a, appLanguage.value)), onLogout: _logout, onSwitchServer: _switchServer),
+      child: PasskeyGate(
+        onLogout: _logout,
+        child: HomePage(key: ValueKey(Object.hash(a, appLanguage.value)), onLogout: _logout, onSwitchServer: _switchServer),
+      ),
     );
   }
 }
