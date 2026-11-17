@@ -247,7 +247,6 @@ class _GuardCard extends StatelessWidget {
       for (final d in (guard['allowed_depts'] as List? ?? const []))
         if (d is Map) '${d['name']}',
     ];
-    final keep = guard['existing_sessions'] != 'logout';
     final color = on ? pal.accent : _amber;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
@@ -287,33 +286,19 @@ class _GuardCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
-              child: Text(
-                tr('Người đang đăng nhập sẵn (không được phép)'),
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: pal.sub),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: SegmentedButton<bool>(
-                showSelectedIcon: false,
-                segments: [
-                  ButtonSegment(value: true, label: Text(tr('Vẫn dùng tiếp')), icon: const Icon(Icons.play_circle_outline_rounded)),
-                  ButtonSegment(value: false, label: Text(tr('Đăng xuất ngay')), icon: const Icon(Icons.logout_rounded)),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 16, color: pal.sub),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      tr('Chỉ chặn lần đăng nhập mới. Người đang đăng nhập sẵn không bị đăng xuất.'),
+                      style: TextStyle(fontSize: 12.5, color: pal.sub),
+                    ),
+                  ),
                 ],
-                selected: {keep},
-                onSelectionChanged: (s) => onPatch({
-                  'existing_sessions': s.first ? 'keep' : 'logout',
-                }, s.first ? tr('Phiên cũ vẫn dùng được') : tr('Sẽ đăng xuất người không được phép')),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-              child: Text(
-                keep
-                    ? tr('Chặn từ lần đăng nhập sau; phiên đang mở vẫn dùng tới khi người đó đăng xuất hoặc hết hạn.')
-                    : tr('Bật chặn là đăng xuất luôn mọi phiên của người không được phép, trên mọi máy.'),
-                style: TextStyle(fontSize: 12.5, color: pal.sub),
               ),
             ),
             Padding(
@@ -322,12 +307,6 @@ class _GuardCard extends StatelessWidget {
                 spacing: 4,
                 children: [
                   TextButton.icon(onPressed: () => _allowDepts(context), icon: const Icon(Icons.group_add_rounded), label: Text(tr('Cho phép theo phòng ban'))),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(foregroundColor: _red),
-                    onPressed: () => onPatch({'logout_blocked': true}, tr('Đã đăng xuất người không được phép')),
-                    icon: const Icon(Icons.logout_rounded),
-                    label: Text(tr('Đăng xuất tất cả người không được phép')),
-                  ),
                 ],
               ),
             ),
@@ -1504,8 +1483,8 @@ class _UserDetailPageState extends State<UserDetailPage> {
             icon: Icons.fingerprint_rounded,
             title: tr('Bắt buộc passkey trên mỗi thiết bị'),
             subtitle: login['passkey_policy'] == 'all'
-                ? tr('Đang bắt buộc cho mọi người (cài đặt chung). Mỗi máy phải đăng ký passkey và xác thực khi mở app.')
-                : tr('Mỗi máy phải đăng ký passkey (vân tay / Face ID / mã PIN) và xác thực mới dùng được.'),
+                ? tr('Đang bắt buộc cho mọi người (cài đặt chung) từ lần đăng nhập mới.')
+                : tr('Lần đăng nhập mới (máy mới) phải đăng ký / xác thực passkey (vân tay, Face ID, mã PIN). Máy đang đăng nhập không bị đăng xuất.'),
             value: login['passkey_required'] == true,
             onChanged: login['passkey_policy'] == 'all'
                 ? null
@@ -1637,7 +1616,7 @@ class _UserDetailPageState extends State<UserDetailPage> {
                   const Color(0xFF14B8A6),
                 )
               else if (needPasskey)
-                _Chip(tr('Chưa có passkey: bị chặn'), _amber)
+                _Chip(tr('Chưa có passkey'), _amber)
               else if ((d['key'] as Map?)?['biometric_bound'] == true)
                 _Chip(tr('Khoá sinh trắc học'), const Color(0xFF14B8A6)),
             ],
