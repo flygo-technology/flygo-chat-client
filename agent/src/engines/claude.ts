@@ -81,7 +81,7 @@ const A2A_TOOLS = ["mcp__flygo_chat__ask_agent", "mcp__flygo_chat__return_files"
   "mcp__flygo_chat__schedule_create", "mcp__flygo_chat__schedule_list", "mcp__flygo_chat__schedule_update", "mcp__flygo_chat__schedule_delete",
   "mcp__flygo_chat__chat_edit_message", "mcp__flygo_chat__chat_recall_message", "mcp__flygo_chat__chat_session_title",
   // Kế hoạch / tóm tắt cuối lượt: chỉ hiện trên thẻ, không cần duyệt.
-  "mcp__flygo_chat__update_plan", "mcp__flygo_chat__wrap_up", "mcp__flygo_chat__browser_token_set", "mcp__flygo_chat__browser_extension_setup",
+  "mcp__flygo_chat__update_plan", "mcp__flygo_chat__wrap_up",
   // Quản lý phiên / dự án: runner tự xin duyệt (fork / new / project_create) và tự ghi bước lên thẻ.
   ...["session_rename", "session_fork", "session_new", "spawn_task", "project_list", "project_create", "project_rename"].map((t) => `mcp__flygo_chat__${t}`),
   "mcp__flygo_chat__ref_read", "mcp__flygo_chat__ref_thread", "mcp__flygo_chat__ref_post",
@@ -89,7 +89,7 @@ const A2A_TOOLS = ["mcp__flygo_chat__ask_agent", "mcp__flygo_chat__return_files"
   ...[...CHAT_OP_TOOLS].map((t) => `mcp__flygo_chat__${t}`),
   ...["state", "say", "show", "slides", "draw", "web", "people", "suggest", "watch", "music_list", "music_play", "music_volume", "music_fade", "music_pause", "music_stop", "deck", "deck_go", "asset", "sfx", "scene", "qa", "poll", "link", "present", "lobby"].map((t) => `mcp__flygo_chat__meeting_${t}`)]; // report_out / skill_save… runner tự xin duyệt khi cần
 
-const HIDDEN = new Set(["mcp__flygo_chat__approve", "mcp__flygo_chat__chat_report_out", "mcp__flygo_chat__chat_edit_message", "mcp__flygo_chat__chat_recall_message", "mcp__flygo_chat__ref_post", "mcp__flygo_chat__chat_session_title", "mcp__flygo_chat__session_rename", "mcp__flygo_chat__session_fork", "mcp__flygo_chat__session_new", "mcp__flygo_chat__project_create", "mcp__flygo_chat__project_rename", "mcp__flygo_chat__meeting_suggest", "mcp__flygo_chat__ask_user", "ToolSearch", "AskUserQuestion", "ExitPlanMode", "TodoWrite", "mcp__flygo_chat__update_plan", "mcp__flygo_chat__wrap_up", "mcp__flygo_chat__spawn_task", "mcp__flygo_chat__browser_token_set", "mcp__flygo_chat__browser_extension_setup", "mcp__flygo_chat__chat_send_files", "mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up"]);
+const HIDDEN = new Set(["mcp__flygo_chat__approve", "mcp__flygo_chat__chat_report_out", "mcp__flygo_chat__chat_edit_message", "mcp__flygo_chat__chat_recall_message", "mcp__flygo_chat__ref_post", "mcp__flygo_chat__chat_session_title", "mcp__flygo_chat__session_rename", "mcp__flygo_chat__session_fork", "mcp__flygo_chat__session_new", "mcp__flygo_chat__project_create", "mcp__flygo_chat__project_rename", "mcp__flygo_chat__meeting_suggest", "mcp__flygo_chat__ask_user", "ToolSearch", "AskUserQuestion", "ExitPlanMode", "TodoWrite", "mcp__flygo_chat__update_plan", "mcp__flygo_chat__wrap_up", "mcp__flygo_chat__spawn_task", "mcp__flygo_chat__chat_send_files", "mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up"]);
 // Tệp kế hoạch Claude tự ghi ở chế độ Lập kế hoạch (~/.claude/plans/…): không hiện thành bước, kế hoạch đã nằm trong lời xin duyệt.
 for (const t of CHAT_OP_SELF_STEP) HIDDEN.add(`mcp__flygo_chat__${t}`);
 export const hidden = (name: string, input: any) => HIDDEN.has(name) || (/^(Write|Edit|MultiEdit)$/.test(name) && /[\\/]\.claude[\\/]plans[\\/]/.test(String(input?.file_path ?? "")));

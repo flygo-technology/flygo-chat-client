@@ -674,16 +674,6 @@ const CHAT_TOOLS = [
       inputSchema: { type: "object", properties: { ref_id: { type: "string" }, message: { type: "string" }, root_id: { type: "string", description: "tuỳ chọn" }, files: { type: "array", items: { type: "string" }, description: "đường dẫn tệp cần gửi kèm (tuỳ chọn)" } }, required: ["ref_id"] },
     },
     {
-      name: "browser_extension_setup",
-      description: "THIẾT LẬP NỐI CHROME THẬT của Sếp, tự động: kiểm tra tiện ích Playwright MCP Bridge trong Chrome; đã cài thì tự đọc token từ hồ sơ Chrome và lưu (lần sau server MCP \"chrome\" nối tự động, không cần bấm Cho phép); chưa cài thì đăng ký cho Chrome tự cài và mở trang tiện ích để Sếp bấm Thêm (Chrome bắt buộc người dùng xác nhận một lần), xong gọi lại tool này. Dùng khi Sếp muốn agent dùng Chrome của Sếp mà chưa có server \"chrome\". Chỉ chủ bot.",
-      inputSchema: { type: "object", properties: {} },
-    },
-    {
-      name: "browser_token_set",
-      description: "LƯU TOKEN CHROME của Sếp: khi Sếp gửi giá trị PLAYWRIGHT_MCP_EXTENSION_TOKEN (chép từ tiện ích Playwright MCP Bridge trong Chrome), gọi tool này để lưu trên máy chạy bot (tệp chỉ chủ máy đọc được). Từ lượt sau, server MCP \"chrome\" nối thẳng Chrome thật của Sếp (tab, đăng nhập sẵn) mà không cần bấm Cho phép. token rỗng = xoá. Chỉ chủ bot. Không nhắc lại token trong câu trả lời.",
-      inputSchema: { type: "object", properties: { token: { type: "string", description: "giá trị token (có hoặc không có tiền tố PLAYWRIGHT_MCP_EXTENSION_TOKEN=)" } }, required: ["token"] },
-    },
-    {
       name: "update_plan",
       description: "KẾ HOẠCH CỦA LƯỢT: hiện danh sách bước dưới thẻ tiến trình trên app (ô tròn trống = chưa làm, vòng xoay = đang làm, tick = xong). Dùng khi việc có từ 3 bước trở lên. Lần đầu gửi items (mỗi mục {content, status: pending | in_progress | completed}, một mục in_progress). Sau đó: advance=true = xong bước đang làm và bắt đầu bước kế; hoặc done=[số thứ tự bước, tính từ 1] và start=<số thứ tự bước bắt đầu>; gửi lại items để sửa danh sách. Gọi ngay khi chuyển bước, không gom cuối lượt.",
       inputSchema: { type: "object", properties: {
@@ -1059,14 +1049,6 @@ async function callTool(req: any): Promise<any> {
     }
     case "session_rename": case "session_fork": case "session_new": case "spawn_task": case "project_list": case "project_create": case "project_rename": {
       const r = await runner(`/sess_op/${req.params.name}`, a).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
-      return text(r.text ?? JSON.stringify(r));
-    }
-    case "browser_extension_setup": {
-      const r = await runner("/browser_setup", a).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
-      return text(r.text ?? JSON.stringify(r));
-    }
-    case "browser_token_set": {
-      const r = await runner("/browser_token", a).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
       return text(r.text ?? JSON.stringify(r));
     }
     case "update_plan": case "wrap_up": {

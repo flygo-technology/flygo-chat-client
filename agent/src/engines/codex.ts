@@ -456,7 +456,7 @@ export class CodexEngine implements Engine {
                 hooks.step({ id: it.id, kind: "file", title: `Sửa ${(it.changes ?? []).map((c: any) => c.path.split("/").pop()).join(", ")}`, label: clip(`${(it.changes ?? []).length && (it.changes ?? []).every((c: any) => c.kind?.type === "add") ? "Tạo" : "Sửa"} ${(it.changes ?? []).map((c: any) => base(c.path)).join(", ")}`), status: !fin ? "running" : it.status === "failed" ? "error" : "done" });
                 break;
               case "mcpToolCall":
-                if (it.tool === "update_plan" || it.tool === "wrap_up" || it.tool === "spawn_task" || it.tool === "browser_token_set" || it.tool === "browser_extension_setup" || it.tool === "chat_send_files") break; // kế hoạch / tóm tắt: thẻ tự hiện, không thành bước
+                if (it.tool === "update_plan" || it.tool === "wrap_up" || it.tool === "spawn_task" || it.tool === "chat_send_files") break; // kế hoạch / tóm tắt: thẻ tự hiện, không thành bước
                 if (it.tool === "chat_report_out" || it.tool === "chat_edit_message" || it.tool === "chat_recall_message" || it.tool === "ref_post" || it.tool === "chat_session_title" || it.tool === "meeting_suggest" || /^(session_(rename|fork|new)|project_(create|rename))$/.test(it.tool) || (it.server === "flygo_chat" && CHAT_OP_SELF_STEP.has(it.tool))) break; // runner tự ghi bước (báo cáo / sửa / thu hồi tin)
                 hooks.step({ id: it.id, kind: "tool", title: `${it.server}.${it.tool}`, label: mcpLabel(it.server, it.tool), status: !fin ? "running" : it.error ? "error" : "done", detail: it.error?.message });
                 break;

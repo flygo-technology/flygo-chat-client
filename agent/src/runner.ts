@@ -4,7 +4,7 @@
 // - Tin trong luồng -> trả lời trong luồng: thẻ tiến trình (props.flygo_agent) + tin stream (props.flygo_agent_message).
 // - Duyệt quyền: post "Cần Sếp duyệt" trong chủ đề, chủ bot bấm Xác nhận / Từ chối (reaction +1 / -1).
 // - Chế độ --json: in sự kiện JSON từng dòng ra stdout cho app Flygo Chat (log ra stderr).
-import { desktopMcp, desktopPersona, saveExtensionToken, setupBridge } from "./desktop-mcp";
+import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
@@ -547,24 +547,6 @@ const http = Bun.serve({
         ctx.card.step({ id: `files-${ids[0]}`, kind: "tool", title, label: clip(title, 60), status: "done" });
       }
       return Response.json({ ok: true, inline: ctx.card.inline });
-    }
-    if (url.pathname === "/browser_setup" && req.method === "POST") { // browser_extension_setup: cài tiện ích + tự lấy token
-      const b = await req.json();
-      const ctx = orchRuns.get(String(b.key ?? ""));
-      if (!ctx || !isOwner(ctx.assigner ?? "")) return Response.json({ text: "Chỉ chủ bot mới thiết lập Chrome được." });
-      const r = setupBridge();
-      ctx.card.step({ id: `brset-${crypto.randomUUID().slice(0, 6)}`, kind: "tool", title: r.split(".")[0], label: "Thiết lập Chrome", status: "done" });
-      log(`browser_extension_setup: ${r.slice(0, 80)}`);
-      return Response.json({ text: r });
-    }
-    if (url.pathname === "/browser_token" && req.method === "POST") { // browser_token_set: token tiện ích Playwright MCP Bridge
-      const b = await req.json();
-      const ctx = orchRuns.get(String(b.key ?? ""));
-      if (!ctx || !isOwner(ctx.assigner ?? "")) return Response.json({ text: "Chỉ chủ bot mới lưu được token Chrome." });
-      const r = saveExtensionToken(String(b.token ?? ""));
-      ctx.card.step({ id: `brtok-${crypto.randomUUID().slice(0, 6)}`, kind: "tool", title: r.startsWith("Đã") ? r.split(".")[0] : "Lưu token Chrome (lỗi)", label: "Token Chrome", status: r.startsWith("Đã") ? "done" : "error" });
-      log(`browser_token_set: ${r.slice(0, 60)}`);
-      return Response.json({ text: r });
     }
     if (url.pathname.startsWith("/plan/") && req.method === "POST") { // update_plan / wrap_up: kế hoạch + tóm tắt trên thẻ của lượt
       const b = await req.json();
@@ -2856,8 +2838,7 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
     ai ? `- spawn_task(title, prompt): giao một việc độc lập, tốn thời gian cho phiên con chạy ngầm (song song, không chờ); prompt phải đủ ngữ cảnh vì phiên con không thấy cuộc trò chuyện này; xong phiên con tự báo kết quả về đây; tối đa 5 việc ngầm cùng lúc` : "",
     `- update_plan(items | advance | done, start) · wrap_up(recap, ask?, actions?, blocked?): việc có từ 3 bước trở lên thì lập kế hoạch bằng update_plan ngay đầu lượt và advance mỗi khi xong một bước (app hiện checklist dưới thẻ); cuối lượt gọi wrap_up một lần với tóm tắt ngắn, cần Sếp quyết định thì kèm ask + 2–4 nút actions và không hỏi lại trong câu trả lời`,
     owner ? desktopPersona(desktopMcp(cfg), MY_HOST) : "",
-    owner ? `- browser_extension_setup(): Sếp muốn agent dùng chính Chrome của Sếp mà chưa có server MCP "chrome" thì gọi tool này: tự cài tiện ích Playwright MCP Bridge (Sếp chỉ bấm Thêm một lần) và tự lấy token cho các lần sau` : "",
-    owner ? `- browser_token_set(token): Sếp gửi PLAYWRIGHT_MCP_EXTENSION_TOKEN (từ tiện ích Playwright MCP Bridge) thì lưu ngay bằng tool này để lần sau nối Chrome thật của Sếp tự động; không nhắc lại token trong câu trả lời` : "",
+    `- VIỆC TRÊN WEB / TRÌNH DUYỆT (mở trang, đọc, tìm kiếm, bấm, điền form, tải tệp, xem log mạng…): ƯU TIÊN dùng trình duyệt Flygo (extension Flygo Browser Bridge) qua tool browser_* của Gateway (tên dạng vn_flygo_clients__browser_*): browser_list xem trình duyệt online, browser_select chọn (người dùng tag chip 🌐 thì đã chọn sẵn), rồi browser_navigate / browser_snapshot / browser_click / browser_type…; tab khác của người dùng: browser_tabs_all + browser_tab_attach. Chỉ dùng công cụ khác (trình duyệt riêng playwright, điều khiển desktop, curl / tải trang thô) khi không có trình duyệt Flygo nào online, tool trình duyệt báo lỗi, hoặc Sếp yêu cầu; khi đó nói rõ lý do.`,
     `- file_read(path, offset?, limit?) · file_write(path, content, append?) · file_copy(from, to, overwrite?) · file_move(from, to, overwrite?) · file_trash(path | paths) · run_command(command, cwd?, timeout_sec?): đọc / ghi / chép / chuyển tệp và chạy lệnh trên máy ${MY_HOST} (đổi gì cũng cần duyệt). XOÁ tệp luôn bằng file_trash (vào thùng rác, khôi phục được), KHÔNG dùng rm / del / Remove-Item`,
     `- chat_send_bilingual(text, lang, translation, translation_lang, to?, thread_root?): gửi tin song ngữ có nút cờ đổi ngôn ngữ (như nút Dịch AI của app), ở đây hoặc chat khác; mọi tool gửi tin khác cũng nhận lang + translation + translation_lang. Không ghép hai bản bằng dòng kẻ`,
     o.report ? `- chat_report_out(message, files?, lang?, translation?, translation_lang?): báo cáo ra ${n ? `${isAi ? "chat chính của nhóm" : `tầng ${n - 1}`} "${chain[n - 1].name}"` : "chat chính của nhóm"}, chỉ khi được yêu cầu; kèm lang + translation + translation_lang để gửi song ngữ (có nút cờ)` : "",
