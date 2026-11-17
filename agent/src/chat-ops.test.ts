@@ -284,3 +284,15 @@ test("chat_export: chat được tag đi qua relay theo trang 50 tin", async () 
   expect(body).toContain("ref 0");
   expect(body).toContain("ref 119");
 });
+
+test("chat_send / chat_reply song ngữ: tin có props.flygo_bilingual (nút cờ) + nội dung hai bản; tham số sai thì không gửi", async () => {
+  await ops.tool("chat_send", { to: "here", message: "สวัสดีค่ะ", lang: "th", translation: "Chào anh", translation_lang: "vi" }, ctx());
+  const p = created.at(-1);
+  expect(p.message).toBe("สวัสดีค่ะ\n\n───\nChào anh");
+  expect(p.props.flygo_bilingual).toEqual({ v: 1, langs: ["th", "vi"], texts: ["สวัสดีค่ะ", "Chào anh"] });
+  await ops.tool("chat_reply", { post_id: id("pother"), message: "Hello", lang: "en", translation: "Xin chào", translation_lang: "vi" }, ctx());
+  expect(created.at(-1).props.flygo_bilingual.langs).toEqual(["en", "vi"]);
+  const n = created.length;
+  expect(await ops.tool("chat_send", { to: "here", message: "x", lang: "vi", translation: "y", translation_lang: "vi" }, ctx())).toContain("cùng một ngôn ngữ");
+  expect(created.length).toBe(n);
+});
