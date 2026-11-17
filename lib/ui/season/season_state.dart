@@ -368,14 +368,3 @@ class SeasonBanner extends StatelessWidget {
     );
   }
 }
-
-/// Ảnh xem trước: ép bật / tắt nền mùa lễ của thanh tab (null = theo mùa đang diễn ra).
-bool? debugNavBg;
-
-/// Thanh tab điện thoại dùng nền Giáng sinh: mùa đang diễn ra, công ty bật "Dây đèn" (trang trí), mình không tắt
-/// "Trang trí thanh điều hướng".
-bool seasonNavBg() {
-  if (debugNavBg != null) return debugNavBg!;
-  final s = SeasonState.instance;
-  return s.activeSeason() == 'giangsinh' && s.on('lights') && s.mine['navbar'] != false;
-}

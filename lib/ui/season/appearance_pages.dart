@@ -162,9 +162,6 @@ class AppearancePage extends StatelessWidget {
                   s.mine['effect'] != false, (v) => s.setMine('effect', v)),
               _div(context),
               _sw(context, Icons.home_outlined, tr('Banner ở Trang chủ'), tr('Đếm ngược đến 24/12'), s.mine['banner'] != false, (v) => s.setMine('banner', v)),
-              _div(context),
-              _sw(context, Icons.space_bar_rounded, tr('Trang trí thanh điều hướng'), tr('Nền Giáng sinh cho thanh dưới'),
-                  s.mine['navbar'] != false, (v) => s.setMine('navbar', v)),
             ]),
             _group(context, title: tr('Chuyển động'), [
               _sw(context, Icons.animation_rounded, tr('Hiệu ứng động'), tr('Tuyết rơi, đèn nhấp nháy. Tự tắt khi máy bật giảm chuyển động.'), s.motion,

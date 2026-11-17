@@ -92,14 +92,4 @@ void main() {
     s.mine = {};
     expect(s.activeSeason(nov), isNull);
   });
-
-  test('thanh tab: theo mùa + dây đèn + lựa chọn riêng', () {
-    s.clock = () => DateTime.utc(2026, 12, 10, 3);
-    expect(seasonNavBg(), isTrue);
-    s.mine = {'navbar': false};
-    expect(seasonNavBg(), isFalse);
-    s.mine = {'lights': false};
-    expect(seasonNavBg(), isFalse);
-    s.clock = DateTime.now;
-  });
 }
