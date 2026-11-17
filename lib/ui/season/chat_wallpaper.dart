@@ -86,14 +86,23 @@ class SeasonLights extends StatelessWidget {
 /// Nền Trang chủ ("Màu nền"): vẽ phía sau toàn bộ trang danh sách ứng dụng (điện thoại + máy tính).
 class HomeBackground extends StatelessWidget {
   final Widget child;
-  const HomeBackground({super.key, required this.child});
+  /// Chỉ vẽ khi người dùng đã tự chọn trong "Màu nền" (trang Mở ứng dụng trên máy tính: mặc định để nền thường).
+  final bool explicitOnly;
+  const HomeBackground({super.key, required this.child, this.explicitOnly = false});
+
+  /// Trang có đang vẽ nền không (để chữ trên trang thêm bóng mờ).
+  static bool showing({bool explicitOnly = false}) {
+    final s = SeasonState.instance;
+    if (explicitOnly && s.mine['home_bg'] == null) return false;
+    return s.homeChoice() != null;
+  }
   @override
   Widget build(BuildContext context) {
     final s = SeasonState.instance;
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) {
-        final w = s.homeChoice();
+        final w = showing(explicitOnly: explicitOnly) ? s.homeChoice() : null;
         if (w == null) return child;
         return Stack(fit: StackFit.expand, children: [
           ChatWallpaperArt(choice: w, motion: false),
