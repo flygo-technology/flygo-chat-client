@@ -63,6 +63,11 @@ void main() {
     'month_usd': 10, 'used_usd': 3.8, 'day_usd': 1, 'day_spent_usd': .55,
     // 0 giờ 01/12 giờ VN, theo quy ước resets_at của Cổng AI (ms UTC thật).
     'resets_at': DateTime.utc(2026, 11, 30, 17).millisecondsSinceEpoch,
+    'models': [
+      {'alias': 'flygo-fast', 'allowed': true, 'used_pct': 62, 'day_used_pct': null, 'exhausted': false, 'capped': true},
+      {'alias': 'flygo-smart', 'allowed': true, 'used_pct': 43, 'day_used_pct': null, 'exhausted': false, 'capped': true},
+      {'alias': 'flygo-agent', 'allowed': false, 'used_pct': null, 'day_used_pct': null, 'exhausted': false, 'capped': false},
+    ],
   });
 
   /// Giờ làm mới tính từ [at] (test số liệu dùng giờ cố định; test giao diện dùng giờ thật vì widget lấy DateTime.now()).
@@ -72,7 +77,7 @@ void main() {
     app.me = MmUser({'id': meId, 'username': 'lan', 'first_name': 'Lan'});
     app.users['b1'] = bot('b1', 'lan-claude', 'Lan Claude', 'claude',
         {'engine': 'claude', 'limits': limits('claude', 'max', 38, 20, t.add(const Duration(hours: 4, minutes: 30)), DateTime(t.year, t.month, t.day + 6, 8))});
-    app.users['b2'] = bot('b2', 'lan-congai', 'Lan Cổng AI', 'claude', {'engine': 'claude', 'via': 'flygo-ai'});
+    app.users['b2'] = bot('b2', 'lan-congai', 'Lan Cổng AI', 'claude', {'engine': 'claude', 'via': 'flygo-ai', 'default': {'model': 'claude-sonnet-5-5'}});
     // Trợ lý của Ba chia sẻ cho Lan; trợ lý của người khác không chia sẻ thì không hiện.
     app.users['b3'] = bot('b3', 'jenifer', 'Jenifer', 'codex',
         {'engine': 'codex', 'limits': limits('codex', 'pro', 91, 64, t.add(const Duration(hours: 1, minutes: 15)), DateTime(t.year, t.month, t.day + 3, 9))}, allow: meId);
@@ -85,8 +90,16 @@ void main() {
     final sub = botRemaining(app, mine[0], now: now);
     expect([for (final x in sub) botRemainingLine(x, now)], ['5h: còn 62% · làm mới 14:30', 'Tuần: còn 80% · làm mới ${resetWhen(DateTime(2026, 11, 23, 8, 0), now)}']);
     final gate = botRemaining(app, mine[1], quota: quota, now: now);
-    expect(gate.map((x) => (x.name, x.left)), [('Ngày', 45), ('Tháng', 62)]);
-    expect(botRemainingLine(gate.last, now), 'Tháng: còn 62% · làm mới ${resetWhen(DateTime.utc(2026, 11, 30, 17).toLocal(), now)}');
+    // Trợ lý dùng Sonnet = Mức Nâng cao: % còn lại của riêng mức đó (tháng) + trần ngày chung.
+    expect([for (final x in gate) x.name], ['Mức Nâng cao', 'Ngày']);
+    expect([for (final x in gate) x.left], [57, 45]);
+    expect(botRemainingLine(gate.first, now), 'Mức Nâng cao: còn 57% · làm mới ${resetWhen(DateTime.utc(2026, 11, 30, 17).toLocal(), now)}');
+    // Opus = Mức Chuyên gia mà mình không được dùng: Cổng AI hạ xuống Mức Nâng cao, hiện kèm.
+    app.agentConfig['b2'] = {'model': 'claude-opus-5-5'};
+    final down = botRemaining(app, mine[1], quota: quota, now: now);
+    expect([for (final x in down) x.name], ['Mức Chuyên gia', '→ Mức Nâng cao', 'Ngày']);
+    expect(down.first.left, 62); // không có trần riêng: theo trần chung (đã dùng 38%)
+    app.agentConfig.remove('b2');
     expect(resetWhen(DateTime(2026, 11, 23, 8, 0), now), 'T2 08:00');
     // Cổng AI mà chưa có hạn mức của mình (chưa được dùng): chưa biết.
     expect(botRemaining(app, mine[1], now: now), isEmpty);

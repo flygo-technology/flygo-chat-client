@@ -27,6 +27,7 @@ import '../push/push_service.dart';
 import '../ui/agent_view.dart' show agentDisplayText;
 import '../ui/bubble_styles.dart' show BubbleChoice, kBubbleDefaultKey, kBubbleInherit;
 import '../ui/season/season_state.dart' show SeasonState;
+import '../ui/todo/home_pins.dart' show HomeNotePins;
 import '../ui/common.dart';
 import '../ui/password_page.dart' show PasswordPolicy, kMustChangePasswordProp;
 import '../ui/panes/pane_layout.dart' show PaneContent;
@@ -406,6 +407,8 @@ class AppState extends ChangeNotifier {
       SeasonState.instance.load(this);
       loadBlocked();
       loadAgentConfig();
+      // Ghi chú ghim lên Trang chủ (preferences flygo_chat/home_notes).
+      HomeNotePins.instance.load(this);
       loadMuteUntil();
       myBotIds();
       loadTodos();
@@ -3269,8 +3272,12 @@ class AppState extends ChangeNotifier {
 
   /// Kiểu dùng khi gửi tin vào [channelId], theo thứ tự: lựa chọn riêng của chat → mặc định chung của mình →
   /// mùa lễ hội đang chạy → bong bóng thường (null). Lựa chọn "Mặc định" (kiểu rỗng) ở bước nào cũng dừng tại đó.
+  /// Lớp nào được dùng (đặt từ cấu hình Giao diện của công ty): lựa chọn từng chat, mặc định riêng của mình.
+  ({bool perChat, bool own}) Function()? bubbleRules;
+
   BubbleChoice? resolveBubble(String channelId) {
-    final c = bubbles[channelId] ?? bubbles[kBubbleDefaultKey] ?? seasonBubble?.call(channelId);
+    final r = bubbleRules?.call() ?? (perChat: true, own: true);
+    final c = (r.perChat ? bubbles[channelId] : null) ?? (r.own ? bubbles[kBubbleDefaultKey] : null) ?? seasonBubble?.call(channelId);
     return c == null || c.style.isEmpty ? null : c;
   }
 
@@ -3652,6 +3659,7 @@ class AppState extends ChangeNotifier {
               notifyListeners();
             }
             if (p['user_id'] == me?.id) SeasonState.instance.onPref(p as Map, deleted: false);
+            if (p['user_id'] == me?.id) HomeNotePins.instance.onPref(p as Map, deleted: false);
             if (p['category'] == kBubblePref && p['user_id'] == me?.id && p['name'] is String) {
               final c = _decodeBubble('${p['value']}');
               c == null ? bubbles.remove(p['name']) : bubbles[p['name'] as String] = c;
@@ -3673,6 +3681,7 @@ class AppState extends ChangeNotifier {
           for (final p in list) {
             if (p['category'] == kBubblePref && p['user_id'] == me?.id) changed |= bubbles.remove(p['name']) != null;
             if (p['user_id'] == me?.id) SeasonState.instance.onPref(p as Map, deleted: true);
+            if (p['user_id'] == me?.id) HomeNotePins.instance.onPref(p as Map, deleted: true);
           }
           if (changed) notifyListeners();
         } catch (_) {}

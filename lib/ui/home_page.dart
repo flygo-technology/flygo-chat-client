@@ -42,7 +42,7 @@ import 'qr_login.dart';
 import 'mini_app_view.dart';
 import 'drive/session.dart' show kOfficeTabPrefix, officeTabInfo, restoreOfficeTab;
 import '../api/mini_apps.dart' show MiniApps;
-import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin, HomeBackgroundPage;
+import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin, AppearancePage;
 import 'season/chat_wallpaper.dart' show HomeBackground;
 import 'season/season_art.dart' show XmasCoverPainter;
 import 'season/season_state.dart';
@@ -72,6 +72,7 @@ import 'theme.dart';
 import 'bang_tin/bang_tin_page.dart' show BangTinTab, bangTinApp, kBangTinTab;
 import 'bang_tin/bang_tin_service.dart' show BangTinService;
 import 'desk_tabs.dart';
+import 'todo/home_notes_section.dart' show HomePinnedNotes;
 import 'devices_page.dart';
 import '../security/passkey_gate.dart' show passkeySupported;
 import '../security/passkey_page.dart';
@@ -125,9 +126,8 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'privacy',
         'terms',
         // Ô "AI" (đồng ý gửi dữ liệu) và "Hạn mức AI" đã gộp vào trang Trợ lý (Sếp, 2026-11-17).
-        // Màu nền (màu trơn / nền Giáng sinh / theo mùa lễ): ô cuối của Cá nhân, cả điện thoại lẫn máy tính (Sếp, 2026-11-17).
-        // Trang "Mở ứng dụng" trên máy tính vẫn để nền thường.
-        'homebg',
+        // Giao diện (theo cài đặt admin / cài riêng: nền Trang chủ, mùa lễ, chat): ô cuối của Cá nhân (Sếp, 2026-11-17).
+        'appearance',
       ]),
     ].where((g) => g.$2.isNotEmpty).toList();
 
@@ -1191,8 +1191,8 @@ class _HomePageState extends State<HomePage> {
       // Trình duyệt (extension Flygo Browser Bridge) cho agent điều khiển (lib/ui/my_browsers_page.dart).
       'browsers': (Icons.public, const Color(0xFF00B8D4), tr('Trình duyệt'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const MyBrowsersPage()))),
-      'homebg': (Icons.format_color_fill_rounded, const Color(0xFF0EA5E9), tr('Màu nền'), 0,
-          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const HomeBackgroundPage()))),
+      'appearance': (Icons.palette_rounded, const Color(0xFF0EA5E9), tr('Giao diện'), 0,
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AppearancePage()))),
       // Zalo / WeChat (mục Chính của Trang chủ): đang phát triển, mở tab báo "Chức năng đang phát triển".
       'zalo': (Icons.chat_rounded, const Color(0xFF0068FF), 'Zalo', 0, () {}),
       'wechat': (Icons.forum_rounded, const Color(0xFF07C160), 'WeChat', 0, () {}),
@@ -1226,6 +1226,22 @@ class _HomePageState extends State<HomePage> {
         onSettings: () => _openProfile(nav()),
       );
 
+  /// Mở ghi chú đã ghim trong app Ghi chú. Ngữ cảnh của trang (không phải tab): máy tính mở tab Ghi chú riêng.
+  Future<void> _openPinnedNote(String id) async {
+    var a = MiniApps.cached.where((x) => x.nativeScreen == 'todo').firstOrNull;
+    if (a == null) {
+      try {
+        a = (await MiniApps.list(_app.token)).where((x) => x.nativeScreen == 'todo').firstOrNull;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    if (a == null) {
+      ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Bạn chưa được cấp app Ghi chú'))));
+      return;
+    }
+    await openMiniApp(context, a, path: '/n/$id');
+  }
+
   /// Tab Apps: lưới các ứng dụng theo nhóm [youAppGroups] (Danh bạ, Lịch sử cuộc gọi, Cài đặt, Trợ lý, Bot, Ngôn ngữ, Chặn…).
   Widget _apps(AppState app, double bottom, NavigatorState? Function() nav,
       {void Function(String id)? open, void Function(String id)? onLaunch, DeskTab? tab}) {
@@ -1238,7 +1254,7 @@ class _HomePageState extends State<HomePage> {
     // [color] null = ô nền trắng có viền (mini app: biểu tượng riêng của app là ảnh / emoji).
     // Không khung quanh các nhóm (Sếp, 2026-11-17): ô nằm thẳng trên trang. Có "Màu nền" (điện thoại) thì chữ có bóng
     // mờ nhẹ cho rõ trên nền.
-    final onBg = onLaunch != null && HomeBackground.showing(explicitOnly: isDesktop);
+    final onBg = onLaunch != null && HomeBackground.showing(desktop: isDesktop);
     Widget onWall(Widget text) => !onBg
         ? text
         : DefaultTextStyle.merge(
@@ -1407,6 +1423,8 @@ class _HomePageState extends State<HomePage> {
         // Banner mùa lễ (Giáng sinh: đếm ngược tới 24/12), ngay trên dải "Sắp diễn ra".
         if (phone) const SeasonBanner(),
         if (phone) UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), compact: true),
+        // Ghi chú ghim lên Trang chủ (Sếp, 2026-11-17): ngay dưới sự kiện sắp tới.
+        if (phone) HomePinnedNotes(onOpen: _openPinnedNote),
         // Mục Chính: Chat, Trợ lý, Quy trình và Trình chiếu (mini app của máy chủ, tải về sau).
         MiniAppsSection(
           key: ValueKey('main-$kServerUrl'),
@@ -1505,11 +1523,7 @@ class _HomePageState extends State<HomePage> {
                   () => (nav() ?? Navigator.of(context)).push(AppPageRoute(
                       builder: (_) => AppsProfilePage(onProfile: () => showEditProfile(context), onSettings: () => _openProfile(nav())))),
                   circle: true),
-            // App cá nhân của Flygo ID (features.personal, vd Giao diện): ngay sau Hồ sơ.
-            if (title == tr('Cá nhân'))
-              for (final a in MiniApps.cached)
-                if (a.feature('personal') && a.nativeScreen != null)
-                  appTile(MiniAppIcon(a, size: 34), miniAppTileColor(a), a.name, 0, () => openMiniApp(nav()?.context ?? context, a)),
+            // Ô Giao diện là ô có sẵn ('appearance', cuối Cá nhân); app Giao diện của Flygo ID không có ô riêng.
             for (final id in ids)
               if (id != 'update' && items[id] != null) tile(asTab(id, items[id]!)),
           ]),
@@ -1536,6 +1550,8 @@ class _HomePageState extends State<HomePage> {
                   const SeasonBanner(),
                   // Sự kiện Lịch sắp tới (đếm ngược) dưới thẻ người dùng, ẩn khi không có (Sếp, 2026-11-17).
                   UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), max: 5),
+                  // Ghi chú ghim lên Trang chủ: cột trái, dưới sự kiện sắp tới.
+                  HomePinnedNotes(onOpen: _openPinnedNote, padding: const EdgeInsets.fromLTRB(16, 18, 16, 4)),
                 ]),
               ),
               // Dưới cùng cột trái: tên công ty bên trái, Đăng xuất bên phải (đối diện nhau).
@@ -2210,9 +2226,9 @@ class _HomePageState extends State<HomePage> {
           observers: [_TabRootObserver(() => _appTabRoot(t))],
           root: Scaffold(
             backgroundColor: Pal.of(context).bg,
-            // Trang chủ máy tính: nền thường; chỉ hiện "Màu nền" khi người dùng tự chọn (Sếp, 2026-11-17). Dàn rộng, ẩn thanh cuộn.
+            // Trang chủ máy tính: nền máy tính của Giao diện (mặc định không nền). Dàn rộng, ẩn thanh cuộn.
             body: HomeBackground(
-              explicitOnly: true,
+              desktop: true,
               child: ScrollConfiguration(
               behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
               child: Center(
@@ -3537,7 +3553,7 @@ class ProfileView extends StatelessWidget {
                     InfoRow(
                       icon: Icons.palette_outlined,
                       title: tr('Giao diện'),
-                      value: SeasonState.instance.activeSeason() != null && SeasonState.instance.mine['off'] != true ? tr('Mùa lễ') : null,
+                      value: SeasonState.instance.custom ? tr('Cài riêng') : tr('Theo cài đặt admin'),
                       onTap: () => openAppearance(context),
                     ),
                   ]),

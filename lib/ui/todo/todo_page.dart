@@ -12,6 +12,7 @@ import '../app_route.dart' show showsBack;
 import '../app_shell.dart';
 import '../theme.dart' show toast;
 import 'api.dart';
+import 'home_pins.dart';
 import 'look.dart';
 import 'model.dart';
 import 'note_page.dart';
@@ -78,6 +79,8 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
 
   void _changed() {
     if (mounted) setState(() {});
+    // Ghim Trang chủ: làm mới bản tóm tắt (tiêu đề, tiến độ…) theo ghi chú vừa đồng bộ.
+    HomeNotePins.instance.refreshFrom(store.notes, loaded: store.loaded && !store.offline);
   }
 
   void _openFromLink() {
@@ -351,6 +354,9 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
         if (n.isOwner) ('forever', Icons.delete_forever_outlined, tr('Xoá vĩnh viễn')),
       ] else ...[
         ('pin', n.pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined, n.pinned ? tr('Bỏ ghim') : tr('Ghim')),
+        HomeNotePins.instance.has(n.id)
+            ? ('home', Icons.home_rounded, tr('Bỏ ghim trang chủ'))
+            : ('home', Icons.add_home_outlined, tr('Ghim trang chủ')),
         ('archive', n.archived ? Icons.unarchive_outlined : Icons.archive_outlined, n.archived ? tr('Bỏ lưu trữ') : tr('Lưu trữ')),
         ('trash', Icons.delete_outline_rounded, n.isOwner ? tr('Xoá') : tr('Xoá khỏi danh sách của tôi')),
       ],
@@ -387,6 +393,11 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
     switch (v) {
       case 'pin':
         store.put(n, {'pinned': !n.pinned});
+      case 'home':
+        final on = HomeNotePins.instance.toggle(n);
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(toast(Text(on ? tr('Đã ghim lên Trang chủ') : tr('Đã bỏ ghim khỏi Trang chủ'))));
       case 'archive':
         final was = n.archived, pinned = n.pinned;
         store.put(n, {'archived': !was});

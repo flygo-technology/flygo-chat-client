@@ -53,7 +53,7 @@ void main() {
         await t.runAsync(_fonts);
         debugIsDesktop = true;
         addTearDown(() => debugIsDesktop = null);
-        SeasonState.instance.mine = {'home_bg': ?bg};
+        SeasonState.instance.mine = {'mode': 'custom', 'home_bg_desktop': ?bg};
         final app = AppState('t', api: _FakeApi())
           ..me = MmUser({'id': 'me', 'username': 'nguyenvana', 'first_name': 'Nguyễn Văn', 'last_name': 'An', 'email': 'a@congty.example.vn'});
         await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('home-${DateTime.now().microsecondsSinceEpoch}')));

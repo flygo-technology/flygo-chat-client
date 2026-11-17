@@ -15,6 +15,7 @@ import '../clip.dart' show readClipboardMedia;
 import '../theme.dart' show toast;
 import 'api.dart';
 import 'block_editor.dart';
+import 'home_pins.dart';
 import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
@@ -536,6 +537,19 @@ class _NotePageState extends State<NotePage> {
       const Spacer(),
       if (!_n.trashed) ...[
         IconButton(tooltip: _n.pinned ? tr('Bỏ ghim') : tr('Ghim'), icon: Icon(_n.pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined, color: fg), onPressed: _togglePin),
+        // Ghim lên Trang chủ (khác ghim trong app): riêng mình, hiện ở mục "Ghi chú đã ghim" của Trang chủ.
+        ListenableBuilder(
+          listenable: HomeNotePins.instance,
+          builder: (_, _) {
+            final on = HomeNotePins.instance.has(_n.id);
+            return IconButton(
+              key: const ValueKey('note-home-pin'),
+              tooltip: on ? tr('Bỏ ghim trang chủ') : tr('Ghim trang chủ'),
+              icon: Icon(on ? Icons.home_rounded : Icons.add_home_outlined, color: fg),
+              onPressed: () => HomeNotePins.instance.toggle(_n),
+            );
+          },
+        ),
         IconButton(tooltip: _n.archived ? tr('Bỏ lưu trữ') : tr('Lưu trữ'), icon: Icon(_n.archived ? Icons.unarchive_outlined : Icons.archive_outlined, color: fg), onPressed: _archive),
       ],
       if (inDialog) IconButton(tooltip: tr('Đóng'), icon: Icon(Icons.close_rounded, color: fg), onPressed: () => Navigator.of(context).maybePop()),
