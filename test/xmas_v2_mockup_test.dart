@@ -57,7 +57,7 @@ class _Bar extends StatelessWidget {
   final NavStyle style;
   final _C c;
   final int sel;
-  const _Bar(this.style, this.c, {this.sel = 0});
+  const _Bar(this.style, this.c) : sel = 0;
 
   static const _items = [
     (Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, 'Chat', 3),
