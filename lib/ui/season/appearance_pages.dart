@@ -672,7 +672,8 @@ String _homeBgName(SeasonState s) {
   };
 }
 
-/// "Màu nền" Trang chủ: theo mùa lễ / màu trơn (tự đổi sáng / tối) / nền Giáng sinh, có xem trước.
+/// "Màu nền" Trang chủ: theo mùa lễ / màu trơn (tự đổi sáng / tối) / nền Giáng sinh. Gọn: xem trước nhỏ, ô màu nhỏ,
+/// ảnh nền vuông nhỏ, tối đa ~720 px trên máy tính (Sếp, 2026-11-17).
 class HomeBackgroundPage extends StatelessWidget {
   const HomeBackgroundPage({super.key});
 
@@ -699,16 +700,13 @@ class HomeBackgroundPage extends StatelessWidget {
         Widget swatch(String? hex, {bool on = false}) => GestureDetector(
               onTap: () => pickColor(hex),
               child: Container(
-                width: 46,
-                height: 46,
+                width: 32,
+                height: 32,
                 clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 3 : 1),
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 2.5 : 1)),
                 // Nửa trái: chế độ sáng, nửa phải: chế độ tối.
                 child: hex == null
-                    ? Container(color: pal.bg, child: Icon(Icons.block_rounded, size: 18, color: pal.sub))
+                    ? Container(color: pal.bg, child: Icon(Icons.block_rounded, size: 14, color: pal.sub))
                     : Row(children: [
                         for (final d in [false, true]) Expanded(child: Container(color: plainWallpaperColor(Color(0xFF000000 | int.parse(hex, radix: 16)), d))),
                       ]),
@@ -717,118 +715,114 @@ class HomeBackgroundPage extends StatelessWidget {
         Widget art(String wid) {
           final on = id == wid;
           return SizedBox(
-            width: 96,
+            width: 80,
             child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
               onTap: () => s.setMine('home_bg', wid),
               child: Column(children: [
                 Container(
-                  width: 84,
-                  height: 130,
-                  padding: EdgeInsets.all(on ? 3 : 1),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 3 : 1)),
-                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: WallpaperView(wallpaper: wallpaperById(wid)!, frozenT: 2)),
+                  width: 72,
+                  height: 72,
+                  padding: EdgeInsets.all(on ? 2.5 : 1),
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 2.5 : 1)),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(9), child: WallpaperView(wallpaper: wallpaperById(wid)!, frozenT: 2)),
                 ),
-                const SizedBox(height: 5),
-                Text(_wallpaperName(wid), maxLines: 2, textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12.5, height: 1.2, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text)),
+                const SizedBox(height: 4),
+                Text(_wallpaperName(wid), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text)),
               ]),
             ),
           );
         }
 
         Widget head(String t) => Padding(
-              padding: const EdgeInsets.fromLTRB(6, 18, 6, 10),
-              child: Text(t, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: pal.text)),
+              padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+              child: Text(t.toUpperCase(), style: TextStyle(fontSize: 12, letterSpacing: .4, fontWeight: FontWeight.w700, color: pal.sub)),
             );
         final choice = s.homeChoice();
+        // Xem trước nhỏ: nền + một hàng ô mẫu.
+        final preview = ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: SizedBox(
+            height: 120,
+            child: Stack(fit: StackFit.expand, children: [
+              if (choice != null) ChatWallpaperArt(choice: choice, motion: false) else ColoredBox(color: pal.bg),
+              DecoratedBox(decoration: BoxDecoration(border: Border.all(color: pal.divider), borderRadius: BorderRadius.circular(14))),
+              const Center(child: _PreviewRow()),
+            ]),
+          ),
+        );
         return Scaffold(
           backgroundColor: pal.bg,
           appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Màu nền'))),
-          body: ListView(padding: const EdgeInsets.fromLTRB(10, 0, 10, 30), children: [
-            // Xem trước: nền + một nhóm ô trên kính mờ.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: SizedBox(
-                  height: 170,
-                  child: Stack(fit: StackFit.expand, children: [
-                    if (choice != null) ChatWallpaperArt(choice: choice, motion: false) else ColoredBox(color: pal.bg),
-                    Align(
-                      alignment: Alignment.center,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        child: _PreviewGroup(frosted: choice != null),
-                      ),
-                    ),
-                  ]),
-                ),
-              ),
-            ),
-            SwitchListTile(
-              value: auto,
-              onChanged: (v) => s.setMine('home_bg', v ? 'season' : (color == null ? 'none' : 'plain:$color')),
-              title: Text(tr('Theo mùa lễ'), style: TextStyle(fontSize: 15, color: pal.text)),
-              subtitle: Text(tr('Trong mùa Giáng sinh dùng nền Giáng sinh; ngoài mùa dùng màu bên dưới.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
-            ),
-            head(auto ? tr('Màu ngoài mùa lễ') : tr('Màu trơn')),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Wrap(spacing: 10, runSpacing: 10, children: [
-                swatch(null, on: color == null && (auto || id == 'none')),
-                for (final h in palette) swatch(h, on: color == h),
-                GestureDetector(
-                  onTap: () async {
-                    final c = await pickBubbleColor(context, color == null ? const Color(0xFF4A78B8) : Color(0xFF000000 | int.parse(color, radix: 16)));
-                    if (c == null) return;
-                    pickColor((c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase());
-                  },
-                  child: Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: pal.divider)),
-                    child: Icon(Icons.colorize_rounded, color: pal.sub, size: 20),
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 30), children: [
+                preview,
+                const SizedBox(height: 6),
+                Row(children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(tr('Theo mùa lễ'), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: pal.text)),
+                      Text(tr('Trong mùa: nền Giáng sinh; ngoài mùa: màu bên dưới'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+                    ]),
                   ),
+                  Switch(value: auto, onChanged: (v) => s.setMine('home_bg', v ? 'season' : (color == null ? 'none' : 'plain:$color'))),
+                ]),
+                head(auto ? tr('Màu ngoài mùa lễ') : tr('Màu trơn')),
+                Wrap(spacing: 10, runSpacing: 10, children: [
+                  swatch(null, on: color == null && (auto || id == 'none')),
+                  for (final h in palette) swatch(h, on: color == h),
+                  GestureDetector(
+                    onTap: () async {
+                      final c = await pickBubbleColor(context, color == null ? const Color(0xFF4A78B8) : Color(0xFF000000 | int.parse(color, radix: 16)));
+                      if (c == null) return;
+                      pickColor((c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase());
+                    },
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: pal.divider)),
+                      child: Icon(Icons.colorize_rounded, color: pal.sub, size: 16),
+                    ),
+                  ),
+                ]),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(tr('Mỗi màu tự có bản nhạt (sáng) và đậm (tối).'), style: TextStyle(fontSize: 12, color: pal.sub)),
                 ),
+                head(tr('Nền Giáng sinh')),
+                Wrap(spacing: 4, runSpacing: 10, children: [for (final w in homeBackgroundIds) art(w)]),
               ]),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
-              child: Text(tr('Mỗi màu tự có bản nhạt (sáng) và đậm (tối).'), style: TextStyle(fontSize: 12, color: pal.sub)),
-            ),
-            head(tr('Nền Giáng sinh')),
-            Wrap(spacing: 2, runSpacing: 12, children: [for (final w in homeBackgroundIds) art(w)]),
-          ]),
+          ),
         );
       },
     );
   }
 }
 
-/// Một nhóm ô mẫu cho ô xem trước "Màu nền".
-class _PreviewGroup extends StatelessWidget {
-  final bool frosted;
-  const _PreviewGroup({required this.frosted});
+/// Hàng ô mẫu trong ô xem trước "Màu nền".
+class _PreviewRow extends StatelessWidget {
+  const _PreviewRow();
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    Widget t(IconData i, Color c, String l) => Expanded(
+    Widget t(IconData i, Color c, String l) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 44, height: 44, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(12)), child: Icon(i, color: Colors.white, size: 24)),
-            const SizedBox(height: 5),
-            Text(l, style: TextStyle(fontSize: 11.5, color: pal.text)),
+            Container(width: 40, height: 40, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(11)), child: Icon(i, color: Colors.white, size: 22)),
+            const SizedBox(height: 4),
+            Text(l, style: TextStyle(fontSize: 11, color: pal.text, shadows: [Shadow(color: pal.bg.withValues(alpha: .9), blurRadius: 6)])),
           ]),
         );
-    final row = Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
-      child: Row(children: [
-        t(Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat'),
-        t(Icons.event_rounded, const Color(0xFF1E7BFF), tr('Lịch')),
-        t(Icons.videocam_rounded, const Color(0xFF0EA5E9), tr('Họp')),
-        t(Icons.settings_rounded, const Color(0xFF14A38B), tr('Cài đặt')),
-      ]),
-    );
-    return frosted ? FrostedSection(child: row) : row;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      t(Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat'),
+      t(Icons.event_rounded, const Color(0xFF1E7BFF), tr('Lịch')),
+      t(Icons.videocam_rounded, const Color(0xFF0EA5E9), tr('Họp')),
+      t(Icons.settings_rounded, const Color(0xFF14A38B), tr('Cài đặt')),
+    ]);
   }
 }
