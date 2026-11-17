@@ -338,7 +338,7 @@ class _SkillsViewState extends State<SkillsView> {
           child: Row(
             children: [
               GestureDetector(
-                onTap: () => Navigator.of(context).push(AppPageRoute(builder: (_) => AgentDetailPage(bot: b.bot))).then((_) => _load()),
+                onTap: () => openAgentDetail(context, b.bot).then((_) => _load()),
                 child: Avatar(userId: b.bot.id, name: b.bot.displayName, size: 36, icon: Icons.smart_toy_outlined, status: false),
               ),
               const SizedBox(width: 10),

@@ -10,6 +10,8 @@ import '../config.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'agent_page.dart' show BotAccessPage;
+import 'agent_usage.dart';
+import 'ai_gate/ai_gate_api.dart' show AiQuota;
 import 'common.dart';
 import 'theme.dart';
 import 'package:flygo_chat/ui/app_route.dart';
@@ -17,11 +19,40 @@ import 'package:flygo_chat/ui/app_route.dart';
 /// Trạng thái trợ lý trên máy chủ (online + dòng "đang chạy trên …"), truyền từ trang danh sách.
 typedef AgentRemote = ({String status, String text});
 
-/// Trang chi tiết một trợ lý AI: bật / tắt, sửa tên, chọn mô hình, vai trò, kỹ năng, ai được gọi, máy chạy, xoá.
+/// Mở chi tiết trợ lý [bot] (Sếp, 2026-11-17): máy tính / màn rộng là hộp thoại lớn giữa cửa sổ, điện thoại là trang mới.
+/// [previewQuota] / [previewUsage]: chỉ cho xem trước / kiểm thử mục Mức sử dụng (không gọi Cổng AI).
+Future<void> openAgentDetail(BuildContext context, AgentBot bot,
+    {AgentRemote? remote, AiQuota? previewQuota, Map<String, dynamic>? previewUsage}) {
+  if (MediaQuery.sizeOf(context).width < 720) {
+    return Navigator.of(context).push(AppPageRoute(
+        builder: (_) => AgentDetailPage(bot: bot, remote: remote, previewQuota: previewQuota, previewUsage: previewUsage)));
+  }
+  return showDialog<void>(
+    context: context,
+    builder: (d) {
+      final size = MediaQuery.sizeOf(d);
+      return Dialog(
+        clipBehavior: Clip.antiAlias,
+        insetPadding: const EdgeInsets.all(24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: 820, maxHeight: (size.height * .9).clamp(0, 1000)),
+          child: AgentDetailPage(bot: bot, remote: remote, dialog: true, previewQuota: previewQuota, previewUsage: previewUsage),
+        ),
+      );
+    },
+  );
+}
+
+/// Trang chi tiết một trợ lý AI: bật / tắt, sửa tên, mức sử dụng, chọn mô hình, vai trò, kỹ năng, ai được gọi, máy
+/// chạy, xoá. [dialog]: đang nằm trong hộp thoại (máy tính), có nút đóng thay cho nút quay lại.
 class AgentDetailPage extends StatefulWidget {
   final AgentBot bot;
   final AgentRemote? remote;
-  const AgentDetailPage({super.key, required this.bot, this.remote});
+  final bool dialog;
+  final AiQuota? previewQuota;
+  final Map<String, dynamic>? previewUsage;
+  const AgentDetailPage({super.key, required this.bot, this.remote, this.dialog = false, this.previewQuota, this.previewUsage});
   @override
   State<AgentDetailPage> createState() => _AgentDetailPageState();
 }
@@ -193,10 +224,15 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
     final engineLabel = engineName(b.engine);
     final skills = [for (final x in (_skills?['skills'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
 
-    Widget card(List<Widget> children) => Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(18)),
-          child: Column(children: children),
+    // Material (không phải Container có màu): ListTile vẽ nền / hiệu ứng bấm lên Material gần nhất.
+    Widget card(List<Widget> children) => Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Material(
+            color: pal.surface,
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: Column(children: children),
+          ),
         );
     Widget label(String t) => Padding(
           padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
@@ -216,7 +252,12 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
         appBar: AppBar(
           backgroundColor: pal.bg,
           surfaceTintColor: Colors.transparent,
+          automaticallyImplyLeading: !widget.dialog,
           title: Text(tr('Trợ lý'), style: TextStyle(color: pal.text, fontWeight: FontWeight.w600)),
+          actions: [
+            if (widget.dialog)
+              IconButton(tooltip: tr('Đóng'), icon: Icon(Icons.close_rounded, color: pal.sub), onPressed: () => Navigator.of(context).maybePop()),
+          ],
           bottom: _busy ? const PreferredSize(preferredSize: Size.fromHeight(2), child: LinearProgressIndicator(minHeight: 2)) : null,
         ),
         body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
@@ -263,6 +304,10 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
                   style: TextStyle(color: pal.sub, fontSize: 13)),
             ),
           ]),
+
+          // Mức sử dụng của trợ lý này (Sếp, 2026-11-17).
+          label(tr('Mức sử dụng')),
+          AgentUsageSection(bot: b, quota: widget.previewQuota, usage: widget.previewUsage),
 
           // Mô hình.
           label(tr('Mô hình')),
