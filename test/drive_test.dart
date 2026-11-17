@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/drive/api.dart';
 import 'package:flygo_chat/ui/drive/drive_page.dart';
 import 'package:flygo_chat/ui/drive/look.dart';
+import 'package:flygo_chat/ui/drive/pickers.dart';
 import 'package:flygo_chat/ui/drive/session.dart';
 import 'package:flygo_chat/ui/drive/uploads.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -129,4 +130,41 @@ void main() {
     expect(find.text('Hợp đồng 2026'), findsWidgets);
     expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
   });
+
+  for (final (name, size, dialog) in [('máy tính', const Size(1440, 900), true), ('điện thoại', const Size(390, 844), false)]) {
+    testWidgets('Chọn thư mục Drive ($name): ${dialog ? 'hộp thoại giữa màn hình' : 'trang toàn màn hình'}', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final s = DriveSession(api: fakeDriveApi(), key: 'test-${DateTime.now().microsecondsSinceEpoch}', app: null, chatToken: 't');
+      String? picked = 'chưa';
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Builder(
+          builder: (c) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () async => picked = await pickDriveFolder(c, s, title: 'Lưu "a.pdf" vào Drive', ok: 'Lưu vào đây'),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final d = find.byKey(const ValueKey('drive-folder-dialog'));
+      expect(d, dialog ? findsOneWidget : findsNothing);
+      if (dialog) {
+        final r = tester.getRect(find.descendant(of: d, matching: find.byType(Scaffold)));
+        expect((r.center - const Offset(720, 450)).distance, lessThan(2));
+        expect(r.width, lessThanOrEqualTo(560));
+      }
+      expect(find.text('Lưu "a.pdf" vào Drive'), findsOneWidget);
+      await tester.tap(find.text('Lưu vào đây'));
+      await tester.pumpAndSettle();
+      expect(picked, '/');
+      expect(find.text('Lưu "a.pdf" vào Drive'), findsNothing);
+    });
+  }
 }

@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:share_plus/share_plus.dart';
@@ -87,6 +88,15 @@ class AttachmentThumb extends StatelessWidget {
   }
 }
 
+/// PDF trong trình xem: mở ra thấy trọn trang đầu (trang bìa); lăn chuột cuộn lên xuống như trang thường,
+/// Ctrl + lăn chuột (hoặc chụm hai ngón) phóng to quanh con trỏ.
+final mailPdfParams = PdfViewerParams(
+  backgroundColor: const Color(0xFF0B0D12),
+  margin: 12,
+  scrollByMouseWheel: 1,
+  sizeDelegateProvider: PdfViewerSizeDelegateProviderLegacy(calculateInitialZoom: (doc, c, fitPage, fitWidth) => fitPage),
+);
+
 /// Trình xem toàn màn hình: vuốt qua lại giữa các tệp của thư; ảnh phóng to được, PDF xem trong app,
 /// tệp khác thì mở bằng ứng dụng trên máy. Thanh trên: Tải về, Lưu vào Drive, Mở bằng ứng dụng khác.
 class AttachmentViewer extends StatefulWidget {
@@ -138,6 +148,14 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
   @override
   Widget build(BuildContext context) {
     const fg = Colors.white;
+    // Máy tính: Esc đóng trình xem.
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.maybePop(context)},
+      child: Focus(autofocus: true, child: _scaffold(fg)),
+    );
+  }
+
+  Widget _scaffold(Color fg) {
     return Scaffold(
       backgroundColor: const Color(0xFF0B0D12),
       appBar: AppBar(
@@ -184,7 +202,7 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
         if (isImageAttachment(a)) {
           return InteractiveViewer(maxScale: 8, child: Center(child: Image.file(f, errorBuilder: (_, _, _) => const Text('Không hiển thị được ảnh này', style: TextStyle(color: fg)))));
         }
-        return PdfViewer.file(f.path, params: const PdfViewerParams(backgroundColor: Color(0xFF0B0D12), margin: 12));
+        return PdfViewer.file(f.path, params: mailPdfParams);
       },
     );
   }
