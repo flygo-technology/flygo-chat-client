@@ -177,7 +177,9 @@ void main() {
               backgroundColor: pal.bg,
               body: Stack(children: [
                 Positioned.fill(child: background(id)),
-                ListView(padding: const EdgeInsets.only(bottom: 110), children: [
+                DefaultTextStyle.merge(
+                  style: TextStyle(shadows: glass ? [Shadow(color: pal.bg.withValues(alpha: .9), blurRadius: 6)] : null),
+                  child: ListView(padding: const EdgeInsets.only(bottom: 110), children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 52, 20, 0),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -185,8 +187,9 @@ void main() {
                       if (glass) XmasBanner(now: DateTime(2026, 12, 10)),
                     ]),
                   ),
-                  ...sections(pal, glass),
+                  ...sections(pal, false),
                 ]),
+                ),
               ]),
             );
           }),
@@ -247,7 +250,7 @@ void main() {
                             padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
                             child: Text('Mở ứng dụng', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: pal.text)),
                           ),
-                          ...sections(pal, false, panel: true),
+                          ...sections(pal, false),
                         ]),
                       ),
                     ])),
@@ -283,6 +286,7 @@ void main() {
     await useFakePhotos(t);
     for (final b in Brightness.values) {
       await png(t, 'desktop-v2-${b.name}', const Size(1600, 900), desktopV2(b));
+      await png(t, 'phone-v2-${b.name}', const Size(390, 1000), phone(b, 'giangsinh'));
     }
   });
 

@@ -43,7 +43,6 @@ import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
 import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin, HomeBackgroundPage;
-import 'season/season.dart' show FrostedSection;
 import 'season/chat_wallpaper.dart' show HomeBackground;
 import 'season/season_art.dart' show XmasCoverPainter;
 import 'season/season_state.dart';
@@ -1159,12 +1158,15 @@ class _HomePageState extends State<HomePage> {
     unawaited(KysoApi.refresh(app.token, force: true));
     // Ô ứng dụng kiểu iOS: nền màu chuyển sắc (sáng → đậm), biểu tượng trắng, bóng mềm cùng màu.
     // [color] null = ô nền trắng có viền (mini app: biểu tượng riêng của app là ảnh / emoji).
-    // Có hình nền (Trang chủ máy tính): chữ đặt trên nền mờ bo tròn để không chìm vào ảnh.
-    // Có "Màu nền" (HomeBackground vẽ phía sau trang): mỗi nhóm ô đặt trên tấm kính mờ cho chữ luôn rõ.
-    final frosted = onLaunch != null && !isDesktop && SeasonState.instance.homeChoice() != null;
-    // Máy tính: mỗi nhóm ô trên một tấm nền nhạt (không hình nền phía sau).
-    final panels = onLaunch != null && isDesktop;
-    Widget onWall(Widget text) => text;
+    // Không khung quanh các nhóm (Sếp, 2026-11-17): ô nằm thẳng trên trang. Có "Màu nền" (điện thoại) thì chữ có bóng
+    // mờ nhẹ cho rõ trên nền.
+    final onBg = onLaunch != null && !isDesktop && SeasonState.instance.homeChoice() != null;
+    Widget onWall(Widget text) => !onBg
+        ? text
+        : DefaultTextStyle.merge(
+            style: TextStyle(shadows: [Shadow(color: pal.bg.withValues(alpha: .9), blurRadius: 6)]),
+            child: text,
+          );
 
     /// [circle]: ô tròn không viền (ô "Hồ sơ" là ảnh đại diện tròn, khung vuông bo góc sẽ lòi góc ra ngoài ảnh).
     Widget appTile(Widget icon, Color? color, String label, int badge, VoidCallback onTap0, {bool circle = false}) {
@@ -1239,15 +1241,6 @@ class _HomePageState extends State<HomePage> {
             }),
           ],
         );
-      if (frosted) return FrostedSection(child: col);
-      if (panels) {
-        return Container(
-          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          padding: const EdgeInsets.only(bottom: 6),
-          decoration: BoxDecoration(color: pal.surface.withValues(alpha: .6), borderRadius: BorderRadius.circular(22)),
-          child: col,
-        );
-      }
       return col;
     }
 
