@@ -28,7 +28,8 @@ class SeasonChatBackground extends StatelessWidget {
         final w = season.resolveWallpaper(channelId, dark);
         Widget body = child;
         if (w == null) return DoodleBackground(color: color, child: body);
-        if (w.dark != dark) body = Theme(data: buildTheme(w.dark ? Brightness.dark : Brightness.light), child: body);
+        // Hình nền / màu trơn tự theo chế độ máy; riêng ảnh tự chọn (có lớp tối mờ) thì vùng chat dùng bảng màu tối.
+        if (w.photoKey != null && !dark) body = Theme(data: buildTheme(Brightness.dark), child: body);
         return Stack(children: [
           Positioned.fill(child: ChatWallpaperArt(choice: w, motion: season.motion)),
           Positioned.fill(child: body),
@@ -49,7 +50,7 @@ class ChatWallpaperArt extends StatelessWidget {
   Widget build(BuildContext context) {
     final art = choice.art;
     if (art != null) return WallpaperView(wallpaper: art, motion: motion, frozenT: frozenT);
-    if (choice.color != null) return ColoredBox(color: choice.color!);
+    if (choice.color != null) return ColoredBox(color: plainWallpaperColor(choice.color!, Theme.of(context).brightness == Brightness.dark));
     return FutureBuilder<File>(
       future: SeasonState.photoFile(choice.photoKey!),
       builder: (context, snap) {
@@ -65,16 +66,19 @@ class ChatWallpaperArt extends StatelessWidget {
   }
 }
 
-/// Dây đèn ở mép trên vùng tin nhắn (mùa Giáng sinh, công ty bật, mình không tắt).
+/// Dải cây thông ở mép trên vùng tin nhắn (mùa Giáng sinh, công ty bật, mình không tắt).
 class SeasonLights extends StatelessWidget {
   const SeasonLights({super.key});
+
+  /// Dải đang hiện (chat chừa thêm khoảng trên cho tin đầu).
+  static bool get visible => SeasonState.instance.on('lights') && SeasonState.instance.activeSeason() == 'giangsinh';
   @override
   Widget build(BuildContext context) {
     final s = SeasonState.instance;
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) =>
-          s.on('lights') && s.activeSeason() == 'giangsinh' ? LightString(motion: s.motion) : const SizedBox.shrink(),
+          visible ? Garland(backing: Color.alphaBlend(Pal.of(context).glass, Pal.of(context).bg)) : const SizedBox.shrink(),
     );
   }
 }

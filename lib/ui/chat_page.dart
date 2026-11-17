@@ -65,7 +65,7 @@ import 'bubble_picker.dart' show bubbleEdge;
 import 'bubble_styles.dart';
 import 'chat_themes.dart';
 import 'season/chat_wallpaper.dart';
-import 'season/season.dart' show playBurst;
+import 'season/season.dart' show Garland, playBurst;
 import 'season/season_state.dart';
 import 'ref_picker.dart';
 import 'ref_grants.dart';
@@ -540,7 +540,8 @@ class _ChatPageState extends State<ChatPage> {
             ),
           SliverPadding(
             key: _centerKey,
-            padding: EdgeInsets.only(top: _topInset + 8, bottom: split > 0 ? 0 : 8),
+            // Dải cây thông mùa Giáng sinh: chừa thêm chỗ để tin đầu không nằm dưới dải.
+            padding: EdgeInsets.only(top: _topInset + 8 + (SeasonLights.visible ? Garland.height : 0), bottom: split > 0 ? 0 : 8),
             sliver: SliverList(delegate: SliverChildBuilderDelegate((c, j) => item(c, split + j), childCount: posts.length - split)),
           ),
         ],
@@ -1014,7 +1015,7 @@ class _ChatPageState extends State<ChatPage> {
                       ]));
                     })))),
               // Dây đèn mùa Giáng sinh ngay dưới thanh tiêu đề nổi.
-              if (!claude && !ch.isAi) Positioned(left: 0, right: 0, top: _topInset - 4, child: const SeasonLights()),
+              if (!claude && !ch.isAi) Positioned(left: 0, right: 0, top: _topInset - 1, child: const SeasonLights()),
               // Chat chính đã đọc hết nhưng còn tin chưa đọc trong luồng / luồng bí mật: nút tua tới tin gốc của luồng đó.
               if ((firstUnreadId == null || _unreadJumped) && spots.isNotEmpty)
                 Positioned(

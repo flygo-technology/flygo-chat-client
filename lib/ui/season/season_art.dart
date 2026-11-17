@@ -167,6 +167,19 @@ class WhiteSnowPainter extends CustomPainter {
         drawSnowflake(c, o, 7 + rnd.nextDouble() * 9, lp, rot: rnd.nextDouble());
       }
     }
+    // Cùng hoạ tiết với bản tối: rặng thông xa, màu xanh xám nhạt.
+    final ground = s.height * .985;
+    _pines(c, s, ground - s.height * .05, math.min(150, s.height * .18), const Color(0xFFDCE5EE), const Color(0x99FFFFFF), 3);
+    _pines(c, s, ground, math.min(110, s.height * .13), const Color(0xFFC8D5E3), const Color(0xCCFFFFFF), 8);
+    c.drawPath(
+        Path()
+          ..moveTo(0, ground)
+          ..quadraticBezierTo(s.width * .3, ground - 14, s.width * .6, ground - 4)
+          ..quadraticBezierTo(s.width * .85, ground + 4, s.width, ground - 8)
+          ..lineTo(s.width, s.height)
+          ..lineTo(0, s.height)
+          ..close(),
+        Paint()..color = const Color(0xFFF6F1E7));
     _snowfall(c, s, _fall, t, const Color(0xFF9DB4CC), alpha: .55);
   }
 
@@ -406,4 +419,79 @@ class MiniTreePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(MiniTreePainter old) => old.t != t;
+}
+
+/// Dải cây thông (vòng nguyệt quế mảnh) ngang mép dưới thanh tiêu đề chat: lá kim xếp chồng hai lớp xanh, vài chùm quả đỏ
+/// và quả thông nhỏ. Cao ~14 px, tĩnh, không đèn.
+class GarlandPainter extends CustomPainter {
+  final bool dark;
+  /// Màu nền ngay trên (thanh tiêu đề): dải có lớp nền mờ dần cùng màu để che nội dung cuộn phía sau.
+  final Color? backing;
+  const GarlandPainter({required this.dark, this.backing});
+
+  @override
+  void paint(Canvas c, Size s) {
+    if (backing != null) {
+      c.drawRect(
+          Offset.zero & s,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [backing!, backing!.withValues(alpha: backing!.a * .85), backing!.withValues(alpha: 0)],
+              stops: const [0, .55, 1],
+            ).createShader(Offset.zero & s));
+    }
+    final mid = s.height * .45;
+    final rnd = math.Random(23);
+    final shades = dark
+        ? const [Color(0xFF184232), Color(0xFF235C45), Color(0xFF2F7556), Color(0xFF4A9670)]
+        : const [Color(0xFF24563F), Color(0xFF2F6E50), Color(0xFF3D8762), Color(0xFF5CA67D)];
+    final needle = Paint()
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.35;
+    // Lõi dây.
+    c.drawLine(Offset(0, mid), Offset(s.width, mid), Paint()
+      ..color = shades[0]
+      ..strokeWidth = 3);
+    // Bốn lớp lá kim, lớp sau tối, lớp trước sáng; mỗi chùm toả lên + xuống, chải chéo theo chiều dải.
+    for (var layer = 0; layer < 4; layer++) {
+      needle.color = shades[layer];
+      final len = 6.4 - layer * .9;
+      for (double x = -6 + layer * 1.3; x < s.width + 6; x += 4.2) {
+        final cy = mid + math.sin(x * .05) * .6;
+        for (final side in [-1.0, 1.0]) {
+          final a = side * (.75 + rnd.nextDouble() * .5) + .45; // nghiêng về phải
+          final l = len * (.8 + rnd.nextDouble() * .35);
+          final o = Offset(x + rnd.nextDouble() * 1.4, cy + side * .4);
+          c.drawLine(o, o + Offset(math.cos(a), math.sin(a)) * l, needle);
+        }
+      }
+    }
+    // Điểm nhấn thưa: chùm quả đỏ và quả thông xen kẽ.
+    var i = 0;
+    for (double x = 52; x < s.width - 24; x += 132) {
+      final cy = mid + .5;
+      if ((i++).isEven) {
+        for (final o in const [Offset(-2.6, -.8), Offset(2.4, -1.2), Offset(0, 2)]) {
+          c.drawCircle(Offset(x, cy) + o + const Offset(0, .6), 2.3, Paint()..color = Colors.black.withValues(alpha: .25));
+          c.drawCircle(Offset(x, cy) + o, 2.3, Paint()..color = const Color(0xFFD9363E));
+          c.drawCircle(Offset(x, cy) + o + const Offset(-.7, -.7), .65, Paint()..color = Colors.white.withValues(alpha: .75));
+        }
+      } else {
+        final r = Rect.fromCenter(center: Offset(x, cy + .8), width: 5.6, height: 7.8);
+        c.drawOval(r, Paint()..color = const Color(0xFF8A5A3B));
+        final scale = Paint()
+          ..color = const Color(0xFF5E3B26)
+          ..strokeWidth = .75
+          ..style = PaintingStyle.stroke;
+        for (final dy in [-1.8, .2, 2.2]) {
+          c.drawArc(Rect.fromCenter(center: Offset(x, cy + dy + .5), width: 5, height: 2.6), 0, math.pi, false, scale);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(GarlandPainter old) => old.dark != dark || old.backing != backing;
 }

@@ -27,8 +27,8 @@ void main() {
     s.wallpapers = {};
   });
 
-  test('không được dùng app: không có mùa lễ', () {
-    s.app = null;
+  test('máy chủ không có dịch vụ Giao diện: không có mùa lễ', () {
+    s.org = null;
     expect(s.activeSeason(dec10), isNull);
     expect(s.on('lights', dec10), isFalse);
     expect(s.resolveWallpaper('c1', true), isNull);
@@ -52,12 +52,26 @@ void main() {
     expect(s.on('effect', dec10), isFalse);
   });
 
+  test('trong mùa: hình nền + bong bóng mùa tự áp; mình tắt mùa lễ thì thôi', () {
+    s.clock = () => DateTime.utc(2026, 12, 10, 3);
+    expect(s.resolveWallpaper('c1', true)?.art?.id, 'giangsinh');
+    expect(s.seasonBubble('u1')?.def?.group, 'giangsinh');
+    expect(s.seasonBubble('u1')?.style, s.seasonBubble('u1')?.style); // ổn định
+    (s.org!['cfg']['seasons']['giangsinh'] as Map)['bubble'] = {'mode': 'one', 'style': 'munoel'};
+    expect(s.seasonBubble('u9')?.style, 'munoel');
+    (s.org!['cfg']['seasons']['giangsinh'] as Map)['wallpaper'] = 'off';
+    expect(s.resolveWallpaper('c1', true), isNull);
+    s.mine = {'off': true};
+    expect(s.seasonBubble('u9'), isNull);
+    s.clock = DateTime.now;
+  });
+
   test('hình nền: riêng chat > mặc định của mình > theo mùa', () {
     // Ngoài mùa: "theo mùa lễ" = không có hình nền.
     s.org = _org(enabled: false);
     expect(s.resolveWallpaper('c1', true), isNull);
-    s.wallpapers = {'c1': 'tuyettrang'};
-    expect(s.resolveWallpaper('c1', true)?.art?.id, 'tuyettrang');
+    s.wallpapers = {'c1': 'tuyettrang'}; // mã cũ → Giáng sinh (một hình nền, tự đổi sáng / tối)
+    expect(s.resolveWallpaper('c1', true)?.art?.id, 'giangsinh');
     s.wallpapers = {'_default': 'plain:1F2933'};
     expect(s.resolveWallpaper('c2', false)?.color?.toARGB32(), 0xFF1F2933);
     s.wallpapers = {'_default': 'photo', 'c3': 'none'};

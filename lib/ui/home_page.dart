@@ -41,7 +41,7 @@ import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
-import 'season/appearance_pages.dart' show openAppearanceAdmin;
+import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin;
 import 'season/season_state.dart';
 import 'password_page.dart';
 import 'call_history.dart';
@@ -3286,6 +3286,23 @@ class ProfileView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
           child: Text(tr('Bật: chữ đậm, danh sách, bảng, khối mã hiển thị đẹp. Tắt: hiện chữ thô như khi gõ.'),
               style: TextStyle(fontSize: 13, color: pal.sub)),
+        ),
+        // Giao diện (mọi người): mùa lễ, bong bóng / hình nền mặc định. Chỉ hiện khi máy chủ có dịch vụ Giao diện.
+        ListenableBuilder(
+          listenable: SeasonState.instance,
+          builder: (context, _) => !SeasonState.instance.available
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: InfoGroup(children: [
+                    InfoRow(
+                      icon: Icons.palette_outlined,
+                      title: tr('Giao diện'),
+                      value: SeasonState.instance.activeSeason() != null && SeasonState.instance.mine['off'] != true ? tr('Mùa lễ') : null,
+                      onTap: () => openAppearance(context),
+                    ),
+                  ]),
+                ),
         ),
         const SizedBox(height: 16),
         InfoGroup(children: [

@@ -1,8 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../i18n/i18n.dart';
-import '../theme.dart';
 import 'season_art.dart';
 
 /// Hình nền chat (mỗi người chọn riêng cho từng chat, preferences `flygo_wallpaper/<id kênh>`; chỉ người chọn thấy).
@@ -12,12 +13,11 @@ class Wallpaper {
   final String name;
   /// Nhóm (mục trong màn chọn): [wallpaperGroups].
   final String group;
-  /// Nền tối: chữ hệ thống (ngày, "đang nhập…") trên nền dùng bảng màu tối.
-  final bool dark;
-  final CustomPainter Function(double t) painter;
+  /// Mỗi hình nền là MỘT lựa chọn, tự đổi theo chế độ sáng / tối của máy (cùng hoạ tiết, hai bảng màu).
+  final CustomPainter Function(double t, bool dark) painter;
   /// Có chuyển động (tuyết rơi, đèn nhấp nháy) — tắt khi "Hiệu ứng động" tắt / giảm chuyển động / tiết kiệm pin.
   final bool animated;
-  const Wallpaper(this.id, this.name, this.group, {required this.dark, required this.painter, this.animated = true});
+  const Wallpaper(this.id, this.name, this.group, {required this.painter, this.animated = true});
 }
 
 List<(String, String)> get wallpaperGroups => [
@@ -28,11 +28,26 @@ List<(String, String)> get wallpaperGroups => [
     ];
 
 List<Wallpaper> get wallpapers => [
-      Wallpaper('demnoel', tr('Đêm Noel'), 'giangsinh', dark: true, painter: NoelNightPainter.new),
-      Wallpaper('tuyettrang', tr('Tuyết trắng'), 'giangsinh', dark: false, painter: WhiteSnowPainter.new),
+      // Tối: trời đêm xanh, rặng thông, tuyết rơi. Sáng: nền kem, cùng rặng thông + tuyết.
+      Wallpaper('giangsinh', tr('Giáng sinh'), 'giangsinh', painter: (t, dark) => dark ? NoelNightPainter(t) : WhiteSnowPainter(t)),
     ];
 
-Wallpaper? wallpaperById(String? id) => id == null ? null : wallpapers.where((w) => w.id == id).firstOrNull;
+/// Mã cũ (bản 486–487 tách sáng / tối) → mã mới.
+const _wallpaperAlias = {'demnoel': 'giangsinh', 'tuyettrang': 'giangsinh', 'auto': 'giangsinh'};
+
+Wallpaper? wallpaperById(String? id) {
+  if (id == null) return null;
+  final k = _wallpaperAlias[id] ?? id;
+  return wallpapers.where((w) => w.id == k).firstOrNull;
+}
+
+/// Màu trơn: người dùng chọn MỘT màu, app suy ra màu nhạt cho chế độ sáng và màu đậm cho chế độ tối (chữ luôn đủ tương phản).
+Color plainWallpaperColor(Color base, bool dark) {
+  final h = HSLColor.fromColor(base);
+  return dark
+      ? h.withSaturation(math.min(h.saturation, .42)).withLightness(.12).toColor()
+      : h.withSaturation(math.min(h.saturation, .48)).withLightness(.91).toColor();
+}
 
 /// Hình nền đang chạy. [motion] = lựa chọn "Hiệu ứng động" của người dùng; ngoài ra tự dừng khi máy bật giảm chuyển động
 /// (MediaQuery.disableAnimations, gồm cả tiết kiệm pin trên Android) và khi không hiện trên màn hình (TickerMode).
@@ -42,7 +57,9 @@ class WallpaperView extends StatefulWidget {
   final bool motion;
   final double? frozenT;
   final Widget? child;
-  const WallpaperView({super.key, required this.wallpaper, this.motion = true, this.frozenT, this.child});
+  /// Ép chế độ (ô xem trước); mặc định theo Theme.
+  final bool? dark;
+  const WallpaperView({super.key, required this.wallpaper, this.motion = true, this.frozenT, this.child, this.dark});
   @override
   State<WallpaperView> createState() => _WallpaperViewState();
 }
@@ -82,7 +99,10 @@ class _WallpaperViewState extends State<WallpaperView> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
-        child: CustomPaint(painter: widget.wallpaper.painter(widget.frozenT ?? _t), child: widget.child ?? const SizedBox.expand()),
+        child: CustomPaint(
+          painter: widget.wallpaper.painter(widget.frozenT ?? _t, widget.dark ?? Theme.of(context).brightness == Brightness.dark),
+          child: widget.child ?? const SizedBox.expand(),
+        ),
       );
 }
 
@@ -227,8 +247,6 @@ class _LightStringState extends State<LightString> with SingleTickerProviderStat
       );
 }
 
-/// Màu chữ hệ thống trên hình nền (chip ngày, "đang nhập…").
-Pal wallpaperPal(Wallpaper w) => w.dark ? Pal.dark : Pal.light;
 
 /// Phát hiệu ứng rơi một lần phủ màn hình (~3 giây). Máy bật giảm chuyển động thì bỏ qua.
 void playBurst(BuildContext context, BurstKind kind) {
@@ -261,5 +279,20 @@ class _BurstState extends State<_Burst> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) => RepaintBoundary(
         child: AnimatedBuilder(animation: _c, builder: (_, _) => CustomPaint(size: Size.infinite, painter: BurstPainter(_c.value, widget.kind))),
+      );
+}
+
+/// Dải cây thông dưới thanh tiêu đề chat (thay dây đèn; thấp, tĩnh).
+class Garland extends StatelessWidget {
+  static const height = 15.0;
+  /// Màu thanh tiêu đề phía trên (lớp nền mờ dần che nội dung cuộn sau dải); null = không nền.
+  final Color? backing;
+  const Garland({super.key, this.backing});
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: RepaintBoundary(
+          child: CustomPaint(
+              size: const Size(double.infinity, height), painter: GarlandPainter(dark: Theme.of(context).brightness == Brightness.dark, backing: backing)),
+        ),
       );
 }
