@@ -106,5 +106,20 @@ class AiGateApi {
   Future<void> removeExtra(int id) => _call('DELETE', '/admin/api/extras/$id');
   Future<Map<String, dynamic>> usage({String group = 'user', String? month}) async =>
       Map<String, dynamic>.from(await _call('GET', '/admin/api/usage?group=$group${month == null ? '' : '&month=$month'}') as Map);
-  Future<List<Map<String, dynamic>>> log() async => [for (final e in await _call('GET', '/admin/api/log') as List) Map<String, dynamic>.from(e as Map)];
+  Future<List<Map<String, dynamic>>> log({int limit = 100}) async => [for (final e in await _call('GET', '/admin/api/log?limit=$limit') as List) Map<String, dynamic>.from(e as Map)];
+
+  // ---- Nhà cung cấp (khoá CHỈ NHẬP: không API nào trả khoá về, chỉ 4 ký tự cuối)
+  Future<List<Map<String, dynamic>>> providers() async => [for (final e in await _call('GET', '/admin/api/providers') as List) Map<String, dynamic>.from(e as Map)];
+  Future<void> updateProvider(String id, Map<String, dynamic> v) => _call('PUT', '/admin/api/providers/$id', v);
+  /// Thêm / thay khoá: máy chủ gọi thử trước rồi mới mã hoá và lưu. Trả {test:{ok,ms,msg}, models:[…]}.
+  Future<Map<String, dynamic>> setProviderKey(String id, String key, {bool force = false}) async =>
+      Map<String, dynamic>.from(await _call('PUT', '/admin/api/providers/$id/key', {'key': key, if (force) 'force': true}) as Map);
+  Future<void> removeProviderKey(String id) => _call('DELETE', '/admin/api/providers/$id/key');
+  Future<void> removeProvider(String id) => _call('DELETE', '/admin/api/providers/$id');
+  Future<Map<String, dynamic>> testProvider(String id) async => Map<String, dynamic>.from(await _call('POST', '/admin/api/providers/$id/test') as Map);
+  Future<List<String>> providerModels(String id) async => [for (final m in ((await _call('GET', '/admin/api/providers/$id/models') as Map)['models'] as List? ?? const [])) '$m'];
+
+  // ---- Mức AI → nhà cung cấp + model + chuỗi dự phòng
+  Future<List<Map<String, dynamic>>> aliases() async => [for (final e in await _call('GET', '/admin/api/aliases') as List) Map<String, dynamic>.from(e as Map)];
+  Future<void> setAlias(String id, Map<String, dynamic> v) => _call('PUT', '/admin/api/aliases/$id', v);
 }

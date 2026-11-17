@@ -54,6 +54,7 @@ class FakeGate {
       '/admin/api/overview' => {
           'company': 'Flygo', 'month': '2026-11', 'month_usd': 40, 'spent_usd': 21.4, 'used_pct': 54, 'day_usd': 8, 'today_usd': 1.2, 'forecast_usd': 32.1,
           'access': 16, 'users_active': 14, 'users_warn': 2, 'users_degraded': 1, 'users_blocked': 0,
+          'top_apps': [{'k': 'bot:ba-congai', 'n': 400, 'usd': 12.8}, {'k': 'vn.flygo.mail', 'n': 300, 'usd': 4.1}, {'k': 'vn.flygo.dich', 'n': 200, 'usd': 2.3}],
           'by_day': [for (var i = 1; i <= 17; i++) {'k': '2026-11-${i.toString().padLeft(2, '0')}', 'n': 40 + i, 'usd': [0.9, 1.4, .4, .3, 1.8, 1.7, 1.6][i % 7]}],
         },
       '/admin/api/users' => [
@@ -79,6 +80,22 @@ class FakeGate {
           {'ts': 1794896000000, 'by': 'ba@flygo.vn', 'action': 'override.add', 'detail': {'target': 'hung@flygo.vn', 'usd': 5}},
           {'ts': 1794890000000, 'by': 'ba@flygo.vn (qua agent:jessica)', 'action': 'user.set', 'detail': {'user': 'lan@flygo.vn', 'day_usd': 0.5}},
         ],
+      '/admin/api/providers' => [
+          {'id': 'anthropic', 'name': 'Anthropic', 'kind': 'anthropic', 'enabled': 1, 'sensitive_ok': 1, 'has_key': true, 'key_last4': 'KgAA', 'key_added_by': 'ba@flygo.vn',
+            'test_at': 1, 'test_ok': 1, 'test_msg': 'OK, 14 model', 'month_cap_usd': 30, 'month_usd': 18.3, 'preset': true},
+          {'id': 'openai', 'name': 'OpenAI', 'kind': 'openai', 'enabled': 1, 'sensitive_ok': 1, 'has_key': true, 'key_last4': '3fQa', 'key_added_by': 'ba@flygo.vn',
+            'test_at': 1, 'test_ok': 1, 'test_msg': 'OK, 52 model', 'month_cap_usd': 10, 'month_usd': 0.4, 'preset': true},
+          {'id': 'gemini', 'name': 'Google Gemini', 'kind': 'openai', 'enabled': 0, 'sensitive_ok': 1, 'has_key': false, 'preset': true, 'note': 'Chỉ dùng gói trả tiền'},
+          {'id': 'deepseek', 'name': 'DeepSeek', 'kind': 'openai', 'enabled': 0, 'sensitive_ok': 0, 'has_key': false, 'preset': true, 'note': 'Máy chủ ở Trung Quốc'},
+        ],
+      '/admin/api/aliases' => [
+          {'id': 'flygo-fast', 'provider': 'anthropic', 'model': 'claude-haiku-5-5', 'max_tokens': 8192, 'chain': [{'provider': 'openai', 'model': 'gpt-6-luna'}], 'allow_insensitive': false},
+          {'id': 'flygo-smart', 'provider': 'anthropic', 'model': 'claude-sonnet-5-5', 'max_tokens': 16384, 'chain': [{'provider': 'openai', 'model': 'gpt-6.1-terra'}], 'allow_insensitive': false},
+          {'id': 'flygo-agent', 'provider': 'anthropic', 'model': 'claude-opus-5-5', 'max_tokens': 32000, 'chain': [], 'allow_insensitive': false},
+        ],
+      '/admin/api/providers/anthropic/models' => {'models': ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']},
+      '/admin/api/providers/openai/models' => {'models': ['gpt-6-luna', 'gpt-6.1-terra']},
+      '/admin/api/providers/gemini/key' => {'test': {'ok': true, 'ms': 300, 'msg': 'OK'}, 'models': []},
       '/admin/api/user' => _user('lan@flygo.vn', 'nang-cao', 'Nâng cao', 62, 30, 'ok', dayUsd: 0.8, cDay: 0.8),
       _ => {'ok': true},
     };
@@ -107,12 +124,6 @@ void main() {
     });
   }
 
-  // Chuyển tab bằng TabController: khung điện thoại hẹp (nhất là font test Ahem khi không nạp font) đẩy tab ra ngoài màn hình.
-  Future<void> tab(WidgetTester t, int i) async {
-    DefaultTabController.of(t.element(find.byType(TabBarView))).animateTo(i);
-    await settle(t);
-  }
-
   Future<void> app(WidgetTester t, Size size, Brightness b, Widget home, {double ratio = 1}) async {
     if (out != null) await t.runAsync(_fonts);
     t.view.physicalSize = size * ratio;
@@ -123,20 +134,28 @@ void main() {
     await settle(t);
   }
 
-  testWidgets('quản trị: tổng quan, người dùng, sửa trần ngày (máy tính)', (t) async {
+  testWidgets('quản trị một màn hình (máy tính, tối + sáng): đủ mục, sửa trần ngày', (t) async {
+    for (final b in [Brightness.dark, Brightness.light]) {
+      final g = FakeGate();
+      await app(t, const Size(1440, 1180), b, AiAdminPage(api: g.api));
+      expect(find.text('Cổng AI'), findsOneWidget);
+      for (final k in ['ai-chart', 'ai-users', 'ai-providers', 'ai-tiers', 'ai-aliases', 'ai-extras', 'ai-log']) {
+        expect(find.byKey(ValueKey(k)), findsOneWidget, reason: k);
+      }
+      expect(find.text('hung@flygo.vn'), findsWidgets);
+      expect(find.text('Trợ lý @ba-congai'), findsOneWidget);
+      expect(find.textContaining('KgAA'), findsOneWidget);
+      // lưới: người dùng và nhà cung cấp cùng hàng (máy tính)
+      expect((t.getTopLeft(find.byKey(const ValueKey('ai-users'))).dy - t.getTopLeft(find.byKey(const ValueKey('ai-providers'))).dy).abs(), lessThan(1));
+      await save(t, 'ai-dashboard-desktop-${b.name}');
+    }
     final g = FakeGate();
-    await app(t, const Size(1280, 860), Brightness.dark, AiAdminPage(api: g.api));
-    expect(find.text('Cổng AI'), findsOneWidget);
-    expect(find.text('21.40 USD'), findsOneWidget);
-    await save(t, 'ai-admin-desktop-1-overview');
-    await tab(t, 1); // Người dùng
-    expect(find.text('hung@flygo.vn'), findsOneWidget);
-    expect(find.text('Sắp hết'), findsOneWidget);
-    await save(t, 'ai-admin-desktop-2-users');
+    await app(t, const Size(1440, 1180), Brightness.dark, AiAdminPage(api: g.api));
+    await t.ensureVisible(find.text('lan@flygo.vn'));
+    await settle(t);
     await t.tap(find.text('lan@flygo.vn'));
     await settle(t);
     await t.enterText(find.widgetWithText(TextField, 'Trần ngày (USD)'), '0.8');
-    await save(t, 'ai-admin-desktop-3-edit-user');
     await t.tap(find.text('Lưu').last);
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await settle(t);
@@ -145,21 +164,46 @@ void main() {
     expect(g.bodies.last, containsPair('user', 'lan@flygo.vn'));
   });
 
-  testWidgets('quản trị: hạng & ngân sách, cộng thêm, nhật ký (điện thoại)', (t) async {
+  testWidgets('nhà cung cấp: thêm khoá (chỉ nhập), mức AI: sửa chuỗi dự phòng', (t) async {
     final g = FakeGate();
-    await app(t, const Size(390, 844), Brightness.dark, AiAdminPage(api: g.api), ratio: 2);
-    await save(t, 'ai-admin-phone-1-overview');
-    await tab(t, 1); // Người dùng
-    await save(t, 'ai-admin-phone-2-users');
-    await tab(t, 2); // Hạng & ngân sách
-    expect(find.text('Chuyên sâu'), findsOneWidget);
-    await save(t, 'ai-admin-phone-3-tiers');
-    await tab(t, 3); // Cộng thêm
-    expect(find.text('hung@flygo.vn'), findsOneWidget);
-    await save(t, 'ai-admin-phone-4-extras');
-    await tab(t, 4); // Nhật ký
-    expect(find.text('Đổi hạn mức người dùng'), findsOneWidget);
-    await save(t, 'ai-admin-phone-5-log');
+    await app(t, const Size(1440, 1180), Brightness.dark, AiAdminPage(api: g.api));
+    final addKey = find.descendant(of: find.byKey(const ValueKey('ai-providers')), matching: find.text('Thêm khoá')).first;
+    await t.ensureVisible(addKey);
+    await settle(t);
+    await t.tap(addKey);
+    await settle(t);
+    await t.enterText(find.widgetWithText(TextField, 'Khoá API (sau khi lưu không xem lại được)'), 'AIzaSy-test-key-1234');
+    await save(t, 'ai-dashboard-provider-key');
+    await t.tap(find.text('Lưu và kiểm tra'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await settle(t);
+    expect(g.calls, contains('PUT /__apps/ai/admin/api/providers/gemini/key'));
+    expect(g.bodies.last, containsPair('key', 'AIzaSy-test-key-1234'));
+    expect(find.textContaining('AIzaSy'), findsNothing); // khoá không hiện lại ở đâu
+    await t.ensureVisible(find.text('Nhanh · flygo-fast'));
+    await settle(t);
+    await t.tap(find.text('Nhanh · flygo-fast'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await settle(t);
+    expect(find.text('Dự phòng 1'), findsOneWidget);
+    await save(t, 'ai-dashboard-alias-edit');
+    await t.tap(find.text('Lưu mức AI'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await settle(t);
+    expect(g.calls, contains('PUT /__apps/ai/admin/api/aliases/flygo-fast'));
+    expect(g.bodies.last['chain'], [{'provider': 'openai', 'model': 'gpt-6-luna'}]);
+  });
+
+  testWidgets('quản trị trên điện thoại: một cột cuộn dọc, bảng thành thẻ', (t) async {
+    for (final b in [Brightness.dark, Brightness.light]) {
+      final g = FakeGate();
+      await app(t, const Size(390, 2700), b, AiAdminPage(api: g.api), ratio: 2);
+      expect(find.byKey(const ValueKey('ai-phone-budget')), findsOneWidget);
+      final x = t.getTopLeft(find.byKey(const ValueKey('ai-users'))).dx;
+      expect(t.getTopLeft(find.byKey(const ValueKey('ai-providers'))).dx, x); // xếp dọc
+      expect(t.getTopLeft(find.byKey(const ValueKey('ai-providers'))).dy, greaterThan(t.getTopLeft(find.byKey(const ValueKey('ai-users'))).dy));
+      await save(t, 'ai-dashboard-phone-${b.name}');
+    }
   });
 
   testWidgets('Hạn mức AI của mình (điện thoại, sáng + tối)', (t) async {
