@@ -28,6 +28,8 @@ class _PasskeyPageState extends State<PasskeyPage> {
   PasskeyApi? _api;
   PasskeyStatus? _st;
   String? _error;
+  /// Máy này tạo được khoá thiết bị (điện thoại; Mac có Secure Enclave). null = chưa biết.
+  bool? _localOk;
 
   @override
   void initState() {
@@ -44,6 +46,9 @@ class _PasskeyPageState extends State<PasskeyPage> {
         _api = widget.api ?? PasskeyApi(id, token);
       }
       final st = await _api!.status();
+      if (widget.keySupported == null && _localOk == null) {
+        _localOk = DeviceKey.platformSupported ? await DeviceKey.status().then((s) => s.supported, onError: (_) => false) : false;
+      }
       if (mounted) setState(() => (_st = st, _error = null));
     } on FlygoIdException catch (e) {
       if (mounted) setState(() => _error = e.status == 404 ? tr('Máy chủ chưa hỗ trợ passkey.') : e.message);
@@ -121,9 +126,10 @@ class _PasskeyPageState extends State<PasskeyPage> {
   Widget _thisDevice(Pal pal, PasskeyStatus st) {
     final dev = st.raw['device'] as Map?;
     final trusted = dev?['trusted'] == true, hasKey = dev?['has_key'] == true;
-    final desktop = !hasKey && !(widget.keySupported ?? DeviceKey.platformSupported);
+    final desktop = !hasKey && !(widget.keySupported ?? _localOk ?? DeviceKey.platformSupported);
     final (IconData icon, Color color, String title, String body, String action) = desktop
-        ? (Icons.laptop_mac_rounded, pal.accent, tr('Máy tính không cần passkey'), tr('Passkey chỉ dùng trên điện thoại (iPhone / Android). Máy tính này dùng bình thường.'), '')
+        ? (Icons.laptop_mac_rounded, pal.accent, tr('Máy này không dùng passkey'),
+            tr('Passkey dùng trên điện thoại (iPhone / Android) và máy Mac có Secure Enclave. Máy này dùng bình thường.'), '')
         : st.sessionOk
         ? (Icons.verified_user_rounded, const Color(0xFF14B8A6), tr('Máy này đã xác thực passkey'), tr('Phiên đăng nhập này đã được xác nhận.'), tr('Xác thực lại'))
         : trusted

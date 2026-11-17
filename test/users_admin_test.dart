@@ -462,10 +462,10 @@ void main() {
       await _pump(t, PasskeyGate(api: _FakePk(st), onLogout: () {}, child: const Scaffold(body: Text('HOME'))));
       expect(find.text('HOME'), findsOneWidget);
       await _pump(t, PasskeyScreen(api: _FakePk(st), initial: st, onLogout: () {}, dismissible: true, keySupported: false));
-      expect(find.text('Máy tính không cần passkey'), findsOneWidget);
+      expect(find.text('Máy này không dùng passkey'), findsOneWidget);
       expect(find.text('Xác thực'), findsNothing);
       await _pump(t, PasskeyPage(api: _FakePk(st), keySupported: false));
-      expect(find.text('Máy tính không cần passkey'), findsOneWidget);
+      expect(find.text('Máy này không dùng passkey'), findsOneWidget);
       expect(find.byKey(const ValueKey('passkey-this-action')), findsNothing);
     });
 

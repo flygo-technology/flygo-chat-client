@@ -49,6 +49,7 @@ class DeviceKeyStatus {
     if (biometric == 'none_enrolled') return 'Không hỗ trợ (máy chưa cài vân tay / khuôn mặt)';
     if (biometric != 'ok') return 'Không hỗ trợ';
     if (!enrolled) return 'Chưa đăng ký';
+    if (!kIsWeb && Platform.isMacOS) return 'Khoá phần cứng · Touch ID / mật khẩu máy';
     return hwBacked ? 'Khoá phần cứng · vân tay / khuôn mặt' : 'Khoá phần mềm · vân tay / khuôn mặt';
   }
 
@@ -80,7 +81,9 @@ class DeviceKey {
 
   static const _ch = MethodChannel('flygo/devicekey');
 
-  static bool get platformSupported => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  /// Điện thoại; máy Mac (Secure Enclave qua CryptoKit, macos/Runner/MainFlutterWindow.swift; Mac Intel không có T2 báo
+  /// supported=false trong status()).
+  static bool get platformSupported => !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
 
   static Future<T> _call<T>(String method, [Map<String, dynamic>? args]) async {
     try {
