@@ -15,6 +15,8 @@ test("Cổng AI: env cho Claude Code mang khoá ứng dụng + email người nh
   expect(env.ANTHROPIC_AUTH_TOKEN).toBe("fgk_abc123");
   expect(env.ANTHROPIC_API_KEY).toBe("");
   expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe("X-Flygo-User: lan@flygo.vn\nX-Flygo-App: vn.flygo.agent");
+  const withBot = await flygoAiEnv({ serverUrl: "https://chat.flygo.vn", flygoAi: { keyFile } }, "lan@flygo.vn", "Ba-CongAI");
+  expect(withBot.ANTHROPIC_CUSTOM_HEADERS).toBe("X-Flygo-User: lan@flygo.vn\nX-Flygo-App: bot:ba-congai");
   expect(env.ENABLE_TOOL_SEARCH).toBe("true");
   // Không đặt url: dùng đường công khai trên máy chủ chat.
   const pub = await flygoAiEnv({ serverUrl: "https://chat.flygo.vn/", flygoAi: { keyFile } }, "lan@flygo.vn");

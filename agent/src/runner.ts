@@ -325,7 +325,7 @@ async function kickTurn(o: Origin, notice: string, text: string) {
 const mcpCommand = { command: io.selfCommand[0], args: [...io.selfCommand.slice(1), "mcp-chat"] };
 const engines: Record<EngineName, Engine> = {
   codex: new CodexEngine(cfg, mcpCommand, log),
-  claude: new ClaudeEngine(cfg, mcpCommand, log, async (id) => (id ? String((await mm.user(id))?.email ?? "") : "")),
+  claude: new ClaudeEngine(cfg, mcpCommand, log, async (id) => (id ? String((await mm.user(id))?.email ?? "") : ""), () => BOT_NAME),
   agy: new AntigravityEngine(cfg, mcpCommand, log),
 };
 

@@ -138,7 +138,7 @@ export function claudePerms(cfg: Config, input: Pick<TurnInput, "bypass" | "mode
  * Biến môi trường cho Claude Code khi bot chạy qua Cổng AI: địa chỉ cổng, khoá ứng dụng (Bearer) và header người nhờ.
  * Không có email người nhờ thì ném lỗi: không gọi model khi không biết tính vào hạn mức của ai.
  */
-export async function flygoAiEnv(cfg: Pick<Config, "flygoAi" | "serverUrl">, email: string): Promise<Record<string, string>> {
+export async function flygoAiEnv(cfg: Pick<Config, "flygoAi" | "serverUrl">, email: string, botName = ""): Promise<Record<string, string>> {
   const g = cfg.flygoAi!;
   const key = (await Bun.file(g.keyFile).text().catch(() => "")).trim();
   if (!key.startsWith("fgk_")) throw new Error(`Cổng AI: không đọc được khoá ứng dụng ở ${g.keyFile}`);
@@ -148,7 +148,8 @@ export async function flygoAiEnv(cfg: Pick<Config, "flygoAi" | "serverUrl">, ema
     ANTHROPIC_BASE_URL: (g.url || `${cfg.serverUrl.replace(/\/+$/, "")}/__apps/ai`).replace(/\/+$/, ""),
     ANTHROPIC_AUTH_TOKEN: key,
     ANTHROPIC_API_KEY: "",
-    ANTHROPIC_CUSTOM_HEADERS: `X-Flygo-User: ${email}\nX-Flygo-App: ${g.app ?? "vn.flygo.agent"}`,
+    // App = "bot:<username>" để Cổng AI tách chi phí theo từng trợ lý (app hiện ở chi tiết trợ lý); cfg.flygoAi.app ghi đè.
+    ANTHROPIC_CUSTOM_HEADERS: `X-Flygo-User: ${email}\nX-Flygo-App: ${g.app ?? (botName ? `bot:${botName.toLowerCase()}` : "vn.flygo.agent")}`,
     // Model Claude Code chưa biết (vd. bản mới hơn CLI): không tự chặn ngữ cảnh 200k.
     CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1",
     // Claude Code tắt tool search khi ANTHROPIC_BASE_URL không phải của Anthropic: bật lại để tool MCP (~90 tool flygo_chat,
@@ -175,7 +176,8 @@ export class ClaudeEngine implements Engine {
   }
   constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void,
     /** Email theo id Mattermost (Cổng AI): runner tra qua API chat, có bộ nhớ đệm. */
-    private emailOf: (mmId: string) => Promise<string> = async () => "") {}
+    private emailOf: (mmId: string) => Promise<string> = async () => "",
+    private botName: () => string = () => "") {}
 
   async contextTokens(id: string) {
     const f = sessionFile(id);
@@ -240,7 +242,7 @@ export class ClaudeEngine implements Engine {
     args.push("--name", input.title);
     if (this.cfg.claude.chrome) args.push("--chrome");
 
-    const gate = this.cfg.flygoAi ? await flygoAiEnv(this.cfg, await this.emailOf(input.requester || this.cfg.ownerUserIds[0] || "").catch(() => "")) : {};
+    const gate = this.cfg.flygoAi ? await flygoAiEnv(this.cfg, await this.emailOf(input.requester || this.cfg.ownerUserIds[0] || "").catch(() => ""), this.botName()) : {};
     const proc = spawn(args, { env: { ...process.env, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
