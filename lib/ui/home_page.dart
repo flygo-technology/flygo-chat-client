@@ -1189,10 +1189,16 @@ class _HomePageState extends State<HomePage> {
       loadCurrentBuild();
       final card = _userCard(app, nav);
       Widget appsList({required bool phone}) => ListView(padding: EdgeInsets.only(bottom: bottom + 16), children: [
-        // Điện thoại: thẻ người dùng gọn (dải bìa, ảnh, tên, email, trạng thái) ở đầu trang (Sếp, 2026-11-17).
+        // Điện thoại: tên công ty trên cùng, ngay dưới là thẻ người dùng gọn (dải bìa, ảnh, tên, email, trạng thái)
+        // (Sếp, 2026-11-17: "tên công ty trên profile").
+        if (phone && me != null && ServerList.items.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 8 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), 20, 12),
+            child: Center(child: onWall(const AppsServerTitle())),
+          ),
         if (phone && me != null)
           Padding(
-            padding: EdgeInsets.only(top: 8 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top)),
+            padding: EdgeInsets.only(top: ServerList.items.isNotEmpty ? 0 : 8 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top)),
             child: _userCard(app, nav, dense: true),
           ),
         Padding(
@@ -1204,7 +1210,9 @@ class _HomePageState extends State<HomePage> {
           child: Flex(direction: phone ? Axis.vertical : Axis.horizontal, crossAxisAlignment: CrossAxisAlignment.start, children: [
             // Điện thoại: tên công ty (máy chủ) ở đầu trang, bấm để đổi / thêm máy chủ (Sếp, 2026-11-13).
             // Căn giữa, lề trên / dưới rộng (Sếp, 2026-11-13).
-            if (phone && ServerList.items.isNotEmpty)
+            if (phone && me != null)
+              const SizedBox.shrink()
+            else if (phone && ServerList.items.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 14),
                 child: Center(child: onWall(const AppsServerTitle())),
