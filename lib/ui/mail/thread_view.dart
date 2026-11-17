@@ -383,7 +383,9 @@ class ThreadViewState extends State<ThreadView> {
                 IconButton(tooltip: 'Lưu trữ (e)', icon: const Icon(Icons.archive_outlined), onPressed: () => act(MailAction.archive))
               else
                 IconButton(tooltip: 'Chuyển đến Hộp thư đến', icon: const Icon(Icons.move_to_inbox_outlined), onPressed: () => act(MailAction.restore)),
-              IconButton(tooltip: 'Báo cáo thư rác', icon: const Icon(Icons.report_gmailerrorred_outlined), onPressed: () => act(MailAction.spam)),
+              // Điện thoại (rộng 360-390): Báo cáo thư rác nằm trong "Thao tác khác" cho thanh nút không tràn.
+              if (widget.wide)
+                IconButton(tooltip: 'Báo cáo thư rác', icon: const Icon(Icons.report_gmailerrorred_outlined), onPressed: () => act(MailAction.spam)),
               IconButton(tooltip: 'Xoá (#)', icon: const Icon(Icons.delete_outline), onPressed: () => act(MailAction.trash)),
             ],
             _sep(mc),
@@ -504,6 +506,7 @@ class ThreadViewState extends State<ThreadView> {
     final s = t.summary;
     showAnchoredMenu(b, [
       if (!widget.wide) ...[
+        if (!store.readOnly && s.box != 'trash' && s.box != 'spam') MenuEntry('Báo cáo thư rác', Icons.report_gmailerrorred_outlined, () => act(MailAction.spam)),
         MenuEntry('Nhãn', Icons.label_outline, () => _labels(b)),
         MenuEntry('Thêm vào Lịch', Icons.event_outlined, _toCalendar),
         MenuEntry('Gửi vào chat', Icons.forward_to_inbox_outlined, _toChat),

@@ -145,7 +145,7 @@ void main() {
   });
 
   testWidgets('điện thoại: bấm ảnh trong thư mở trình xem mọi ảnh của thư; bấm đúp phóng to; quay lại giữ chỗ cuộn', (t) async {
-    await openThread(t, const Size(412, 915), ratio: 2);
+    await openThread(t, const Size(390, 844), ratio: 2);
     final img = find.byKey(const ValueKey('mail-img-$_inlineSrc'));
     await t.ensureVisible(img);
     await t.pumpAndSettle();
@@ -282,6 +282,17 @@ void main() {
     expect(find.byType(MailPhotoPage), findsNothing);
     expect(find.text('nghiem-thu-2.jpg'), findsOneWidget);
   });
+
+  for (final w in [360.0, 390.0]) {
+    testWidgets('điện thoại rộng ${w.toInt()}: thanh nút của thư không tràn; Báo cáo thư rác trong Thao tác khác', (t) async {
+      await openThread(t, Size(w, 800), ratio: 3);
+      expect(t.takeException(), isNull);
+      expect(find.byTooltip('Báo cáo thư rác'), findsNothing);
+      await t.tap(find.byTooltip('Thao tác khác'));
+      await t.pumpAndSettle();
+      expect(find.text('Báo cáo thư rác'), findsOneWidget);
+    });
+  }
 
   testWidgets('ảnh từ mạng đang ẩn: không bấm được; PDF vẫn mở trình xem tệp', (t) async {
     t.view.physicalSize = const Size(800, 600);
