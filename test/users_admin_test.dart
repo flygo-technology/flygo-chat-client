@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/browser/flygo_id.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/security/passkey_gate.dart';
+import 'package:flygo_chat/security/passkey_page.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/password_page.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -448,6 +449,14 @@ void main() {
       expect(find.text('Cần quản trị viên duyệt'), findsOneWidget);
     });
 
+    testWidgets('trang passkey cá nhân: máy này, máy của tôi, yêu cầu duyệt máy mới', (t) async {
+      await _pump(t, PasskeyPage(api: _FakePk(_pkPersonal())), size: const Size(500, 1400));
+      expect(find.text('Máy này có passkey'), findsOneWidget);
+      expect(find.text('"Galaxy A55" xin dùng tài khoản của bạn'), findsOneWidget);
+      expect(find.text('Passkey chờ duyệt'), findsOneWidget);
+      expect(find.text('Thu hồi'), findsNWidgets(2));
+    });
+
     testWidgets('quản trị: thiết bị chờ duyệt có nút Duyệt passkey', (t) async {
       final id = _Id();
       await _pump(t, UserDetailPage(id: id, userId: 'u2', policy: _loadPolicy), size: const Size(500, 2600));
@@ -589,6 +598,8 @@ void _previews() {
       await gate('13-nguoi-dung-can-quan-tri-duyet', _pkStatus('approve'), tapAction: true, admin: true);
       await gate('14-nguoi-dung-xac-thuc-passkey', _pkStatus('verify'));
       await gate('15-nguoi-dung-khong-xac-thuc-duoc', _pkStatus('verify'), help: true);
+      await _pump(t, PasskeyPage(api: _FakePk(_pkPersonal())), size: phone, b: b, ratio: 2);
+      await save(t, 'phone-$th-16-ca-nhan-passkey');
       debugDisableShadows = true;
     });
 
@@ -624,6 +635,22 @@ void _previews() {
     });
   }
 }
+
+PasskeyStatus _pkPersonal() => PasskeyStatus({
+      'required': true,
+      'enforced': false,
+      'session_ok': false,
+      'needs': 'verify',
+      'device': {'device_id': 'd1', 'has_key': true, 'trusted': true},
+      'devices': [
+        {'device_id': 'd1', 'name': 'iPhone 15 của Hoa', 'platform': 'ios', 'current': true, 'has_key': true, 'trusted': true},
+        {'device_id': 'd2', 'name': 'MacBook Air', 'platform': 'macos', 'has_key': false, 'trusted': false},
+        {'device_id': 'd3', 'name': 'Galaxy A55', 'platform': 'android', 'has_key': true, 'trusted': false, 'pending': true},
+      ],
+      'to_approve': [
+        {'verify_id': 'vr_abcdefghijkl', 'device_id': 'd3', 'device_name': 'Galaxy A55', 'expires_at': 0},
+      ],
+    });
 
 PasskeyStatus _pkStatus(String needs) =>
     PasskeyStatus({'required': true, 'enforced': true, 'session_ok': false, 'needs': needs, 'trusted_phones': 1});

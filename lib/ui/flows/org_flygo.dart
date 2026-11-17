@@ -587,7 +587,7 @@ class _PermPanelState extends State<_PermPanel> {
   String _q = '';
   final _busy = <String>{};
 
-  /// Nhóm app đang mở / thu gọn, giữ trong phiên chạy app (theo mục đang chọn + app). Chưa có thì: mở nếu nhóm có quyền.
+  /// Nhóm app đang mở / thu gọn, giữ trong phiên chạy app (theo mục đang chọn + app). Chưa có thì: thu gọn.
   static final _expanded = <String, bool>{};
 
   /// Đang cấp / bỏ hàng loạt: (đã xong, tổng).
@@ -808,7 +808,8 @@ class _PermPanelState extends State<_PermPanel> {
           final groupValue = granted == 0 ? false : (granted == ids.length ? true : null);
           final changeable = ids.any((id) => !_isInherited(id));
           final ek = _expandKey('${a['id']}');
-          final open = q.isNotEmpty || (_expanded[ek] ?? granted > 0);
+          // Sếp (498): mặc định thu gọn mọi nhóm app; tìm thì mở các nhóm khớp.
+          final open = q.isNotEmpty || (_expanded[ek] ?? false);
           return Card(
             elevation: 0,
             color: pal.surface,

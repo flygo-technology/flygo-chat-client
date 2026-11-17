@@ -73,6 +73,8 @@ import 'bang_tin/bang_tin_page.dart' show BangTinTab, bangTinApp, kBangTinTab;
 import 'bang_tin/bang_tin_service.dart' show BangTinService;
 import 'desk_tabs.dart';
 import 'devices_page.dart';
+import '../security/passkey_gate.dart' show passkeySupported;
+import '../security/passkey_page.dart';
 import 'my_browsers_page.dart';
 import 'mail/mail_page.dart' show openMailAdmin;
 import 'ai_gate/ai_admin_page.dart' show openAiAdmin;
@@ -108,6 +110,8 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'settings',
         // Thiết bị đang đăng nhập, khoá bảo mật (Flygo ID).
         'devices',
+        // Passkey của máy này / các máy của mình, duyệt máy mới (khi máy chủ có passkey).
+        if (passkeySupported.value) 'passkey',
         // Trình duyệt cho agent điều khiển (extension Flygo Browser Bridge).
         'browsers',
         // Điện thoại: quét QR để đăng nhập máy tính cùng mạng LAN (ngay sau Cài đặt).
@@ -150,7 +154,7 @@ List<String> _workAppOrder(Iterable<String> ids) {
   return [...order.where(all.contains), ...all.where((id) => !order.contains(id))];
 }
 
-const kDeskTabApps = {'meet', 'zalo', 'wechat', 'devices', 'browsers', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
+const kDeskTabApps = {'meet', 'zalo', 'wechat', 'devices', 'passkey', 'browsers', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
 
 /// Màn hình chính. Màn hình rộng (máy tính) chia hai cột, vùng nội dung chia được tới 4 ô; màn hình hẹp
 /// (điện thoại) có thanh tab nổi ở dưới như WhatsApp iOS.
@@ -577,6 +581,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     // Ô Ký số hiện / ẩn theo Flygo ID (hỏi một lần mỗi phiên chat).
     KysoApi.available.addListener(_kysoChanged);
+    passkeySupported.addListener(_kysoChanged);
     KysoApi.spacesChanged.addListener(_kysoChanged);
     // Bảng tin chạy nền (Sếp): tab hiện ngay, đếm tin mới, tải sẵn trang đầu.
     BangTinService.instance.addListener(_kysoChanged);
@@ -1106,6 +1111,8 @@ class _HomePageState extends State<HomePage> {
       'settings': (Icons.settings_rounded, const Color(0xFF14A38B), tr('Cài đặt'), 0, () => _openProfile(nav())),
       'devices': (Icons.devices_rounded, const Color(0xFF2563EB), tr('Thiết bị'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const DevicesPage()))),
+      'passkey': (Icons.fingerprint_rounded, const Color(0xFF14B8A6), tr('Passkey'), 0,
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const PasskeyPage()))),
       // Trình duyệt (extension Flygo Browser Bridge) cho agent điều khiển (lib/ui/my_browsers_page.dart).
       'browsers': (Icons.public, const Color(0xFF00B8D4), tr('Trình duyệt'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const MyBrowsersPage()))),
@@ -1566,6 +1573,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     KysoApi.available.removeListener(_kysoChanged);
+    passkeySupported.removeListener(_kysoChanged);
     KysoApi.spacesChanged.removeListener(_kysoChanged);
     BangTinService.instance.removeListener(_kysoChanged);
     flowsChanged.removeListener(_kysoChanged);
@@ -2140,6 +2148,7 @@ class _HomePageState extends State<HomePage> {
       'password' => const PasswordPage(),
       'blocked' => const BlockedUsersPage(),
       'devices' => const DevicesPage(),
+      'passkey' => const PasskeyPage(),
       'browsers' => const MyBrowsersPage(),
       'users' => KysoApi.flygoId == null ? const _Welcome() : UsersAdminPage(id: KysoApi.flygoId!),
       'zalo' || 'wechat' => Scaffold(

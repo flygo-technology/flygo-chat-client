@@ -35,6 +35,9 @@ class PasskeyStatus {
   Map? get pending => raw['pending_approval'] as Map?;
 }
 
+/// Máy chủ có passkey (GET /v1/me/passkey trả lời được): mục Cá nhân › Passkey chỉ hiện khi true.
+final passkeySupported = ValueNotifier<bool>(false);
+
 /// Gọi Flygo ID cho passkey; tách ra để thử nghiệm thay được.
 class PasskeyApi {
   final FlygoId id;
@@ -99,6 +102,7 @@ class _PasskeyGateState extends State<PasskeyGate> with WidgetsBindingObserver {
         _api = widget.api ?? PasskeyApi(id, token);
       }
       final st = await _api!.status();
+      passkeySupported.value = true;
       if (!mounted) return;
       setState(() => _st = st);
       if (st.prompt && !_prompted) {
