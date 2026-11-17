@@ -17,14 +17,37 @@ import 'session.dart';
 /// Chọn một thư mục trong Drive của tôi. Trả đường dẫn, hoặc null nếu huỷ. [exclude]: thư mục không được chọn (chính
 /// các thư mục đang di chuyển).
 Future<String?> pickDriveFolder(BuildContext context, DriveSession s,
-        {required String title, required String ok, String start = '/', Set<String> exclude = const {}}) =>
-    Navigator.of(context).push<String>(AppPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => Scaffold(
-        appBar: AppBar(title: Text(title)),
-        body: _FolderBrowser(session: s, start: start, exclude: exclude, ok: ok, onPick: (p) => Navigator.of(context).pop(p)),
+    {required String title, required String ok, String start = '/', Set<String> exclude = const {}}) {
+  // Máy tính / màn hình rộng: hộp thoại giữa màn hình; điện thoại: trang toàn màn hình.
+  if (MediaQuery.sizeOf(context).width >= 600) {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => Dialog(
+        key: const ValueKey('drive-folder-dialog'),
+        clipBehavior: Clip.antiAlias,
+        insetPadding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+          child: Scaffold(
+            appBar: AppBar(
+              automaticallyImplyLeading: false,
+              title: Text(title, overflow: TextOverflow.ellipsis),
+              actions: [IconButton(tooltip: 'Đóng', icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.of(ctx).pop())],
+            ),
+            body: _FolderBrowser(session: s, start: start, exclude: exclude, ok: ok, onPick: (p) => Navigator.of(ctx).pop(p)),
+          ),
+        ),
       ),
-    ));
+    );
+  }
+  return Navigator.of(context).push<String>(AppPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: _FolderBrowser(session: s, start: start, exclude: exclude, ok: ok, onPick: (p) => Navigator.of(context).pop(p)),
+    ),
+  ));
+}
 
 class _FolderBrowser extends StatefulWidget {
   const _FolderBrowser({required this.session, required this.start, required this.ok, required this.onPick, this.exclude = const {}, this.header, this.footerNote});
