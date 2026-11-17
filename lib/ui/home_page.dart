@@ -71,6 +71,7 @@ import 'theme.dart';
 import 'bang_tin/bang_tin_page.dart' show BangTinTab, bangTinApp, kBangTinTab;
 import 'bang_tin/bang_tin_service.dart' show BangTinService;
 import 'desk_tabs.dart';
+import 'todo/home_notes_section.dart' show HomePinnedNotes;
 import 'devices_page.dart';
 import '../security/passkey_gate.dart' show passkeySupported;
 import '../security/passkey_page.dart';
@@ -1223,6 +1224,22 @@ class _HomePageState extends State<HomePage> {
         onSettings: () => _openProfile(nav()),
       );
 
+  /// Mở ghi chú đã ghim trong app Ghi chú. Ngữ cảnh của trang (không phải tab): máy tính mở tab Ghi chú riêng.
+  Future<void> _openPinnedNote(String id) async {
+    var a = MiniApps.cached.where((x) => x.nativeScreen == 'todo').firstOrNull;
+    if (a == null) {
+      try {
+        a = (await MiniApps.list(_app.token)).where((x) => x.nativeScreen == 'todo').firstOrNull;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    if (a == null) {
+      ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Bạn chưa được cấp app Ghi chú'))));
+      return;
+    }
+    await openMiniApp(context, a, path: '/n/$id');
+  }
+
   /// Tab Apps: lưới các ứng dụng theo nhóm [youAppGroups] (Danh bạ, Lịch sử cuộc gọi, Cài đặt, Trợ lý, Bot, Ngôn ngữ, Chặn…).
   Widget _apps(AppState app, double bottom, NavigatorState? Function() nav,
       {void Function(String id)? open, void Function(String id)? onLaunch, DeskTab? tab}) {
@@ -1404,6 +1421,8 @@ class _HomePageState extends State<HomePage> {
         // Banner mùa lễ (Giáng sinh: đếm ngược tới 24/12), ngay trên dải "Sắp diễn ra".
         if (phone) const SeasonBanner(),
         if (phone) UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), compact: true),
+        // Ghi chú ghim lên Trang chủ (Sếp, 2026-11-17): ngay dưới sự kiện sắp tới.
+        if (phone) HomePinnedNotes(onOpen: _openPinnedNote),
         // Mục Chính: Chat, Trợ lý, Quy trình và Trình chiếu (mini app của máy chủ, tải về sau).
         MiniAppsSection(
           key: ValueKey('main-$kServerUrl'),
@@ -1529,6 +1548,8 @@ class _HomePageState extends State<HomePage> {
                   const SeasonBanner(),
                   // Sự kiện Lịch sắp tới (đếm ngược) dưới thẻ người dùng, ẩn khi không có (Sếp, 2026-11-17).
                   UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), max: 5),
+                  // Ghi chú ghim lên Trang chủ: cột trái, dưới sự kiện sắp tới.
+                  HomePinnedNotes(onOpen: _openPinnedNote, padding: const EdgeInsets.fromLTRB(16, 18, 16, 4)),
                 ]),
               ),
               // Dưới cùng cột trái: tên công ty bên trái, Đăng xuất bên phải (đối diện nhau).
