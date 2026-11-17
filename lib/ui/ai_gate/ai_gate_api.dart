@@ -81,6 +81,17 @@ class AiGateApi {
 
   Future<AiQuota> myQuota() async => AiQuota(Map<String, dynamic>.from(await _call('GET', '/api/me/quota') as Map));
 
+  /// Mức dùng của chính mình theo ứng dụng / trợ lý (hôm nay + tháng này): {day:{rows}, month:{rows}}, mỗi dòng
+  /// {k, n, tok_in, tok_out, usd}. null = máy chủ Cổng AI chưa có (bản cũ trả 404).
+  Future<Map<String, dynamic>?> myUsage() async {
+    try {
+      return Map<String, dynamic>.from(await _call('GET', '/api/me/usage?group=app') as Map);
+    } on AiGateException catch (e) {
+      if (e.status == 404) return null;
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> overview() async => Map<String, dynamic>.from(await _call('GET', '/admin/api/overview') as Map);
   Future<List<AiQuota>> users() async => [for (final u in await _call('GET', '/admin/api/users') as List) AiQuota(Map<String, dynamic>.from(u as Map))];
   Future<AiQuota> setUser(String user, Map<String, dynamic> patch) async =>

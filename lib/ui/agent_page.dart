@@ -416,8 +416,7 @@ class _AgentPageState extends State<AgentPage> {
                               remote: _remote[b.id],
                               state: svc.runners[b.id],
                               onTap: () async {
-                                await Navigator.of(context)
-                                    .push(AppPageRoute(builder: (_) => AgentDetailPage(bot: b, remote: _remote[b.id])));
+                                await openAgentDetail(context, b, remote: _remote[b.id]);
                                 _load();
                               },
                             ),
