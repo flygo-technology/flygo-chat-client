@@ -3618,7 +3618,7 @@ class AppsUserCard extends StatelessWidget {
     final st = app.statusOf(me.id);
     // Chỉ email (Sếp, 2026-11-17: "bỏ username, giữ lại email"); không có email thì @tên.
     final line = me.email.isNotEmpty ? me.email : '@${me.username}';
-    const size = 64.0;
+    const size = 80.0;
     Future<void> pickPhoto() async {
       final messenger = ScaffoldMessenger.of(context);
       final r = await pickAvatarImage(context);
@@ -3685,40 +3685,82 @@ class AppsUserCard extends StatelessWidget {
         ]),
       ),
     );
+    // Kiểu Facebook (Sếp, 2026-11-17: "bổ sung cover cho đỡ trống trải"): dải bìa thấp, ảnh đè mép dưới bên trái,
+    // tên / email / trạng thái bên phải ảnh, ⚙️ trên dải bìa.
+    const cover = 92.0, ring = 4.0, left = 14.0;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final avatarTop = cover - size / 2 - ring;
     return Padding(
       key: const ValueKey('apps-user-card'),
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: pal.divider)),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Ảnh: bấm = Chỉnh sửa hồ sơ; nút máy ảnh = đổi ảnh; chấm hoạt động góc dưới trái.
-          SizedBox(
-            width: size + 4,
-            height: size + 4,
-            child: Stack(clipBehavior: Clip.none, children: [
-              Tooltip(
-                message: tr('Chỉnh sửa hồ sơ'),
-                child: InkWell(
-                  key: const ValueKey('apps-edit-profile'),
-                  customBorder: const CircleBorder(),
+        child: Stack(children: [
+          Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(
+              key: const ValueKey('apps-cover'),
+              height: cover,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(pal.accent, dark ? Colors.black : Colors.white, dark ? .35 : .15)!,
+                    Color.lerp(pal.accent, const Color(0xFF7C4DFF), .45)!,
+                    Color.lerp(pal.accent, const Color(0xFF00BFA5), .35)!,
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(left + size + ring * 2 + 12, 8, 14, 14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                InkWell(
+                  borderRadius: BorderRadius.circular(6),
                   onTap: onProfile,
-                  child: Avatar(userId: me.id, name: me.displayName, size: size, status: false),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(me.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
+                    const SizedBox(height: 2),
+                    Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
+                  ]),
+                ),
+                const SizedBox(height: 4),
+                chip,
+              ]),
+            ),
+          ]),
+          // Ảnh (viền màu thẻ) đè mép dưới dải bìa: bấm = Chỉnh sửa hồ sơ; nút máy ảnh = đổi ảnh; chấm hoạt động góc dưới trái.
+          Positioned(
+            left: left,
+            top: avatarTop,
+            child: Stack(clipBehavior: Clip.none, children: [
+              Container(
+                padding: const EdgeInsets.all(ring),
+                decoration: BoxDecoration(color: pal.surface, shape: BoxShape.circle),
+                child: Tooltip(
+                  message: tr('Chỉnh sửa hồ sơ'),
+                  child: InkWell(
+                    key: const ValueKey('apps-edit-profile'),
+                    customBorder: const CircleBorder(),
+                    onTap: onProfile,
+                    child: Avatar(userId: me.id, name: me.displayName, size: size, status: false),
+                  ),
                 ),
               ),
               Positioned(
-                left: 0,
-                bottom: 2,
+                left: 4,
+                bottom: 6,
                 child: Container(
                   key: const ValueKey('apps-presence-dot'),
                   padding: const EdgeInsets.all(2.5),
                   decoration: BoxDecoration(color: pal.surface, shape: BoxShape.circle),
-                  child: statusDot(st, pal, size: 13),
+                  child: statusDot(st, pal, size: 14),
                 ),
               ),
               Positioned(
-                right: 0,
-                bottom: 0,
+                right: 2,
+                bottom: 4,
                 child: Tooltip(
                   message: tr('Đổi ảnh đại diện'),
                   child: InkWell(
@@ -3726,39 +3768,30 @@ class AppsUserCard extends StatelessWidget {
                     customBorder: const CircleBorder(),
                     onTap: pickPhoto,
                     child: Container(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(5),
                       decoration: BoxDecoration(color: pal.accent, shape: BoxShape.circle, border: Border.all(color: pal.surface, width: 2)),
-                      child: const Icon(Icons.photo_camera, size: 12, color: Colors.white),
+                      child: const Icon(Icons.photo_camera, size: 13, color: Colors.white),
                     ),
                   ),
                 ),
               ),
             ]),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: onProfile,
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(me.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
-                  const SizedBox(height: 2),
-                  Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
-                ]),
-              ),
-              const SizedBox(height: 4),
-              chip,
-            ]),
-          ),
           if (onSettings != null)
-            IconButton(
-              key: const ValueKey('apps-settings'),
-              tooltip: tr('Cài đặt'),
-              onPressed: onSettings,
-              visualDensity: VisualDensity.compact,
-              style: IconButton.styleFrom(backgroundColor: pal.surface2),
-              icon: Icon(Icons.settings_rounded, size: 19, color: pal.sub),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Material(
+                color: Colors.black.withValues(alpha: .18),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  key: const ValueKey('apps-settings'),
+                  tooltip: tr('Cài đặt'),
+                  onPressed: onSettings,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.settings_rounded, size: 19, color: Colors.white),
+                ),
+              ),
             ),
         ]),
       ),
