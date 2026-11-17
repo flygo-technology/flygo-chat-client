@@ -13,6 +13,15 @@ import 'run_progress.dart';
 import 'store.dart';
 import 'task_page.dart';
 
+/// Lời hỏi hiện trong bong bóng: lời người dùng, hoặc tên nút nhanh khi lời hỏi trống.
+String promptText(String prompt, String? action) {
+  if (prompt.trim().isNotEmpty) return prompt.trim();
+  for (final (k, _, label) in kAiActions) {
+    if (k == action) return label;
+  }
+  return action == null || action.isEmpty ? 'Hỏi AI' : action;
+}
+
 const kAiActions = [
   ('summary', Icons.insights_outlined, 'Tóm tắt tiến độ'),
   ('plan', Icons.account_tree_outlined, 'Lập kế hoạch & chia việc'),
@@ -239,7 +248,7 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
         child: Row(children: [
           PopupMenuButton<String>(
             key: const ValueKey('ai-agent'),
-            tooltip: 'Chọn agent',
+            tooltip: 'Chọn agent · agent làm bằng quyền của bạn',
             onSelected: _pickAgent,
             itemBuilder: (_) => [for (final a in _agents) PopupMenuItem(value: a.id, child: Row(children: [TwAvatar(name: a.name, id: a.id, agent: true, size: 22, border: false), const SizedBox(width: 8), Text(a.label)]))],
             child: Container(
@@ -261,8 +270,6 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
               decoration: BoxDecoration(color: look.ok.withValues(alpha: .14), borderRadius: BorderRadius.circular(6)),
               child: Text('🔓 không cần duyệt', style: TextStyle(fontSize: 11.5, color: look.ok, fontWeight: FontWeight.w600)),
             ),
-          const Spacer(),
-          Flexible(child: Text('quyền của bạn', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: look.sub))),
         ]),
       );
 
@@ -296,7 +303,7 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
               constraints: const BoxConstraints(maxWidth: 340),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(color: look.accentSoft, borderRadius: BorderRadius.circular(12)),
-              child: Text(t.prompt, style: TextStyle(fontSize: 13, color: look.text)),
+              child: Text(promptText(t.prompt.isNotEmpty ? t.prompt : (t.run?.prompt ?? ''), t.action ?? t.run?.action), style: TextStyle(fontSize: 13, color: look.text)),
             ),
           ),
           if (t.run == null)

@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/teamwork/gantt_view.dart';
 import 'package:flygo_chat/ui/teamwork/model.dart';
+import 'package:flygo_chat/ui/teamwork/project_ai.dart' show promptText;
 import 'package:flygo_chat/ui/teamwork/projects_view.dart';
 import 'package:flygo_chat/ui/teamwork/store.dart';
 import 'package:flygo_chat/ui/teamwork/task_page.dart';
@@ -228,6 +229,12 @@ void main() {
       expect(be.userOpReports['op4']!['state'], 'failed');
       expect(toasts.first, 'Đã tạo nhóm chat "Ra mắt app bán hàng"');
       s.dispose();
+    });
+
+    test('lời hỏi trống (nút nhanh) → tên nút', () {
+      expect(promptText('', 'summary'), 'Tóm tắt tiến độ');
+      expect(promptText('  ', 'chat_group'), 'Tạo nhóm chat');
+      expect(promptText('Ai đang quá tải?', 'summary'), 'Ai đang quá tải?');
     });
 
     test('lượt chạy kiểu project: không đọc việc, phiên mới "AI · <dự án>"', () async {
@@ -740,7 +747,12 @@ void main() {
           expect(be.bodies.entries.where((e) => e.key == 'POST /tw/api/projects/p-ra/ai').last.value['thread_id'], 'th-new');
         }
         await openAiThread(t);
+        // Bong bóng lời hỏi hiện đúng chữ (lượt nút nhanh không có lời hỏi: hiện tên nút).
+        expect(find.descendant(of: find.byKey(const ValueKey('ai-prompt-0')), matching: find.text('Lập kế hoạch giai đoạn 3 – Ra mắt: đào tạo đại lý miền Bắc + miền Nam, xong trước 15/01.')), findsOneWidget);
         expect(find.byKey(const ValueKey('run-answer-r-pdone')), findsOneWidget);
+        await t.scrollUntilVisible(find.byKey(const ValueKey('ai-prompt-1')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
+        expect(find.descendant(of: find.byKey(const ValueKey('ai-prompt-1')), matching: find.text('Soạn cập nhật cho nhóm')), findsOneWidget);
+        await t.scrollUntilVisible(find.byKey(const ValueKey('ai-prompt-0')), -200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
         expect(find.text('Đã làm · 4'), findsOneWidget);
         final high = t.widget<Text>(find.descendant(of: find.byKey(const ValueKey('action-a4')), matching: find.byType(Text)).first);
         expect((high.textSpan as TextSpan).children!.first.style!.color, const Color(0xFFE5484D));

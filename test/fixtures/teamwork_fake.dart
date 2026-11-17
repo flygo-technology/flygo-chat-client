@@ -187,7 +187,7 @@ class FakeTw {
   /// Tiến độ lượt chạy (GET /api/runs/:id).
   final progress = <String, Map<String, dynamic>>{
     'r-pdone': {
-      'id': 'r-pdone', 'kind': 'project', 'project_id': 'p-ra', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'seq': 9, 'step_count': 5, 'bypass_eligible': true,
+      'id': 'r-pdone', 'kind': 'project', 'project_id': 'p-ra', 'thread_id': 'th0', 'prompt': 'Lập kế hoạch giai đoạn 3 – Ra mắt: đào tạo đại lý miền Bắc + miền Nam, xong trước 15/01.', 'action': 'plan', 'created_at': twNow.millisecondsSinceEpoch - 3600000, 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'seq': 9, 'step_count': 5, 'bypass_eligible': true,
       'progress': {'seq': 9, 'steps': [
         for (final (i, t) in const [(1, '🔓 Chạy không cần duyệt (chủ bot)'), (2, 'Đọc 54 việc'), (3, 'Xem tải việc của 9 thành viên'), (4, 'Tạo 2 việc + 8 việc con'), (5, 'Giao việc, đặt hạn')])
           {'id': 's$i', 'kind': i == 1 ? 'approval' : 'tool', 'title': t, 'status': 'done', 'at': i},
@@ -668,7 +668,7 @@ class FakeTw {
             'thread': {'id': x![1], 'project_id': 'p-ra', 'user': 'u-lan', 'title': 'Kế hoạch giai đoạn 3', 'run_count': 2},
             'runs': [
               {...progress['r-pdone']!, 'actions': actions['r-pdone']},
-              {'id': 'r-pupd', 'kind': 'project', 'project_id': 'p-ra', 'thread_id': x[1], 'prompt': 'Soạn cập nhật cho nhóm', 'action': 'update', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'created_at': twNow.millisecondsSinceEpoch - 1800000},
+              {'id': 'r-pupd', 'kind': 'project', 'project_id': 'p-ra', 'thread_id': x[1], 'prompt': '', 'action': 'update', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'created_at': twNow.millisecondsSinceEpoch - 1800000},
             ],
           });
         }
