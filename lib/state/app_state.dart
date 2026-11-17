@@ -3257,19 +3257,24 @@ class AppState extends ChangeNotifier {
   /// Kiểu mặc định chung (app "Giao diện").
   BubbleChoice? get bubbleDefault => bubbles[kBubbleDefaultKey];
 
-  /// Kiểu dùng khi gửi tin vào [channelId]: lựa chọn riêng của chat, không có thì mặc định chung; null = bong bóng thường.
-  BubbleChoice? resolvedBubble(String channelId) {
-    final c = bubbles[channelId] ?? bubbles[kBubbleDefaultKey];
+  /// Kiểu bong bóng theo mùa lễ hội cho [channelId] (do phần mùa lễ hội gắn vào; tự xử lý việc người dùng tắt mùa lễ hội).
+  /// null = không có mùa nào đang chạy / người dùng đã tắt.
+  BubbleChoice? Function(String channelId)? seasonBubble;
+
+  /// Kiểu dùng khi gửi tin vào [channelId], theo thứ tự: lựa chọn riêng của chat → mặc định chung của mình →
+  /// mùa lễ hội đang chạy → bong bóng thường (null). Lựa chọn "Mặc định" (kiểu rỗng) ở bước nào cũng dừng tại đó.
+  BubbleChoice? resolveBubble(String channelId) {
+    final c = bubbles[channelId] ?? bubbles[kBubbleDefaultKey] ?? seasonBubble?.call(channelId);
     return c == null || c.style.isEmpty ? null : c;
   }
 
   /// Lưu kiểu bong bóng của một chat (hoặc [kBubbleDefaultKey] = mặc định chung).
-  /// Chat: [kBubbleInherit] = "Dùng mặc định" (xoá lựa chọn riêng); `BubbleChoice('')` = bong bóng thường.
-  /// Mặc định chung: `BubbleChoice('')` = xoá.
+  /// [kBubbleInherit] = xoá lựa chọn (chat: theo mặc định chung; mặc định chung: theo mùa lễ hội / app);
+  /// `BubbleChoice('')` = chọn hẳn bong bóng thường (lưu {s: none}, chặn các bước sau).
   Future<void> setBubble(String channelId, BubbleChoice choice) async {
     if (me == null) return;
     final pref = {'user_id': me!.id, 'category': kBubblePref, 'name': channelId};
-    if (choice.style == kBubbleInherit || (channelId == kBubbleDefaultKey && choice.style.isEmpty)) {
+    if (choice.style == kBubbleInherit) {
       bubbles.remove(channelId);
       notifyListeners();
       await api.post('/users/${me!.id}/preferences/delete', [
@@ -3284,9 +3289,21 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// "Áp dụng cho mọi chat": xoá mọi lựa chọn riêng theo chat (giữ mặc định chung).
+  Future<void> clearChatBubbles() async {
+    if (me == null) return;
+    final names = bubbles.keys.where((k) => k != kBubbleDefaultKey).toList();
+    if (names.isEmpty) return;
+    bubbles.removeWhere((k, _) => k != kBubbleDefaultKey);
+    notifyListeners();
+    await api.post('/users/${me!.id}/preferences/delete', [
+      for (final n in names) {'user_id': me!.id, 'category': kBubblePref, 'name': n, 'value': ''}
+    ]);
+  }
+
   /// Props kiểu bong bóng cho tin sắp gửi vào [channelId] (null nếu dùng mặc định).
   Map<String, dynamic>? _bubbleProps(String channelId) {
-    final b = resolvedBubble(channelId);
+    final b = resolveBubble(channelId);
     return b == null ? null : {'flygo_bubble': b.toJson()};
   }
 

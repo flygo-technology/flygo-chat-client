@@ -79,15 +79,33 @@ void main() {
 
   test('kiểu riêng của chat thắng mặc định chung; "Mặc định" ở chat tắt cả mặc định chung', () {
     final app = AppState('t');
-    expect(app.resolvedBubble('c1'), isNull);
+    expect(app.resolveBubble('c1'), isNull);
     app.bubbles[kBubbleDefaultKey] = const BubbleChoice('meo');
-    expect(app.resolvedBubble('c1')?.style, 'meo');
+    expect(app.resolveBubble('c1')?.style, 'meo');
     app.bubbles['c1'] = const BubbleChoice('quockyvn');
-    expect(app.resolvedBubble('c1')?.style, 'quockyvn');
+    expect(app.resolveBubble('c1')?.style, 'quockyvn');
     app.bubbles['c2'] = const BubbleChoice('');
-    expect(app.resolvedBubble('c2'), isNull);
+    expect(app.resolveBubble('c2'), isNull);
     // "Mặc định" riêng của chat lưu thành {s: none} và đọc lại đúng.
     expect(BubbleChoice.fromJson(const BubbleChoice('').toJson())?.style, '');
     expect(bubbleOfProps({'flygo_bubble': {'s': 'none'}}), isNull);
+  });
+
+  test('mùa lễ hội: sau lựa chọn riêng và mặc định chung; chọn kiểu ổn định theo người', () {
+    final app = AppState('t')..seasonBubble = (_) => bubbleSeasonPick('giangsinh', 'user-1');
+    final pick = app.resolveBubble('c1')!;
+    expect(bubbleStyleById(pick.style)?.group, 'giangsinh');
+    expect(bubbleSeasonPick('giangsinh', 'user-1'), pick);
+    expect(bubbleSeasonPick('giangsinh', 'user-1', style: 'tuanloc')?.style, 'tuanloc');
+    expect(bubbleSeasonPick('giangsinh', 'user-1', style: 'khong-co')?.style, pick.style);
+    expect(bubbleSeasonPick('khong-co-nhom', 'user-1'), isNull);
+    // Nhiều người: không dồn hết vào một kiểu.
+    expect({for (var i = 0; i < 40; i++) bubbleSeasonPick('giangsinh', 'u$i')!.style}.length, greaterThan(4));
+    app.bubbles[kBubbleDefaultKey] = const BubbleChoice('');
+    expect(app.resolveBubble('c1'), isNull, reason: 'mặc định chung "Mặc định" chặn mùa lễ hội');
+    app.bubbles[kBubbleDefaultKey] = const BubbleChoice('meo');
+    expect(app.resolveBubble('c1')?.style, 'meo');
+    app.bubbles['c1'] = const BubbleChoice('quockyvn');
+    expect(app.resolveBubble('c1')?.style, 'quockyvn');
   });
 }
