@@ -179,7 +179,12 @@ void main() {
                           UpcomingEvents(clock: () => clock, max: 5, onOpen: (e) => opened.add(e.instanceId), onOpenCalendar: () => openedCal++),
                         ]),
                       ),
-                      const Padding(padding: EdgeInsets.only(bottom: 8), child: AppsServerRow(align: TextAlign.left, version: true)),
+                      Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
+                          child: Row(children: [
+                            const Expanded(child: AppsServerRow(align: TextAlign.left, version: true)),
+                            AppsLogoutButton(onLogout: () {}),
+                          ])),
                     ]),
                   ),
                   Expanded(child: ListView(padding: const EdgeInsets.only(top: 24), children: [tiles(Pal.of(c), demoTiles)])),
