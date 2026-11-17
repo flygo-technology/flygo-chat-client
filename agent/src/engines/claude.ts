@@ -228,7 +228,12 @@ export class ClaudeEngine implements Engine {
     ];
     const model = input.model ?? this.cfg.claude.model;
     if (model) args.push("--model", model);
-    if (this.cfg.claude.tools !== undefined) args.push("--tools", this.cfg.claude.tools);
+    if (this.cfg.claude.tools !== undefined) {
+      // Bot qua Cổng AI: luôn kèm ToolSearch, thiếu nó thì Claude Code tắt tool search và nạp hết tool MCP (~26k token).
+      const t = this.cfg.claude.tools.split(",").map((x) => x.trim()).filter(Boolean);
+      if (this.cfg.flygoAi && !t.includes("ToolSearch")) t.push("ToolSearch");
+      args.push("--tools", t.join(","));
+    }
     if (input.effort) args.push("--effort", input.effort);
     if (input.sessionId) { adoptSession(input.sessionId, input.cwd); args.push("--resume", input.sessionId); }
     else if (input.forkFrom && sessionFile(input.forkFrom)) { adoptSession(input.forkFrom, input.cwd); args.push("--resume", input.forkFrom, "--fork-session"); } // phiên mới mang ngữ cảnh phiên cha
