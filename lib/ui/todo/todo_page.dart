@@ -8,8 +8,8 @@ import '../../browser/flygo_id.dart';
 import '../../config.dart' show serverKey;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
-import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
+import '../app_route.dart' show showsBack;
+import '../app_shell.dart';
 import '../theme.dart' show toast;
 import 'api.dart';
 import 'look.dart';
@@ -23,17 +23,14 @@ const kTodoScreen = 'todo';
 /// Mở Todo (từ ô trong mục Chính, hoặc từ tin nhắc của bot với [noteId]).
 Future<void> openTodo(BuildContext context, MiniApp app, {String? noteId}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final id = await FlygoId.current(state.token);
     if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
     final api = TodoApi(base: app.baseUrl, id: id);
     final store = TodoStore(api, cacheKey: '${serverKey}_${state.me?.id ?? 'me'}'.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_'));
-    await nav.push(AppPageRoute(builder: (_) => TodoHome(store: store, title: app.name, openNoteId: noteId)));
-    // Đóng Todo trong một tab máy tính: tab về lại tên ứng dụng.
-    tab?.onTitle?.call(null);
+    await host.open(key: app.id, title: app.name, deep: noteId != null, builder: (_) => TodoHome(store: store, title: app.name, openNoteId: noteId));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -159,7 +156,7 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
       item('archive', Icons.archive_outlined, tr('Lưu trữ')),
       item('trash', Icons.delete_outline_rounded, tr('Thùng rác')),
       // Quay về Flygo Chat (Sếp, 2026-11-12): như nút đóng ở góc trên bên phải.
-      if (Navigator.of(context).canPop()) ...[
+      if (showsBack(context)) ...[
         const Divider(height: 16),
         Padding(
           padding: const EdgeInsets.only(right: 10),
@@ -604,7 +601,7 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
         ),
         IconButton(tooltip: _list ? tr('Dạng lưới') : tr('Dạng danh sách'), icon: Icon(_list ? Icons.grid_view_rounded : Icons.view_agenda_outlined), onPressed: () => setState(() => _list = !_list)),
         // Nút đóng app ở góc trên bên phải như các mini app khác (Sếp, 2026-11-11).
-        if (Navigator.of(context).canPop()) IconButton(tooltip: tr('Đóng'), icon: const Icon(Icons.close_rounded), onPressed: _close),
+        if (showsBack(context)) IconButton(tooltip: tr('Đóng'), icon: const Icon(Icons.close_rounded), onPressed: _close),
         const SizedBox(width: 6),
       ],
     );

@@ -9,8 +9,8 @@ import 'package:provider/provider.dart';
 import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
 import '../../state/app_state.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
 import '../theme.dart';
 import 'api.dart';
 import 'ask_ai.dart';
@@ -19,8 +19,7 @@ import 'edition_page.dart';
 
 Future<void> openReports(BuildContext context, MiniApp app, {String? path}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final id = await FlygoId.current(state.token);
@@ -28,19 +27,10 @@ Future<void> openReports(BuildContext context, MiniApp app, {String? path}) asyn
     final api = ReportsApi(base: app.baseUrl, id: id);
     final m = path == null ? null : RegExp(r'/r/([A-Za-z0-9_-]{6,40})(?:/([A-Za-z0-9_-]{6,40}))?').firstMatch(path);
     if (m != null) {
-      await nav.push(
-        AppPageRoute(
-          builder: (_) => EditionPage(api: api, reportId: m.group(1)!, editionId: m.group(2)),
-        ),
-      );
+      await host.open(key: app.id, title: app.name, deep: true, builder: (_) => EditionPage(api: api, reportId: m.group(1)!, editionId: m.group(2)));
     } else {
-      await nav.push(
-        AppPageRoute(
-          builder: (_) => ReportsHome(api: api, title: app.name),
-        ),
-      );
+      await host.open(key: app.id, title: app.name, builder: (_) => ReportsHome(api: api, title: app.name));
     }
-    tab?.onTitle?.call(null);
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }

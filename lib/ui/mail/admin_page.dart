@@ -156,7 +156,7 @@ class MailAdminPageState extends State<MailAdminPage> {
             child: Row(
               children: [
                 const SizedBox(width: 12),
-                if (Navigator.of(context).canPop()) IconButton(tooltip: 'Quay lại', icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).maybePop()),
+                if (showsBack(context)) IconButton(tooltip: 'Quay lại', icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).maybePop()),
                 const SizedBox(width: 8),
                 _brand(mc),
                 const Spacer(),

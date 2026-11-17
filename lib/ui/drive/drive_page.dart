@@ -13,9 +13,9 @@ import 'package:provider/provider.dart';
 import '../../api/mini_apps.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
 import '../common.dart' show pickFilesOrReport;
-import '../desk_tabs.dart' show DeskTabScope;
 import '../theme.dart' show toast;
 import 'actions.dart';
 import 'api.dart';
@@ -26,14 +26,12 @@ import 'uploads.dart';
 /// Mở Drive (ô app Drive, hoặc link tới một thư mục [path]).
 Future<void> openDrive(BuildContext context, MiniApp app, {String? path}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final s = await DriveSession.current(state, app: app);
     if (s == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
-    await nav.push(AppPageRoute(builder: (_) => DriveHome(session: s, title: app.name, startPath: path)));
-    tab?.onTitle?.call(null);
+    await host.open(key: app.id, title: app.name, deep: path != null, builder: (_) => DriveHome(session: s, title: app.name, startPath: path));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -337,7 +335,8 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
       value: s,
       child: CallbackShortcuts(
         bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape): () => _sel.isNotEmpty ? setState(_sel.clear) : Navigator.maybePop(context),
+          // Esc: bỏ chọn; trang gốc của app thì không đóng app (đóng bằng tab / nút quay lại của máy).
+          const SingleActivator(LogicalKeyboardKey.escape): () => _sel.isNotEmpty ? setState(_sel.clear) : (showsBack(context) ? Navigator.maybePop(context) : null),
           const SingleActivator(LogicalKeyboardKey.delete): () => _sel.isNotEmpty && _section != DriveSection.trash ? _bulk(ItemAction.trash) : null,
           const SingleActivator(LogicalKeyboardKey.keyA, control: true): () => setState(() => _sel.addAll([for (final i in _items ?? <DriveItem>[]) i.path])),
           const SingleActivator(LogicalKeyboardKey.enter): () {
@@ -758,7 +757,7 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
           SizedBox(
             width: 256,
             child: Row(children: [
-              IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.maybePop(context)),
+              if (showsBack(context)) IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.maybePop(context)) else const SizedBox(width: 12),
               Icon(Icons.add_to_drive_rounded, color: l.accent, size: 32),
               const SizedBox(width: 10),
               Text(widget.title, style: TextStyle(fontSize: 21, color: l.text)),

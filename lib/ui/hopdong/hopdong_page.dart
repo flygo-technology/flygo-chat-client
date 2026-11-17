@@ -7,8 +7,8 @@ import 'package:provider/provider.dart';
 import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
 import '../../state/app_state.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
 import '../theme.dart' show toast;
 import 'api.dart';
 import 'detail_page.dart';
@@ -19,16 +19,14 @@ import 'progress.dart';
 
 Future<void> openHopdong(BuildContext context, MiniApp app, {String? path}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final id = await FlygoId.current(state.token);
     if (id == null) throw StateError('Máy chủ này chưa có Flygo ID');
     final api = HopdongApi(base: app.baseUrl, id: id);
     final cid = path == null ? null : RegExp(r'^/c/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1);
-    await nav.push(AppPageRoute(builder: (_) => HopdongHome(api: api, title: app.name, openId: cid)));
-    tab?.onTitle?.call(null);
+    await host.open(key: app.id, title: app.name, deep: cid != null, builder: (_) => HopdongHome(api: api, title: app.name, openId: cid));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -214,7 +212,7 @@ class _HopdongHomeState extends State<HopdongHome> {
   Widget _wrap(Widget child) => Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1200), child: child));
 
   Widget _sideNav(HdLook l) {
-    final canPop = Navigator.of(context).canPop();
+    final canPop = showsBack(context);
     Widget item((String, IconData, String, String?) it) {
       final sel = _view == it.$1;
       final n = switch (it.$1) { 'overview' => null, 'all' => _counts.all, 'progress' => _counts.sending, _ => _counts.of(it.$4) };
@@ -612,7 +610,7 @@ class _HopdongHomeState extends State<HopdongHome> {
   Widget _phone(HdLook l) {
     final list = _list;
     final now = hdNow();
-    final canPop = Navigator.of(context).canPop();
+    final canPop = showsBack(context);
     return Column(children: [
       AppBar(
         backgroundColor: l.bg,

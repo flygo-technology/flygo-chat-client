@@ -12,6 +12,7 @@ import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../../config.dart' show isDesktop;
 import '../../data/image_disk_cache.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
 import '../common.dart';
 import '../theme.dart';
@@ -26,17 +27,13 @@ import 'receipts_page.dart';
 /// Mở Bảng tin của [app] (mini app có native.screen = "bang_tin"); [postId] mở thẳng một bài.
 Future<void> openBangTin(BuildContext context, MiniApp app, {String? postId}) async {
   final token = context.read<AppState>().token;
-  final nav = Navigator.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final id = await FlygoId.current(token);
     if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
     final api = BangTinApi(base: app.baseUrl, id: id);
-    await nav.push(
-      AppPageRoute(
-        builder: (_) => BangTinHome(api: api, title: app.name, openPost: postId),
-      ),
-    );
+    await host.open(key: app.id, title: app.name, deep: postId != null, builder: (_) => BangTinHome(api: api, title: app.name, openPost: postId));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }

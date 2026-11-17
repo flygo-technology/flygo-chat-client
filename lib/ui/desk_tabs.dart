@@ -16,6 +16,7 @@ import 'theme.dart';
 /// - `flows`: Quy trình;
 /// - `app`: một ứng dụng của trang Bạn ([arg] = id trong youAppGroups, vd `contacts`);
 /// - `flow`: một quy trình như một ứng dụng riêng ([arg] = "id\ttên\tbiểu tượng");
+/// - `mini`: một ứng dụng (mini app, app native như Drive / Thư, trang quản trị) ([arg] = khoá ứng dụng, xem [AppTabRequest]);
 /// - `meet`: phòng chờ một cuộc họp của app Họp ([arg] = mã họp, hoặc `ch:<id kênh>` khi họp trong nhóm chat).
 ///   Không lưu lại khi mở lại app (không có trong [kinds]).
 class DeskTab {
@@ -37,11 +38,25 @@ class DeskTab {
     return DeskTab(kind, arg: j['arg'] as String?, pinned: j['pinned'] == true, id: id is String && id.isNotEmpty ? id : null);
   }
 
-  static const kinds = {'launcher', 'chat', 'conv', 'thread', 'agents', 'flows', 'app', 'flow'};
+  static const kinds = {'launcher', 'chat', 'conv', 'thread', 'agents', 'flows', 'app', 'flow', 'mini'};
 }
 
 /// Mở ở tab mới. null khi không có thanh tab (điện thoại, cửa sổ riêng): menu không hiện mục "Mở ở tab mới".
 void Function(DeskTab tab)? openTabHook;
+
+/// Mở trang gốc một ứng dụng: [key] là id mini app, hoặc `admin:<tên>` / `appearance` cho trang native không phải mini app.
+/// [deep]: mở thẳng một mục (thư, tệp, bài…): đã có tab của ứng dụng thì mở mục đó chồng lên trong tab ấy.
+class AppTabRequest {
+  final String key;
+  final String title;
+  final WidgetBuilder builder;
+  final bool deep;
+  const AppTabRequest({required this.key, required this.title, required this.builder, this.deep = false});
+}
+
+/// Mở ứng dụng ở tab mới (đã có tab của ứng dụng thì chuyển sang). Trả về false khi lúc này không có thanh tab
+/// (cửa sổ hẹp): mở như trang thường.
+bool Function(AppTabRequest r)? appTabHook;
 
 /// Trang đang nằm trong một tab máy tính: mini app / trang Quy trình mở ngay trong tab thay vì phủ cả cửa sổ.
 class DeskTabScope extends InheritedWidget {
@@ -53,7 +68,11 @@ class DeskTabScope extends InheritedWidget {
 
   /// Đóng tab này (vd phòng chờ họp sau khi vào cuộc họp ở cửa sổ riêng).
   final VoidCallback? onClose;
-  const DeskTabScope({super.key, this.onTitle, this.onLaunch, this.onClose, required super.child});
+
+  /// Chỉ tab Trang chủ / tab ứng dụng: ứng dụng sắp mở ngay trong tab này. true = đã có tab khác của ứng dụng đó (đã
+  /// chuyển sang), không mở thêm ở đây. null: tab này không chứa ứng dụng (Chat, Quy trình…), ứng dụng mở ở tab mới.
+  final bool Function(AppTabRequest r)? onApp;
+  const DeskTabScope({super.key, this.onTitle, this.onLaunch, this.onClose, this.onApp, required super.child});
   static DeskTabScope? of(BuildContext context) => context.getInheritedWidgetOfExactType<DeskTabScope>();
   @override
   bool updateShouldNotify(DeskTabScope old) => false;

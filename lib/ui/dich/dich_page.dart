@@ -11,8 +11,7 @@ import '../../api/translate.dart';
 import '../../config.dart' show isDesktop;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
-import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
+import '../app_shell.dart';
 import '../theme.dart';
 
 /// Màn hình native của mini app "Dịch thuật" (manifest native.screen = "dich", app vn.flygo.dich).
@@ -46,10 +45,8 @@ const kDichLangNames = {
 /// Mở Dịch thuật: dịch bằng dịch vụ dịch dùng chung của máy chủ chat (`POST <trạm>/translate`, phiên chat), cùng
 /// giới hạn lượt và nhật ký với nút "Dịch AI" trong chat.
 Future<void> openDich(BuildContext context, MiniApp app) async {
-  final tab = DeskTabScope.of(context);
-  await Navigator.of(context).push(AppPageRoute(builder: (_) => DichPage(title: app.name)));
-  // Đóng Dịch thuật trong một tab máy tính: tab về lại tên ứng dụng.
-  tab?.onTitle?.call(null);
+  final host = AppHost.of(context);
+  await host.open(key: app.id, title: app.name, builder: (_) => DichPage(title: app.name));
 }
 
 /// "Dịch thuật": hai ô sửa được, chọn ngôn ngữ trái / phải, đổi chiều. Ctrl + Enter (⌘ + Enter trên Mac) hoặc nút

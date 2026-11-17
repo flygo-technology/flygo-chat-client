@@ -10,8 +10,8 @@ import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
 import '../../config.dart' show serverKey;
 import '../../state/app_state.dart';
-import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
+import '../app_route.dart' show showsBack;
+import '../app_shell.dart';
 import '../theme.dart' show toast;
 import '../todo/model.dart';
 import 'agent_runs.dart';
@@ -55,20 +55,18 @@ Future<TwStore> teamworkStore(BuildContext context, MiniApp app) async {
 
 /// Mở TeamWork (từ ô ở mục Chính, hoặc link sâu `/t/<MÃ>` với [taskKey], `/p/<MÃ DỰ ÁN>` với [projectKey]).
 Future<void> openTeamwork(BuildContext context, MiniApp app, {String? taskKey, String? projectKey}) async {
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final store = await teamworkStore(context, app);
-    await nav.push(AppPageRoute(builder: (c) {
+    await host.open(key: app.id, title: app.name, deep: taskKey != null || projectKey != null, builder: (c) {
       (store.launcher as AppAgentLauncher?)?.context = c;
       (store.chatOps as AppChatOps?)?.context = c;
       store.onToast = (t) {
         if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(t)));
       };
       return TeamworkHome(store: store, openTaskKey: taskKey, initialProject: projectKey);
-    }));
-    tab?.onTitle?.call(null);
+    });
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -288,7 +286,7 @@ class TeamworkHomeState extends State<TeamworkHome> {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: look.divider))),
       child: Row(children: [
-        if (Navigator.of(context).canPop()) IconButton(tooltip: 'Đóng', icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).maybePop()),
+        if (showsBack(context)) IconButton(tooltip: 'Đóng', icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).maybePop()),
         Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         if (sub != null) ...[const SizedBox(width: 10), Text(sub, style: TextStyle(color: look.sub))],
         const Spacer(),

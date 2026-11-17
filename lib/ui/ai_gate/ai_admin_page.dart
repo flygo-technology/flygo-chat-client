@@ -5,18 +5,18 @@ import 'package:provider/provider.dart';
 
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
-import '../app_route.dart';
 import '../theme.dart';
 import 'ai_gate_api.dart';
+import '../app_shell.dart';
 
 Future<void> openAiAdmin(BuildContext context) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final api = await AiGateApi.current(state.token);
     if (api == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
-    await nav.push(AppPageRoute(builder: (_) => AiAdminPage(api: api)));
+    await host.open(key: 'admin:ai', title: tr('Quản trị Cổng AI'), builder: (_) => AiAdminPage(api: api));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }

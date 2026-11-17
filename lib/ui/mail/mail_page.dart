@@ -2,14 +2,20 @@
 // Máy tính: thanh tìm kiếm trên cùng, cột trái (Soạn thư, các hộp, nhãn), danh sách hoặc cuộc hội thoại bên phải,
 // khung soạn nổi góc dưới bên phải, phím tắt. Điện thoại: ô tìm kiếm dạng viên thuốc, menu trượt, danh sách có ảnh
 // đại diện, nút Soạn thư nổi; mở thư / soạn thư thành trang riêng; nhấn giữ (hoặc chạm ảnh đại diện) để chọn nhiều.
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
+import '../../config.dart' show serverKey;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
 import '../desk_tabs.dart' show DeskTabScope;
 import '../forward_page.dart';
@@ -36,8 +42,7 @@ const kMailScreen = 'mail';
 /// Mở Thư (từ ô ứng dụng, hoặc từ tin báo thư mới với [threadId]).
 Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, String? mailbox}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final MailApi api;
@@ -49,14 +54,11 @@ Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, Stri
       if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
       api = HttpMailApi(base: app.baseUrl, id: id, mailbox: mailbox);
     }
-    final store = MailStore(api);
+    // Hộp thư đến lần trước: mở là hiện ngay, làm mới sau (Sếp, 2026-11-17). Thư mẫu thì không lưu.
+    final key = '${serverKey}_${state.me?.id ?? 'me'}_${mailbox ?? ''}'.replaceAll(RegExp(r'[^A-Za-z0-9_.@-]'), '_');
+    final store = MailStore(api, cache: isMailDemo(app) ? null : MailFileCache(key));
     installMailHooks();
-    await nav.push(
-      AppPageRoute(
-        builder: (_) => MailHome(store: store, title: app.name, openThreadId: threadId),
-      ),
-    );
-    tab?.onTitle?.call(null);
+    await host.open(key: app.id, title: app.name, deep: threadId != null, builder: (_) => MailHome(store: store, title: app.name, openThreadId: threadId));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -65,7 +67,7 @@ Future<void> openMail(BuildContext context, MiniApp app, {String? threadId, Stri
 /// Mở Quản trị Thư (ô "Thư" ở mục Quản trị của Trang chủ: Flygo ID /v1/me/admin trả native "mail-admin").
 Future<void> openMailAdmin(BuildContext context) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     var app = MiniApps.cached.where((a) => a.id == kMailApp).firstOrNull;
@@ -79,9 +81,37 @@ Future<void> openMailAdmin(BuildContext context) async {
       if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
       api = HttpMailApi(base: app.baseUrl, id: id);
     }
-    await nav.push(AppPageRoute(builder: (_) => MailAdminPage(api: api.adminApi())));
+    await host.open(key: 'admin:mail', title: tr('Quản trị Thư'), builder: (_) => MailAdminPage(api: api.adminApi()));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
+  }
+}
+
+/// [MailCache] trong một tệp JSON ở thư mục dữ liệu của app.
+class MailFileCache implements MailCache {
+  MailFileCache(this.key);
+  final String key;
+
+  Future<File> _file() async => File('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}mail_$key.json');
+
+  @override
+  Future<Map?> read() async {
+    try {
+      final f = await _file();
+      if (!f.existsSync()) return null;
+      final j = jsonDecode(await f.readAsString());
+      return j is Map ? j : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> write(Map j) async {
+    final f = await _file();
+    final tmp = File('${f.path}.tmp');
+    await tmp.writeAsString(jsonEncode(j));
+    await tmp.rename(f.path);
   }
 }
 
@@ -561,26 +591,101 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final mc = MailColors.of(context);
     final wide = _wide(context);
+    final loading = store.error == null && store.me == null;
     final content = store.error != null && store.me == null
         ? _errorView(mc)
-        : store.me == null
-        ? _loadingView(mc)
+        : loading
+        ? _loadingView(mc, wide)
         : wide
         ? _desktop(mc)
         : _phone(mc);
-    return Focus(focusNode: _keys, autofocus: true, onKeyEvent: _onKey, child: content);
+    // Danh sách cũ (bộ nhớ đệm) hiện ngay, vạch tải mảnh trên cùng trong lúc làm mới; lần đầu thì khung chờ giống bố
+    // cục thật rồi hiện dần nội dung.
+    final busy = loading || store.syncing || (store.loading && store.items.isNotEmpty);
+    return Focus(
+      focusNode: _keys,
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: Stack(children: [
+        Positioned.fill(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: KeyedSubtree(key: ValueKey(loading ? 'loading' : store.error != null && store.me == null ? 'error' : 'mail'), child: content),
+          ),
+        ),
+        if (busy)
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: LinearProgressIndicator(key: ValueKey('mail-progress'), minHeight: 2, backgroundColor: Colors.transparent),
+          ),
+      ]),
+    );
   }
 
-  /// Đang tải thông tin hộp thư (lần mở đầu): không vẽ giao diện trống bấm không được.
-  Widget _loadingView(MailColors mc) => Scaffold(
-    key: const ValueKey('mail-loading'),
-    backgroundColor: mc.bg,
-    appBar: AppBar(title: Text(widget.title), backgroundColor: mc.bg),
-    body: Column(children: [
-      const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 8), child: Row(children: [Bone(height: 30, circle: true), SizedBox(width: 10), MailboxNameSkeleton()])),
-      Expanded(child: MailListSkeleton(phone: !_wide(context))),
-    ]),
-  );
+  /// Đang tải thông tin hộp thư lần mở đầu (chưa có bộ nhớ đệm): khung chờ theo đúng bố cục thật (thanh tìm, cột hộp
+  /// thư bên trái trên máy tính, danh sách thư), không thanh tiêu đề riêng.
+  Widget _loadingView(MailColors mc, bool wide) {
+    final search = Bone(height: wide ? 46 : 48, radius: 24);
+    if (!wide) {
+      return Scaffold(
+        key: const ValueKey('mail-loading'),
+        backgroundColor: mc.bg,
+        body: SafeArea(
+          child: Column(children: [
+            Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 4), child: Shimmer(child: search)),
+            Expanded(child: MailListSkeleton(phone: true)),
+          ]),
+        ),
+      );
+    }
+    return Scaffold(
+      key: const ValueKey('mail-loading'),
+      backgroundColor: mc.bg,
+      body: Column(children: [
+        SizedBox(
+          height: 64,
+          child: Row(children: [
+            const SizedBox(width: 20),
+            Shimmer(child: Row(children: const [Bone(height: 28, circle: true), SizedBox(width: 10), Bone(width: 72, height: 16)])),
+            const SizedBox(width: 172),
+            Expanded(child: Align(alignment: Alignment.centerLeft, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: Shimmer(child: search)))),
+            const SizedBox(width: 72),
+          ]),
+        ),
+        Expanded(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(
+              width: 256,
+              child: Shimmer(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 16, 0),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Bone(width: 140, height: 52, radius: 16),
+                    const SizedBox(height: 18),
+                    for (final w in const <double>[150, 120, 132, 104, 118, 96])
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
+                        child: Row(children: [const Bone(width: 18, height: 18, radius: 5), const SizedBox(width: 16), Bone(width: w, height: 12)]),
+                      ),
+                  ]),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.only(left: 8, right: 16, bottom: 16),
+                decoration: BoxDecoration(color: mc.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: mc.line)),
+                clipBehavior: Clip.antiAlias,
+                child: const MailListSkeleton(),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
 
   /// Máy chủ thư trả 404 cho /me: kết nối được, chỉ là người này chưa có hộp thư nào.
   bool get _noMailbox => store.error is MailException && (store.error as MailException).status == 404;

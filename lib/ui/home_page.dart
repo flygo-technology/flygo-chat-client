@@ -250,6 +250,11 @@ class _HomePageState extends State<HomePage> {
   Timer? _tabSave;
   /// Tiêu đề tab mới khi đang mở một mini app trong tab đó.
   final Map<String, String> _tabTitles = {};
+  /// Ứng dụng đang mở trong tab (id tab → khoá ứng dụng, [AppTabRequest.key]): tab `mini`, và tab Trang chủ vừa mở một
+  /// ứng dụng ngay trong tab. Để mở lại ứng dụng đó từ nơi khác thì chuyển sang tab này, không mở thêm.
+  final Map<String, String> _tabApp = {};
+  /// Trang gốc của tab `mini` vừa mở trong phiên này (tab mở lại sau khi khởi động lại app thì mở lại ứng dụng).
+  final Map<String, WidgetBuilder> _tabPages = {};
   /// Cuộc trò chuyện đang hiện ở giữa của từng tab (trừ tab Chat chính).
   final Map<String, String?> _tabChat = {};
   final Map<String, GlobalKey<NavigatorState>> _tabNavs = {};
@@ -357,11 +362,12 @@ class _HomePageState extends State<HomePage> {
     return s.isEmpty ? n : '${s[0].toUpperCase()}${s.substring(1)}';
   }
 
-  Future<void> _openAdmin(Map<String, dynamic> a) async {
-    if (a['app'] == kKysoExtensionId) return KysoApi.openAdmin(context);
-    if (a['native'] == 'mail-admin') return openMailAdmin(context);
-    if (a['native'] == 'appearance-admin') return openAppearanceAdmin(context);
-    if (a['native'] == 'ai-admin') return openAiAdmin(context);
+  /// [ctx]: nơi bấm (tab Trang chủ trên máy tính), để trang quản trị mở ngay trong tab đó.
+  Future<void> _openAdmin(Map<String, dynamic> a, BuildContext ctx) async {
+    if (a['app'] == kKysoExtensionId) return KysoApi.openAdmin(ctx);
+    if (a['native'] == 'mail-admin') return openMailAdmin(ctx);
+    if (a['native'] == 'appearance-admin') return openAppearanceAdmin(ctx);
+    if (a['native'] == 'ai-admin') return openAiAdmin(ctx);
     final u = Uri.tryParse('${a['url']}');
     if (u != null) await launchUrl(u, mode: LaunchMode.externalApplication);
   }
@@ -398,7 +404,10 @@ class _HomePageState extends State<HomePage> {
   Map<String, Object?> _tabsJson() {
     final keep = [for (final t in _deskTabs) if (t.kind != 'meet') t];
     final cur = _deskCur < _deskTabs.length ? keep.indexOf(_deskTabs[_deskCur]) : -1;
-    return {'v': 2, 'tabs': [for (final t in keep) t.toJson()], 'current': cur < 0 ? 0 : cur};
+    // Tab Trang chủ đang mở một ứng dụng: lưu như tab ứng dụng đó, mở lại app thì mở lại ứng dụng.
+    Map<String, Object?> json(DeskTab t) =>
+        t.kind == 'launcher' && _tabApp[t.id] != null ? DeskTab('mini', arg: _tabApp[t.id], pinned: t.pinned, id: t.id).toJson() : t.toJson();
+    return {'v': 2, 'tabs': [for (final t in keep) json(t)], 'current': cur < 0 ? 0 : cur};
   }
 
   /// Đã đọc xong các tab lưu lần trước (có hay không).
@@ -443,6 +452,83 @@ class _HomePageState extends State<HomePage> {
     _tabsChanged();
   }
 
+  /// Tab đang mở ứng dụng [key] (trừ [except]), -1 = chưa có.
+  int _appTabIndex(String key, {DeskTab? except}) =>
+      _deskTabs.indexWhere((t) => t != except && ((t.kind == 'mini' && t.arg == key) || _tabApp[t.id] == key));
+
+  /// [appTabHook]: mở ứng dụng ở tab mới, đã có tab của ứng dụng thì chuyển sang.
+  bool _openAppTab(AppTabRequest r) {
+    if (!mounted || !_wide) return false;
+    final i = _appTabIndex(r.key);
+    if (i >= 0) {
+      _showAppTab(_deskTabs[i], r);
+      return true;
+    }
+    final t = DeskTab('mini', arg: r.key);
+    _tabPages[t.id] = r.builder;
+    _tabTitles[t.id] = r.title;
+    _openTab(t);
+    return true;
+  }
+
+  /// Chuyển sang tab ứng dụng [t]; mở thẳng một mục (link thư, tệp…) thì mục đó mở chồng lên trong tab.
+  void _showAppTab(DeskTab t, AppTabRequest r) {
+    _selectDeskTab(_deskTabs.indexOf(t));
+    if (r.deep) _tabNav(t).currentState?.push(AppPageRoute(builder: r.builder));
+  }
+
+  /// [DeskTabScope.onApp] của tab Trang chủ / tab ứng dụng [t]: ứng dụng đã có tab khác thì chuyển sang (tab Trang chủ
+  /// vừa mở từ ô bấm thì đóng luôn), chưa có thì ghi nhận tab này đang mở ứng dụng đó.
+  bool _appInTab(DeskTab t, AppTabRequest r) {
+    final i = _appTabIndex(r.key, except: t);
+    if (i < 0) {
+      _tabApp[t.id] = r.key;
+      _tabsChanged();
+      return false;
+    }
+    final target = _deskTabs[i];
+    if (t.kind == 'launcher' && _tabOrigin.containsKey(t.id)) _closeDeskTab(_deskTabs.indexOf(t));
+    _showAppTab(target, r);
+    return true;
+  }
+
+  /// Tab ứng dụng [t] quay về trang gốc (ứng dụng đã đóng): tab Trang chủ thì thôi ghi nhận ứng dụng; tab `mini` mở lại
+  /// sau khởi động (trang gốc chỉ là màn chờ) thì đóng tab.
+  void _appTabRoot(DeskTab t) {
+    // Tab `mini` mở trong phiên này: trang gốc là chính ứng dụng (vừa đóng một trang con), giữ nguyên.
+    if (!mounted || (t.kind == 'mini' && _tabPages[t.id] != null)) return;
+    setState(() => _tabTitles.remove(t.id));
+    _tabApp.remove(t.id);
+    if (t.kind == 'mini' && _tabPages[t.id] == null) {
+      _closeDeskTab(_deskTabs.indexOf(t));
+    } else {
+      _tabsChanged();
+    }
+  }
+
+  /// Mở lại ứng dụng của tab `mini` đã lưu (sau khi khởi động lại app), ngay trong tab đó.
+  Future<void> _restoreAppTab(BuildContext ctx, String key) async {
+    switch (key) {
+      case 'admin:mail':
+        return openMailAdmin(ctx);
+      case 'admin:appearance':
+        return openAppearanceAdmin(ctx);
+      case 'admin:ai':
+        return openAiAdmin(ctx);
+      case 'admin:kyso':
+        return KysoApi.openAdmin(ctx);
+      case 'appearance':
+        return openAppearance(ctx);
+    }
+    var a = MiniApps.cached.where((a) => a.id == key).firstOrNull;
+    if (a == null) {
+      try {
+        a = (await MiniApps.list(_app.token)).where((a) => a.id == key).firstOrNull;
+      } catch (_) {}
+    }
+    if (a != null && ctx.mounted) await openMiniApp(ctx, a);
+  }
+
   void _selectDeskTab(int i) {
     if (i < 0 || i >= _deskTabs.length || i == _deskCur) return;
     setState(() => _deskCur = i);
@@ -462,6 +548,8 @@ class _HomePageState extends State<HomePage> {
     });
     _tabNavs.remove(t.id);
     _tabTitles.remove(t.id);
+    _tabApp.remove(t.id);
+    _tabPages.remove(t.id);
     _tabOrigin.remove(t.id);
     _pendingTap.remove(t.id);
     _tabChat.remove(t.id);
@@ -1415,7 +1503,7 @@ class _HomePageState extends State<HomePage> {
                     a['app'] == kKysoExtensionId
                         ? const Color(0xFF7C3AED)
                         : switch (a['native']) { 'mail-admin' => const Color(0xFF1E7BFF), 'appearance-admin' => const Color(0xFFC62828), 'ai-admin' => const Color(0xFF4F7BFF), _ => const Color(0xFF475569) },
-                    _adminLabel(a), 0, () => _openAdmin(a)),
+                    _adminLabel(a), 0, () => _openAdmin(a, nav()?.context ?? context)),
             ]),
           ],
           // "Cập nhật" đã có trong thẻ người dùng (Kiểm tra cập nhật). Điện thoại: ô "Hồ sơ" (ảnh của mình) mở trang hồ sơ
@@ -1431,7 +1519,7 @@ class _HomePageState extends State<HomePage> {
             if (title == tr('Cá nhân'))
               for (final a in MiniApps.cached)
                 if (a.feature('personal') && a.nativeScreen != null)
-                  appTile(MiniAppIcon(a, size: 34), miniAppTileColor(a), a.name, 0, () => openMiniApp(context, a)),
+                  appTile(MiniAppIcon(a, size: 34), miniAppTileColor(a), a.name, 0, () => openMiniApp(nav()?.context ?? context, a)),
             for (final id in ids)
               if (id != 'update' && items[id] != null) tile(asTab(id, items[id]!)),
           ]),
@@ -1576,6 +1664,7 @@ class _HomePageState extends State<HomePage> {
     if (_tabSave?.isActive == true) _app.saveDeskTabs(_tabsJson()).catchError((_) {});
     _tabSave?.cancel();
     if (openTabHook == _openTab) openTabHook = null;
+    if (appTabHook == _openAppTab) appTabHook = null;
     for (final s in _paneScopes.values) {
       s.dispose();
     }
@@ -1961,6 +2050,7 @@ class _HomePageState extends State<HomePage> {
     // Chờ đọc xong các tab đã lưu (hoặc không có) rồi mới thêm tab Trợ lý, để không bị bản đã lưu ghi đè.
     if (_tabsRestored) _ensureAgentsTab(app);
     if (openTabHook != _openTab) openTabHook = _openTab;
+    if (appTabHook != _openAppTab) appTabHook = _openAppTab;
     final main = _mainChatTab;
     return Material(
       color: pal.bg,
@@ -2035,13 +2125,41 @@ class _HomePageState extends State<HomePage> {
         return DeskTabLabel(icon(Icons.newspaper_rounded, const Color(0xFFE8833A)), tr('Bảng tin'), badge: BangTinService.instance.badge);
       case 'meet':
         return DeskTabLabel(icon(Icons.video_call_rounded, kMeetColor), _tabTitles[t.id] ?? tr('Họp'));
+      case 'mini':
+        final (ic, name) = _appTabLabel(t.arg ?? '');
+        return DeskTabLabel(ic, _tabTitles[t.id] ?? name);
       case 'app' when t.arg == 'zalo' || t.arg == 'wechat':
         return DeskTabLabel(brandIcon(t.arg!, 16, t.arg == 'zalo' ? const Color(0xFF0068FF) : const Color(0xFF07C160)), t.arg == 'zalo' ? 'Zalo' : 'WeChat');
       case 'app':
         final it = _appItems(app, () => null)[t.arg];
         if (it != null) return DeskTabLabel(icon(it.$1, it.$2), it.$3, badge: it.$4);
     }
+    final open = _tabApp[t.id];
+    if (open != null) {
+      final (ic, name) = _appTabLabel(open);
+      return DeskTabLabel(ic, _tabTitles[t.id] ?? name);
+    }
     return DeskTabLabel(icon(Icons.home_rounded, pal.sub), _tabTitles[t.id] ?? tr('Trang chủ'));
+  }
+
+  /// Biểu tượng và tên mặc định của tab ứng dụng [key] (mini app, trang quản trị).
+  (Widget, String) _appTabLabel(String key) {
+    Widget icon(IconData i, Color c) => Icon(i, size: 17, color: c);
+    switch (key) {
+      case 'admin:mail':
+        return (icon(Icons.mark_email_read_rounded, const Color(0xFF1E7BFF)), tr('Quản trị Thư'));
+      case 'admin:appearance':
+        return (icon(Icons.palette_rounded, const Color(0xFFC62828)), tr('Quản trị Giao diện'));
+      case 'admin:ai':
+        return (icon(Icons.smart_toy_rounded, const Color(0xFF4F7BFF)), tr('Quản trị Cổng AI'));
+      case 'admin:kyso':
+        return (icon(Icons.admin_panel_settings_rounded, const Color(0xFF7C3AED)), tr('Quản trị Ký số'));
+      case 'appearance':
+        return (icon(Icons.palette_rounded, const Color(0xFFC62828)), tr('Giao diện'));
+    }
+    final a = MiniApps.cached.where((a) => a.id == key).firstOrNull;
+    if (a == null) return (icon(Icons.apps_rounded, Pal.of(context).sub), tr('Ứng dụng'));
+    return (MiniAppIcon(a, size: 18), a.name);
   }
 
   /// Nội dung một tab (trừ tab Chat chính).
@@ -2076,6 +2194,15 @@ class _HomePageState extends State<HomePage> {
       'app' => _ColumnNavigator(navKey: _tabNav(t), root: _appPage(t.arg ?? '', app)),
       // Phòng chờ cuộc họp: cả tab (không phải hộp nổi), vào họp thì cuộc họp mở cửa sổ riêng và tab tự đóng.
       'meet' => _ColumnNavigator(navKey: _tabNav(t), root: MeetLobbyTab.page(t.arg ?? '')),
+      // Ứng dụng ở tab riêng: trang gốc là chính ứng dụng (không có nút quay lại); tab mở lại sau khởi động thì mở lại
+      // ứng dụng ngay trong tab.
+      'mini' => _ColumnNavigator(
+          navKey: _tabNav(t),
+          observers: [_TabRootObserver(() => _appTabRoot(t))],
+          root: _tabPages[t.id] != null
+              ? Builder(builder: _tabPages[t.id]!)
+              : _AppTabRestore(open: (ctx) => _restoreAppTab(ctx, t.arg ?? ''), onDone: () => _appTabRoot(t)),
+        ),
       'flow' => _ColumnNavigator(
           navKey: _tabNav(t),
           root: Builder(builder: (_) {
@@ -2085,7 +2212,7 @@ class _HomePageState extends State<HomePage> {
         ),
       _ => _ColumnNavigator(
           navKey: _tabNav(t),
-          observers: [_TabRootObserver(() => setState(() => _tabTitles.remove(t.id)))],
+          observers: [_TabRootObserver(() => _appTabRoot(t))],
           root: Scaffold(
             backgroundColor: Pal.of(context).bg,
             // Trang chủ máy tính: nền thường (không "Màu nền", Sếp 2026-11-17), dàn rộng hơn, ẩn thanh cuộn (vẫn cuộn bằng chuột / bàn di).
@@ -2105,6 +2232,9 @@ class _HomePageState extends State<HomePage> {
       onTitle: (title) => setState(() => title == null ? _tabTitles.remove(t.id) : _tabTitles[t.id] = title),
       onLaunch: (id) => _launchInTab(t, id),
       onClose: () => _closeDeskTab(_deskTabs.indexOf(t)),
+      // Chỉ tab Trang chủ và màn chờ của tab ứng dụng mở lại: ứng dụng mở ngay trong tab. Tab đã là một ứng dụng thì ứng
+      // dụng khác mở từ đó (vd Thư → Drive) sang tab mới.
+      onApp: t.kind == 'launcher' || (t.kind == 'mini' && _tabPages[t.id] == null) ? (r) => _appInTab(t, r) : null,
       child: body,
     );
   }
@@ -2421,6 +2551,32 @@ class _ColumnNavigatorState extends State<_ColumnNavigator> {
           onGenerateRoute: (_) => MaterialPageRoute(builder: (_) => ValueListenableBuilder<Widget>(valueListenable: _root, builder: (_, w, _) => w)),
         ),
       );
+}
+
+/// Trang gốc của tab ứng dụng mở lại sau khởi động: màn chờ, mở ứng dụng chồng lên ngay trong tab. Ứng dụng đóng
+/// (hoặc không mở được) thì [onDone] đóng tab.
+class _AppTabRestore extends StatefulWidget {
+  final Future<void> Function(BuildContext context) open;
+  final VoidCallback onDone;
+  const _AppTabRestore({required this.open, required this.onDone});
+  @override
+  State<_AppTabRestore> createState() => _AppTabRestoreState();
+}
+
+class _AppTabRestoreState extends State<_AppTabRestore> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await widget.open(context);
+      if (mounted && !Navigator.of(context).canPop()) widget.onDone();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ColoredBox(color: Pal.of(context).bg, child: const Center(child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5))));
 }
 
 /// Quay về trang gốc của navigator (vd đóng mini app trong tab mới): báo để đặt lại tiêu đề tab.

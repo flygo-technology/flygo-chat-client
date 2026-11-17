@@ -13,13 +13,15 @@ import 'chat_appearance.dart';
 import 'chat_wallpaper.dart' show ChatWallpaperArt;
 import 'season.dart';
 import 'season_state.dart';
+import '../app_shell.dart';
 
 /// Mở app Giao diện (màn hình native "appearance": mặc định của mình).
-Future<void> openAppearance(BuildContext context) => Navigator.of(context).push(AppPageRoute(builder: (_) => const AppearancePage()));
+Future<void> openAppearance(BuildContext context) =>
+    AppHost.of(context).open(key: 'appearance', title: tr('Giao diện'), builder: (_) => const AppearancePage());
 
 /// Mở trang quản trị Giao diện (màn hình native "appearance-admin", mục Quản trị).
 Future<void> openAppearanceAdmin(BuildContext context) =>
-    Navigator.of(context).push(AppPageRoute(builder: (_) => const AppearanceAdminPage()));
+    AppHost.of(context).open(key: 'admin:appearance', title: tr('Quản trị Giao diện'), builder: (_) => const AppearanceAdminPage());
 
 Widget _group(BuildContext context, List<Widget> c, {String? title}) {
   final pal = Pal.of(context);

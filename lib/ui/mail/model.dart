@@ -9,6 +9,8 @@ class MailPerson {
 
   factory MailPerson.fromJson(Map m) => MailPerson('${m['email'] ?? ''}', decodeMimeWords('${m['name'] ?? ''}'), m['me'] == true);
   Map<String, dynamic> toJson() => {'email': email, 'name': name};
+  /// Bộ nhớ đệm danh sách thư (đọc lại bằng [MailPerson.fromJson]).
+  Map<String, dynamic> toCache() => {'email': email, 'name': name, if (me) 'me': true};
 
   /// Tên hiển thị đầy đủ (không có tên thì là địa chỉ).
   String get display => name.isNotEmpty ? name : email;
@@ -40,6 +42,7 @@ class MailLabel {
   final int color;
 
   factory MailLabel.fromJson(Map m) => MailLabel('${m['id']}', '${m['name'] ?? ''}', parseHexColor('${m['color'] ?? ''}'));
+  Map<String, dynamic> toCache() => {'id': id, 'name': name, 'color': hexColor(color)};
 }
 
 int parseHexColor(String s) {
@@ -131,6 +134,28 @@ class MailThreadSummary {
         scheduledDraftId: m['scheduledDraftId'] is String ? m['scheduledDraftId'] as String : null,
       );
 
+  /// Bộ nhớ đệm danh sách thư (đọc lại bằng [MailThreadSummary.fromJson]).
+  Map<String, dynamic> toCache() => {
+        'id': id,
+        'subject': subject,
+        'snippet': snippet,
+        'date': date.millisecondsSinceEpoch,
+        'count': count,
+        'participants': [for (final p in participants) p.toCache()],
+        'to': [for (final p in to) p.toCache()],
+        if (unread) 'unread': true,
+        if (starred) 'starred': true,
+        if (important) 'important': true,
+        'labels': labels,
+        'box': box,
+        if (draft) 'draft': true,
+        'category': category,
+        'attachments': [for (final a in attachments) a.toJson()],
+        if (snoozedUntil != null) 'snoozedUntil': snoozedUntil!.toUtc().toIso8601String(),
+        if (scheduledAt != null) 'scheduledAt': scheduledAt!.toUtc().toIso8601String(),
+        if (scheduledDraftId != null) 'scheduledDraftId': scheduledDraftId,
+      };
+
   /// Ảnh chụp các trạng thái để hoàn tác.
   Map<String, dynamic> snapshot() => {'box': box, 'unread': unread, 'starred': starred, 'important': important, 'labels': [...labels]};
 }
@@ -175,6 +200,7 @@ class MailCounts {
         categories: {for (final e in (m['categories'] as Map? ?? const {}).entries) '${e.key}': (e.value as num).toInt()},
         labels: {for (final e in (m['labels'] as Map? ?? const {}).entries) '${e.key}': (e.value as num).toInt()},
       );
+  Map<String, dynamic> toCache() => {'inbox': inbox, 'drafts': drafts, 'spam': spam, 'categories': categories, 'labels': labels};
 }
 
 /// Một hộp thư người dùng mở được (hộp của mình, hộp dùng chung, hộp được uỷ quyền).
@@ -197,6 +223,8 @@ class MailboxInfo {
       kind: '${m['kind'] ?? 'personal'}',
       via: '${m['via'] ?? 'member'}',
       unread: (m['unread'] as num?)?.toInt() ?? 0);
+
+  Map<String, dynamic> toCache() => {'id': id, 'name': name, 'access': access, 'kind': kind, 'via': via, 'unread': unread};
 
   MailPerson get person => MailPerson(id, name);
   String get display => name.isNotEmpty ? name : id;
@@ -239,6 +267,19 @@ class MailMe {
         admin: m['admin'] == true,
         notify: m['notify'] == true);
   }
+
+  /// Bộ nhớ đệm (đọc lại bằng [MailMe.fromJson]).
+  Map<String, dynamic> toCache() => {
+        'email': person.email,
+        'name': person.name,
+        'mailboxes': mailboxes,
+        'boxes': [for (final b in boxes) b.toCache()],
+        'features': features,
+        'access': access,
+        if (user != null) 'user': {'email': user!.email, 'name': user!.name},
+        if (admin) 'admin': true,
+        if (notify) 'notify': true,
+      };
 
   bool get readOnly => access == 'read';
 

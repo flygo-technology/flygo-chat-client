@@ -11,8 +11,8 @@ import '../../calls/meet_rooms.dart' show parseMeetCode;
 import '../../config.dart' show serverKey;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
-import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
+import '../app_route.dart' show showsBack;
+import '../app_shell.dart';
 import '../meet/meet_lobby.dart' show openMeetLobby;
 import '../theme.dart';
 import 'agenda_view.dart';
@@ -42,13 +42,11 @@ Future<CalStore> calendarStore(BuildContext context, MiniApp app) async {
 /// Mở Lịch (từ ô trong mục Chính, hoặc từ tin của bot với [eventId] / [rid]).
 Future<void> openCalendar(BuildContext context, MiniApp app, {String? eventId, String? rid}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final store = await calendarStore(context, app);
-    await nav.push(AppPageRoute(builder: (_) => CalendarHome(store: store, title: app.name, openEventId: eventId, openRid: rid, mmToken: state.token)));
-    tab?.onTitle?.call(null);
+    await host.open(key: app.id, title: app.name, deep: eventId != null, builder: (_) => CalendarHome(store: store, title: app.name, openEventId: eventId, openRid: rid, mmToken: state.token));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -451,7 +449,7 @@ class CalendarHomeState extends State<CalendarHome> with WidgetsBindingObserver 
         _segmented(),
         const SizedBox(width: 14),
         _avatar(),
-        if (Navigator.of(context).canPop()) ...[
+        if (showsBack(context)) ...[
           const SizedBox(width: 4),
           IconButton(tooltip: tr('Đóng'), icon: Icon(Icons.close_rounded, color: pal.sub), onPressed: _close),
         ],
@@ -512,7 +510,7 @@ class CalendarHomeState extends State<CalendarHome> with WidgetsBindingObserver 
             view: view,
             onView: _setView,
             onSettings: () => openCalSettings(context, store),
-            onBack: Navigator.of(context).canPop() ? _close : null,
+            onBack: showsBack(context) ? _close : null,
           ),
         ),
       ),
