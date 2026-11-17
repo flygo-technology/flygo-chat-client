@@ -7,7 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/agent/agent_service.dart';
+import 'package:flygo_chat/state/app_state.dart';
+import 'package:flygo_chat/ui/agent_page.dart';
 import 'package:flygo_chat/ui/ai_gate/ai_admin_page.dart';
+import 'package:provider/provider.dart';
 import 'package:flygo_chat/ui/ai_gate/ai_gate_api.dart';
 import 'package:flygo_chat/ui/ai_gate/ai_quota_page.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -167,6 +171,34 @@ void main() {
       expect(find.textContaining('USD'), findsNothing); // nhân viên không thấy tiền
       await save(t, 'ai-quota-phone-${b.name}');
     }
+  });
+
+  // Trang Trợ lý gộp dung lượng AI (Sếp 2026-11-17): máy tính 2 cột (trái trợ lý, phải dung lượng), điện thoại thẻ gọn ở trên.
+  final bots = [
+    AgentBot('b1', 'jessica', 'Jessica', 'claude', const [], null, 'Kế toán, hoá đơn', false, ''),
+    AgentBot('b2', 'jenifer', 'Jenifer', 'codex', const [], null, '', false, ''),
+  ];
+  final quota = AiQuota(_user('ba@flygo.vn', 'co-ban', 'Cơ bản', 62, 30, 'ok'));
+  Widget agent({AiQuota? q}) => ChangeNotifierProvider<AppState>.value(value: AppState('test'), child: AgentPage(previewBots: bots, previewQuota: q));
+
+  testWidgets('Trợ lý + dung lượng AI: máy tính 2 cột', (t) async {
+    await app(t, const Size(1280, 820), Brightness.dark, agent(q: quota));
+    expect(find.text('Dung lượng AI công ty'), findsOneWidget);
+    expect(find.text('Jessica'), findsOneWidget);
+    expect(find.textContaining('USD'), findsNothing);
+    final left = t.getTopLeft(find.text('Jessica')).dx, right = t.getTopLeft(find.text('Dung lượng AI công ty')).dx;
+    expect(right, greaterThan(left + 400));
+    await save(t, 'agent-usage-desktop');
+  });
+
+  testWidgets('Trợ lý + dung lượng AI: điện thoại thẻ gọn ở trên; không có Cổng AI thì không hiện', (t) async {
+    await app(t, const Size(390, 844), Brightness.dark, agent(q: quota), ratio: 2);
+    final card = t.getTopLeft(find.text('Dung lượng AI công ty')).dy, bot = t.getTopLeft(find.text('Jessica')).dy;
+    expect(card, lessThan(bot));
+    await save(t, 'agent-usage-phone');
+    await app(t, const Size(390, 844), Brightness.dark, agent());
+    expect(find.text('Dung lượng AI công ty'), findsNothing);
+    expect(find.text('Dữ liệu gửi cho AI'), findsOneWidget);
   });
 
   test('lỗi máy chủ đọc được', () async {

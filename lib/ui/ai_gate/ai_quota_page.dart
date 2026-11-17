@@ -128,3 +128,89 @@ class _Ring extends CustomPainter {
   @override
   bool shouldRepaint(_Ring o) => o.pct != pct || o.color != color;
 }
+
+/// Dung lượng AI công ty của mình, đặt trong trang Trợ lý (Sếp 2026-11-17: cột phải trên máy tính, thẻ gọn trên điện thoại).
+/// Không hiện tiền. [compact] = một thẻ ngang: vòng % + hôm nay/tháng.
+class AiUsageCard extends StatelessWidget {
+  const AiUsageCard({super.key, required this.quota, this.compact = false, this.onRefresh});
+  final AiQuota quota;
+  final bool compact;
+  final VoidCallback? onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final q = quota;
+    final reset = q.resetsAt == null ? '' : '${q.resetsAt!.day.toString().padLeft(2, '0')}/${q.resetsAt!.month.toString().padLeft(2, '0')}';
+    Widget line(String label, int pct) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(label, style: TextStyle(fontSize: 13, color: pal.sub))),
+              Text('$pct%', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: pal.text)),
+            ]),
+            const SizedBox(height: 5),
+            usageBar(pal, pct, height: 6),
+          ]),
+        );
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(color: stateColor(q.state).withValues(alpha: .16), borderRadius: BorderRadius.circular(10)),
+      child: Text('${stateLabel(q.state)} · ${q.tierName}', style: TextStyle(fontSize: 12, color: stateColor(q.state), fontWeight: FontWeight.w600)),
+    );
+    final title = Row(children: [
+      Icon(Icons.data_usage_rounded, size: 18, color: pal.accent),
+      const SizedBox(width: 8),
+      Expanded(child: Text(tr('Dung lượng AI công ty'), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text))),
+      if (onRefresh != null) IconButton(visualDensity: VisualDensity.compact, tooltip: tr('Tải lại'), onPressed: onRefresh, icon: Icon(Icons.refresh_rounded, size: 18, color: pal.sub)),
+    ]);
+    final note = Text(
+      [
+        if (q.smartLeft != null) tr('Còn {0} lượt Kỹ hơn', ['${q.smartLeft}']),
+        if (reset.isNotEmpty) tr('Làm mới {0}', [reset]),
+      ].join(' · '),
+      style: TextStyle(fontSize: 12.5, color: pal.sub),
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 10, 14),
+      decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(18)),
+      child: compact
+          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              title,
+              Row(children: [
+                AiQuotaRing(pct: q.usedPct, size: 76),
+                const SizedBox(width: 16),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  chip,
+                  const SizedBox(height: 6),
+                  line(tr('Hôm nay'), q.dayPct),
+                  note,
+                ])),
+                const SizedBox(width: 6),
+              ]),
+            ])
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              title,
+              const SizedBox(height: 8),
+              Center(child: AiQuotaRing(pct: q.usedPct, size: 150)),
+              const SizedBox(height: 10),
+              Center(child: chip),
+              const SizedBox(height: 12),
+              line(tr('Hôm nay'), q.dayPct),
+              line(tr('Tháng này'), q.usedPct),
+              const SizedBox(height: 6),
+              note,
+              const SizedBox(height: 10),
+              Text(
+                switch (q.state) {
+                  'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Chế độ Nhanh vẫn dùng bình thường.'),
+                  'degraded' => tr('Đã hết hạn mức: AI chuyển sang chế độ tiết kiệm (Nhanh) tới khi làm mới.'),
+                  'blocked' => tr('AI của bạn đang tạm dừng. Hãy nhờ quản lý cộng thêm hạn mức.'),
+                  _ => tr('Tính chung cho Dự án AI, Thư, Office, Báo cáo và Dịch.'),
+                },
+                style: TextStyle(fontSize: 12.5, color: pal.sub, height: 1.4),
+              ),
+            ]),
+    );
+  }
+}

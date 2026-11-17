@@ -27,7 +27,6 @@ import 'contacts/directory_view.dart';
 import '../api/flows_api.dart' show FlowDefInfo, FlowsApi;
 import 'chat_page.dart';
 import 'ai_panel.dart';
-import 'ai_consent.dart';
 import 'calendar/upcoming.dart';
 import 'edit_profile_page.dart';
 import 'three_finger_swipe.dart';
@@ -76,8 +75,6 @@ import 'devices_page.dart';
 import 'my_browsers_page.dart';
 import 'mail/mail_page.dart' show openMailAdmin;
 import 'ai_gate/ai_admin_page.dart' show openAiAdmin;
-import 'ai_gate/ai_gate_api.dart';
-import 'ai_gate/ai_quota_page.dart';
 import 'users_admin_page.dart';
 import '../browser/runtime.dart' show kKysoExtensionId;
 import '../kyso/kyso_api.dart';
@@ -122,9 +119,7 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'update',
         'privacy',
         'terms',
-        'ai',
-        // Hạn mức AI công ty của chính mình (Cổng AI); chỉ hiện khi máy chủ có Cổng AI và mình được dùng.
-        'aiquota',
+        // Ô "AI" (đồng ý gửi dữ liệu) và "Hạn mức AI" đã gộp vào trang Trợ lý (Sếp, 2026-11-17).
         // Màu nền (màu trơn / nền Giáng sinh / theo mùa lễ): ô cuối của Cá nhân, cả điện thoại lẫn máy tính (Sếp, 2026-11-17).
         // Trang "Mở ứng dụng" trên máy tính vẫn để nền thường.
         'homebg',
@@ -326,20 +321,10 @@ class _HomePageState extends State<HomePage> {
   /// Quản trị viên Flygo ID: thêm ô "Người dùng" ở mục Quản trị.
   bool _usersAdmin = false;
 
-  /// Cổng AI: hạn mức của chính mình (ô "Hạn mức AI" ở Cá nhân). null = máy chủ chưa có hoặc mình chưa được dùng.
-  AiGateApi? _aiGate;
-  AiQuota? _aiQuota;
-
   void _askAdmin() {
     final id = KysoApi.flygoId;
     if (id == null || _adminAskedFor == kServerUrl) return;
     _adminAskedFor = kServerUrl;
-    final gate = AiGateApi(base: aiGateBase(), ticket: () => id.ticket(kAiGateApp));
-    gate.myQuota().then((q) {
-      if (mounted) setState(() { _aiGate = gate; _aiQuota = q; });
-    }).catchError((_) {
-      if (mounted && _aiQuota != null) setState(() { _aiGate = null; _aiQuota = null; });
-    });
     UsersAdminPage.allowed(id).then((ok) {
       if (mounted && ok != _usersAdmin) setState(() => _usersAdmin = ok);
     });
@@ -1133,10 +1118,6 @@ class _HomePageState extends State<HomePage> {
       'privacy': (Icons.privacy_tip_outlined, const Color(0xFF5B6CFF), tr('Quyền riêng tư'), 0, () => openServerLegal(context)),
       'terms': (Icons.gavel_rounded, const Color(0xFF8D6E63), tr('Điều khoản'), 0, () => openServerLegal(context, terms: true)),
       // Đồng ý gửi dữ liệu cho AI: xem lại, rút lại.
-      'ai': (Icons.auto_awesome_outlined, const Color(0xFFD97757), tr('AI'), 0, () => showAiConsentSettings(context)),
-      if (_aiQuota != null && _aiGate != null)
-        'aiquota': (Icons.data_usage_rounded, const Color(0xFF4F7BFF), tr('Hạn mức AI'), 0,
-            () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => AiQuotaPage(api: _aiGate!, initial: _aiQuota)))),
     };
   }
 

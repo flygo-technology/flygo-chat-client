@@ -10,6 +10,9 @@ import '../config.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'agent_detail_page.dart';
+import 'ai_consent.dart' show showAiConsentSettings;
+import 'ai_gate/ai_gate_api.dart';
+import 'ai_gate/ai_quota_page.dart' show AiUsageCard;
 import 'common.dart';
 import 'theme.dart';
 import 'package:flygo_chat/ui/app_route.dart';
@@ -17,7 +20,12 @@ import 'package:flygo_chat/ui/app_route.dart';
 /// Trang "Trợ lý AI": kiểm tra máy (Codex / Claude / Antigravity), bot trợ lý của tôi, công tắc
 /// "Dùng máy này làm trợ lý" (máy tính) và "Chạy nền khi đăng nhập máy".
 class AgentPage extends StatefulWidget {
-  const AgentPage({super.key});
+  const AgentPage({super.key, this.previewBots, this.previewQuota});
+  /// Ảnh xem trước / test: dùng dữ liệu này, không gọi máy chủ.
+  @visibleForTesting
+  final List<AgentBot>? previewBots;
+  @visibleForTesting
+  final AiQuota? previewQuota;
   @override
   State<AgentPage> createState() => _AgentPageState();
 }
@@ -30,11 +38,19 @@ class _AgentPageState extends State<AgentPage> {
   String? _error;
   bool _busy = false;
   String? _installing; // engine đang cài (agy)
+  /// Dung lượng AI công ty (Cổng AI) của mình; null = máy chủ chưa có hoặc mình chưa được dùng (không hiện gì).
+  AiGateApi? _gate;
+  AiQuota? _quota;
 
   @override
   void initState() {
     super.initState();
     svc.addListener(_changed);
+    if (widget.previewBots != null) {
+      _bots = widget.previewBots;
+      _quota = widget.previewQuota;
+      return;
+    }
     _load();
   }
 
@@ -48,8 +64,20 @@ class _AgentPageState extends State<AgentPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _loadQuota(AppState app) async {
+    try {
+      final gate = _gate ?? await AiGateApi.current(app.token);
+      if (gate == null) return;
+      final q = await gate.myQuota();
+      if (mounted) setState(() { _gate = gate; _quota = q; });
+    } catch (_) {
+      if (mounted && _quota != null) setState(() => _quota = null);
+    }
+  }
+
   Future<void> _load() async {
     final app = context.read<AppState>();
+    _loadQuota(app);
     try {
       final bots = await svc.myBots(app);
       if (!mounted) return;
@@ -310,7 +338,34 @@ class _AgentPageState extends State<AgentPage> {
             ? Center(child: Text(_error!, style: TextStyle(color: pal.sub)))
             : bots == null
                 ? Center(child: CircularProgressIndicator(color: pal.accent))
-                : ListView(padding: const EdgeInsets.all(16), children: [
+                : LayoutBuilder(builder: (context, c) {
+                    final q = _quota;
+                    final main = _content(context, pal, bots);
+                    if (q == null) return ListView(padding: const EdgeInsets.all(16), children: main);
+                    // Máy tính / khung rộng: trái = trợ lý, phải = dung lượng AI. Hẹp: thẻ gọn ở trên cùng.
+                    if (c.maxWidth >= 820) {
+                      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(child: ListView(padding: const EdgeInsets.all(16), children: main)),
+                        SizedBox(
+                          width: 340,
+                          child: ListView(padding: const EdgeInsets.fromLTRB(0, 16, 16, 16), children: [
+                            _section(pal, tr('Dung lượng sử dụng')),
+                            AiUsageCard(quota: q, onRefresh: () => _loadQuota(context.read<AppState>())),
+                          ]),
+                        ),
+                      ]);
+                    }
+                    return ListView(padding: const EdgeInsets.all(16), children: [
+                      AiUsageCard(quota: q, compact: true, onRefresh: () => _loadQuota(context.read<AppState>())),
+                      const SizedBox(height: 18),
+                      ...main,
+                    ]);
+                  }),
+      ),
+    );
+  }
+
+  List<Widget> _content(BuildContext context, Pal pal, List<AgentBot> bots) => [
                     if (isDesktop) ...[
                       _section(pal, tr('Máy này')),
                       _DoctorCard(
@@ -386,10 +441,17 @@ class _AgentPageState extends State<AgentPage> {
                       tr('Gọi trợ lý trong chat bằng @tên-trợ-lý kèm việc cần làm. Trợ lý chạy trên máy đang bật công tắc, dùng tài khoản Codex / Claude / Antigravity đã đăng nhập trên máy đó.'),
                       style: TextStyle(color: pal.sub, fontSize: 13),
                     ),
-                  ]),
-      ),
-    );
-  }
+                    // Đồng ý gửi dữ liệu cho AI (trước ở ô "AI" của Cá nhân, Sếp bỏ ô đó 2026-11-17).
+                    const SizedBox(height: 10),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      leading: Icon(Icons.privacy_tip_outlined, color: pal.sub),
+                      title: Text(tr('Dữ liệu gửi cho AI'), style: TextStyle(color: pal.text)),
+                      subtitle: Text(tr('Xem lại hoặc rút lại các đồng ý đã cấp'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
+                      trailing: Icon(Icons.chevron_right_rounded, color: pal.sub),
+                      onTap: () => showAiConsentSettings(context),
+                    ),
+                  ];
 
   Widget _section(Pal pal, String t) => Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
