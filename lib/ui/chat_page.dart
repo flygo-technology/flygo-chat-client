@@ -108,7 +108,15 @@ class ChatPage extends StatefulWidget {
   final bool embedded;
   /// Đang mở ở cột phải (luồng riêng tư): hiện nút đóng.
   final VoidCallback? onClose;
-  const ChatPage({super.key, required this.channelId, this.embedded = false, this.onClose});
+  /// Nhúng trong app khác (vd khung AI của dự án ở Làm việc nhóm): ẩn đầu khung chat (app đó có đầu riêng).
+  final bool showHeader;
+  /// Có thì tin chữ gõ ở ô nhắn tin đi qua đây thay vì gửi thẳng (app nhúng tự gửi kèm ngữ cảnh của mình).
+  final Future<void> Function(String text)? sendOverride;
+  /// Hiện ngay trên ô nhắn tin (vd các nút nhanh).
+  final Widget? aboveComposer;
+  /// Hiện dưới một tin (vd danh sách "Đã làm" dưới câu trả lời của agent); null = không có gì.
+  final Widget? Function(MmPost post)? postFooter;
+  const ChatPage({super.key, required this.channelId, this.embedded = false, this.onClose, this.showHeader = true, this.sendOverride, this.aboveComposer, this.postFooter});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -911,7 +919,7 @@ class _ChatPageState extends State<ChatPage> {
         if (mounted && (sz.height - _topInset).abs() > .5) setState(() => _topInset = sz.height);
       },
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        header,
+        if (widget.showHeader) header,
         _OngoingCallBanner(key: ValueKey('call:${ch.id}'), channel: ch),
         // Banner của Flygo Chat (header kênh) ưu tiên hơn banner của máy chủ chat.
         if (ch.flygoBanner case final b?)
@@ -1012,6 +1020,7 @@ class _ChatPageState extends State<ChatPage> {
                                   _replyTo = null;
                                 }),
                               ),
+                        ?widget.postFooter?.call(p),
                       ]));
                     })))),
               // Dây đèn mùa Giáng sinh ngay dưới thanh tiêu đề nổi.
@@ -1135,9 +1144,11 @@ class _ChatPageState extends State<ChatPage> {
             _AgentWorking(run: app.latest[ch.id] == null ? null : agentRunOf(app.latest[ch.id]!)),
           // Kiểu ChatGPT (Codex): trợ lý đang soạn thì có một chấm tròn "thở" như app ChatGPT.
           if (gptStyleFor(app, ch) && aiSessionRunning(app, ch.id)) const _BreathingDot(),
+          ?widget.aboveComposer,
           _Composer(
             key: _composer,
             channelId: ch.id,
+            sendOverride: widget.sendOverride,
             replyTo: _replyTo,
             editing: _editing,
             onCancelEdit: () => setState(() => _editing = null),
@@ -4286,9 +4297,12 @@ class _Composer extends StatefulWidget {
   final VoidCallback onSent;
   /// Ô nhắn tin trong trang chủ đề: mọi tin gửi là trả lời trong chủ đề của tin này.
   final String? threadRoot;
+  /// Xem [ChatPage.sendOverride].
+  final Future<void> Function(String text)? sendOverride;
   const _Composer(
       {super.key,
       this.threadRoot,
+      this.sendOverride,
       required this.channelId, this.replyTo, this.editing, required this.onCancelEdit, required this.onCancelReply, required this.onSent});
 
   @override
@@ -5758,6 +5772,18 @@ class _ComposerState extends State<_Composer> {
       return;
     }
     final app = context.read<AppState>();
+    // App nhúng gửi tin chữ kèm ngữ cảnh riêng (khung AI của dự án Làm việc nhóm).
+    final override = widget.sendOverride;
+    if (override != null && widget.threadRoot == null) {
+      _ctl.clear();
+      setState(() {});
+      widget.onSent();
+      final messenger = ScaffoldMessenger.of(context);
+      override(text).catchError((Object e) {
+        messenger.showSnackBar(toast(Text('$e')));
+      });
+      return;
+    }
     if (_threadMode == 'secret' && _canPrivateThread(app)) {
       _sendToPrivateThread(text, _taggedPeople(app));
     } else if (_threadMode == 'open' && _canPrivateThread(app)) {

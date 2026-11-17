@@ -40,6 +40,7 @@ Future<TwStore> teamworkStore(BuildContext context, MiniApp app) async {
   final s = TwStore(TwApi(base: app.baseUrl, id: id), cacheKey: '${serverKey}_${state.me?.id ?? 'me'}'.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_'));
   s.launcher = AppAgentLauncher(state);
   s.chatOps = AppChatOps(state);
+  s.aiSessions = AppAiSessions(state);
   s.aiAgentId = await state.uiPref<String>('teamwork_ai_agent');
   s.saveAiAgent = (id) => state.setUiPref('teamwork_ai_agent', id);
   s.aiPanelWidth = await state.uiPref<double>('teamwork_ai_panel_width');
