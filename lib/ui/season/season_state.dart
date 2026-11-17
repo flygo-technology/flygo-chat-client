@@ -8,8 +8,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../api/mini_apps.dart';
 import '../../browser/flygo_id.dart';
-import '../../config.dart' show serverKey, kUserAgent;
+import '../../config.dart' show serverKey, kServerUrl, kUserAgent;
 import '../../state/app_state.dart';
+import '../bubble_styles.dart' show BubbleChoice, bubbleSeasonPick;
 import 'season.dart';
 import 'season_art.dart';
 
@@ -45,7 +46,8 @@ class SeasonState extends ChangeNotifier {
   /// Đồng hồ (kiểm thử đặt ngày giả).
   DateTime Function() clock = DateTime.now;
 
-  bool get available => app != null;
+  /// Có dữ liệu mùa lễ của công ty (máy chủ có dịch vụ Giao diện). Nhân viên đọc bằng vé Gateway, không cần quyền dùng app.
+  bool get available => org != null;
   bool get canAdmin => org?['can_admin'] == true;
 
   /// "Xem thử" của quản trị viên: hiện mùa này trên các máy của mình, bất kể ngày và công ty đã bật hay chưa.
@@ -54,6 +56,8 @@ class SeasonState extends ChangeNotifier {
   // ---------------------------------------------------------------- tải
   Future<void> load(AppState state) async {
     _app = state;
+    // Lớp "mùa lễ" trong thứ tự bong bóng: chat riêng → mặc định của mình → mùa lễ → thường (AppState.resolveBubble).
+    state.seasonBubble = (_) => seasonBubble(state.me?.id ?? '');
     await _restoreCache();
     final raw = await state.loadPrefCategory(kSeasonPref);
     mine = _decode(raw['me']);
@@ -79,16 +83,16 @@ class SeasonState extends ChangeNotifier {
     final state = _app;
     if (state == null || state.token.isEmpty) return;
     try {
-      final apps = await MiniApps.list(state.token);
+      final apps = await MiniApps.list(state.token).catchError((_) => const <MiniApp>[]);
       app = apps.where((a) => a.id == kAppearanceApp).firstOrNull;
-      if (app == null) {
-        org = null;
-        notifyListeners();
-        return;
+      try {
+        org = await api('GET', '/api/seasons');
+        _saveCache();
+      } on SeasonException catch (e) {
+        // Máy chủ chưa có dịch vụ Giao diện / không cho đọc: không có mùa lễ.
+        if (e.status == 404 || e.status == 401 || e.status == 403) org = null;
       }
-      org = await api('GET', '/api/seasons');
-      _saveCache();
-      notifyListeners();
+      _changed();
     } catch (e) {
       debugPrint('season: $e');
     }
@@ -96,14 +100,18 @@ class SeasonState extends ChangeNotifier {
 
   /// Gọi máy chủ Giao diện bằng vé Flygo ID.
   Future<Map<String, dynamic>> api(String method, String path, [Object? body]) async {
-    final state = _app, a = app;
-    if (state == null || a == null) throw StateError('Giao diện chưa sẵn sàng');
+    final state = _app;
+    if (state == null || kServerUrl.isEmpty) throw StateError('Giao diện chưa sẵn sàng');
+    // Người được dùng app: vé của app (có quyền admin nếu được cấp). Còn lại: vé Gateway, chỉ đọc.
+    final a = app;
+    final base = a?.baseUrl ?? '${kServerUrl.replaceAll(RegExp(r'/+$'), '')}/__apps/appearance';
+    final audience = a != null ? kAppearanceApp : 'vn.flygo.gateway';
     final id = await FlygoId.current(state.token);
     if (id == null) throw StateError('Máy chủ này chưa có Flygo ID');
     Future<http.Response> send(bool refresh) async {
-      final req = http.Request(method, Uri.parse('${a.baseUrl.replaceAll(RegExp(r'/+$'), '')}$path'))
+      final req = http.Request(method, Uri.parse('${base.replaceAll(RegExp(r'/+$'), '')}$path'))
         ..headers.addAll({
-          'Authorization': 'Bearer ${await id.ticket(kAppearanceApp, refresh: refresh).timeout(const Duration(seconds: 25))}',
+          'Authorization': 'Bearer ${await id.ticket(audience, refresh: refresh).timeout(const Duration(seconds: 25))}',
           'User-Agent': kUserAgent,
           if (body != null) 'Content-Type': 'application/json',
         });
@@ -126,7 +134,13 @@ class SeasonState extends ChangeNotifier {
     final r = await api('PUT', '/api/seasons', {...cfg, 'version': org?['version'] ?? 0});
     org = r;
     _saveCache();
+    _changed();
+  }
+
+  /// Báo thay đổi cho giao diện + AppState (bong bóng mùa lễ dùng khi gửi tin, tên kiểu ở thông tin chat).
+  void _changed() {
     notifyListeners();
+    _app?.notifyListeners();
   }
 
   Future<File> _cacheFile() async =>
@@ -205,7 +219,7 @@ class SeasonState extends ChangeNotifier {
     if (state?.me == null) return;
     mine = {...mine, key: value};
     if (value == null) mine.remove(key);
-    notifyListeners();
+    _changed();
     await state!.api.put('/users/${state.me!.id}/preferences', [
       {'user_id': state.me!.id, 'category': kSeasonPref, 'name': 'me', 'value': jsonEncode(mine)}
     ]);
@@ -228,18 +242,32 @@ class SeasonState extends ChangeNotifier {
   String? wallpaperOf(String channelId) => wallpapers[channelId];
   String? get wallpaperDefault => wallpapers[kDefaultKey];
 
-  /// Hình nền thật dùng cho [channelId]: riêng của chat → mặc định của mình → mặc định của công ty → "theo mùa lễ".
-  /// Trả về null = nền chat thường.
+  /// Hình nền thật dùng cho [channelId]: riêng của chat → mặc định của mình → mùa lễ đang diễn ra (hình nền mùa do quản trị
+  /// chọn) → mặc định của công ty. Trả về null = nền chat thường.
   WallpaperChoice? resolveWallpaper(String channelId, bool dark) {
     if (!available) return null;
-    final defaults = (cfg['defaults'] as Map?) ?? const {};
     final key = wallpapers.containsKey(channelId) ? channelId : kDefaultKey;
-    final id = wallpapers[channelId] ?? wallpapers[kDefaultKey] ?? (defaults['wallpaper'] as String?) ?? 'season';
-    if (id == 'none') return null;
-    if (id == 'season') {
-      if (!on('wallpaper') || activeSeason() != 'giangsinh') return null;
-      return WallpaperChoice(wallpaperById(dark ? 'demnoel' : 'tuyettrang')!);
+    final id = wallpapers[channelId] ?? wallpapers[kDefaultKey] ?? 'season';
+    if (id == 'season') return _seasonWallpaper(dark);
+    return _choice(id, key);
+  }
+
+  WallpaperChoice? _seasonWallpaper(bool dark) {
+    final s = activeSeason();
+    if (s != null && on('wallpaper')) {
+      final w = '${((cfg['seasons'] as Map?)?[s] as Map?)?['wallpaper'] ?? 'auto'}';
+      // Hiện chỉ Giáng sinh có hình nền riêng.
+      if (w == 'off') return null;
+      // Mã cũ (auto / demnoel / tuyettrang) và mã mùa đều ra hình nền của mùa đó; mùa chưa có hình riêng thì thôi.
+      final art = wallpaperById(w) ?? wallpaperById(s);
+      return art == null ? null : WallpaperChoice(art);
     }
+    final d = (cfg['defaults'] as Map?)?['wallpaper'] as String?;
+    return d == null || d == 'season' ? null : _choice(d, kDefaultKey);
+  }
+
+  WallpaperChoice? _choice(String id, String key) {
+    if (id == 'none') return null;
     if (id.startsWith('plain:')) {
       final c = int.tryParse(id.substring(6), radix: 16);
       return c == null ? null : WallpaperChoice.plain(Color(0xFF000000 | c));
@@ -247,6 +275,32 @@ class SeasonState extends ChangeNotifier {
     if (id == 'photo') return WallpaperChoice.photo(key);
     final w = wallpaperById(id);
     return w == null ? null : WallpaperChoice(w);
+  }
+
+  /// Bong bóng mùa lễ của [userId] (lớp "mùa lễ" trong AppState.resolveBubble): null nếu không có mùa / mình tắt mùa lễ /
+  /// quản trị tắt bong bóng mùa.
+  BubbleChoice? seasonBubble(String userId) {
+    final s = activeSeason();
+    if (s == null || mine['off'] == true || userId.isEmpty) return null;
+    final b = ((cfg['seasons'] as Map?)?[s] as Map?)?['bubble'] as Map?;
+    final mode = b?['mode'] ?? 'random';
+    if (mode == 'off') return null;
+    return bubbleSeasonPick(s, userId, style: mode == 'one' ? b!['style'] as String? : null);
+  }
+
+  /// "Áp dụng cho mọi chat": bỏ hình nền riêng của mọi chat (giữ mặc định của mình).
+  Future<void> clearChatWallpapers() async {
+    final state = _app;
+    if (state?.me == null) return;
+    final keys = [for (final k in wallpapers.keys) if (k != kDefaultKey) k];
+    if (keys.isEmpty) return;
+    for (final k in keys) {
+      wallpapers.remove(k);
+    }
+    notifyListeners();
+    await state!.api.post('/users/${state.me!.id}/preferences/delete', [
+      for (final k in keys) {'user_id': state.me!.id, 'category': kWallpaperPref, 'name': k, 'value': ''}
+    ]);
   }
 
   /// Lưu hình nền của một chat (hoặc [kDefaultKey]); null = "Dùng mặc định" (xoá lựa chọn riêng).
@@ -347,8 +401,6 @@ class WallpaperChoice {
       : art = null,
         color = null;
 
-  /// Nền tối (chữ hệ thống trên nền dùng bảng màu tối).
-  bool get dark => art?.dark ?? (color != null ? color!.computeLuminance() < .3 : true);
 }
 
 /// Banner mùa lễ ở Trang chủ (hiện ở Giáng sinh, tới hết 25/12); bấm × thì ẩn tới năm sau.
@@ -367,15 +419,4 @@ class SeasonBanner extends StatelessWidget {
       },
     );
   }
-}
-
-/// Ảnh xem trước: ép bật / tắt nền mùa lễ của thanh tab (null = theo mùa đang diễn ra).
-bool? debugNavBg;
-
-/// Thanh tab điện thoại dùng nền Giáng sinh: mùa đang diễn ra, công ty bật "Dây đèn" (trang trí), mình không tắt
-/// "Trang trí thanh điều hướng".
-bool seasonNavBg() {
-  if (debugNavBg != null) return debugNavBg!;
-  final s = SeasonState.instance;
-  return s.activeSeason() == 'giangsinh' && s.on('lights') && s.mine['navbar'] != false;
 }

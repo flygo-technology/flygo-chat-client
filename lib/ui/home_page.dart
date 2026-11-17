@@ -41,8 +41,7 @@ import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
-import 'season/appearance_pages.dart' show openAppearanceAdmin;
-import 'season/season_art.dart' show XmasBarPainter;
+import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin;
 import 'season/season_state.dart';
 import 'password_page.dart';
 import 'call_history.dart';
@@ -2589,9 +2588,6 @@ class _TabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    // Mùa Giáng sinh: thanh dùng nền riêng (XmasBarPainter), mục đang chọn tô đỏ nhạt.
-    final xmas = seasonNavBg();
-    final dark = Theme.of(context).brightness == Brightness.dark;
     Widget item(int i, IconData icon, String label, int count, {Color? badge, Widget? avatar}) {
       final sel = i == index;
       return Expanded(
@@ -2606,11 +2602,7 @@ class _TabBar extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
             padding: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
-              color: !sel
-                  ? Colors.transparent
-                  : xmas
-                      ? (dark ? const Color(0x4DE53935) : const Color(0x26C62828))
-                      : pal.text.withValues(alpha: .10),
+              color: sel ? pal.text.withValues(alpha: .10) : Colors.transparent,
               borderRadius: BorderRadius.circular(28),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2660,8 +2652,6 @@ class _TabBar extends StatelessWidget {
       ),
       child: Glass(
         radius: BorderRadius.circular(36),
-        child: CustomPaint(
-        painter: xmas ? XmasBarPainter(dark: dark) : null,
         child: Row(children: [
           item(0, Icons.chat_bubble_outline, tr('Chat'), unread),
                     // Thứ tự (Sếp 10/11, đổi lại): Chat, Trợ lý, Bảng tin.
@@ -2670,7 +2660,6 @@ class _TabBar extends StatelessWidget {
           // Điện thoại (Sếp 09/11): chỉ Chat, Trợ lý, Apps; Quy trình nằm trong Apps (Trang chủ như máy tính).
           item(3, Icons.apps_rounded, tr('Apps'), missed, badge: const Color(0xFFE53935)),
         ]),
-        ),
       ),
       ),
     );
@@ -3297,6 +3286,23 @@ class ProfileView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
           child: Text(tr('Bật: chữ đậm, danh sách, bảng, khối mã hiển thị đẹp. Tắt: hiện chữ thô như khi gõ.'),
               style: TextStyle(fontSize: 13, color: pal.sub)),
+        ),
+        // Giao diện (mọi người): mùa lễ, bong bóng / hình nền mặc định. Chỉ hiện khi máy chủ có dịch vụ Giao diện.
+        ListenableBuilder(
+          listenable: SeasonState.instance,
+          builder: (context, _) => !SeasonState.instance.available
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: InfoGroup(children: [
+                    InfoRow(
+                      icon: Icons.palette_outlined,
+                      title: tr('Giao diện'),
+                      value: SeasonState.instance.activeSeason() != null && SeasonState.instance.mine['off'] != true ? tr('Mùa lễ') : null,
+                      onTap: () => openAppearance(context),
+                    ),
+                  ]),
+                ),
         ),
         const SizedBox(height: 16),
         InfoGroup(children: [

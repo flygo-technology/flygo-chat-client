@@ -16,7 +16,7 @@ import 'package:flygo_chat/ui/common.dart' show Avatar;
 import 'package:flygo_chat/ui/season/appearance_pages.dart';
 import 'package:flygo_chat/ui/season/chat_appearance.dart';
 import 'package:flygo_chat/ui/season/chat_wallpaper.dart';
-import 'package:flygo_chat/ui/season/season.dart' show LightString;
+import 'package:flygo_chat/ui/season/season.dart' show Garland;
 import 'package:flygo_chat/ui/season/season_art.dart';
 import 'package:flygo_chat/ui/season/season_state.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -127,8 +127,8 @@ void main() {
     await t.pumpWidget(_wrap(_app(), Brightness.dark, GlobalKey()));
     await t.pump(const Duration(milliseconds: 300));
     final wp = t.widget<ChatWallpaperArt>(find.byType(ChatWallpaperArt));
-    expect(wp.choice.art?.id, 'demnoel');
-    expect(find.byType(LightString), findsOneWidget);
+    expect(wp.choice.art?.id, 'giangsinh');
+    expect(find.byType(Garland), findsOneWidget);
     await t.pump(const Duration(seconds: 4)); // hết hiệu ứng lời chúc
     await t.pumpWidget(const SizedBox.shrink());
   });
@@ -153,14 +153,14 @@ void main() {
   });
 
   testWidgets('ngoài mùa / không được dùng app: chat như cũ', (t) async {
-    SeasonState.instance.app = null;
+    SeasonState.instance.org = null;
     t.view.physicalSize = const Size(420, 1000);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
     await t.pumpWidget(_wrap(_app(), Brightness.light, GlobalKey()));
     await t.pump(const Duration(milliseconds: 300));
     expect(find.byType(ChatWallpaperArt), findsNothing);
-    expect(find.byType(LightString), findsNothing);
+    expect(find.byType(Garland), findsNothing);
     expect(find.byType(SantaHat), findsNothing);
     await t.pumpWidget(const SizedBox.shrink());
   });

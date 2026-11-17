@@ -83,7 +83,8 @@ class WallpaperPickerBody extends StatelessWidget {
 
   bool get _perChat => prefKey != SeasonState.kDefaultKey;
 
-  static const _plain = ['E8EEF4', 'F3EADB', 'DCEDC8', 'FCE4EC', 'E1F5FE', '1F2933', '0B1A33', '2E1A1A', '1B2E24', '000000'];
+  /// Màu gốc; app suy ra màu nhạt (sáng) / đậm (tối).
+  static const _plain = ['4A78B8', '2E8B6E', 'B8860B', 'C0504D', '8E5BB5', '5C6B7A', '1E88E5', 'D4A373', '6D8B74', '9E4770'];
 
   Future<void> _pickPlain(BuildContext context, SeasonState s) async {
     final pal = Pal.of(context);
@@ -99,7 +100,12 @@ class WallpaperPickerBody extends StatelessWidget {
               child: Container(
                 width: 52,
                 height: 52,
-                decoration: BoxDecoration(color: Color(0xFF000000 | int.parse(h, radix: 16)), borderRadius: BorderRadius.circular(12), border: Border.all(color: pal.divider)),
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: pal.divider)),
+                // Nửa trên: chế độ sáng, nửa dưới: chế độ tối.
+                child: Column(children: [
+                  for (final d in [false, true]) Expanded(child: Container(color: plainWallpaperColor(Color(0xFF000000 | int.parse(h, radix: 16)), d))),
+                ]),
               ),
             ),
         ]),
@@ -173,7 +179,7 @@ class WallpaperPickerBody extends StatelessWidget {
               child: Text(t, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: pal.text)),
             );
         Widget wrap(List<Widget> c) => Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Wrap(spacing: 4, runSpacing: 12, children: c));
-        final plainCur = cur != null && cur.startsWith('plain:') ? Color(0xFF000000 | (int.tryParse(cur.substring(6), radix: 16) ?? 0xE8EEF4)) : null;
+        final plainCur = cur != null && cur.startsWith('plain:') ? Color(0xFF000000 | (int.tryParse(cur.substring(6), radix: 16) ?? 0x4A78B8)) : null;
         return ListView(padding: const EdgeInsets.only(bottom: 30), children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -193,27 +199,33 @@ class WallpaperPickerBody extends StatelessWidget {
                 OutlinedButton(onPressed: () => s.setWallpaper(prefKey, null), child: Text(tr('Dùng mặc định'))),
               ]),
             ),
-          section(tr('Giáng sinh')),
+          section(tr('Mùa lễ')),
           wrap([
-            for (final w in wallpapers) tile(w.id, WallpaperView(wallpaper: w, frozenT: 2.4), w.name),
+            for (final w in wallpapers) tile(w.id, _autoBadge(WallpaperView(wallpaper: w, frozenT: 2.4)), w.name),
             tile(null, Container(color: const Color(0xFFB71C1C), child: const Center(child: Icon(Icons.local_florist_rounded, color: Color(0xFFFFD54F), size: 30))), tr('Tết'), soon: true),
             tile(null, Container(color: const Color(0xFF283593), child: const Center(child: Icon(Icons.nightlight_round, color: Color(0xFFFFE082), size: 30))), tr('Trung thu'), soon: true),
           ]),
           section(tr('Cơ bản')),
           wrap([
-            tile('season', Row(children: [
-              Expanded(child: WallpaperView(wallpaper: wallpaperById('demnoel')!, frozenT: 2)),
-              Expanded(child: WallpaperView(wallpaper: wallpaperById('tuyettrang')!, frozenT: 2)),
-            ]), tr('Theo mùa lễ')),
+            tile('season', _autoBadge(WallpaperView(wallpaper: wallpaperById('giangsinh')!, frozenT: 2)), tr('Theo mùa lễ')),
             tile('none', Container(color: pal.chatBg, child: Center(child: Icon(Icons.chat_bubble_outline_rounded, color: pal.sub))), tr('Không')),
-            tile('plain', Container(color: plainCur ?? (dark ? const Color(0xFF1F2933) : const Color(0xFFE8EEF4))), tr('Màu trơn'), onTap: () => _pickPlain(context, s)),
+            tile('plain', _autoBadge(Container(color: plainWallpaperColor(plainCur ?? const Color(0xFF4A78B8), dark))), tr('Màu trơn'),
+                onTap: () => _pickPlain(context, s)),
             tile('photo', cur == 'photo' ? ChatWallpaperArt(choice: WallpaperChoice.photo(prefKey)) : Container(color: pal.surface2, child: Icon(Icons.add_photo_alternate_outlined, color: pal.sub, size: 30)),
                 tr('Ảnh của mình'), onTap: () => _pickPhoto(context, s)),
           ]),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(children: [
+              Icon(Icons.brightness_6_outlined, size: 16, color: pal.sub),
+              const SizedBox(width: 6),
+              Expanded(child: Text(tr('Mỗi hình nền tự đổi theo chế độ sáng / tối của máy.'), style: TextStyle(fontSize: 12.5, color: pal.sub))),
+            ]),
+          ),
           if (!_perChat || cur == null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Text(tr('"Theo mùa lễ": Đêm Noel khi máy tối, Tuyết trắng khi máy sáng, trong mùa công ty bật; ngoài mùa thì không có hình nền.'),
+              child: Text(tr('"Theo mùa lễ": hình nền của mùa công ty đang bật; ngoài mùa thì không có hình nền.'),
                   style: TextStyle(fontSize: 12.5, color: pal.sub)),
             ),
           if (switches) ...[
@@ -222,12 +234,12 @@ class WallpaperPickerBody extends StatelessWidget {
               value: s.motion,
               onChanged: (v) => s.setMine('motion', v),
               title: Text(tr('Hiệu ứng động'), style: TextStyle(fontSize: 15, color: pal.text)),
-              subtitle: Text(tr('Tuyết rơi, đèn nhấp nháy. Tự tắt khi máy bật giảm chuyển động.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+              subtitle: Text(tr('Tuyết rơi trên hình nền. Tự tắt khi máy bật giảm chuyển động.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
             ),
             SwitchListTile(
               value: s.mine['lights'] != false,
               onChanged: (v) => s.setMine('lights', v),
-              title: Text(tr('Dây đèn trên khung chat'), style: TextStyle(fontSize: 15, color: pal.text)),
+              title: Text(tr('Dải cây thông trên khung chat'), style: TextStyle(fontSize: 15, color: pal.text)),
               subtitle: Text(tr('Mọi chat, trong mùa Giáng sinh'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
             ),
           ],
@@ -236,3 +248,17 @@ class WallpaperPickerBody extends StatelessWidget {
     );
   }
 }
+
+/// Dấu "tự đổi sáng / tối" ở góc ô hình nền.
+Widget _autoBadge(Widget art) => Stack(fit: StackFit.expand, children: [
+      art,
+      Positioned(
+        left: 5,
+        bottom: 5,
+        child: Container(
+          padding: const EdgeInsets.all(3),
+          decoration: const BoxDecoration(color: Color(0x8C000000), shape: BoxShape.circle),
+          child: const Icon(Icons.brightness_6_outlined, size: 13, color: Colors.white),
+        ),
+      ),
+    ]);
