@@ -1141,7 +1141,7 @@ class _HomePageState extends State<HomePage> {
     // [color] null = ô nền trắng có viền (mini app: biểu tượng riêng của app là ảnh / emoji).
     // Không khung quanh các nhóm (Sếp, 2026-11-17): ô nằm thẳng trên trang. Có "Màu nền" (điện thoại) thì chữ có bóng
     // mờ nhẹ cho rõ trên nền.
-    final onBg = onLaunch != null && !isDesktop && SeasonState.instance.homeChoice() != null;
+    final onBg = onLaunch != null && HomeBackground.showing(explicitOnly: isDesktop);
     Widget onWall(Widget text) => !onBg
         ? text
         : DefaultTextStyle.merge(
@@ -2069,8 +2069,10 @@ class _HomePageState extends State<HomePage> {
           observers: [_TabRootObserver(() => setState(() => _tabTitles.remove(t.id)))],
           root: Scaffold(
             backgroundColor: Pal.of(context).bg,
-            // Trang chủ máy tính: nền thường (không "Màu nền", Sếp 2026-11-17), dàn rộng hơn, ẩn thanh cuộn (vẫn cuộn bằng chuột / bàn di).
-            body: ScrollConfiguration(
+            // Trang chủ máy tính: nền thường; chỉ hiện "Màu nền" khi người dùng tự chọn (Sếp, 2026-11-17). Dàn rộng, ẩn thanh cuộn.
+            body: HomeBackground(
+              explicitOnly: true,
+              child: ScrollConfiguration(
               behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
               child: Center(
                 child: ConstrainedBox(
@@ -2078,7 +2080,7 @@ class _HomePageState extends State<HomePage> {
                   child: _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id), tab: t),
                 ),
               ),
-            ),
+            )),
           ),
         ),
     };
