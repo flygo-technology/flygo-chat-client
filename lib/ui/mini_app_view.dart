@@ -22,7 +22,8 @@ import 'wiki/wiki_page.dart' show openWiki;
 import 'forms/home_page.dart' show openForms;
 import 'hopdong/api.dart' show kHopdongScreen;
 import 'hopdong/hopdong_page.dart' show openHopdong;
-import 'drive/api.dart' show kDriveScreen;
+import 'drive/api.dart' show kDriveApp, kDriveScreen, kOfficeApp;
+import 'drive/session.dart' show officeLinkOf, openOfficeLink;
 import 'drive/drive_page.dart' show openDrive;
 import 'reports/reports_page.dart' show openReports;
 import 'calendar/calendar_page.dart' show openCalendar;
@@ -37,7 +38,7 @@ import 'show_page.dart';
 import 'season/appearance_pages.dart' show openAppearance;
 import 'theme.dart';
 import 'app_shell.dart';
-import 'desk_tabs.dart' show DeskTab, DeskTabScope, openTabHook;
+import 'desk_tabs.dart' show DeskTab, DeskTabScope, appTabHook, openTabHook;
 import 'mini_app_windows.dart';
 import 'package:flygo_chat/ui/app_route.dart';
 
@@ -79,6 +80,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'bang_tin') {
     await openBangTin(context, app, postId: path == null ? null : RegExp(r'^/p/([A-Za-z0-9_-]{6,32})').firstMatch(path)?.group(1));
     return;
+  }
+  final link = path == null || !_isDriveApp(app) ? null : officeLinkOf(Uri.parse(path));
+  if (link != null && MiniApps.inAppWebView) {
+    if (await openOfficeLink(context, link.$1, link.$2)) return;
+    if (!context.mounted) return;
   }
   if (app.nativeScreen == kDriveScreen) {
     await openDrive(context, app, path: path != null && path.startsWith('/my/') ? Uri.decodeComponent(path.substring(3)) : null);
@@ -399,7 +405,9 @@ class MiniAppPage extends StatefulWidget {
   final bool inWindow;
   /// Tiêu đề thay cho tên app (vd tên tệp khi Drive mở OnlyOffice).
   final String? title;
-  const MiniAppPage({super.key, required this.app, required this.url, this.inWindow = false, this.title});
+  /// Trang soạn tài liệu Office (Drive): link tới tài liệu khác không bị chuyển sang tab mới.
+  final bool editor;
+  const MiniAppPage({super.key, required this.app, required this.url, this.inWindow = false, this.title, this.editor = false});
   @override
   State<MiniAppPage> createState() => _MiniAppPageState();
 }
@@ -436,6 +444,13 @@ class _MiniAppPageState extends State<MiniAppPage> {
         onNavigationRequest: (req) {
           final u = Uri.tryParse(req.url);
           if (u == null) return NavigationDecision.prevent;
+          // Trang Office / Drive web mở một tài liệu: máy tính mở bằng trang soạn nhanh ở tab riêng (không có giao diện
+          // Nextcloud), trang hiện tại đứng yên.
+          final office = !widget.editor && req.isMainFrame && isDesktop && appTabHook != null && _isDriveApp(_app) && _app.owns(u) ? officeLinkOf(u) : null;
+          if (office != null) {
+            openOfficeLink(context, office.$1, office.$2);
+            return NavigationDecision.prevent;
+          }
           if (_app.owns(u) || u.scheme == 'about' || u.scheme == 'blob' || u.scheme == 'data') return NavigationDecision.navigate;
           // Web bên ngoài (plain): đăng nhập / chuyển trang ngay trong tab; cầu nối FlygoApp vẫn chỉ trả lời origin của app.
           if (_app.plain && (u.scheme == 'https' || u.scheme == 'http')) return NavigationDecision.navigate;
@@ -709,3 +724,6 @@ class _ScanOncePageState extends State<ScanOncePage> {
         ),
       );
 }
+
+/// App Drive / Office (cùng Nextcloud): link tài liệu Office của hai app này mở bằng trang soạn nhanh.
+bool _isDriveApp(MiniApp a) => a.id == kDriveApp || a.id == kOfficeApp || a.nativeScreen == kDriveScreen;

@@ -21,12 +21,16 @@ import 'api.dart';
 import 'look.dart';
 import 'offline.dart';
 import 'preview.dart';
+import 'transfers.dart';
 import 'uploads.dart';
 
 class DriveSession {
   DriveSession({required this.api, required this.key, required this.app, required this.chatToken})
       : uploads = DriveUploads.of(api, key),
         offline = DriveOffline.of(api, key);
+
+  /// Các lượt tải xuống (bảng tiến độ dưới màn hình).
+  final downloads = DriveDownloads();
 
   final DriveApi api;
   final String key;
@@ -107,28 +111,61 @@ Future<void> openWithSystem(File f) async {
 }
 
 /// OnlyOffice trong webview (đăng nhập bằng SSO của app Drive), thanh trên là của app.
-Future<void> openOffice(BuildContext context, DriveSession s, DriveItem it) async {
+Future<void> openOffice(BuildContext context, DriveSession s, DriveItem it) => openOfficeAt(context, s, id: it.id, path: it.path);
+
+/// Mở tài liệu Office [id] (đường dẫn [path] trong Drive của người dùng) bằng trang soạn nhanh `/drive/edit.html`:
+/// máy tính mỗi tài liệu một tab riêng mang tên tệp (đã mở thì chuyển sang tab đó), điện thoại một trang.
+Future<void> openOfficeAt(BuildContext context, DriveSession s, {required int id, required String path}) async {
   final app = s.app;
   final messenger = ScaffoldMessenger.of(context);
   if (app == null) {
     messenger.showSnackBar(toast(Text(tr('Chưa mở được trình soạn Office'))));
     return;
   }
-  final path = '/drive/edit.html?id=${it.id}&path=${Uri.encodeComponent(it.path)}';
+  final name = path.split('/').last;
+  final page = '/drive/edit.html?id=$id&path=${Uri.encodeComponent(path)}';
   if (!MiniApps.inAppWebView) {
     try {
-      await launchUrl(await MiniApps.launch(s.chatToken, app, path: path), mode: LaunchMode.externalApplication);
+      await launchUrl(await MiniApps.launch(s.chatToken, app, path: page), mode: LaunchMode.externalApplication);
     } catch (e) {
       messenger.showSnackBar(toast(Text('$e')));
     }
     return;
   }
-  // Máy tính: mỗi tài liệu một tab riêng mang tên tệp (đã mở thì chuyển sang tab đó). Điện thoại: một trang như cũ.
+  Widget editor(BuildContext _) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: page), title: name, editor: true);
   if (isDesktop && appTabHook != null) {
-    await AppHost.of(context).open(key: officeTabKey(it.id, it.path), title: it.name, builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: it.name));
+    await AppHost.of(context).open(key: officeTabKey(id, path), title: name, builder: editor);
     return;
   }
-  await Navigator.of(context).push(AppPageRoute(builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: it.name)));
+  await Navigator.of(context).push(AppPageRoute(builder: editor));
+}
+
+/// Link tới một tài liệu Office trong Drive / Office (trang soạn nhanh hoặc trang soạn của Nextcloud): (mã tệp, đường dẫn).
+(int, String)? officeLinkOf(Uri u) {
+  final p = u.path;
+  if (p.endsWith('/drive/edit.html')) {
+    final id = int.tryParse(u.queryParameters['id'] ?? '');
+    return id == null ? null : (id, u.queryParameters['path'] ?? '');
+  }
+  final m = RegExp(r'^(?:/index\.php)?/apps/onlyoffice/(\d+)$').firstMatch(p);
+  if (m == null) return null;
+  return (int.parse(m.group(1)!), u.queryParameters['filePath'] ?? '');
+}
+
+/// Mở link tài liệu Office (từ trang Office / Drive web, link trong chat…) bằng phiên Drive của người đang đăng nhập.
+Future<bool> openOfficeLink(BuildContext context, int id, String path) async {
+  final state = context.read<AppState>();
+  final s = await DriveSession.current(state);
+  if (s == null || !context.mounted) return false;
+  // Link cũ không có đường dẫn: hỏi drive-gw tên tệp theo mã.
+  if (path.isEmpty) {
+    try {
+      path = (await s.api.info(id: id)).path;
+    } catch (_) {}
+    if (!context.mounted) return false;
+  }
+  await openOfficeAt(context, s, id: id, path: path.isEmpty ? '/$id' : path);
+  return true;
 }
 
 /// Khoá tab máy tính của một tài liệu Office: `drive-office:<fileId>:<đường dẫn>` (mở lại được sau khởi động).
@@ -147,7 +184,7 @@ Future<void> restoreOfficeTab(BuildContext context, String key) async {
   final id = rest.substring(0, i), filePath = Uri.decodeComponent(rest.substring(i + 1));
   final name = filePath.split('/').last;
   final path = '/drive/edit.html?id=$id&path=${Uri.encodeComponent(filePath)}';
-  await AppHost.of(context).open(key: key, title: name, builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: name));
+  await AppHost.of(context).open(key: key, title: name, builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: name, editor: true));
 }
 
 /// Tên tệp và biểu tượng của tab tài liệu Office [key].

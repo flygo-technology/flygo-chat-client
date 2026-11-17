@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:flygo_chat/ui/drive/drive_page.dart';
 import 'package:flygo_chat/ui/drive/look.dart';
 import 'package:flygo_chat/ui/drive/pickers.dart';
 import 'package:flygo_chat/ui/drive/session.dart';
+import 'package:flygo_chat/ui/drive/transfers.dart';
 import 'package:flygo_chat/ui/drive/uploads.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
@@ -44,6 +46,13 @@ void main() {
       expect(canPreview(f('a.zip')), isFalse);
     });
 
+    test('officeLinkOf: trang soạn nhanh và trang soạn Nextcloud', () {
+      expect(officeLinkOf(Uri.parse('https://drive.example/drive/edit.html?id=860&path=%2FA%2Fb.xlsx')), (860, '/A/b.xlsx'));
+      expect(officeLinkOf(Uri.parse('https://drive.example/apps/onlyoffice/42?filePath=%2Fc.docx')), (42, '/c.docx'));
+      expect(officeLinkOf(Uri.parse('https://drive.example/index.php/apps/onlyoffice/7')), (7, ''));
+      expect(officeLinkOf(Uri.parse('https://drive.example/apps/onlyoffice/ajax/new')), isNull);
+      expect(officeLinkOf(Uri.parse('https://drive.example/drive/')), isNull);
+    });
     test('fmtSize / fmtDate', () {
       expect(fmtSize(0), '0 B');
       expect(fmtSize(284 * 1024), '284 KB');
@@ -216,4 +225,59 @@ void main() {
       expect(find.text('Lưu "a.pdf" vào Drive'), findsNothing);
     });
   }
+
+  testWidgets('Drive máy tính: nhấn chuột chọn ngay (không chờ nhấp đúp), nhấn hai lần mở thư mục', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final s = DriveSession(api: fakeDriveApi(), key: 'test-${DateTime.now().microsecondsSinceEpoch}', app: null, chatToken: 't');
+    await tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: DriveHome(session: s)));
+    await tester.pumpAndSettle();
+    final g = await tester.startGesture(tester.getCenter(find.text('Báo cáo doanh thu Q3.xlsx')), kind: PointerDeviceKind.mouse, buttons: kPrimaryMouseButton);
+    await tester.pump(); // một khung hình, chưa nhả chuột
+    expect(find.text('Đã chọn 1'), findsOneWidget);
+    await g.up();
+    await tester.pump(const Duration(milliseconds: 600));
+    final f = tester.getCenter(find.text('Hợp đồng 2026'));
+    await tester.tapAt(f, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(f, kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.arrow_back_rounded), findsNothing); // máy tính: đường dẫn ở thanh breadcrumb
+    expect(find.text('Hợp đồng thang máy 01.pdf'), findsOneWidget);
+  });
+
+  testWidgets('Bảng tiến độ: đang tải (%, tốc độ, 2/3 mục, nén thư mục), xong có nút mở', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final s = DriveSession(api: fakeDriveApi(), key: 'test-${DateTime.now().microsecondsSinceEpoch}', app: null, chatToken: 't');
+    final run = DriveDownload(3)
+      ..done = 1
+      ..name = 'Báo cáo.xlsx'
+      ..got = 512 * 1024
+      ..total = 1024 * 1024
+      ..speed = 2 * 1024 * 1024;
+    final zip = DriveDownload(1)
+      ..name = 'Hợp đồng 2026.zip'
+      ..zipping = true
+      ..got = 300 * 1024;
+    s.downloads.list.addAll([run, zip]);
+    await tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: Align(alignment: Alignment.bottomRight, child: SizedBox(width: 380, child: TransfersPanel(session: s, wide: true))))));
+    await tester.pump();
+    expect(find.text('Đang tải xuống'), findsOneWidget);
+    expect(find.textContaining('2/3 mục · 50%'), findsOneWidget);
+    expect(find.textContaining(RegExp(r'2(,0)? MB/s')), findsOneWidget);
+    expect(find.textContaining('Đang nén thư mục'), findsOneWidget);
+    s.downloads.list.clear();
+    s.downloads.list.add(DriveDownload(1)
+      ..state = DownloadState.done
+      ..dir = '/tmp/Downloads'
+      ..files.add(File('/tmp/Downloads/Báo cáo.xlsx')));
+    s.downloads.changed();
+    await tester.pump();
+    expect(find.text('Đã tải xuống'), findsOneWidget);
+    expect(find.text('Mở thư mục'), findsOneWidget);
+    expect(find.text('Mở tệp'), findsOneWidget);
+  });
 }

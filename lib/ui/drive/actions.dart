@@ -2,11 +2,7 @@
 // offline, xoá, chi tiết + hoạt động, hộp thoại chia sẻ (người, nhóm, link có hạn và mật khẩu).
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 
 import '../../i18n/i18n.dart';
@@ -17,6 +13,7 @@ import 'api.dart';
 import 'look.dart';
 import 'pickers.dart';
 import 'session.dart';
+import 'transfers.dart';
 
 bool driveWide(BuildContext c) => MediaQuery.sizeOf(c).width >= 900;
 
@@ -98,10 +95,7 @@ List<(ItemAction, IconData, String)> actionsFor(DriveSession s, List<DriveItem> 
     if (one != null && one.canWrite) (ItemAction.rename, Icons.drive_file_rename_outline_rounded, tr('Đổi tên')),
     if (items.every((i) => i.canDelete)) (ItemAction.move, Icons.drive_file_move_outline, tr('Di chuyển')),
     (ItemAction.copy, Icons.file_copy_outlined, tr('Tạo bản sao')),
-    if (one != null && !one.dir)
-      (ItemAction.download, Icons.file_download_outlined, tr('Tải xuống / Mở bằng app khác'))
-    else
-      (ItemAction.download, Icons.file_download_outlined, tr('Tải xuống')),
+    (ItemAction.download, Icons.file_download_outlined, tr('Tải xuống')),
     if (one != null) (ItemAction.details, Icons.info_outline_rounded, tr('Chi tiết và hoạt động')),
     if (items.every((i) => i.canDelete)) (ItemAction.trash, Icons.delete_outline_rounded, tr('Chuyển vào thùng rác')),
   ];
@@ -223,8 +217,10 @@ Future<void> runItemAction(BuildContext context, DriveSession s, ItemAction a, L
       await driveRun(context, () => move ? api.move(paths, to) : api.copy(paths, to), done: move ? tr('Đã di chuyển') : tr('Đã tạo bản sao'));
       onChanged?.call();
     case ItemAction.download:
-      if (items.length == 1 && !one.dir) {
-        await driveRun(context, () async => openWithSystem(await localCopy(s, one)));
+      // Điện thoại, một tệp: tải rồi mở bằng app khác như cũ (tiến độ ở bảng dưới); còn lại tải về máy.
+      if (items.length == 1 && !one.dir && !(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        final d = await startDownload(s, items);
+        if (d.state == DownloadState.done) await openWithSystem(d.files.first);
       } else {
         await downloadMany(context, s, items);
       }
@@ -248,53 +244,9 @@ Future<void> runItemAction(BuildContext context, DriveSession s, ItemAction a, L
   }
 }
 
-/// Tải nhiều mục (hoặc một thư mục): tệp tải nguyên bản, thư mục thành `<tên>.zip`.
-/// Máy tính: chọn thư mục lưu rồi mở thư mục đó; điện thoại: tải vào thư mục tạm rồi mở bảng chia sẻ của máy.
-Future<void> downloadMany(BuildContext context, DriveSession s, List<DriveItem> items) async {
-  final desktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
-  String? dir;
-  if (desktop) {
-    dir = await FilePicker.getDirectoryPath(dialogTitle: tr('Lưu {0} mục vào', ['${items.length}']));
-    if (dir == null) return;
-  } else {
-    dir = '${(await getTemporaryDirectory()).path}/drive_dl/${DateTime.now().millisecondsSinceEpoch}';
-  }
-  if (!context.mounted) return;
-  driveToast(context, tr('Đang tải {0} mục…', ['${items.length}']));
-  final out = <File>[];
-  final ok = await driveRun(context, () async {
-    final used = <String>{};
-    for (final it in items) {
-      final name = _freeLocalName(dir!, it.dir ? '${it.name}.zip' : it.name, used, check: desktop);
-      final dest = File('$dir/$name');
-      if (it.dir) {
-        out.add(await s.api.downloadZip(it.parent, [it.name], dest));
-      } else {
-        final off = s.offline.localFile(it);
-        out.add(off != null ? await off.copy(dest.path) : await s.api.download(it.path, dest));
-      }
-    }
-  });
-  if (!ok || !context.mounted) return;
-  if (desktop) {
-    driveToast(context, tr('Đã tải {0} mục vào {1}', ['${out.length}', dir]));
-    await launchUrl(Uri.directory(dir));
-  } else {
-    await SharePlus.instance.share(ShareParams(files: [for (final f in out) XFile(f.path)]));
-  }
-}
-
-/// Tên chưa có trong [dir] (và chưa dùng trong lượt này): "a.txt" → "a (1).txt".
-String _freeLocalName(String dir, String name, Set<String> used, {required bool check}) {
-  final dot = name.lastIndexOf('.');
-  final stem = dot > 0 ? name.substring(0, dot) : name, ext = dot > 0 ? name.substring(dot) : '';
-  var n = name;
-  for (var i = 1; used.contains(n.toLowerCase()) || (check && File('$dir/$n').existsSync()); i++) {
-    n = '$stem ($i)$ext';
-  }
-  used.add(n.toLowerCase());
-  return n;
-}
+/// Tải xuống [items]: tiến độ và nút "Mở thư mục" / "Mở tệp" ở bảng dưới màn hình ([TransfersPanel]).
+/// Máy tính lưu vào thư mục Tải về; điện thoại tải vào thư mục tạm rồi mở / chia sẻ từ bảng.
+Future<void> downloadMany(BuildContext context, DriveSession s, List<DriveItem> items) => startDownload(s, items);
 
 // ------------------------------------------------------------------ chi tiết + hoạt động
 

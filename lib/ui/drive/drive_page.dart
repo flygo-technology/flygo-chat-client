@@ -22,6 +22,7 @@ import 'actions.dart';
 import 'api.dart';
 import 'look.dart';
 import 'marquee.dart';
+import 'transfers.dart';
 import 'session.dart';
 import 'uploads.dart';
 
@@ -84,7 +85,12 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
     s.uploads.addListener(_changed);
     s.offline.addListener(_changed);
     s.uploads.onDone = (j) {
-      if (mounted && _section == DriveSection.my && j.dir == _path) _reload(quiet: true);
+      if (!mounted || _section != DriveSection.my || j.dir != _path) return;
+      final p = j.result?.path;
+      if (p != null) _justUploaded.add(p);
+      _reload(quiet: true).then((_) {
+        if (mounted && s.uploads.activeCount == 0) _selectUploaded();
+      });
     };
     s.loadMe().then((_) => _changed()).catchError((_) {});
     _reload();
@@ -252,6 +258,52 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
     } else {
       _tap(it, wide: true);
     }
+  }
+
+  /// Tệp vừa tải lên xong vào thư mục đang mở: khi cả lượt xong thì chọn sẵn và cuộn tới.
+  final _justUploaded = <String>{};
+
+  void _selectUploaded() {
+    final got = [for (final i in _sorted) if (_justUploaded.contains(i.path)) i];
+    _justUploaded.clear();
+    if (got.isEmpty) return;
+    setState(() {
+      _sel
+        ..clear()
+        ..addAll(got.map((i) => i.path));
+      _focus = got.first.path;
+    });
+    // Dòng đầu tiên chưa dựng (ở xa) thì cuộn ước lượng tới đó trước, rồi canh cho thấy hẳn.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _keys[got.first.path]?.currentContext;
+      if (ctx == null && _scroll.hasClients && !_grid) {
+        final i = _sorted.indexWhere((x) => x.path == got.first.path);
+        final h = driveWide(context) ? 48.0 : 64.0;
+        _scroll.jumpTo((i * h).clamp(0, _scroll.position.maxScrollExtent));
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final c = _keys[got.first.path]?.currentContext;
+        if (c != null && c.mounted) Scrollable.ensureVisible(c, duration: const Duration(milliseconds: 250), alignment: .3);
+      });
+    });
+  }
+
+  String? _lastPress;
+  DateTime _lastPressAt = DateTime(0);
+
+  /// Máy tính: nhấn chuột chọn ngay; nhấn lần hai trên cùng mục trong 450 ms (không giữ phím) thì mở.
+  void _press(DriveItem it, List<DriveItem> list) {
+    final now = DateTime.now(), k = HardwareKeyboard.instance;
+    final plain = !k.isControlPressed && !k.isMetaPressed && !k.isShiftPressed;
+    final dbl = plain && _lastPress == it.path && now.difference(_lastPressAt) < const Duration(milliseconds: 450);
+    _lastPress = dbl ? null : it.path;
+    _lastPressAt = now;
+    if (dbl) {
+      _open(it);
+      return;
+    }
+    _click(it, list);
   }
 
   // ------------------------------------------------------------------ Ctrl+C / Ctrl+X / Ctrl+V
@@ -448,7 +500,16 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
             key: _scaffold,
             backgroundColor: l.bg,
             drawer: wide ? null : Drawer(backgroundColor: l.bg, child: SafeArea(child: _side(l, drawer: true))),
-            body: SafeArea(child: wide ? _wideBody(l) : _phoneBody(l)),
+            body: SafeArea(
+              child: Stack(children: [
+                Positioned.fill(child: wide ? _wideBody(l) : _phoneBody(l)),
+                // Tiến độ tải xuống / tải lên.
+                if (wide)
+                  Positioned(right: 24, bottom: 16, width: 380, child: TransfersPanel(session: s, wide: true))
+                else
+                  Positioned(left: 8, right: 8, bottom: 8, child: TransfersPanel(session: s, wide: false)),
+              ]),
+            ),
             floatingActionButton: wide || _section == DriveSection.trash || _sel.isNotEmpty
                 ? null
                 : Builder(
@@ -1114,8 +1175,8 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
               child: Material(
                 color: sel ? l.sel : Colors.transparent,
                 child: InkWell(
-                  onTap: () => _click(it, list),
-                  onDoubleTap: () => _open(it),
+                  // Chọn ngay lúc nhấn chuột (onDoubleTap làm onTap trễ ~0,3–1 s); nhấp đúp tự đếm trong _press.
+                  onTapDown: (_) => _press(it, list),
                   child: Container(
                     height: 48,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1188,8 +1249,8 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => wide ? _click(it, [...folders, ...files]) : _tap(it),
-          onDoubleTap: wide ? () => _open(it) : null,
+          onTapDown: wide ? (_) => _press(it, [...folders, ...files]) : null,
+          onTap: wide ? null : () => _tap(it),
           onLongPress: () => _toggle(it),
           onSecondaryTapDown: (d) => showItemActions(context, s, it, at: d.globalPosition, trash: _section == DriveSection.trash, onChanged: () => _reload(quiet: true)),
           child: it.dir

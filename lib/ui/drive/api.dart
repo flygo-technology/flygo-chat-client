@@ -11,6 +11,7 @@ import '../../config.dart';
 
 const kDriveApp = 'vn.flygo.web.drive';
 const kDriveScreen = 'drive';
+const kOfficeApp = 'vn.flygo.web.office';
 
 class DriveException implements Exception {
   DriveException(this.status, this.message);

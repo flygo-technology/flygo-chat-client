@@ -2,11 +2,14 @@
 // Dùng bản ghim offline nếu có (xem được khi mất mạng), không thì tải vào thư mục tạm.
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../i18n/i18n.dart';
+import '../mail/attachments.dart' show mailPdfParams;
 import '../theme.dart' show toast;
 import 'actions.dart';
 import 'api.dart';
@@ -27,6 +30,8 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
   late List<DriveItem> _items;
   late int _index;
   late final PageController _pages;
+  /// Ảnh đang phóng to: khoá vuốt qua ảnh khác (kéo để xem phần còn lại).
+  bool _zoomed = false;
 
   DriveItem get _cur => _items[_index];
 
@@ -51,7 +56,21 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
   @override
   Widget build(BuildContext context) {
     const fg = Color(0xFFE6E9F0);
-    return Theme(
+    void go(int d) {
+      final i = _index + d;
+      if (_items.length > 1 && i >= 0 && i < _items.length) _pages.animateToPage(i, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+    }
+
+    // Esc thoát xem trước; ← → chuyển ảnh.
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.maybePop(context),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => go(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () => go(1),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Theme(
       data: Theme.of(context).copyWith(iconTheme: const IconThemeData(color: fg)),
       child: Scaffold(
         backgroundColor: const Color(0xFF0B0D12),
@@ -71,20 +90,27 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
         body: _items.length > 1
             ? PageView.builder(
                 controller: _pages,
+                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
                 itemCount: _items.length,
-                onPageChanged: (i) => setState(() => _index = i),
-                itemBuilder: (_, i) => _Viewer(key: ValueKey(_items[i].path), session: widget.session, item: _items[i]),
+                onPageChanged: (i) => setState(() {
+                  _index = i;
+                  _zoomed = false;
+                }),
+                itemBuilder: (_, i) => _Viewer(key: ValueKey(_items[i].path), session: widget.session, item: _items[i], onZoom: (z) => z != _zoomed ? setState(() => _zoomed = z) : null),
               )
             : _Viewer(session: widget.session, item: _cur),
+      ),
+        ),
       ),
     );
   }
 }
 
 class _Viewer extends StatefulWidget {
-  const _Viewer({super.key, required this.session, required this.item});
+  const _Viewer({super.key, required this.session, required this.item, this.onZoom});
   final DriveSession session;
   final DriveItem item;
+  final ValueChanged<bool>? onZoom;
   @override
   State<_Viewer> createState() => _ViewerState();
 }
@@ -160,17 +186,20 @@ class _ViewerState extends State<_Viewer> {
     }
     switch (_kind) {
       case DriveKind.image:
-        return InteractiveViewer(
-          maxScale: 8,
-          child: Center(child: Image.file(f, errorBuilder: (_, _, _) => Text(tr('Không hiển thị được ảnh này'), style: const TextStyle(color: fg)))),
+        return ZoomImage(
+          onZoom: widget.onZoom,
+          child: Image.file(f, errorBuilder: (_, _, _) => Text(tr('Không hiển thị được ảnh này'), style: const TextStyle(color: fg))),
         );
       case DriveKind.pdf:
         return Stack(children: [
           PdfViewer.file(
             f.path,
+            // Giống trình xem PDF của Thư: mở ra thấy trọn trang, lăn chuột cuộn như trang thường, Ctrl + lăn / chụm phóng to.
             params: PdfViewerParams(
-              backgroundColor: const Color(0xFF0B0D12),
-              margin: 12,
+              backgroundColor: mailPdfParams.backgroundColor,
+              margin: mailPdfParams.margin,
+              scrollByMouseWheel: mailPdfParams.scrollByMouseWheel,
+              sizeDelegateProvider: mailPdfParams.sizeDelegateProvider,
               onViewerReady: (doc, c) => setState(() => _pageCount = doc.pages.length),
               onPageChanged: (n) => setState(() => _page = n ?? _page),
             ),
@@ -235,4 +264,90 @@ class _ViewerState extends State<_Viewer> {
   }
 
   String _dur(Duration d) => '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+}
+
+/// Ảnh phóng to được: chụm (màn cảm ứng, touchpad) hoặc Ctrl / ⌘ + lăn chuột phóng to quanh con trỏ; lăn chuột thường
+/// và kéo để xem phần còn lại khi đang phóng to; nhấp đúp phóng to 2,5× / về vừa màn hình.
+class ZoomImage extends StatefulWidget {
+  const ZoomImage({super.key, required this.child, this.onZoom});
+  final Widget child;
+  final ValueChanged<bool>? onZoom;
+  @override
+  State<ZoomImage> createState() => _ZoomImageState();
+}
+
+class _ZoomImageState extends State<ZoomImage> {
+  final _tc = TransformationController();
+  final _view = GlobalKey();
+  Offset? _tapAt;
+  bool _zoomed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tc.addListener(() {
+      final z = _tc.value.getMaxScaleOnAxis() > 1.01;
+      if (z != _zoomed) {
+        _zoomed = z;
+        widget.onZoom?.call(z);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tc.dispose();
+    super.dispose();
+  }
+
+  /// [focal]: điểm trong khung nhìn (toạ độ của InteractiveViewer).
+  void _zoomBy(double k, Offset focal) {
+    final cur = _tc.value.getMaxScaleOnAxis();
+    final to = (cur * k).clamp(1.0, 8.0);
+    if (to <= 1.001) {
+      _tc.value = Matrix4.identity();
+      return;
+    }
+    final f = to / cur;
+    _tc.value = Matrix4.identity()
+      ..translateByDouble(focal.dx, focal.dy, 0, 1)
+      ..scaleByDouble(f, f, 1, 1)
+      ..translateByDouble(-focal.dx, -focal.dy, 0, 1)
+      ..multiply(_tc.value);
+  }
+
+  void _pan(Offset d) {
+    if (!_zoomed) return;
+    _tc.value = Matrix4.identity()
+      ..translateByDouble(-d.dx, -d.dy, 0, 1)
+      ..multiply(_tc.value);
+  }
+
+  void _signal(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    // Đăng ký trước InteractiveViewer (widget con được hỏi trước): lăn chuột thường không phóng to như mặc định.
+    GestureBinding.instance.pointerSignalResolver.register(e, (ev) {
+      final s = ev as PointerScrollEvent;
+      final box = _view.currentContext?.findRenderObject() as RenderBox?;
+      final focal = box?.globalToLocal(s.position) ?? Offset.zero;
+      final k = HardwareKeyboard.instance;
+      if (k.isControlPressed || k.isMetaPressed) {
+        _zoomBy(s.scrollDelta.dy < 0 ? 1.15 : 1 / 1.15, focal);
+      } else {
+        _pan(s.scrollDelta);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onDoubleTapDown: (d) => _tapAt = d.localPosition,
+        onDoubleTap: () => _zoomed ? _tc.value = Matrix4.identity() : _zoomBy(2.5, _tapAt ?? Offset.zero),
+        child: InteractiveViewer(
+          key: _view,
+          transformationController: _tc,
+          maxScale: 8,
+          child: Listener(onPointerSignal: _signal, child: SizedBox.expand(child: Center(child: widget.child))),
+        ),
+      );
 }
