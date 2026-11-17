@@ -13,6 +13,8 @@ import '../../config.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../app_route.dart';
+import '../app_shell.dart';
+import '../desk_tabs.dart' show appTabHook;
 import '../mini_app_view.dart' show MiniAppPage;
 import '../theme.dart' show toast;
 import 'api.dart';
@@ -118,8 +120,42 @@ Future<void> openOffice(BuildContext context, DriveSession s, DriveItem it) asyn
     }
     return;
   }
+  // Máy tính: mỗi tài liệu một tab riêng mang tên tệp (đã mở thì chuyển sang tab đó). Điện thoại: một trang như cũ.
+  if (isDesktop && appTabHook != null) {
+    await AppHost.of(context).open(key: officeTabKey(it.id, it.path), title: it.name, builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: it.name));
+    return;
+  }
   await Navigator.of(context).push(AppPageRoute(builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: it.name)));
 }
 
-/// Phiên Drive từ context (màn hình đang ở trong Drive).
-DriveSession? driveSessionOf(BuildContext context) => Provider.of<DriveSession?>(context, listen: false);
+/// Khoá tab máy tính của một tài liệu Office: `drive-office:<fileId>:<đường dẫn>` (mở lại được sau khởi động).
+const kOfficeTabPrefix = 'drive-office:';
+String officeTabKey(int id, String path) => '$kOfficeTabPrefix$id:${Uri.encodeComponent(path)}';
+
+/// Tab tài liệu Office mở lại sau khởi động ([key] từ [officeTabKey]).
+Future<void> restoreOfficeTab(BuildContext context, String key) async {
+  final rest = key.substring(kOfficeTabPrefix.length);
+  final i = rest.indexOf(':');
+  if (i <= 0) return;
+  final state = context.read<AppState>();
+  final s = await DriveSession.current(state);
+  final app = s?.app;
+  if (s == null || app == null || !context.mounted) return;
+  final id = rest.substring(0, i), filePath = Uri.decodeComponent(rest.substring(i + 1));
+  final name = filePath.split('/').last;
+  final path = '/drive/edit.html?id=$id&path=${Uri.encodeComponent(filePath)}';
+  await AppHost.of(context).open(key: key, title: name, builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(s.chatToken, app, path: path), title: name));
+}
+
+/// Tên tệp và biểu tượng của tab tài liệu Office [key].
+(String, IconData, Color) officeTabInfo(String key) {
+  final rest = key.substring(kOfficeTabPrefix.length);
+  final i = rest.indexOf(':');
+  final name = i < 0 ? '' : Uri.decodeComponent(rest.substring(i + 1)).split('/').last;
+  final (ic, c) = switch (kindOf(DriveItem(path: '/$name', name: name, dir: false))) {
+    DriveKind.sheet => (Icons.table_chart_rounded, const Color(0xFF1E7B45)),
+    DriveKind.slide => (Icons.slideshow_rounded, const Color(0xFFC4501F)),
+    _ => (Icons.description_rounded, const Color(0xFF2B579A)),
+  };
+  return (name, ic, c);
+}

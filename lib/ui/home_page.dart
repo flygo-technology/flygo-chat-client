@@ -40,6 +40,7 @@ import 'mcp_page.dart';
 import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
+import 'drive/session.dart' show kOfficeTabPrefix, officeTabInfo, restoreOfficeTab;
 import '../api/mini_apps.dart' show MiniApps;
 import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin, HomeBackgroundPage;
 import 'season/chat_wallpaper.dart' show HomeBackground;
@@ -509,6 +510,7 @@ class _HomePageState extends State<HomePage> {
       case 'appearance':
         return openAppearance(ctx);
     }
+    if (key.startsWith(kOfficeTabPrefix)) return restoreOfficeTab(ctx, key);
     var a = MiniApps.cached.where((a) => a.id == key).firstOrNull;
     if (a == null) {
       try {
@@ -2145,6 +2147,10 @@ class _HomePageState extends State<HomePage> {
         return (icon(Icons.admin_panel_settings_rounded, const Color(0xFF7C3AED)), tr('Quản trị Ký số'));
       case 'appearance':
         return (icon(Icons.palette_rounded, const Color(0xFFC62828)), tr('Giao diện'));
+    }
+    if (key.startsWith(kOfficeTabPrefix)) {
+      final (name, ic, c) = officeTabInfo(key);
+      return (icon(ic, c), name);
     }
     final a = MiniApps.cached.where((a) => a.id == key).firstOrNull;
     if (a == null) return (icon(Icons.apps_rounded, Pal.of(context).sub), tr('Ứng dụng'));
