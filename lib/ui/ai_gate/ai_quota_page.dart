@@ -68,7 +68,7 @@ class _AiQuotaPageState extends State<AiQuotaPage> {
                 Text(
                   switch (q.state) {
                     'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Chế độ Nhanh vẫn dùng bình thường.'),
-                    'degraded' => tr('Đã hết hạn mức: AI chuyển sang chế độ tiết kiệm (Nhanh) tới khi làm mới.'),
+                    'degraded' => tr('Một model đã hết hạn mức: AI tự chuyển sang model rẻ hơn còn hạn mức tới khi làm mới.'),
                     'blocked' => tr('AI của bạn đang tạm dừng. Hãy nhờ quản lý cộng thêm hạn mức.'),
                     _ => tr('Hạn mức tính chung cho Dự án AI, Thư, Office, Báo cáo và Dịch.'),
                   },
@@ -182,8 +182,8 @@ class AiUsageCard extends StatelessWidget {
                 const SizedBox(width: 16),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   chip,
-                  const SizedBox(height: 6),
-                  line(tr('Hôm nay'), q.dayPct),
+                  const SizedBox(height: 4),
+                  if (q.models.isNotEmpty) AiModelLines(quota: q, compact: true) else line(tr('Hôm nay'), q.dayPct),
                   note,
                 ])),
                 const SizedBox(width: 6),
@@ -196,15 +196,14 @@ class AiUsageCard extends StatelessWidget {
               const SizedBox(height: 10),
               Center(child: chip),
               const SizedBox(height: 12),
-              line(tr('Hôm nay'), q.dayPct),
-              line(tr('Tháng này'), q.usedPct),
+              if (q.models.isNotEmpty) AiModelLines(quota: q) else ...[line(tr('Hôm nay'), q.dayPct), line(tr('Tháng này'), q.usedPct)],
               const SizedBox(height: 6),
               note,
               const SizedBox(height: 10),
               Text(
                 switch (q.state) {
                   'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Chế độ Nhanh vẫn dùng bình thường.'),
-                  'degraded' => tr('Đã hết hạn mức: AI chuyển sang chế độ tiết kiệm (Nhanh) tới khi làm mới.'),
+                  'degraded' => tr('Một model đã hết hạn mức: AI tự chuyển sang model rẻ hơn còn hạn mức tới khi làm mới.'),
                   'blocked' => tr('AI của bạn đang tạm dừng. Hãy nhờ quản lý cộng thêm hạn mức.'),
                   _ => tr('Tính chung cho Dự án AI, Thư, Office, Báo cáo và Dịch.'),
                 },
@@ -213,4 +212,48 @@ class AiUsageCard extends StatelessWidget {
             ]),
     );
   }
+}
+
+/// % đã dùng của từng mức AI cho nhân viên (Sếp 2026-11-17: "Nhanh: 20% · Kỹ hơn: còn 40%"), không bao giờ hiện tiền.
+/// Model hạng không có thì ghi "không có"; model không có trần riêng thì ghi "theo hạn mức chung".
+class AiModelLines extends StatelessWidget {
+  const AiModelLines({super.key, required this.quota, this.compact = false});
+  final AiQuota quota;
+  final bool compact;
+
+  static Color colorOf(String a) => switch (a) { 'flygo-fast' => const Color(0xFF6E8BFF), 'flygo-smart' => const Color(0xFFB69BFF), _ => const Color(0xFFE07BB0) };
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final ms = [...quota.models]..sort((a, b) => _rank(a.alias).compareTo(_rank(b.alias)));
+    final shown = compact ? ms.where((m) => m.allowed).toList() : ms;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      for (final m in shown)
+        Padding(
+          key: ValueKey('aim-${m.alias}'),
+          padding: EdgeInsets.symmetric(vertical: compact ? 3 : 5),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: colorOf(m.alias), shape: BoxShape.circle)),
+              const SizedBox(width: 6),
+              Expanded(child: Text(tr(aiModelName(m.alias)), style: TextStyle(fontSize: 13, color: pal.text))),
+              Text(
+                !m.allowed
+                    ? tr('không có')
+                    : m.usedPct == null
+                        ? tr('theo hạn mức chung')
+                        : m.exhausted
+                            ? tr('hết · {0}%', ['${m.usedPct}'])
+                            : tr('{0}% · còn {1}%', ['${m.usedPct}', '${math.max(0, 100 - m.usedPct!)}']),
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: m.exhausted && m.allowed ? const Color(0xFFFF6B6B) : pal.sub),
+              ),
+            ]),
+            if (m.allowed && m.usedPct != null) Padding(padding: const EdgeInsets.only(top: 4), child: usageBar(pal, m.usedPct!, height: compact ? 5 : 6)),
+          ]),
+        ),
+    ]);
+  }
+
+  static int _rank(String a) => switch (a) { 'flygo-fast' => 0, 'flygo-smart' => 1, 'flygo-agent' => 2, _ => 3 };
 }

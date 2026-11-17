@@ -185,9 +185,10 @@ class _AiAdminPageState extends State<AiAdminPage> {
                         box(4, _appsCard(pal)),
                         box(8, _usersCard(pal, phone)),
                         box(4, _providersCard(pal)),
-                        box(4, _tiersCard(pal)),
+                        box(8, _tiersCard(pal)),
                         box(4, _aliasesCard(pal)),
-                        box(4, Column(children: [_extrasCard(pal), SizedBox(height: gap), _logCard(pal)])),
+                        box(6, _extrasCard(pal)),
+                        box(6, _logCard(pal)),
                       ]),
                     ]),
                   );
@@ -378,7 +379,12 @@ class _AiAdminPageState extends State<AiAdminPage> {
         key: const ValueKey('ai-users'),
         icon: Icons.group_rounded,
         title: tr('Người dùng'),
-        action: Row(mainAxisSize: MainAxisSize.min, children: [if (!phone) ...[search, const SizedBox(width: 8)], _small(tr('Mở AI'), _addUser, icon: Icons.person_add_alt_1_rounded, primary: true)]),
+        action: phone
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(tooltip: tr('Sửa hàng loạt'), visualDensity: VisualDensity.compact, onPressed: _bulkEdit, icon: const Icon(Icons.edit_note_rounded)),
+                IconButton.filled(tooltip: tr('Mở AI'), visualDensity: VisualDensity.compact, onPressed: _addUser, icon: const Icon(Icons.person_add_alt_1_rounded, size: 18)),
+              ])
+            : Row(mainAxisSize: MainAxisSize.min, children: [search, const SizedBox(width: 8), _small(tr('Sửa hàng loạt'), _bulkEdit, icon: Icons.edit_note_rounded), const SizedBox(width: 6), _small(tr('Mở AI'), _addUser, icon: Icons.person_add_alt_1_rounded, primary: true)]),
         children: [
           if (phone) ...[search, const SizedBox(height: 6)],
           if (list.isEmpty) Padding(padding: const EdgeInsets.all(12), child: _k(pal, tr('Chưa có ai'))),
@@ -386,11 +392,11 @@ class _AiAdminPageState extends State<AiAdminPage> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
-                Expanded(flex: 26, child: sortHead('user', tr('Người dùng'))),
-                Expanded(flex: 12, child: _k(pal, tr('Hạng'))),
-                Expanded(flex: 20, child: sortHead('day', tr('Hôm nay / trần ngày'))),
-                Expanded(flex: 20, child: sortHead('month', tr('Tháng / trần tháng'))),
-                Expanded(flex: 14, child: _k(pal, tr('Trạng thái'))),
+                Expanded(flex: 22, child: sortHead('user', tr('Người dùng'))),
+                Expanded(flex: 14, child: _k(pal, tr('Hạng · phòng ban'))),
+                for (final a in _aliasIds) Expanded(flex: 14, child: Row(children: [_dot(a), const SizedBox(width: 5), Flexible(child: _k(pal, tr(aiModelName(a))))])),
+                Expanded(flex: 10, child: sortHead('month', tr('Tổng tháng'))),
+                Expanded(flex: 12, child: _k(pal, tr('Trạng thái'))),
                 const SizedBox(width: 28),
               ]),
             ),
@@ -400,29 +406,45 @@ class _AiAdminPageState extends State<AiAdminPage> {
         ]);
   }
 
-  Widget _userRow(Pal pal, AiQuota u) => InkWell(
-        onTap: () => _editUser(u),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: pal.divider))),
-          child: Row(children: [
-            Expanded(flex: 26, child: Text(u.user, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: pal.text))),
-            Expanded(flex: 12, child: Text(u.tierName, style: TextStyle(color: pal.text, fontSize: 12.5))),
-            Expanded(flex: 20, child: Row(children: [
-              SizedBox(width: 60, child: usageBar(pal, u.dayPct, height: 5)),
-              const SizedBox(width: 6),
-              Flexible(child: Text('${u.dayPct}% · ${_n(u.dayUsd)}\$${u.customDay != null ? ' ✎' : ''}', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.sub))),
-            ])),
-            Expanded(flex: 20, child: Row(children: [
-              SizedBox(width: 70, child: usageBar(pal, u.usedPct, height: 5)),
-              const SizedBox(width: 6),
-              Flexible(child: Text('${u.usedPct}% · ${_n(u.monthUsd)}\$${u.extraUsd > 0 ? ' +${_n(u.extraUsd)}' : ''}', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.sub))),
-            ])),
-            Expanded(flex: 14, child: Align(alignment: Alignment.centerLeft, child: _chip(pal, u.access ? stateLabel(u.state) : tr('Chưa mở'), u.access ? stateColor(u.state) : pal.sub))),
-            SizedBox(width: 28, child: Icon(Icons.edit_rounded, size: 16, color: pal.sub)),
-          ]),
-        ),
-      );
+  /// Các mức AI theo thứ tự rẻ → đắt (cột bảng, mục chỉnh riêng).
+  List<String> get _aliasIds {
+    final ladder = ((_tiers?['ladder'] as List?) ?? const ['flygo-agent', 'flygo-smart', 'flygo-fast']).map((e) => '$e').toList();
+    return ladder.reversed.toList();
+  }
+
+  static Color modelColor(String a) => switch (a) { 'flygo-fast' => const Color(0xFF6E8BFF), 'flygo-smart' => const Color(0xFFB69BFF), _ => const Color(0xFFE07BB0) };
+  Widget _dot(String a) => Container(width: 9, height: 9, decoration: BoxDecoration(color: modelColor(a), shape: BoxShape.circle));
+
+  /// Ô một model trong bảng: thanh % trên trần riêng (∞ = không trần riêng), "—" khi không được dùng.
+  Widget _modelCell(Pal pal, AiModel? m) {
+    if (m == null || !m.allowed) return _k(pal, '—');
+    final p = m.usedPct;
+    return Row(children: [
+      SizedBox(width: 44, child: p == null ? Container(height: 5, decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(3))) : usageBar(pal, p, height: 5)),
+      const SizedBox(width: 5),
+      Flexible(child: Text('${p == null ? '∞' : '$p%'}${m.monthCap != null ? ' · ${_n(m.monthCap!)}\$' : ''}${m.custom ? ' ✎' : ''}',
+          overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: m.exhausted ? const Color(0xFFFF6B6B) : pal.sub))),
+    ]);
+  }
+
+  Widget _userRow(Pal pal, AiQuota u) {
+    final ms = {for (final m in u.models) m.alias: m};
+    return InkWell(
+      onTap: () => _editUser(u),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: pal.divider))),
+        child: Row(children: [
+          Expanded(flex: 22, child: Text(u.user, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: pal.text))),
+          Expanded(flex: 14, child: Text('${u.tierName}${'${u.j['dept'] ?? ''}'.isEmpty ? '' : ' · ${u.j['dept']}'}', overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.text, fontSize: 12.5))),
+          for (final a in _aliasIds) Expanded(flex: 14, child: _modelCell(pal, ms[a])),
+          Expanded(flex: 10, child: Text('${u.usedPct}%', style: TextStyle(fontSize: 12, color: pal.sub))),
+          Expanded(flex: 12, child: Align(alignment: Alignment.centerLeft, child: _chip(pal, u.access ? stateLabel(u.state) : tr('Chưa mở'), u.access ? stateColor(u.state) : pal.sub))),
+          SizedBox(width: 28, child: Icon(Icons.edit_rounded, size: 16, color: pal.sub)),
+        ]),
+      ),
+    );
+  }
 
   Widget _userTile(Pal pal, AiQuota u) => InkWell(
         onTap: () => _editUser(u),
@@ -437,13 +459,15 @@ class _AiAdminPageState extends State<AiAdminPage> {
               _chip(pal, u.access ? stateLabel(u.state) : tr('Chưa mở'), u.access ? stateColor(u.state) : pal.sub),
             ]),
             const SizedBox(height: 6),
-            for (final (l, p, cap) in [(tr('Hôm nay'), u.dayPct, u.dayUsd), (tr('Tháng'), u.usedPct, u.monthUsd)])
+            for (final m in u.models.where((m) => m.allowed))
               Padding(
                 padding: const EdgeInsets.only(top: 3),
                 child: Row(children: [
-                  SizedBox(width: 62, child: _k(pal, l)),
-                  Expanded(child: usageBar(pal, p, height: 5)),
-                  SizedBox(width: 78, child: Text('$p% · ${_n(cap)}\$', textAlign: TextAlign.end, style: TextStyle(fontSize: 12, color: pal.sub))),
+                  _dot(m.alias),
+                  const SizedBox(width: 6),
+                  SizedBox(width: 56, child: _k(pal, tr(aiModelName(m.alias)))),
+                  Expanded(child: usageBar(pal, m.usedPct ?? 0, height: 5)),
+                  SizedBox(width: 78, child: Text('${m.usedPct == null ? '∞' : '${m.usedPct}%'}${m.monthCap != null ? ' · ${_n(m.monthCap!)}\$' : ''}', textAlign: TextAlign.end, style: TextStyle(fontSize: 12, color: pal.sub))),
                 ]),
               ),
           ]),
@@ -468,20 +492,67 @@ class _AiAdminPageState extends State<AiAdminPage> {
     final day = TextEditingController(text: u.customDay?.toString() ?? '');
     final month = TextEditingController(text: u.customMonth?.toString() ?? '');
     var blocked = u.blocked, access = u.access;
+    final ov = u.modelOverrides;
+    final ms = {for (final m in u.models) m.alias: m};
+    // Trạng thái sửa từng model: enabled (null = theo hạng), trần tháng / ngày (trống = theo hạng).
+    final en = <String, bool?>{for (final a in _aliasIds) a: ov[a]?['enabled'] as bool?};
+    final mc = {for (final a in _aliasIds) a: TextEditingController(text: ov[a]?['month_usd'] == null ? '' : '${ov[a]!['month_usd']}')};
+    final dc = {for (final a in _aliasIds) a: TextEditingController(text: ov[a]?['day_usd'] == null ? '' : '${ov[a]!['day_usd']}')};
+    bool tierHas(String a) => ((tiers[tier ?? (u.tier.isEmpty ? def : u.tier)] as Map?)?['aliases'] as List? ?? const []).contains(a);
+    Map<String, dynamic>? tierCap(String a) => (((tiers[tier ?? (u.tier.isEmpty ? def : u.tier)] as Map?)?['models'] as Map?)?[a] as Map?)?.cast<String, dynamic>();
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      constraints: const BoxConstraints(maxWidth: 560),
+      constraints: const BoxConstraints(maxWidth: 600),
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
         final pal = Pal.of(ctx);
+        Widget modelBox(String a) {
+          final m = ms[a];
+          final on = en[a] ?? tierHas(a);
+          final cap = tierCap(a);
+          final custom = en[a] != null || mc[a]!.text.isNotEmpty || dc[a]!.text.isNotEmpty;
+          return Container(
+            key: ValueKey('model-$a'),
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 10),
+            decoration: BoxDecoration(color: pal.surface2.withValues(alpha: .5), borderRadius: BorderRadius.circular(12), border: Border.all(color: pal.divider)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                _dot(a),
+                const SizedBox(width: 6),
+                Text(tr(aiModelName(a)), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+                const SizedBox(width: 6),
+                Expanded(child: Text('${_aliases.where((x) => x['id'] == a).map((x) => x['model']).firstOrNull ?? ''}', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.sub))),
+                _chip(pal, custom ? tr('riêng') : tierHas(a) ? tr('theo hạng') : tr('hạng không có'), custom ? pal.accent : pal.sub),
+                Switch(value: on, onChanged: (v) => set(() => en[a] = v == tierHas(a) ? null : v)),
+              ]),
+              if (on) ...[
+                if (m?.usedPct != null) Row(children: [
+                  SizedBox(width: 62, child: _k(pal, tr('Đã dùng'))),
+                  Expanded(child: usageBar(pal, m!.usedPct!, height: 6)),
+                  const SizedBox(width: 8),
+                  Text('${m.usedPct}%', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+                ]),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(child: TextField(controller: mc[a], keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => set(() {}),
+                      decoration: InputDecoration(isDense: true, labelText: tr('Trần tháng (USD)'), hintText: cap?['month_usd'] == null ? '∞' : '${cap!['month_usd']}', border: const OutlineInputBorder()))),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: dc[a], keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => set(() {}),
+                      decoration: InputDecoration(isDense: true, labelText: tr('Trần ngày (USD)'), hintText: cap?['day_usd'] == null ? '∞' : '${cap!['day_usd']}', border: const OutlineInputBorder()))),
+                ]),
+              ],
+            ]),
+          );
+        }
         return Padding(
           padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(u.user, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: pal.text)),
             const SizedBox(height: 4),
             Text(tr('Đã dùng {0}% tháng · {1}% hôm nay', ['${u.usedPct}', '${u.dayPct}']), style: TextStyle(color: pal.sub)),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             DropdownButtonFormField<String?>(
               initialValue: tier,
               decoration: InputDecoration(labelText: tr('Hạng'), border: const OutlineInputBorder()),
@@ -492,30 +563,118 @@ class _AiAdminPageState extends State<AiAdminPage> {
               onChanged: (v) => set(() => tier = v),
             ),
             const SizedBox(height: 12),
+            Text(tr('Từng model'), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+            const SizedBox(height: 6),
+            for (final a in _aliasIds) modelBox(a),
+            const SizedBox(height: 4),
+            Text(tr('Trống = theo hạng. Model hết trần thì tự hạ xuống model rẻ hơn còn hạn mức.'), style: TextStyle(fontSize: 12, color: pal.sub)),
+            const SizedBox(height: 12),
             Row(children: [
               Expanded(child: TextField(controller: day, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(labelText: tr('Trần ngày (USD)'), hintText: _n(u.dayUsd), helperText: tr('Trống = theo hạng'), border: const OutlineInputBorder()))),
+                  decoration: InputDecoration(isDense: true, labelText: tr('Tổng / ngày (USD)'), hintText: _n(u.dayUsd), border: const OutlineInputBorder()))),
               const SizedBox(width: 12),
               Expanded(child: TextField(controller: month, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(labelText: tr('Trần tháng (USD)'), hintText: _n(u.monthUsd), helperText: tr('Trống = theo hạng'), border: const OutlineInputBorder()))),
+                  decoration: InputDecoration(isDense: true, labelText: tr('Tổng / tháng (USD)'), hintText: _n(u.monthUsd), border: const OutlineInputBorder()))),
             ]),
             SwitchListTile(contentPadding: EdgeInsets.zero, value: access, onChanged: (v) => set(() => access = v), title: Text(tr('Được dùng AI công ty'))),
             SwitchListTile(contentPadding: EdgeInsets.zero, value: blocked, onChanged: (v) => set(() => blocked = v), title: Text(tr('Tạm khoá'))),
-            const SizedBox(height: 8),
-            Row(children: [
+            Wrap(spacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
               TextButton.icon(onPressed: () { Navigator.pop(ctx); _addExtra(target: u.user); }, icon: const Icon(Icons.add_card_rounded), label: Text(tr('Cộng thêm'))),
+              TextButton.icon(onPressed: () => set(() { for (final a in _aliasIds) { en[a] = null; mc[a]!.clear(); dc[a]!.clear(); } day.clear(); month.clear(); }),
+                  icon: const Icon(Icons.restart_alt_rounded), label: Text(tr('Về như hạng'))),
+            ]),
+            const SizedBox(height: 4),
+            Row(children: [
               const Spacer(),
               TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('Huỷ'))),
               const SizedBox(width: 8),
               FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Lưu'))),
             ]),
-          ]),
+          ])),
         );
       }),
     );
     if (ok != true) return;
-    await _run(() => api.setUser(u.user, {'tier': tier, 'day_usd': _num(day.text), 'month_usd': _num(month.text), 'blocked': blocked, 'access': access}),
+    final models = <String, dynamic>{
+      for (final a in _aliasIds)
+        a: (en[a] == null && mc[a]!.text.trim().isEmpty && dc[a]!.text.trim().isEmpty) ? null : {'enabled': en[a], 'month_usd': _num(mc[a]!.text), 'day_usd': _num(dc[a]!.text)},
+    };
+    await _run(() => api.setUser(u.user, {'tier': tier, 'day_usd': _num(day.text), 'month_usd': _num(month.text), 'blocked': blocked, 'access': access, 'models': models}),
         tr('Đã lưu {0}', [u.user]));
+  }
+
+  /// Sửa hàng loạt theo hạng hoặc phòng ban: đổi hạng và / hoặc bật-tắt, đặt trần tháng từng model.
+  Future<void> _bulkEdit() async {
+    final tiers = ((_tiers?['tiers'] as Map?) ?? const {}).cast<String, dynamic>();
+    final depts = {for (final u in _users ?? const <AiQuota>[]) '${u.j['dept'] ?? ''}'}..remove('');
+    var by = 'tier';
+    String? value = tiers.keys.firstOrNull, newTier;
+    final en = <String, bool?>{for (final a in _aliasIds) a: null};
+    final mc = {for (final a in _aliasIds) a: TextEditingController()};
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
+      final pal = Pal.of(ctx);
+      final opts = by == 'tier' ? {for (final e in tiers.entries) e.key: '${(e.value as Map)['name'] ?? e.key}'} : {for (final d in depts) d: d};
+      final count = (_users ?? const <AiQuota>[]).where((u) => by == 'tier' ? (u.tier == value) : '${u.j['dept'] ?? ''}' == value).length;
+      return AlertDialog(
+        title: Text(tr('Sửa hàng loạt')),
+        content: SizedBox(width: 440, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SegmentedButton<String>(
+            segments: [ButtonSegment(value: 'tier', label: Text(tr('Theo hạng'))), ButtonSegment(value: 'dept', label: Text(tr('Theo phòng ban')))],
+            selected: {by},
+            onSelectionChanged: (v) => set(() { by = v.first; value = by == 'tier' ? tiers.keys.firstOrNull : depts.firstOrNull; }),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            initialValue: opts.containsKey(value) ? value : null,
+            isExpanded: true,
+            decoration: InputDecoration(isDense: true, labelText: by == 'tier' ? tr('Hạng') : tr('Phòng ban'), border: const OutlineInputBorder()),
+            items: [for (final e in opts.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+            onChanged: (v) => set(() => value = v),
+          ),
+          const SizedBox(height: 4),
+          Text(tr('{0} người', ['$count']), style: TextStyle(fontSize: 12, color: pal.sub)),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String?>(
+            initialValue: newTier,
+            isExpanded: true,
+            decoration: InputDecoration(isDense: true, labelText: tr('Đổi hạng thành'), border: const OutlineInputBorder()),
+            items: [DropdownMenuItem(value: null, child: Text(tr('Giữ nguyên'))), for (final e in tiers.entries) DropdownMenuItem(value: e.key, child: Text('${(e.value as Map)['name'] ?? e.key}'))],
+            onChanged: (v) => set(() => newTier = v),
+          ),
+          const SizedBox(height: 10),
+          for (final a in _aliasIds)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                _dot(a),
+                const SizedBox(width: 6),
+                SizedBox(width: 64, child: Text(tr(aiModelName(a)), style: TextStyle(color: pal.text))),
+                SizedBox(
+                  width: 128,
+                  child: DropdownButton<bool?>(
+                    value: en[a],
+                    isExpanded: true,
+                    items: [DropdownMenuItem(value: null, child: Text(tr('Giữ nguyên'))), DropdownMenuItem(value: true, child: Text(tr('Bật'))), DropdownMenuItem(value: false, child: Text(tr('Tắt')))],
+                    onChanged: (v) => set(() => en[a] = v),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(controller: mc[a], keyboardType: TextInputType.number, decoration: InputDecoration(isDense: true, hintText: tr('trần tháng \$ (giữ)'), border: const OutlineInputBorder()))),
+              ]),
+            ),
+        ]))),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('Huỷ'))), FilledButton(onPressed: count == 0 ? null : () => Navigator.pop(ctx, true), child: Text(tr('Áp cho {0} người', ['$count'])))],
+      );
+    }));
+    if (ok != true || value == null) return;
+    final models = <String, dynamic>{
+      for (final a in _aliasIds)
+        if (en[a] != null || mc[a]!.text.trim().isNotEmpty) a: {if (en[a] != null) 'enabled': en[a], if (mc[a]!.text.trim().isNotEmpty) 'month_usd': _num(mc[a]!.text)},
+    };
+    await _run(() async {
+      final r = await api.bulkUsers({by: value}, {'tier': ?newTier, if (models.isNotEmpty) 'models': models});
+      if (r['count'] == 0) throw StateError(tr('Không có ai khớp'));
+    }, tr('Đã sửa hàng loạt'));
   }
 
   // ---------------------------------------------------------------- nhà cung cấp
@@ -681,7 +840,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
       ]),
       const SizedBox(height: 10),
       for (final e in tiers.entries) _TierRow(key: ValueKey('tier-${e.key}'), id: e.key, t: (e.value as Map).cast<String, dynamic>(), isDefault: e.key == _tiers?['default_tier'],
-          onSave: (v) => _run(() => api.setTier(e.key, v), tr('Đã lưu hạng'))),
+          aliases: _aliasIds, onSave: (v) => _run(() => api.setTier(e.key, v), tr('Đã lưu hạng'))),
       const SizedBox(height: 8),
       Row(children: [
         Expanded(child: _k(pal, o['access'] == 'all' ? tr('Đang mở cho mọi nhân viên') : tr('Đang mở cho {0} người trong danh sách', ['${o['access']}']))),
@@ -922,27 +1081,39 @@ class _AiAdminPageState extends State<AiAdminPage> {
   }
 }
 
-/// Một hạng: sửa ngay trên dòng (trần ngày, trần tháng, lượt Kỹ hơn).
+/// Một hạng (mẫu): bật/tắt từng model + trần tháng / ngày từng model, trần tổng; sửa ngay trên dòng.
 class _TierRow extends StatefulWidget {
-  const _TierRow({super.key, required this.id, required this.t, required this.isDefault, required this.onSave});
+  const _TierRow({super.key, required this.id, required this.t, required this.isDefault, required this.aliases, required this.onSave});
   final String id;
   final Map<String, dynamic> t;
   final bool isDefault;
+  final List<String> aliases;
   final void Function(Map<String, dynamic>) onSave;
   @override
   State<_TierRow> createState() => _TierRowState();
 }
 
 class _TierRowState extends State<_TierRow> {
-  late final _d = TextEditingController(text: '${widget.t['day_usd']}');
-  late final _m = TextEditingController(text: '${widget.t['month_usd']}');
-  late final _s = TextEditingController(text: widget.t['smart_per_month'] == null ? '' : '${widget.t['smart_per_month']}');
+  late final Map<String, bool> _on = {for (final a in widget.aliases) a: ((widget.t['aliases'] as List?) ?? const []).contains(a)};
+  late final Map<String, TextEditingController> _m = {
+    for (final a in widget.aliases) a: TextEditingController(text: _cap(a, 'month_usd')),
+  };
+  late final Map<String, TextEditingController> _d = {
+    for (final a in widget.aliases) a: TextEditingController(text: _cap(a, 'day_usd')),
+  };
+  late final _tm = TextEditingController(text: '${widget.t['month_usd']}');
+  late final _td = TextEditingController(text: '${widget.t['day_usd']}');
+
+  String _cap(String a, String k) {
+    final v = (((widget.t['models'] as Map?)?[a] as Map?)?[k]);
+    return v == null ? '' : '$v';
+  }
 
   @override
   void dispose() {
-    _d.dispose();
-    _m.dispose();
-    _s.dispose();
+    for (final c in [..._m.values, ..._d.values, _tm, _td]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -950,27 +1121,46 @@ class _TierRowState extends State<_TierRow> {
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
     InputDecoration dec(String l, [String? hint]) => InputDecoration(isDense: true, labelText: l, hintText: hint, border: const OutlineInputBorder());
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(children: [
-        SizedBox(
-          width: 86,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${widget.t['name'] ?? widget.id}', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
-            if (widget.isDefault) Text(tr('mặc định'), style: const TextStyle(fontSize: 11, color: Color(0xFF3DD68C))),
-          ]),
-        ),
-        Expanded(child: TextField(controller: _d, keyboardType: TextInputType.number, decoration: dec(tr('Ngày \$')))),
-        const SizedBox(width: 6),
-        Expanded(child: TextField(controller: _m, keyboardType: TextInputType.number, decoration: dec(tr('Tháng \$')))),
-        const SizedBox(width: 6),
-        Expanded(child: TextField(controller: _s, keyboardType: TextInputType.number, decoration: dec(tr('Kỹ hơn'), '∞'))),
-        IconButton(
-          tooltip: tr('Lưu hạng'),
-          visualDensity: VisualDensity.compact,
-          onPressed: () => widget.onSave({'day_usd': _num(_d.text), 'month_usd': _num(_m.text), 'smart_per_month': _s.text.trim().isEmpty ? null : int.tryParse(_s.text.trim())}),
-          icon: Icon(Icons.check_circle_rounded, color: pal.accent),
-        ),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+      decoration: BoxDecoration(border: Border.all(color: pal.divider), borderRadius: BorderRadius.circular(10)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Text('${widget.t['name'] ?? widget.id}', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+          if (widget.isDefault) Text(tr('mặc định'), style: const TextStyle(fontSize: 11, color: Color(0xFF3DD68C))),
+          const SizedBox(width: 12),
+          SizedBox(width: 82, child: TextField(controller: _tm, keyboardType: TextInputType.number, decoration: dec(tr('Tổng/tháng')))),
+          const SizedBox(width: 6),
+          SizedBox(width: 72, child: TextField(controller: _td, keyboardType: TextInputType.number, decoration: dec(tr('/ngày')))),
+          IconButton(key: ValueKey('save-tier-${widget.id}'),
+            tooltip: tr('Lưu hạng'),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => widget.onSave({
+              'month_usd': _num(_tm.text),
+              'day_usd': _num(_td.text),
+              'aliases': [for (final a in widget.aliases) if (_on[a]!) a],
+              'models': {for (final a in widget.aliases) a: {'month_usd': _num(_m[a]!.text), 'day_usd': _num(_d[a]!.text)}},
+            }),
+            icon: Icon(Icons.check_circle_rounded, color: pal.accent),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        Wrap(spacing: 10, runSpacing: 8, children: [
+          for (final a in widget.aliases)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 9, height: 9, decoration: BoxDecoration(color: _AiAdminPageState.modelColor(a), shape: BoxShape.circle)),
+              const SizedBox(width: 4),
+              Text(tr(aiModelName(a)), style: TextStyle(fontSize: 12.5, color: pal.text)),
+              Switch(value: _on[a]!, onChanged: (v) => setState(() => _on[a] = v)),
+              if (_on[a]!) ...[
+                SizedBox(width: 80, child: TextField(controller: _m[a], keyboardType: TextInputType.number, decoration: dec(tr('tháng \$'), '∞'))),
+                const SizedBox(width: 4),
+                SizedBox(width: 72, child: TextField(controller: _d[a], keyboardType: TextInputType.number, decoration: dec(tr('ngày \$'), '∞'))),
+              ] else
+                Text(tr('không dùng'), style: TextStyle(fontSize: 12, color: pal.sub)),
+            ]),
+        ]),
       ]),
     );
   }

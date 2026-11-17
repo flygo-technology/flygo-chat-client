@@ -11,6 +11,7 @@ import '../i18n/i18n.dart';
 import '../state/app_state.dart';
 import 'agent_view.dart';
 import 'ai_gate/ai_gate_api.dart';
+import 'ai_gate/ai_quota_page.dart' show AiModelLines;
 import 'theme.dart';
 
 /// Một phiên gần đây của trợ lý: cuộc trò chuyện, lúc chạy, ngữ cảnh đang dùng.
@@ -180,6 +181,8 @@ class _AgentUsageSectionState extends State<AgentUsageSection> {
             padding: const EdgeInsets.only(top: 8),
             child: Text(tr('Hạn mức của bạn ({0}): đã dùng {1}% tháng này, tính cả các ứng dụng khác.', [q.tierName, q.usedPct]), style: note),
           ),
+        // Từng model (Sếp 2026-11-17): chỉ %, không tiền.
+        if (q != null && q.models.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: AiModelLines(quota: q, compact: true)),
       ]);
     } else if (q != null && _usage != null) {
       blocks.addAll([

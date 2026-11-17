@@ -34,10 +34,26 @@ Future<void> _fonts() async {
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
 }
 
-Map<String, dynamic> _user(String u, String tier, String name, int pct, int day, String state, {double dayUsd = 0.6, double month = 3, double? cDay, bool access = true}) => {
+/// Từng model theo hạng (mẫu Sếp duyệt) + chỉnh riêng (cSmart = trần Kỹ hơn riêng).
+List<Map<String, dynamic>> _models(String tier, int pct, {double? cSmart}) {
+  final caps = switch (tier) { 'chuyen-sau' => [10.0, 15.0, 10.0], 'nang-cao' => [5.0, 5.0, null], _ => [3.0, null, null] };
+  final ids = ['flygo-fast', 'flygo-smart', 'flygo-agent'];
+  return [
+    for (final (i, a) in ids.indexed)
+      {
+        'alias': a, 'allowed': caps[i] != null || (a == 'flygo-smart' && cSmart != null), 'custom': a == 'flygo-smart' && cSmart != null,
+        'month_cap': a == 'flygo-smart' && cSmart != null ? cSmart : caps[i], 'used_usd': 1.0,
+        'used_pct': caps[i] == null && !(a == 'flygo-smart' && cSmart != null) ? null : (i == 0 ? pct : (pct * .7).round()), 'day_cap': null, 'day_used_pct': null,
+        'exhausted': i == 0 && pct >= 100,
+      },
+  ];
+}
+
+Map<String, dynamic> _user(String u, String tier, String name, int pct, int day, String state, {double dayUsd = 0.6, double month = 3, double? cDay, bool access = true, double? cSmart}) => {
+      'models': _models(tier, pct, cSmart: cSmart), 'dept': u.startsWith('lan') || u.startsWith('my') ? 'ke-toan' : '',
       'user': u, 'tier': tier, 'tier_name': name, 'state': state, 'used_pct': pct, 'day_used_pct': day, 'month_usd': month, 'used_usd': month * pct / 100,
       'day_usd': dayUsd, 'day_spent_usd': dayUsd * day / 100, 'smart_left': tier == 'co-ban' ? 12 : null, 'resets_at': 1796058000000, 'blocked': state == 'blocked',
-      'access': access, 'extra_usd': 0, 'custom': {'tier': null, 'day_usd': cDay, 'month_usd': null},
+      'access': access, 'extra_usd': 0, 'custom': {'tier': null, 'day_usd': cDay, 'month_usd': null, 'models': cSmart == null ? {} : {'flygo-smart': {'enabled': true, 'month_usd': cSmart}}},
     };
 
 /// Máy chủ Cổng AI giả: ghi lại các lời gọi.
@@ -60,17 +76,19 @@ class FakeGate {
       '/admin/api/users' => [
           _user('ba@flygo.vn', 'chuyen-sau', 'Chuyên sâu', 28, 10, 'ok', dayUsd: 6, month: 30),
           _user('hung@flygo.vn', 'nang-cao', 'Nâng cao', 86, 40, 'warn', dayUsd: 2, month: 10),
-          _user('lan@flygo.vn', 'co-ban', 'Cơ bản', 62, 30, 'ok', dayUsd: 0.5, cDay: 0.5),
+          _user('lan@flygo.vn', 'co-ban', 'Cơ bản', 62, 30, 'ok', dayUsd: 0.5, cDay: 0.5, cSmart: 20),
           _user('nam@flygo.vn', 'co-ban', 'Cơ bản', 104, 70, 'degraded'),
           _user('my@flygo.vn', 'co-ban', 'Cơ bản', 0, 0, 'ok', access: false),
         ],
       '/admin/api/tiers' => {
           'default_tier': 'co-ban',
           'tiers': {
-            'co-ban': {'name': 'Cơ bản', 'month_usd': 3, 'day_usd': 0.6, 'aliases': ['flygo-fast', 'flygo-smart'], 'smart_per_month': 30},
-            'nang-cao': {'name': 'Nâng cao', 'month_usd': 10, 'day_usd': 2, 'aliases': ['flygo-fast', 'flygo-smart']},
-            'chuyen-sau': {'name': 'Chuyên sâu', 'month_usd': 30, 'day_usd': 6, 'aliases': ['flygo-fast', 'flygo-smart', 'flygo-agent']},
+            'co-ban': {'name': 'Cơ bản', 'month_usd': 3, 'day_usd': 0.6, 'aliases': ['flygo-fast'], 'models': {'flygo-fast': {'month_usd': 3}}},
+            'nang-cao': {'name': 'Nâng cao', 'month_usd': 10, 'day_usd': 2, 'aliases': ['flygo-fast', 'flygo-smart'], 'models': {'flygo-fast': {'month_usd': 5}, 'flygo-smart': {'month_usd': 5}}},
+            'chuyen-sau': {'name': 'Chuyên sâu', 'month_usd': 35, 'day_usd': 7, 'aliases': ['flygo-fast', 'flygo-smart', 'flygo-agent'],
+              'models': {'flygo-fast': {'month_usd': 10}, 'flygo-smart': {'month_usd': 15}, 'flygo-agent': {'month_usd': 10}}},
           },
+          'ladder': ['flygo-agent', 'flygo-smart', 'flygo-fast'],
           'aliases': {'flygo-fast': 'claude-haiku-5-5', 'flygo-smart': 'claude-sonnet-5-5', 'flygo-agent': 'claude-opus-5-5'},
         },
       '/admin/api/extras' => [
@@ -96,6 +114,7 @@ class FakeGate {
       '/admin/api/providers/anthropic/models' => {'models': ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']},
       '/admin/api/providers/openai/models' => {'models': ['gpt-6-luna', 'gpt-6.1-terra']},
       '/admin/api/providers/gemini/key' => {'test': {'ok': true, 'ms': 300, 'msg': 'OK'}, 'models': []},
+      '/admin/api/users/bulk' => {'count': 2, 'users': ['lan@flygo.vn', 'my@flygo.vn']},
       '/admin/api/user' => _user('lan@flygo.vn', 'nang-cao', 'Nâng cao', 62, 30, 'ok', dayUsd: 0.8, cDay: 0.8),
       _ => {'ok': true},
     };
@@ -155,7 +174,8 @@ void main() {
     await settle(t);
     await t.tap(find.text('lan@flygo.vn'));
     await settle(t);
-    await t.enterText(find.widgetWithText(TextField, 'Trần ngày (USD)'), '0.8');
+    await t.enterText(find.widgetWithText(TextField, 'Tổng / ngày (USD)'), '0.8');
+    await t.ensureVisible(find.text('Lưu').last);
     await t.tap(find.text('Lưu').last);
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await settle(t);
@@ -194,6 +214,46 @@ void main() {
     expect(g.bodies.last['chain'], [{'provider': 'openai', 'model': 'gpt-6-luna'}]);
   });
 
+  testWidgets('hạn mức từng model: cột trong bảng, chỉnh riêng một người, sửa hàng loạt', (t) async {
+    final g = FakeGate();
+    await app(t, const Size(1440, 1180), Brightness.dark, AiAdminPage(api: g.api));
+    expect(find.descendant(of: find.byKey(const ValueKey('ai-users')), matching: find.text('Kỹ hơn')), findsWidgets);
+    expect(find.textContaining('20\$ ✎'), findsOneWidget); // lan: Kỹ hơn riêng 20$
+    await t.ensureVisible(find.text('lan@flygo.vn'));
+    await settle(t);
+    await t.tap(find.text('lan@flygo.vn'));
+    await settle(t);
+    expect(find.byKey(const ValueKey('model-flygo-agent')), findsOneWidget);
+    expect(find.text('riêng'), findsWidgets);
+    await save(t, 'ai-models-user-detail');
+    // bật Agent cho lan, trần tháng 4$
+    await t.tap(find.descendant(of: find.byKey(const ValueKey('model-flygo-agent')), matching: find.byType(Switch)));
+    await settle(t);
+    await t.enterText(find.descendant(of: find.byKey(const ValueKey('model-flygo-agent')), matching: find.widgetWithText(TextField, 'Trần tháng (USD)')), '4');
+    await t.ensureVisible(find.text('Lưu').last);
+    await t.tap(find.text('Lưu').last);
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await settle(t);
+    final body = g.bodies.last;
+    expect(body['user'], 'lan@flygo.vn');
+    expect((body['models'] as Map)['flygo-agent'], {'enabled': true, 'month_usd': 4.0, 'day_usd': null});
+    expect((body['models'] as Map)['flygo-smart'], {'enabled': true, 'month_usd': 20.0, 'day_usd': null}); // giữ chỉnh riêng cũ
+    expect((body['models'] as Map)['flygo-fast'], isNull); // theo hạng
+    // sửa hàng loạt: phòng Kế toán → Nâng cao, Kỹ hơn 20$
+    await t.ensureVisible(find.text('Sửa hàng loạt'));
+    await settle(t);
+    await t.tap(find.text('Sửa hàng loạt'));
+    await settle(t);
+    await t.tap(find.text('Theo phòng ban'));
+    await settle(t);
+    await save(t, 'ai-models-bulk');
+    await t.tap(find.textContaining('Áp cho'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await settle(t);
+    expect(g.calls, contains('POST /__apps/ai/admin/api/users/bulk'));
+    expect(g.bodies.last['filter'], {'dept': 'ke-toan'});
+  });
+
   testWidgets('quản trị trên điện thoại: một cột cuộn dọc, bảng thành thẻ', (t) async {
     for (final b in [Brightness.dark, Brightness.light]) {
       final g = FakeGate();
@@ -213,6 +273,7 @@ void main() {
       expect(find.text('62%'), findsWidgets);
       expect(find.textContaining('Hạng Cơ bản'), findsOneWidget);
       expect(find.textContaining('USD'), findsNothing); // nhân viên không thấy tiền
+      expect(find.textContaining('còn'), findsWidgets);   // "Nhanh: 62% · còn 38%"
       await save(t, 'ai-quota-phone-${b.name}');
     }
   });

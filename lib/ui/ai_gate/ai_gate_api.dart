@@ -47,7 +47,31 @@ class AiQuota {
   double? get customDay => (custom['day_usd'] as num?)?.toDouble();
   double? get customMonth => (custom['month_usd'] as num?)?.toDouble();
   String? get customTier => custom['tier'] as String?;
+  /// Từng mức AI (Nhanh / Kỹ hơn / Agent). Trang của nhân viên chỉ nhận %, không có tiền.
+  List<AiModel> get models => [for (final m in (j['models'] as List? ?? const [])) if (m is Map) AiModel(m.cast<String, dynamic>())];
+  /// Chỉnh riêng từng model của người này (trang quản trị): alias -> {enabled, month_usd, day_usd}.
+  Map<String, Map<String, dynamic>> get modelOverrides => {
+        for (final e in ((custom['models'] as Map?) ?? const {}).entries) '${e.key}': ((e.value as Map?) ?? const {}).cast<String, dynamic>(),
+      };
 }
+
+/// Một mức AI của một người.
+class AiModel {
+  AiModel(this.j);
+  final Map<String, dynamic> j;
+  String get alias => '${j['alias'] ?? ''}';
+  bool get allowed => j['allowed'] == true;
+  bool get custom => j['custom'] == true;
+  bool get exhausted => j['exhausted'] == true;
+  int? get usedPct => (j['used_pct'] as num?)?.toInt();
+  int? get dayPct => (j['day_used_pct'] as num?)?.toInt();
+  double? get monthCap => (j['month_cap'] as num?)?.toDouble();
+  double? get dayCap => (j['day_cap'] as num?)?.toDouble();
+  double get usedUsd => (j['used_usd'] as num?)?.toDouble() ?? 0;
+}
+
+/// Tên hiển thị của mức AI.
+String aiModelName(String alias) => switch (alias) { 'flygo-fast' => 'Nhanh', 'flygo-smart' => 'Kỹ hơn', 'flygo-agent' => 'Agent', _ => alias };
 
 class AiGateApi {
   AiGateApi({required this.base, required this.ticket, http.Client? client}) : _http = client ?? http.Client();
@@ -100,6 +124,9 @@ class AiGateApi {
   Future<void> setTier(String id, Map<String, dynamic> v) => _call('PUT', '/admin/api/tiers/$id', v);
   Future<void> setCompany({double? monthUsd, double? dayUsd}) => _call('PUT', '/admin/api/company', {'month_usd': ?monthUsd, 'day_usd': ?dayUsd});
   Future<void> setAccessAll(bool all) => _call('PUT', '/admin/api/access', {'all': all});
+  /// Sửa hàng loạt: filter {tier | dept | users}, patch như setUser (tier, models…). Trả {count, users}.
+  Future<Map<String, dynamic>> bulkUsers(Map<String, dynamic> filter, Map<String, dynamic> patch) async =>
+      Map<String, dynamic>.from(await _call('POST', '/admin/api/users/bulk', {'filter': filter, 'patch': patch}) as Map);
   Future<List<Map<String, dynamic>>> extras() async => [for (final e in await _call('GET', '/admin/api/extras') as List) Map<String, dynamic>.from(e as Map)];
   Future<void> addExtra({required String scope, required String target, required double usd, int? days, String reason = ''}) =>
       _call('POST', '/admin/api/extras', {'scope': scope, 'target': target, 'usd': usd, 'days': ?days, 'reason': reason});
