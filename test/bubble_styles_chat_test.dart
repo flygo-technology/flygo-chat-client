@@ -35,7 +35,7 @@ final _start = DateTime(2026, 12, 20, 8).millisecondsSinceEpoch;
 
 AppState _app() {
   final app = AppState('t')..me = MmUser({'id': 'me', 'username': 'an', 'first_name': 'An'});
-  for (final (id, name) in [('me', 'An'), ('u2', 'Bình'), ('u3', 'Chi')]) {
+  for (final (id, name) in [('me', 'An'), ('u2', 'Bình'), ('u3', 'Chi'), ('u4', 'Đang')]) {
     app.users[id] = MmUser({'id': id, 'username': name, 'first_name': name});
   }
   app.channels['c'] = MmChannel({'id': 'c', 'type': 'O', 'display_name': 'Nhóm dự án', 'create_at': _start - 3600000});
@@ -61,6 +61,7 @@ AppState _app() {
     post('me', 'Tuyệt quá 🎉', bubble: {'s': 'meo', 'c': 'FFE0B2'}, root: 'p4'),
     post('u2', 'Tin mặc định không đổi kiểu'),
     post('me', 'Sếp duyệt rồi, em gửi ngay bản ký cho đối tác trong chiều nay', bubble: {'s': 'quockyvn'}),
+    post('u4', 'Ok anh', bubble: {'s': 'caythong'}, root: 'p7'),
   ];
   app.debugPutPosts('c', posts.reversed.toList());
   app.hasMore['c'] = false;
@@ -84,7 +85,7 @@ Widget _wrap(AppState app, Brightness b, Key key) => ChangeNotifierProvider<AppS
 
 void main() {
   testWidgets('tin có props.flygo_bubble vẽ màu + hình trang trí; tin thường giữ nguyên', (t) async {
-    t.view.physicalSize = const Size(420, 1000);
+    t.view.physicalSize = const Size(420, 1400);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
     await t.pumpWidget(_wrap(_app(), Brightness.light, GlobalKey()));
@@ -100,6 +101,12 @@ void main() {
     expect(noel.where((p) => p.bottom).length, 0);
     // Màu tuỳ chỉnh được dùng làm nền.
     expect(painters.firstWhere((p) => p.style.id == 'meo').fill, const Color(0xFFFFE0B2));
+    // Tên người gửi trên nền xanh đậm (Cây thông): đủ tương phản, không dùng nguyên màu tên mặc định.
+    final name = t.widget<Text>(find.text('~Đang'));
+    final c = name.style!.color!;
+    final fill = bubbleStyleById('caythong')!.color;
+    final x = c.computeLuminance(), y = fill.computeLuminance();
+    expect(((x > y ? x : y) + .05) / ((x > y ? y : x) + .05), greaterThanOrEqualTo(4.5));
     await t.pumpWidget(const SizedBox.shrink());
   });
 
