@@ -7,6 +7,7 @@ import 'cover.dart';
 import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
+import 'project_ai.dart' show linkProjectChat;
 import 'projects_view.dart' show ProjectCard;
 import 'store.dart';
 import 'teamwork_page.dart' show showPrefs;
@@ -267,6 +268,15 @@ class _TwSettingsPageState extends State<TwSettingsPage> {
         ),
       ),
       _coverSection(full, look, admin),
+      if (store.chatOps != null)
+        ListTile(
+          key: const ValueKey('settings-chat'),
+          title: const Text('Nhóm chat của dự án'),
+          subtitle: Text(pr.chatChannel == null ? 'Chưa gắn. AI đăng cập nhật vào nhóm này.' : 'Đã gắn; bot Làm việc nhóm đăng cập nhật vào đây.'),
+          trailing: pr.chatChannel != null
+              ? OutlinedButton.icon(onPressed: () => store.chatOps!.openChannel(pr.chatChannel!), icon: const Icon(Icons.forum_outlined, size: 18), label: const Text('Mở nhóm chat'))
+              : (admin ? TextButton.icon(onPressed: () => linkProjectChat(context, store, full), icon: const Icon(Icons.add_link, size: 18), label: const Text('Gắn nhóm chat')) : null),
+        ),
       ListTile(
         title: const Text('Trạng thái dự án'),
         subtitle: Padding(

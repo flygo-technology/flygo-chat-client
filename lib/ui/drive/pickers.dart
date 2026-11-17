@@ -262,13 +262,19 @@ class _SaveToDrive extends StatelessWidget {
 // ------------------------------------------------------------------ Đính kèm từ Drive (chat)
 
 /// Kết quả chọn trong chat: tệp tải về máy để gửi như tệp đính kèm, hoặc chữ (liên kết) để gửi.
+/// Chế độ [remoteOnly]: [remote] là các mục Drive đã chọn (đường dẫn, tên, cỡ) — không tải về máy; [session] là phiên Drive
+/// để app khác xin vé Drive cho máy chủ của nó tự lấy tệp.
 class DriveAttachResult {
-  DriveAttachResult({this.files = const [], this.text = ''});
+  DriveAttachResult({this.files = const [], this.text = '', this.remote = const [], this.session});
   final List<(String path, String name)> files;
   final String text;
+  final List<DriveItem> remote;
+  final DriveSession? session;
 }
 
-Future<DriveAttachResult?> pickFromDrive(BuildContext context) async {
+/// Chọn tệp từ Drive. Mặc định (chat): tải tệp về máy hoặc tạo liên kết xem. [remoteOnly]: chỉ trả các mục đã chọn,
+/// không tải; [extensions] (vd ['pdf']) chỉ hiện tệp có đuôi đó; [single]: chọn một tệp.
+Future<DriveAttachResult?> pickFromDrive(BuildContext context, {bool remoteOnly = false, List<String>? extensions, bool single = false}) async {
   final s = await DriveSession.current(context.read<AppState>());
   if (s == null || !context.mounted) {
     if (context.mounted) driveToast(context, tr('Bạn chưa được dùng Drive'));
@@ -280,13 +286,21 @@ Future<DriveAttachResult?> pickFromDrive(BuildContext context) async {
     showDragHandle: true,
     backgroundColor: DriveLook.of(context).surface,
     constraints: const BoxConstraints(maxWidth: 720),
-    builder: (_) => FractionallySizedBox(heightFactor: .86, child: DriveAttachSheet(session: s)),
+    builder: (_) => FractionallySizedBox(
+        heightFactor: .86, child: DriveAttachSheet(session: s, remoteOnly: remoteOnly, extensions: extensions, single: single || remoteOnly && extensions != null)),
   );
 }
 
 class DriveAttachSheet extends StatefulWidget {
-  const DriveAttachSheet({super.key, required this.session});
+  const DriveAttachSheet({super.key, required this.session, this.remoteOnly = false, this.extensions, this.single = false});
   final DriveSession session;
+
+  /// Chỉ chọn (không tải về máy, không tạo liên kết).
+  final bool remoteOnly;
+
+  /// Chỉ hiện tệp có các đuôi này (chữ thường, không dấu chấm); thư mục luôn hiện.
+  final List<String>? extensions;
+  final bool single;
   @override
   State<DriveAttachSheet> createState() => _DriveAttachSheetState();
 }
@@ -316,6 +330,8 @@ class _DriveAttachSheetState extends State<DriveAttachSheet> {
               'shared' => await api.shared(),
               _ => await api.recent(),
             };
+      final ext = widget.extensions;
+      if (ext != null) list.removeWhere((it) => !it.dir && !ext.contains(it.name.split('.').last.toLowerCase()));
       if (_tab == 'my' && _q.isEmpty) list.sort((a, b) => a.dir != b.dir ? (a.dir ? -1 : 1) : a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       if (mounted) setState(() => _items = list);
     } catch (e) {
@@ -328,6 +344,10 @@ class _DriveAttachSheetState extends State<DriveAttachSheet> {
 
   Future<void> _send() async {
     final s = widget.session, picked = _picked.values.toList();
+    if (widget.remoteOnly) {
+      Navigator.pop(context, DriveAttachResult(remote: picked, session: s));
+      return;
+    }
     setState(() => _busy = true);
     try {
       if (_asLink) {
@@ -367,7 +387,7 @@ class _DriveAttachSheetState extends State<DriveAttachSheet> {
       Padding(
         padding: const EdgeInsets.fromLTRB(18, 0, 12, 6),
         child: Row(children: [
-          Expanded(child: Text(tr('Đính kèm từ Drive'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: l.text))),
+          Expanded(child: Text(widget.remoteOnly ? tr('Chọn từ Drive') : tr('Đính kèm từ Drive'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: l.text))),
           SizedBox(
             width: 180,
             child: TextField(
@@ -436,7 +456,14 @@ class _DriveAttachSheetState extends State<DriveAttachSheet> {
                               _load();
                               return;
                             }
-                            setState(() => _picked.containsKey(it.path) ? _picked.remove(it.path) : _picked[it.path] = it);
+                            setState(() {
+                              if (_picked.containsKey(it.path)) {
+                                _picked.remove(it.path);
+                              } else {
+                                if (widget.single) _picked.clear();
+                                _picked[it.path] = it;
+                              }
+                            });
                           },
                         ),
                       ),
@@ -448,7 +475,7 @@ class _DriveAttachSheetState extends State<DriveAttachSheet> {
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
           decoration: BoxDecoration(border: Border(top: BorderSide(color: l.line))),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            RadioGroup<bool>(
+            if (!widget.remoteOnly) RadioGroup<bool>(
               groupValue: _asLink,
               onChanged: (v) => setState(() => _asLink = v ?? false),
               child: Column(children: [
@@ -476,7 +503,11 @@ class _DriveAttachSheetState extends State<DriveAttachSheet> {
                 icon: _busy
                     ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, value: _asLink || _progress == 0 ? null : _progress, color: Colors.white))
                     : const Icon(Icons.send_rounded),
-                label: Text(_picked.isEmpty ? tr('Chọn tệp để gửi') : tr('Gửi {0} tệp', ['${_picked.length}'])),
+                label: Text(widget.remoteOnly
+                    ? (_picked.isEmpty ? tr('Chọn tệp') : tr('Chọn {0}', [_picked.values.first.name]))
+                    : _picked.isEmpty
+                        ? tr('Chọn tệp để gửi')
+                        : tr('Gửi {0} tệp', ['${_picked.length}'])),
               ),
             ),
           ]),

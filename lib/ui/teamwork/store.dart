@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show BuildContext, Widget;
 import 'package:path_provider/path_provider.dart';
 
 import '../todo/model.dart';
@@ -37,6 +38,51 @@ abstract class TwAgentLauncher {
   void open(String channelId);
 }
 
+/// Thao tác chat bằng token của chính người dùng (tạo / gắn nhóm chat cho dự án). App cài bằng AppState; kiểm thử dùng bản giả.
+/// Thông tin kênh chat gửi lại cho TeamWork.
+typedef TwChannelInfo = ({String id, String teamId, String name, String displayName, String url});
+
+abstract class TwChatOps {
+  /// Tạo kênh; trả về thông tin kênh.
+  Future<TwChannelInfo> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''});
+  Future<void> addMember(String channelId, String userId);
+  /// Mình có là thành viên kênh không.
+  Future<bool> isMember(String channelId);
+  /// Team có nhiều người trong [userIds] nhất (trong các team của mình); null = team đang dùng.
+  Future<String?> bestTeam(List<String> userIds);
+  /// Kênh mình đang tham gia (để gắn vào dự án): (id, tên).
+  Future<List<(String, String)>> myChannels();
+  /// Id người dùng theo username (vd bot teamwork-app).
+  Future<String?> userIdByUsername(String username);
+  /// Kênh theo id / "~tên" / URL (mình phải thấy được); null nếu không có.
+  Future<TwChannelInfo?> resolveChannel(String ref);
+  void openChannel(String channelId);
+}
+
+/// Dự án AI của app chat (tab Agents: kênh `p-<chủ>-…`, phiên = kênh `a-<dự án>-<chủ>-…` có một trợ lý).
+typedef TwAiProjectInfo = ({String channelId, String teamId, String name, String displayName});
+/// Một phiên AI của dự án AI: [at] = lúc có tin gần nhất (ms), [botId] = trợ lý trong phiên ('' nếu chưa biết).
+typedef TwAiSession = ({String id, String title, String botId, int at});
+
+/// Phiên AI thật của app (dùng lại "Dự án AI" + khung chat phiên AI). App cài bằng AppState; kiểm thử dùng bản giả.
+/// Báo thay đổi (phiên mới, tin mới) qua [Listenable].
+abstract class TwAiSessions implements Listenable {
+  /// Dự án AI [channelId] của mình còn dùng được; null nếu không (đã xoá, của người khác, không thấy).
+  TwAiProjectInfo? project(String channelId);
+  /// Dự án AI của mình có tên hiển thị đúng [name] (mới hoạt động nhất).
+  TwAiProjectInfo? projectByName(String name);
+  /// Tạo dự án AI [name] bằng đúng đường tạo dự án ở tab Agents (dưới tên người dùng).
+  Future<TwAiProjectInfo> createProject(String name);
+  /// Các phiên của dự án AI, mới nhất trước.
+  List<TwAiSession> sessions(String projectChannelId);
+  /// Mở phiên mới với trợ lý [botId] trong dự án AI; trả về id kênh phiên.
+  Future<String> createSession(String projectChannelId, String botId, String title);
+  /// Khung chat thật của phiên [sessionId] (thẻ tiến trình + câu trả lời stream trực tiếp). Tin chữ gõ ở ô nhắn đi qua [onSend];
+  /// [aboveComposer] hiện ngay trên ô nhắn; [runFooter] hiện dưới câu trả lời của agent cho lượt TeamWork (theo run_id).
+  Widget sessionView(BuildContext context, String sessionId,
+      {required Future<void> Function(String text) onSend, Widget? aboveComposer, Widget? Function(String runId)? runFooter});
+}
+
 class TwStore extends ChangeNotifier {
   TwStore(this.api, {this.cacheKey, DateTime Function()? clock, this.live = true}) : _clock = clock ?? DateTime.now;
 
@@ -46,6 +92,21 @@ class TwStore extends ChangeNotifier {
   /// Bật WebSocket (kiểm thử tắt).
   final bool live;
   TwAgentLauncher? launcher;
+  TwChatOps? chatOps;
+  /// Phiên AI thật (dự án AI + khung chat phiên); null = app không có (khung AI dự án báo không dùng được).
+  TwAiSessions? aiSessions;
+  /// Thông báo ngắn (vd "Đã tạo nhóm chat …"); app gắn vào SnackBar.
+  void Function(String text)? onToast;
+  /// Id bot teamwork-app trên máy chủ chat (thêm vào nhóm chat của dự án để đăng cập nhật).
+  String botUserId = '';
+  /// Agent đã chọn ở khung AI dự án (nhớ trên máy) + độ rộng khung.
+  String? aiAgentId;
+  Future<void> Function(String botId)? saveAiAgent;
+  double? aiPanelWidth;
+  Future<void> Function(double width)? saveAiPanelWidth;
+  /// Tăng khi một lượt chạy có thao tác mới / được hoàn tác (run_action).
+  final Map<String, int> actionRev = {};
+  final Set<String> _doingOps = {};
 
   String meId = '', meName = '';
   bool isAdmin = false;
@@ -79,6 +140,8 @@ class TwStore extends ChangeNotifier {
   TwLive? _live;
   final Set<String> _dirtyProjects = {};
   final Set<String> _claiming = {};
+  /// Lượt đã nhận và gửi xong trên máy này (hai lần checkRuns chồng nhau không gửi trùng).
+  final Set<String> _handledRuns = {};
   /// Tên máy khi nhận lượt chạy (máy chủ chỉ cho một máy nhận).
   final String device = 'app-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
 
@@ -135,6 +198,8 @@ class TwStore extends ChangeNotifier {
       meId = '${u['id'] ?? ''}';
       meName = '${u['name'] ?? u['username'] ?? ''}';
       isAdmin = me['is_admin'] == true;
+      final bot = me['bot'] is Map ? me['bot'] as Map : const {};
+      botUserId = '${me['bot_user_id'] ?? bot['id'] ?? botUserId}';
       prefs = me['prefs'] is Map ? (me['prefs'] as Map).cast<String, dynamic>() : {};
       offline = false;
       error = null;
@@ -148,6 +213,7 @@ class TwStore extends ChangeNotifier {
         unawaited(openProject(pid));
       }
       unawaited(checkRuns());
+      unawaited(runUserOps());
     } catch (e) {
       _netError(e);
       loaded = true;
@@ -217,6 +283,16 @@ class TwStore extends ChangeNotifier {
     final type = '${ev['type'] ?? ''}';
     final pid = ev['project_id'] as String?;
     final tid = ev['task_id'] as String?;
+    if (type == 'run_action') {
+      final id = ev['id'] as String? ?? ev['run_id'] as String?;
+      if (id != null) actionRev[id] = (actionRev[id] ?? 0) + 1;
+      _changed(persist: false);
+      return;
+    }
+    if (type == 'user_op') {
+      unawaited(runUserOps());
+      return;
+    }
     if (type == 'run_progress') {
       final id = ev['id'] as String?;
       if (id != null) runRev[id] = (runRev[id] ?? 0) + 1;
@@ -504,7 +580,7 @@ class TwStore extends ChangeNotifier {
       return;
     }
     for (final r in runs) {
-      if (!_claiming.add(r.id)) continue;
+      if (_handledRuns.contains(r.id) || !_claiming.add(r.id)) continue;
       try {
         final claimed = await api.claim(r.id, device, attestOwner: await l.isOwnerOf(r.botId));
         if (claimed == null) continue;
@@ -512,8 +588,12 @@ class TwStore extends ChangeNotifier {
           await api.reportRun(r.id, 'blocked', error: 'Người bắt đầu không được dùng agent ${r.botName.isEmpty ? r.botId : r.botName}');
           continue;
         }
-        final d = await api.task(r.taskId.isNotEmpty ? r.taskId : r.taskKey);
-        final brief = claimed.$2 ?? briefOf(d, api.taskLink(d.task.key));
+        // Lượt "project" (khung AI dự án): không gắn với việc nào, bản giao việc do máy chủ soạn.
+        final project = r.kind == 'project' || claimed.$1.kind == 'project';
+        final d = project ? null : await api.task(r.taskId.isNotEmpty ? r.taskId : r.taskKey);
+        final pname = claimed.$4 ?? projectById(claimed.$1.projectId.isNotEmpty ? claimed.$1.projectId : r.projectId)?.name ?? 'dự án';
+        final brief = claimed.$2 ?? (d == null ? '' : briefOf(d, api.taskLink(d.task.key)));
+        final title = d == null ? 'AI · $pname' : '${d.task.key} · ${d.task.title}';
         // @nhắc agent: tiếp tục trong phiên sẵn có của việc này nếu còn dùng được, không thì mở phiên mới.
         final hint = claimed.$1.sessionHint ?? r.sessionHint;
         // run_token: runner kiểm bằng khoá của TeamWork rồi mới đẩy tiến độ / chạy không cần duyệt.
@@ -523,10 +603,12 @@ class TwStore extends ChangeNotifier {
           await l.post(hint, brief, props: props);
           ch = hint;
         } else {
-          ch = await l.launch(r.botId, '${d.task.key} · ${d.task.title}', brief, props: props);
+          ch = await l.launch(r.botId, title, brief, props: props);
         }
+        _handledRuns.add(r.id);
         await api.reportRun(r.id, 'running', sessionChannel: ch);
-        taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;
+        if (d != null) taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;
+        runRev[r.id] = (runRev[r.id] ?? 0) + 1;
       } catch (e) {
         try {
           await api.reportRun(r.id, 'failed', error: '$e');
@@ -536,6 +618,128 @@ class TwStore extends ChangeNotifier {
       }
     }
     _changed(persist: false);
+  }
+
+  // ------------------------------------------------------------ AI của dự án = dự án AI cùng tên + phiên AI thật
+  /// Dự án AI gắn với dự án [pid]: dùng bản đã gắn nếu mình mở được; không thì tìm dự án AI cùng tên của mình, chưa có thì tạo
+  /// (đường tạo dự án ở tab Agents), rồi gắn lên máy chủ. Bản gắn của người khác (mình không mở được) giữ nguyên, mình dùng dự án
+  /// AI cùng tên của chính mình.
+  Future<TwAiProjectInfo> ensureAiProject(String pid) async {
+    final ai = aiSessions;
+    if (ai == null) throw StateError('App này chưa có Dự án AI');
+    final p = projectById(pid);
+    if (p == null) throw StateError('Không thấy dự án');
+    final link = p.aiProject;
+    if (link != null) {
+      final mine = ai.project(link.channelId);
+      if (mine != null) return mine;
+    }
+    final info = ai.projectByName(p.name) ?? await ai.createProject(p.name);
+    if (link == null || link.boundBy == meId || link.boundBy.isEmpty) {
+      try {
+        final np = await api.setAiProject(pid, {'channel_id': info.channelId, 'team_id': info.teamId, 'name': info.name, 'display_name': info.displayName});
+        _replaceProject(np);
+      } catch (e) {
+        debugPrint('[teamwork] không gắn được dự án AI: $e');
+      }
+    }
+    return info;
+  }
+
+  void _replaceProject(TwProject np) {
+    final i = projects.indexWhere((x) => x.id == np.id);
+    if (i >= 0) projects[i] = np;
+    full[np.id]?.project = np;
+    _changed();
+  }
+
+  /// Gửi một lượt AI dự án vào phiên [sessionId] (bot [botId] của phiên): tạo lượt chạy kèm cuộc trò chuyện gắn với phiên
+  /// (lượt tiếp trong phiên → brief ngắn), rồi nhận lượt và gửi tin có props flygo_teamwork vào đúng phiên đó.
+  Future<TwRun> askAi(String pid, {required String sessionId, required String botId, required String prompt, String? action}) async {
+    final threads = await api.aiThreads(pid, session: sessionId);
+    final th = threads.where((t) => t.sessionChannel == null || t.sessionChannel == sessionId).firstOrNull;
+    final (run, _) = await api.projectAi(pid,
+        botId: botId, prompt: prompt, action: action, threadId: th?.id, sessionChannel: sessionId, continuation: th != null && th.turnCount > 0);
+    await checkRuns();
+    return run;
+  }
+
+  // ------------------------------------------------------------ lệnh của người dùng (nhóm chat)
+  /// Làm các lệnh đang chờ của CHÍNH người dùng này bằng token của họ (tạo / gắn nhóm chat), rồi báo kết quả.
+  /// Lệnh của người khác không bao giờ làm.
+  Future<void> runUserOps() async {
+    final ops = chatOps;
+    if (ops == null || meId.isEmpty) return;
+    List<TwUserOp> list;
+    try {
+      list = await api.userOps();
+    } catch (_) {
+      return;
+    }
+    for (final op in list) {
+      if (op.userId != meId || !_doingOps.add(op.id)) continue;
+      try {
+        final p = op.params;
+        final bot = '${p['bot_user_id'] ?? p['bot_id'] ?? ''}'.isNotEmpty ? '${p['bot_user_id'] ?? p['bot_id']}' : botUserId;
+        if (op.kind == 'channel_create') {
+          final members = [for (final m in p['members'] as List? ?? const []) '$m'];
+          final team = '${p['team_id'] ?? ''}'.isNotEmpty ? '${p['team_id']}' : await ops.bestTeam(members);
+          final display = '${p['display_name'] ?? p['name'] ?? 'Dự án'}';
+          final info = await ops.createChannel(
+            teamId: team,
+            name: '${p['name'] ?? ''}'.isNotEmpty ? '${p['name']}' : _slug(display),
+            displayName: display,
+            private: p['private'] != false,
+            purpose: '${p['purpose'] ?? ''}',
+            header: '${p['header'] ?? ''}',
+          );
+          for (final m in members) {
+            if (m == meId) continue;
+            try {
+              await ops.addMember(info.id, m);
+            } catch (_) {}
+          }
+          if (bot.isNotEmpty) await ops.addMember(info.id, bot);
+          await api.reportUserOp(op.id, 'done', result: _infoJson(info));
+          onToast?.call('Đã tạo nhóm chat "${info.displayName}"');
+        } else if (op.kind == 'channel_link') {
+          final ref = '${p['channel'] ?? p['channel_id'] ?? ''}';
+          final info = ref.isEmpty ? null : await ops.resolveChannel(ref);
+          if (info == null || !await ops.isMember(info.id)) {
+            await api.reportUserOp(op.id, 'failed', error: 'Bạn không ở trong kênh này');
+            continue;
+          }
+          if (bot.isNotEmpty) await ops.addMember(info.id, bot);
+          await api.reportUserOp(op.id, 'done', result: _infoJson(info));
+          onToast?.call('Đã gắn nhóm chat "${info.displayName}" vào dự án');
+        } else {
+          await api.reportUserOp(op.id, 'failed', error: 'Không hỗ trợ ${op.kind}');
+          continue;
+        }
+        if (op.projectId.isNotEmpty && full.containsKey(op.projectId)) unawaited(openProject(op.projectId));
+      } catch (e) {
+        try {
+          await api.reportUserOp(op.id, 'failed', error: '$e');
+        } catch (_) {}
+      } finally {
+        _doingOps.remove(op.id);
+      }
+    }
+  }
+
+  static Map<String, dynamic> _infoJson(TwChannelInfo i) => {'channel_id': i.id, 'team_id': i.teamId, 'name': i.name, 'display_name': i.displayName, 'url': i.url};
+  static Map<String, dynamic> channelJson(TwChannelInfo i) => {'id': i.id, 'team_id': i.teamId, 'name': i.name, 'display_name': i.displayName, 'url': i.url};
+
+  /// Tên kỹ thuật của kênh từ tên hiển thị (chữ thường, không dấu, gạch nối) + đuôi ngẫu nhiên ngắn.
+  static String _slug(String s) {
+    const from = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
+    const to = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd';
+    final b = s.toLowerCase().split('').map((c) {
+      final i = from.indexOf(c);
+      return i < 0 ? c : to[i];
+    }).join().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
+    final tail = DateTime.now().millisecondsSinceEpoch.toRadixString(36).substring(4);
+    return '${b.isEmpty ? 'du-an' : (b.length > 40 ? b.substring(0, 40) : b)}-$tail';
   }
 
   // ------------------------------------------------------------ hàng đợi khi mất mạng

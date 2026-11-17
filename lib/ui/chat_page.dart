@@ -108,7 +108,15 @@ class ChatPage extends StatefulWidget {
   final bool embedded;
   /// Đang mở ở cột phải (luồng riêng tư): hiện nút đóng.
   final VoidCallback? onClose;
-  const ChatPage({super.key, required this.channelId, this.embedded = false, this.onClose});
+  /// Nhúng trong app khác (vd khung AI của dự án ở Làm việc nhóm): ẩn đầu khung chat (app đó có đầu riêng).
+  final bool showHeader;
+  /// Có thì tin chữ gõ ở ô nhắn tin đi qua đây thay vì gửi thẳng (app nhúng tự gửi kèm ngữ cảnh của mình).
+  final Future<void> Function(String text)? sendOverride;
+  /// Hiện ngay trên ô nhắn tin (vd các nút nhanh).
+  final Widget? aboveComposer;
+  /// Hiện dưới một tin (vd danh sách "Đã làm" dưới câu trả lời của agent); null = không có gì.
+  final Widget? Function(MmPost post)? postFooter;
+  const ChatPage({super.key, required this.channelId, this.embedded = false, this.onClose, this.showHeader = true, this.sendOverride, this.aboveComposer, this.postFooter});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -911,7 +919,7 @@ class _ChatPageState extends State<ChatPage> {
         if (mounted && (sz.height - _topInset).abs() > .5) setState(() => _topInset = sz.height);
       },
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        header,
+        if (widget.showHeader) header,
         _OngoingCallBanner(key: ValueKey('call:${ch.id}'), channel: ch),
         // Banner của Flygo Chat (header kênh) ưu tiên hơn banner của máy chủ chat.
         if (ch.flygoBanner case final b?)
@@ -1012,6 +1020,7 @@ class _ChatPageState extends State<ChatPage> {
                                   _replyTo = null;
                                 }),
                               ),
+                        ?widget.postFooter?.call(p),
                       ]));
                     })))),
               // Dây đèn mùa Giáng sinh ngay dưới thanh tiêu đề nổi.
@@ -1135,9 +1144,11 @@ class _ChatPageState extends State<ChatPage> {
             _AgentWorking(run: app.latest[ch.id] == null ? null : agentRunOf(app.latest[ch.id]!)),
           // Kiểu ChatGPT (Codex): trợ lý đang soạn thì có một chấm tròn "thở" như app ChatGPT.
           if (gptStyleFor(app, ch) && aiSessionRunning(app, ch.id)) const _BreathingDot(),
+          ?widget.aboveComposer,
           _Composer(
             key: _composer,
             channelId: ch.id,
+            sendOverride: widget.sendOverride,
             replyTo: _replyTo,
             editing: _editing,
             onCancelEdit: () => setState(() => _editing = null),
@@ -2472,7 +2483,10 @@ class _Bubble extends StatelessWidget {
         : claude
             ? (mine ? pal.outBubble : Colors.transparent)
             : (mine ? pal.outBubble : pal.inBubble);
-    final metaColor = pal.text.withValues(alpha: .78);
+    // Bong bóng tự chọn màu: giờ gửi luôn đủ tương phản với nền (chữ mờ 78% có thể không đủ trên nền màu trung bình).
+    final metaColor = bubbleChoice != null ? pal.sub : pal.text.withValues(alpha: .78);
+    // Tên người gửi trong bong bóng tự chọn màu: giữ màu riêng từng người nhưng chỉnh cho đọc được trên nền (≥ 4.5:1).
+    final nameColor = bubbleChoice != null ? bubbleReadable(WaColors.sender(post.userId), bubbleColor) : WaColors.sender(post.userId);
     final time = hhmm(DateTime.fromMillisecondsSinceEpoch(post.createAt));
     Widget metaIn(Color c) => Row(mainAxisSize: MainAxisSize.min, children: [
           if (post.editAt > 0) ...[Icon(Icons.edit, size: 12, color: c), const SizedBox(width: 4)],
@@ -2748,7 +2762,7 @@ class _Bubble extends StatelessWidget {
                     child: Text('~${sender?.displayName ?? 'Người dùng'}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: WaColors.sender(post.userId))),
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: nameColor)),
                   ),
           ),
         ),
@@ -2761,7 +2775,7 @@ class _Bubble extends StatelessWidget {
             onTap: sender == null ? null : () => openDirectWith(context, app, sender),
             child: nameText('~${sender?.displayName ?? 'Người dùng'}',
                 bot: sender?.isBot == true, engine: engineOf(sender),
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: WaColors.sender(post.userId))),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: nameColor)),
           ),
         ),
       if (post.isForwarded)
@@ -2791,10 +2805,10 @@ class _Bubble extends StatelessWidget {
           ),
         ),
       if ((post.rootId.isNotEmpty || quoteId != null) && !inThreadView)
-        _Quote(root: root, mine: mine, onTap: root == null || onJumpTo == null ? null : () => onJumpTo!(root.id)),
+        _Quote(root: root, mine: mine, styled: bubbleChoice != null, onTap: root == null || onJumpTo == null ? null : () => onJumpTo!(root.id)),
       // Trong trang luồng: trả lời một tin cụ thể của luồng (props.flygo_quote), không trích tin gốc.
       if (inThreadView && quoteId != null && quoteId != post.rootId)
-        _Quote(root: quoted, mine: mine, onTap: quoted == null || onJumpTo == null ? null : () => onJumpTo!(quoted.id)),
+        _Quote(root: quoted, mine: mine, styled: bubbleChoice != null, onTap: quoted == null || onJumpTo == null ? null : () => onJumpTo!(quoted.id)),
       if (!hidden && images.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 4, top: 2),
@@ -4129,17 +4143,22 @@ class _Quote extends StatelessWidget {
   final bool mine;
   /// Bấm vào trích dẫn: cuộn tới tin gốc và nháy sáng.
   final VoidCallback? onTap;
-  const _Quote({required this.root, required this.mine, this.onTap});
+  /// Nằm trong bong bóng tự chọn màu: tên và chữ trích dẫn chỉnh cho đủ tương phản với nền trích dẫn.
+  final bool styled;
+  const _Quote({required this.root, required this.mine, this.onTap, this.styled = false});
   @override
   Widget build(BuildContext context) {
     final app = context.read<AppState>();
     final pal = Pal.of(context);
     final r = root;
     final name = r == null ? '' : (r.userId == app.me?.id ? tr('Bạn') : app.users[r.userId]?.displayName ?? '');
-    final color = r == null ? pal.sub : (r.userId == app.me?.id ? pal.accentText : WaColors.sender(r.userId));
+    final bg = mine ? pal.quoteOut : pal.quoteIn;
+    final raw = r == null ? pal.sub : (r.userId == app.me?.id ? pal.accentText : WaColors.sender(r.userId));
+    final color = styled ? bubbleReadable(raw, bg) : raw;
+    final quoteText = styled ? bubbleReadable(pal.text.withValues(alpha: .75), bg) : pal.text.withValues(alpha: .75);
     final box = Container(
       margin: const EdgeInsets.only(bottom: 6, top: 2),
-      decoration: BoxDecoration(color: mine ? pal.quoteOut : pal.quoteIn, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       child: IntrinsicHeight(
         child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -4152,7 +4171,7 @@ class _Quote extends StatelessWidget {
                 Text(r == null ? tr('Tin nhắn gốc') : app.previewText(r),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: pal.text.withValues(alpha: .75), fontSize: 14.5)),
+                    style: TextStyle(color: quoteText, fontSize: 14.5)),
               ]),
             ),
           ),
@@ -4286,9 +4305,12 @@ class _Composer extends StatefulWidget {
   final VoidCallback onSent;
   /// Ô nhắn tin trong trang chủ đề: mọi tin gửi là trả lời trong chủ đề của tin này.
   final String? threadRoot;
+  /// Xem [ChatPage.sendOverride].
+  final Future<void> Function(String text)? sendOverride;
   const _Composer(
       {super.key,
       this.threadRoot,
+      this.sendOverride,
       required this.channelId, this.replyTo, this.editing, required this.onCancelEdit, required this.onCancelReply, required this.onSent});
 
   @override
@@ -5758,6 +5780,18 @@ class _ComposerState extends State<_Composer> {
       return;
     }
     final app = context.read<AppState>();
+    // App nhúng gửi tin chữ kèm ngữ cảnh riêng (khung AI của dự án Làm việc nhóm).
+    final override = widget.sendOverride;
+    if (override != null && widget.threadRoot == null) {
+      _ctl.clear();
+      setState(() {});
+      widget.onSent();
+      final messenger = ScaffoldMessenger.of(context);
+      override(text).catchError((Object e) {
+        messenger.showSnackBar(toast(Text('$e')));
+      });
+      return;
+    }
     if (_threadMode == 'secret' && _canPrivateThread(app)) {
       _sendToPrivateThread(text, _taggedPeople(app));
     } else if (_threadMode == 'open' && _canPrivateThread(app)) {

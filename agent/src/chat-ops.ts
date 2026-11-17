@@ -1,3 +1,4 @@
+import { bilingualOf } from "./bilingual";
 // Bộ công cụ chat cho agent (0.6.61): đọc / gửi / thao tác tin / quản lý cuộc trò chuyện ở MỌI chat trong phạm vi của bot.
 // MCP flygo_chat (mcp-chat.ts) khai báo tool, runner xử lý ở POST /chat_op/<tool> trong lượt đang chạy (cần RUN_KEY).
 //
@@ -753,11 +754,15 @@ export function createChatOps(d: ChatDeps) {
       // ======== gửi ========
       case "chat_send": {
         const t = await resolveChat(ctx, a.to);
-        const message = String(a.message ?? "");
+        let message = String(a.message ?? "");
+        const bi = bilingualOf(a, message);
+        if (bi && "error" in bi) return bi.error;
+        if (bi) message = bi.message;
         const hasFileIds = Array.isArray(a.file_ids) ? a.file_ids.length > 0 : !!a.file_ids;
         if (!message.trim() && !(Array.isArray(a.files) && a.files.length) && !hasFileIds) return "Thiếu nội dung (message) hoặc tệp.";
         if (t.kind === "ref") {
           if (a.files?.length || hasFileIds || a.priority) return `"${t.name}" là chat được tag: chỉ gửi được chữ (không tệp, không ưu tiên).`;
+          if (bi) return `"${t.name}" là chat được tag: chưa gửi song ngữ được vào chat được tag, gửi tin thường.`;
           return d.refCall("post", { ref_id: t.ref.ref_id, message, root_id: a.thread_root }, ctx.runKey);
         }
         let root = "";
@@ -780,13 +785,16 @@ export function createChatOps(d: ChatDeps) {
         const errors = [...up.errors, ...re.errors];
         if ((files.length || src.length) && !up.ids.length && !re.ids.length) return `Không gửi được tệp:\n- ${errors.join("\n- ")}`;
         const mention = (Array.isArray(a.mention) ? a.mention : []).map((x: any) => String(x).replace(/^@/, ""));
-        const p = await postTo(ctx, t, { message, root_id: root, file_ids: [...up.ids, ...re.ids], priority, ack: !!a.ack, mention, props: { ...(a.silent ? { flygo_silent: true } : {}), flygo_agent_sent: true } });
-        step(ctx, "send", `Đã gửi vào ${t.name}${flags ? ` (${flags})` : ""}`, `Gửi tin vào ${t.name}`, true, message);
+        const p = await postTo(ctx, t, { message, root_id: root, file_ids: [...up.ids, ...re.ids], priority, ack: !!a.ack, mention, props: { ...(a.silent ? { flygo_silent: true } : {}), ...(bi ? bi.props : {}), flygo_agent_sent: true } });
+        step(ctx, "send", `Đã gửi ${bi ? `song ngữ ${bi.props.flygo_bilingual.langs.join("/")} ` : ""}vào ${t.name}${flags ? ` (${flags})` : ""}`, `Gửi tin vào ${t.name}`, true, message);
         return `Đã gửi vào "${t.name}" (tin #${p.id}): ${link(p.id)}${errors.length ? `\nTệp không gửi được:\n- ${errors.join("\n- ")}` : ""}`;
       }
       case "chat_reply": {
         const { p, t } = await postOf(ctx, a.post_id);
-        const message = String(a.message ?? "");
+        let message = String(a.message ?? "");
+        const bi = bilingualOf(a, message);
+        if (bi && "error" in bi) return bi.error;
+        if (bi) message = bi.message;
         const files = Array.isArray(a.files) ? a.files.map(String) : [];
         const src = await sourceFiles(ctx, a.file_ids);
         if (!message.trim() && !files.length && !src.length) return "Thiếu nội dung trả lời.";
@@ -797,7 +805,7 @@ export function createChatOps(d: ChatDeps) {
         const re = await attachFiles(src, t.id);
         const errors = [...up.errors, ...re.errors];
         if ((files.length || src.length) && !up.ids.length && !re.ids.length && !message.trim()) return `Không gửi được tệp:\n- ${errors.join("\n- ")}`;
-        const r = await postTo(ctx, t, { message, root_id: p.root_id || p.id, file_ids: [...up.ids, ...re.ids], props: { flygo_agent_sent: true } });
+        const r = await postTo(ctx, t, { message, root_id: p.root_id || p.id, file_ids: [...up.ids, ...re.ids], props: { ...(bi ? bi.props : {}), flygo_agent_sent: true } });
         step(ctx, "reply", `Đã trả lời trong luồng ở ${t.name}`, `Trả lời tin ở ${t.name}`, true, message);
         return `Đã trả lời trong luồng (tin #${r.id}): ${link(r.id)}${errors.length ? `\nTệp không gửi được:\n- ${errors.join("\n- ")}` : ""}`;
       }
@@ -818,12 +826,15 @@ export function createChatOps(d: ChatDeps) {
         const t = await chatOnly(ctx, a.to);
         const at = parseWhen(a.at, 1);
         if (!at || at < Date.now() + 30_000) return "Thời điểm gửi không hợp lệ hoặc đã qua (vd. 2026-11-02T08:00 theo giờ Việt Nam, hoặc \"2h\").";
-        const message = String(a.message ?? "");
+        let message = String(a.message ?? "");
         if (!message.trim()) return "Thiếu nội dung.";
+        const bi = bilingualOf(a, message);
+        if (bi && "error" in bi) return bi.error;
+        if (bi) message = bi.message;
         let root = "";
         if (a.thread_root) { const { p } = await postOf(ctx, a.thread_root); if (p.channel_id !== t.id) return `Tin ${a.thread_root} không thuộc "${t.name}".`; root = p.root_id || p.id; }
         if (!(await approve(ctx, t, `Hẹn gửi tin vào ${t.name} lúc ${fmtTime(at)}`, message))) return "Người giao việc không duyệt, chưa hẹn.";
-        const sp = await mm.api<any>("POST", "/posts/schedule", { channel_id: t.id, root_id: root, message, scheduled_at: at, props: { flygo_agent_owner: ctx.assigner, ...(root ? { flygo_reply: "thread" } : {}) } });
+        const sp = await mm.api<any>("POST", "/posts/schedule", { channel_id: t.id, root_id: root, message, scheduled_at: at, props: { flygo_agent_owner: ctx.assigner, ...(root ? { flygo_reply: "thread" } : {}), ...(bi ? bi.props : {}) } });
         step(ctx, "sched", `Đã hẹn gửi vào ${t.name} lúc ${fmtTime(at)}`, `Hẹn giờ gửi tin`, true, message);
         return `Đã hẹn gửi vào "${t.name}" lúc ${fmtTime(at)} (lịch ${sp?.id ?? "?"}; máy chủ tự gửi, xem / huỷ trong mục tin hẹn giờ của app).`;
       }

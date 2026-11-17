@@ -12,12 +12,14 @@ import 'rich_mentions.dart';
 import 'store.dart';
 
 class TwRunProgress extends StatefulWidget {
-  const TwRunProgress({super.key, required this.store, required this.runId, this.botId = '', this.botName = '', this.state = 'running', this.session, this.compact = false});
+  const TwRunProgress({super.key, required this.store, required this.runId, this.botId = '', this.botName = '', this.state = 'running', this.session, this.compact = false, this.showFinalText = false});
   final TwStore store;
   final String runId, botId, botName, state;
   /// Phiên của agent (nút "Mở phiên"; không cần để theo dõi tiến độ).
   final String? session;
   final bool compact;
+  /// Khung AI dự án: xong rồi vẫn hiện câu trả lời cuối ngay dưới dòng thu gọn (không có bình luận trả lời riêng).
+  final bool showFinalText;
   @override
   State<TwRunProgress> createState() => _TwRunProgressState();
 }
@@ -160,6 +162,12 @@ class _TwRunProgressState extends State<TwRunProgress> {
             ?openBtn,
           ]),
           if (_open) Padding(padding: const EdgeInsets.only(left: 4, top: 4), child: _steps(steps, look, limit: false)),
+          if (widget.showFinalText && (r?.text ?? r?.summary ?? '').trim().isNotEmpty)
+            Padding(
+              key: ValueKey('run-answer-${widget.runId}'),
+              padding: const EdgeInsets.only(top: 6),
+              child: TwRichView(markdownToBlocks((r!.text ?? r.summary)!), style: TextStyle(fontSize: 13, height: 1.5, color: look.text)),
+            ),
         ]),
       );
     }

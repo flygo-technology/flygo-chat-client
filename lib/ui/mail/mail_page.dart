@@ -21,6 +21,7 @@ import '../theme.dart' show toast;
 import 'admin_page.dart';
 import 'api.dart';
 import 'digest.dart';
+import 'skeleton.dart';
 import 'when.dart';
 import 'compose.dart';
 import 'demo.dart';
@@ -575,13 +576,10 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     key: const ValueKey('mail-loading'),
     backgroundColor: mc.bg,
     appBar: AppBar(title: Text(widget.title), backgroundColor: mc.bg),
-    body: Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(strokeWidth: 2.5)),
-        const SizedBox(height: 14),
-        Text('Đang tải hộp thư…', style: TextStyle(color: mc.muted)),
-      ]),
-    ),
+    body: Column(children: [
+      const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 8), child: Row(children: [Bone(height: 30, circle: true), SizedBox(width: 10), MailboxNameSkeleton()])),
+      Expanded(child: MailListSkeleton(phone: !_wide(context))),
+    ]),
   );
 
   /// Máy chủ thư trả 404 cho /me: kết nối được, chỉ là người này chưa có hộp thư nào.
@@ -947,6 +945,12 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     final others = me.boxes.where((b) => b.id != cur.id).toList();
     final otherUnread = others.fold(0, (n, b) => n + b.unread);
     final notOwn = cur.shared || cur.via != 'owner' || cur.access == 'read';
+    if (store.switching) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(16, wide ? 8 : 4, 8, wide ? 2 : 0),
+        child: Row(children: [Shimmer(child: Bone(height: wide ? 22 : 30, circle: true)), const SizedBox(width: 8), const MailboxNameSkeleton()]),
+      );
+    }
     return Container(
       key: const ValueKey('mail-current-box'),
       padding: EdgeInsets.fromLTRB(16, wide ? 8 : 4, wide ? 10 : 8, wide ? 2 : 0),
@@ -1381,7 +1385,7 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     if (v.isBox && v.box == 'spam') children.add(_banner(mc, 'Thư trong mục Thư rác quá 30 ngày sẽ tự động bị xoá.'));
     Widget body;
     if (store.loading && store.items.isEmpty) {
-      body = const Center(child: CircularProgressIndicator());
+      body = MailListSkeleton(phone: !wide);
     } else if (store.items.isEmpty) {
       body = _empty(mc);
     } else {

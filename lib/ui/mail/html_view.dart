@@ -191,9 +191,14 @@ class _Builder {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: blocks(e.nodes, style: st.copyWith(color: st.color?.withValues(alpha: .75)))),
         );
       case 'table' || 'tbody' || 'thead':
-        final rows = e.localName == 'table' ? e.querySelectorAll('tr').where((r) => r.parent?.localName != 'table' || true).toList() : e.children.where((c) => c.localName == 'tr').toList();
+        // Only this table's own rows (nested tables are drawn by their cell, not again here).
+        final rows = [
+          for (final c in e.children)
+            if (c.localName == 'tr') c else if (c.localName == 'tbody' || c.localName == 'thead' || c.localName == 'tfoot') ...c.children.where((r) => r.localName == 'tr'),
+        ];
         // Bảng dàn trang của thư quảng cáo: vẽ từng ô thành khối dọc cho dễ đọc trên điện thoại.
-        final cells = rows.expand((r) => r.children.where((c) => c.localName == 'td' || c.localName == 'th')).toList();
+        // Ô rộng 1-2px chỉ là đường kẻ (chữ trong đó vốn bị che), bỏ qua.
+        final cells = rows.expand((r) => r.children.where((c) => (c.localName == 'td' || c.localName == 'th') && !_hairline(c))).toList();
         if (cells.isEmpty) return null;
         final simple = rows.every((r) => r.children.length <= 4) && cells.every((c) => c.querySelector('table') == null) && rows.length > 1 && rows.first.children.length > 1;
         if (simple) {
@@ -285,6 +290,12 @@ class _Builder {
     return TextSpan(style: s, recognizer: rec, children: [for (final c in n.nodes) ?span(c, st)]);
   }
 
+  static bool _hairline(dom.Element c) {
+    final w = double.tryParse(c.attributes['width'] ?? '');
+    final st = (c.attributes['style'] ?? '').replaceAll(' ', '');
+    return (w != null && w <= 2) || RegExp(r'(^|;)width:[0-2](\.\d+)?px').hasMatch(st);
+  }
+
   Widget? _img(dom.Element e) {
     final src = e.attributes['src'] ?? '';
     final alt = e.attributes['alt'] ?? '';
@@ -313,6 +324,9 @@ class _Builder {
         child: ConstrainedBox(constraints: BoxConstraints(maxWidth: w ?? 600), child: Image.network(src, errorBuilder: (_, _, _) => _altBox(alt))),
       );
     }
+    // Ảnh ngoài chưa cho tải: ảnh nhỏ (biểu tượng chữ ký) không chiếm chỗ; ảnh lớn để một ô thay thế.
+    final h = double.tryParse(e.attributes['height'] ?? '');
+    if ((w != null && w <= 48) || (h != null && h <= 48)) return null;
     return alt.isEmpty && !src.startsWith('http') ? null : _altBox(alt.isEmpty ? 'Ảnh' : alt);
   }
 

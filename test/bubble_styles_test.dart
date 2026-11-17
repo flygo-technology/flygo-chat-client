@@ -2,7 +2,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flygo_chat/config.dart' show WaColors;
 import 'package:flygo_chat/state/app_state.dart';
+import 'package:flygo_chat/ui/theme.dart';
 import 'package:flygo_chat/ui/bubble_styles.dart';
 
 /// Vẽ riêng phần trang trí của [s] quanh bong bóng [size] (đặt giữa ảnh, chừa lề [m]) rồi đếm điểm ảnh có màu nằm trong
@@ -107,5 +109,36 @@ void main() {
     expect(app.resolveBubble('c1')?.style, 'meo');
     app.bubbles['c1'] = const BubbleChoice('quockyvn');
     expect(app.resolveBubble('c1')?.style, 'quockyvn');
+  });
+
+  test('tên người gửi, giờ gửi, trích dẫn trong bong bóng tự chọn màu đạt 4.5:1 (mọi kiểu, mọi màu tên, cả màu tuỳ chỉnh)', () {
+    double contrast(Color a, Color b) {
+      final x = a.computeLuminance(), y = b.computeLuminance();
+      return ((x > y ? x : y) + .05) / ((x > y ? y : x) + .05);
+    }
+
+    final fills = [
+      for (final s in bubbleStyles) s.color,
+      ...bubbleSwatches,
+      for (var r = 0; r < 256; r += 51)
+        for (var g = 0; g < 256; g += 51)
+          for (var b = 0; b < 256; b += 51) Color.fromARGB(255, r, g, b),
+    ];
+    for (final base in [Pal.light, Pal.dark]) {
+      for (final fill in fills) {
+        final pal = bubblePal(base, fill);
+        final hex = bubbleHex(fill);
+        expect(contrast(Color.alphaBlend(pal.sub, fill), fill), greaterThanOrEqualTo(4.5), reason: 'giờ gửi trên $hex');
+        for (final name in WaColors.senderColors) {
+          expect(contrast(Color.alphaBlend(bubbleReadable(name, fill), fill), fill), greaterThanOrEqualTo(4.5), reason: 'tên ${bubbleHex(name)} trên $hex');
+          final q = pal.quoteIn;
+          expect(contrast(Color.alphaBlend(bubbleReadable(name, q), q), q), greaterThanOrEqualTo(4.5), reason: 'tên trích dẫn trên $hex');
+        }
+        final q = pal.quoteIn;
+        expect(contrast(Color.alphaBlend(bubbleReadable(pal.text.withValues(alpha: .75), q), q), q), greaterThanOrEqualTo(4.5), reason: 'chữ trích dẫn trên $hex');
+      }
+    }
+    // Màu đã đủ tương phản thì giữ nguyên (không đổi màu tên khi không cần).
+    expect(bubbleReadable(Colors.white, const Color(0xFF1B5E20)), Colors.white);
   });
 }

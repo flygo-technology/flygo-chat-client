@@ -70,6 +70,30 @@ class MyBrowsers {
     return _cache;
   }
 
+  /// Như [pair] nhưng cho một máy chủ bất kỳ đã đăng nhập trong app (không phải máy chủ đang mở): xin vé Flygo ID của máy
+  /// chủ đó bằng phiên đã lưu, rồi ghép ở `<máy chủ>/__apps/gateway`.
+  static Future<Map<String, dynamic>> pairOn(String server, String chatToken, {required Map<String, dynamic> client, String? replace}) async {
+    final root = server.replaceAll(RegExp(r'/+$'), '');
+    final t = await http.post(Uri.parse('$root/flygo-id/v1/token'),
+        headers: {'Authorization': 'Bearer $chatToken', 'X-MM-Server': root, 'Content-Type': 'application/json', 'User-Agent': kUserAgent},
+        body: jsonEncode({'audience': kBrowserApp})).timeout(const Duration(seconds: 15));
+    if (t.statusCode == 403) {
+      // Flygo ID: tài khoản chưa được cấp app Kết nối trên máy chủ này.
+      final who = await http.get(Uri.parse('$root/api/v4/users/me'), headers: {'Authorization': 'Bearer $chatToken'}).then((r) => (jsonDecode(r.body) as Map)['username'], onError: (_) => null);
+      throw HttpException('Tài khoản ${who ?? ''} trên ${Uri.parse(root).host} chưa được cấp quyền dùng app Kết nối (nhờ quản trị cấp quyền)');
+    }
+    final ticket = '${(_decode(t) as Map)['token'] ?? ''}';
+    if (ticket.isEmpty) throw const HttpException('Flygo ID không cấp vé');
+    final r = await http.post(Uri.parse('$root/__apps/gateway/api/pair'),
+        headers: {'Authorization': 'Bearer $ticket', 'Content-Type': 'application/json', 'User-Agent': kUserAgent},
+        body: jsonEncode({
+          'client': {'type': 'extension', 'kind': 'browser', for (final k in ['name', 'engine', 'os', 'profile']) if (client[k] is String) k: client[k]},
+          if (replace != null && RegExp(r'^[A-Za-z0-9_-]{12}$').hasMatch(replace)) 'replace': replace,
+          'machine_name': Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), ''),
+        })).timeout(const Duration(seconds: 15));
+    return Map<String, dynamic>.from(_decode(r) as Map);
+  }
+
   /// Cấp token client cho một trình duyệt trên máy này (ghép cặp tự động, xem browser_pairing.dart). Trả {client, token, ws_url}.
   static Future<Map<String, dynamic>> pair(String chatToken, {required Map<String, dynamic> client, String? replace}) async {
     final r = await http.post(Uri.parse('$base/api/pair'), headers: await _headers(chatToken, json: true), body: jsonEncode({

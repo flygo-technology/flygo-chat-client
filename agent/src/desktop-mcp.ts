@@ -4,7 +4,7 @@
 // (Claude: ngoài allowedTools; Codex: default_tools_approval_mode = "prompt"; agy: hook hỏi như tool lạ).
 // Tắt hẳn: "computerUse": false trong config bot. Ghi đè / thêm server: "desktopMcp": { "<tên>": { command, args } | false }.
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -27,7 +27,7 @@ const KNOWN: Known[] = [
     readOnly: ["list_apps", "list_windows", "get_window_state", "verify_state", "get_screen_size", "get_desktop_state", "get_cursor_position",
       "get_agent_cursor_state", "check_permissions", "health_report", "get_accessibility_tree", "get_guide", "get_recording_state",
       "list_sessions", "get_session", "get_session_state"],
-    hint: "điều khiển app desktop CHẠY NGẦM, không giành chuột / bàn phím của người đang dùng máy (Mac / Windows / Linux): đọc cây giao diện, click, gõ, menu, kéo thả, trình duyệt; ưu tiên dùng cái này",
+    hint: "điều khiển app desktop CHẠY NGẦM, không giành chuột / bàn phím của người đang dùng máy (Mac / Windows / Linux): đọc cây giao diện, click, gõ, menu, kéo thả; ưu tiên cho app desktop (việc trên web dùng trình duyệt Flygo)",
   },
   {
     name: "peekaboo", bins: ["peekaboo"], args: ["mcp"], os: ["darwin"], readOnly: [],
@@ -48,21 +48,7 @@ const KNOWN: Known[] = [
     args: (c) => ["--browser", "chrome", "--user-data-dir", browserProfile(c)],
     readOnly: ["browser_snapshot", "browser_take_screenshot", "browser_console_messages", "browser_network_requests", "browser_network_request",
       "browser_find", "browser_wait_for", "browser_navigate", "browser_navigate_back"],
-    hint: "TRÌNH DUYỆT RIÊNG của bot (Chrome hồ sơ riêng, giữ đăng nhập giữa các lượt): mở trang, đọc nội dung (browser_snapshot), bấm, điền form; mặc định dùng cái này cho việc trên web. Trang cần đăng nhập mà chưa đăng nhập thì nhờ Sếp đăng nhập một lần trong cửa sổ đó",
-  },
-  {
-    // Chrome thật của chủ máy qua tiện ích Playwright MCP Bridge; token trong tệp (chủ máy chép từ tiện ích) cho nối tự động, không hỏi.
-    name: "chrome", bins: ["playwright-mcp", "mcp-server-playwright"], args: ["--extension"], os: ["darwin", "win32", "linux"],
-    env: () => { const t = extensionToken(); return t ? { PLAYWRIGHT_MCP_EXTENSION_TOKEN: t } : null; },
-    readOnly: ["browser_snapshot", "browser_take_screenshot", "browser_console_messages", "browser_network_requests", "browser_network_request",
-      "browser_find", "browser_wait_for", "browser_navigate", "browser_navigate_back"],
-    hint: "CHROME THẬT của Sếp (tab đang mở, cookie, đăng nhập sẵn), nối tự động: dùng khi việc cần chính phiên đăng nhập / tab của Sếp; việc web thường dùng playwright (trình duyệt riêng của bot)",
-  },
-  {
-    name: "chrome-devtools", bins: ["chrome-devtools-mcp"], args: ["--autoConnect"], os: ["darwin", "win32", "linux"], skipIf: "chrome",
-    readOnly: ["list_pages", "select_page", "take_snapshot", "take_screenshot", "list_console_messages", "get_console_message",
-      "list_network_requests", "get_network_request", "get_css_styles", "wait_for", "navigate_page", "new_page"],
-    hint: "CHROME ĐANG MỞ của Sếp (dùng cookie / đăng nhập sẵn có của Sếp, Chrome hỏi Cho phép khi nối): chỉ dùng khi việc cần chính phiên đăng nhập của Sếp hoặc tab Sếp đang mở; còn lại dùng playwright",
+    hint: "TRÌNH DUYỆT RIÊNG của bot (Chrome hồ sơ riêng): CHỈ dùng khi không có trình duyệt Flygo nào online hoặc Sếp yêu cầu; việc trên web mặc định dùng trình duyệt Flygo (tool browser_* của Gateway)",
   },
   {
     name: "tmux", bins: ["tmux-mcp"], args: [], os: ["darwin", "linux"], needs: ["tmux"],
@@ -87,114 +73,6 @@ export interface DesktopMcp {
   servers: Record<string, McpSpec>;
   readOnly: Record<string, string[]>; // server -> tool chỉ đọc
   hints: string[];
-}
-
-const tokenFile = () => join(homedir(), ".config", "flygo-agent", "playwright-extension-token");
-
-export const BRIDGE_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"; // tiện ích Playwright MCP Bridge trên Chrome Web Store
-const STORE_URL = `https://chromewebstore.google.com/detail/playwright-mcp-bridge/${BRIDGE_ID}`;
-
-/** Thư mục dữ liệu Chrome của người dùng trên máy này. */
-function chromeDataDir(): string {
-  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", "Google", "Chrome");
-  if (process.platform === "win32") return join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "Google", "Chrome", "User Data");
-  return join(homedir(), ".config", "google-chrome");
-}
-
-const chromeProfiles = (): string[] => {
-  const root = chromeDataDir();
-  try { return readdirSync(root).filter((d) => d === "Default" || /^Profile \d+$/.test(d)).map((d) => join(root, d)); } catch { return []; }
-};
-
-/** Hồ sơ Chrome đã cài tiện ích (mới dùng gần nhất trước). */
-function bridgeProfiles(): string[] {
-  return chromeProfiles().filter((p) => existsSync(join(p, "Extensions", BRIDGE_ID)))
-    .sort((a, b) => mtime(join(b, "Local Storage", "leveldb")) - mtime(join(a, "Local Storage", "leveldb")));
-}
-const mtime = (p: string) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
-
-/** Đọc token tiện ích từ Local Storage của nó trong hồ sơ Chrome (khoá "auth-token"). Tệp .log của leveldb không nén;
- *  sau khi Chrome gộp tệp (.ldb nén) có thể không đọc được nữa: khi đó tiện ích vẫn hiện token để chép tay. */
-export function detectBridgeToken(): { token: string; profile: string } | null {
-  const key = Buffer.from(`_chrome-extension://${BRIDGE_ID}\u0000\u0001auth-token`, "latin1");
-  let best: { token: string; profile: string; at: number } | null = null;
-  for (const prof of bridgeProfiles()) {
-    const dir = join(prof, "Local Storage", "leveldb");
-    let files: string[] = [];
-    try { files = readdirSync(dir).filter((f) => /\.(log|ldb)$/.test(f)); } catch { continue; }
-    for (const f of files) {
-      let buf: Buffer;
-      try { buf = readFileSync(join(dir, f)); } catch { continue; }
-      for (let i = buf.indexOf(key); i >= 0; i = buf.indexOf(key, i + 1)) {
-        const m = /^[\s\S]{1,3}?\u0001([A-Za-z0-9_-]{20,200})/.exec(buf.subarray(i + key.length, i + key.length + 220).toString("latin1"));
-        const at = mtime(join(dir, f));
-        if (m && (!best || at >= best.at)) best = { token: m[1], profile: prof.split(/[\\/]/).pop()!, at };
-      }
-    }
-  }
-  return best ? { token: best.token, profile: best.profile } : null;
-}
-
-/** Token của tiện ích Playwright MCP Bridge: tệp đã lưu, không có thì tự đọc từ hồ sơ Chrome và lưu lại. */
-function extensionToken(): string {
-  try { const t = readFileSync(tokenFile(), "utf8").trim(); if (t) return t; } catch {}
-  const d = detectBridgeToken();
-  if (d) { saveExtensionToken(d.token); return d.token; }
-  return "";
-}
-
-/** browser_extension_setup: tự cài tiện ích (Chrome hỏi bật một lần) và tự lấy token. */
-export function setupBridge(): string {
-  const found = detectBridgeToken();
-  if (found) {
-    let cur = ""; try { cur = readFileSync(tokenFile(), "utf8").trim(); } catch {}
-    if (cur !== found.token) saveExtensionToken(found.token);
-    return `Tiện ích Playwright MCP Bridge đã cài trong hồ sơ Chrome "${found.profile}" và đã lấy token${cur === found.token ? " (giữ nguyên)" : " mới"}. Từ lượt sau server "chrome" nối Chrome thật tự động, không cần bấm Cho phép.`;
-  }
-  const installed = bridgeProfiles();
-  if (installed.length) {
-    openInChrome(`chrome-extension://${BRIDGE_ID}/status.html`);
-    return `Tiện ích đã cài (hồ sơ "${installed.map((p) => p.split(/[\\/]/).pop()).join(", ")}") nhưng chưa đọc được token. Em vừa mở trang của tiện ích; nếu chưa thấy, Sếp bấm biểu tượng tiện ích một lần rồi bảo em chạy lại browser_extension_setup (hoặc chép PLAYWRIGHT_MCP_EXTENSION_TOKEN gửi em để lưu bằng browser_token_set).`;
-  }
-  const how = registerExternal();
-  openInChrome(STORE_URL);
-  return `Chưa có tiện ích Playwright MCP Bridge. ${how} Em đã mở trang tiện ích trên Chrome Web Store: Sếp bấm "Thêm vào Chrome" (Chrome bắt buộc người dùng xác nhận khi cài tiện ích), rồi bảo em chạy lại browser_extension_setup để tự lấy token.`;
-}
-
-/** Đăng ký cài tiện ích từ ngoài (external extension): Chrome cài ở lần mở sau và hỏi bật một lần. */
-function registerExternal(): string {
-  try {
-    if (process.platform === "win32") {
-      Bun.spawnSync(["reg", "add", `HKCU\\Software\\Google\\Chrome\\Extensions\\${BRIDGE_ID}`, "/v", "update_url", "/t", "REG_SZ", "/d", "https://clients2.google.com/service/update2/crx", "/f"]);
-    } else {
-      const dir = process.platform === "darwin" ? join(chromeDataDir(), "External Extensions") : join(homedir(), ".config", "google-chrome", "External Extensions");
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, `${BRIDGE_ID}.json`), JSON.stringify({ external_update_url: "https://clients2.google.com/service/update2/crx" }));
-    }
-    return "Em đã đăng ký cho Chrome tự cài tiện ích (lần mở Chrome sau sẽ hỏi bật).";
-  } catch (e: any) {
-    return `Không đăng ký cài tự động được (${e?.message ?? e}).`;
-  }
-}
-
-function openInChrome(url: string) {
-  try {
-    if (process.platform === "darwin") Bun.spawn(["open", "-a", "Google Chrome", url]);
-    else if (process.platform === "win32") Bun.spawn(["cmd", "/c", "start", "", "chrome", url]);
-    else Bun.spawn(["google-chrome", url], { stdout: "ignore", stderr: "ignore" });
-  } catch {}
-}
-
-/** browser_token_set: lưu (hoặc xoá khi rỗng) token tiện ích; lượt sau server "chrome" nối Chrome thật tự động, không hỏi. */
-export function saveExtensionToken(token: string): string {
-  const t = token.trim().replace(/^PLAYWRIGHT_MCP_EXTENSION_TOKEN=/, "");
-  if (!t) { try { unlinkSync(tokenFile()); } catch {} cached = null; return "Đã xoá token Chrome: agent quay lại dùng trình duyệt riêng của bot."; }
-  if (!/^[A-Za-z0-9_-]{20,200}$/.test(t)) return "Token không hợp lệ (chép đúng giá trị PLAYWRIGHT_MCP_EXTENSION_TOKEN trong tiện ích Playwright MCP Bridge).";
-  mkdirSync(join(homedir(), ".config", "flygo-agent"), { recursive: true, mode: 0o700 });
-  writeFileSync(tokenFile(), t, { mode: 0o600 });
-  try { chmodSync(tokenFile(), 0o600); } catch {}
-  cached = null;
-  return "Đã lưu token Chrome. Từ lượt sau agent nối thẳng Chrome của Sếp qua server \"chrome\", không cần bấm Cho phép.";
 }
 
 interface DesktopCfg { computerUse?: boolean; desktopMcp?: Record<string, Partial<McpSpec> | false>; botToken?: string }

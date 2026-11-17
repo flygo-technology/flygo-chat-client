@@ -157,11 +157,20 @@ class TwProject {
     this.updatedAt = 0,
     this.chatChannel,
     this.cover,
+    this.chatChannelName,
+    this.deletedAt,
+    this.aiProject,
   });
   final String id;
   String key, name, color, status, owner, myRole;
   /// Kênh chat gắn với dự án (bot đăng sự kiện vào đó).
   String? chatChannel;
+  /// Tên nhóm chat của dự án (nếu máy chủ gửi kèm).
+  String? chatChannelName;
+  /// Dự án đã xoá (xoá mềm, chủ dự án khôi phục được).
+  int? deletedAt;
+  /// Dự án AI (tab Agents của app chat) gắn với dự án này; null = chưa gắn.
+  TwAiProjectLink? aiProject;
   /// Hình nền (null = màu chuyển nhạt từ màu dự án).
   TwCover? cover;
   List<TBlock> description;
@@ -199,8 +208,11 @@ class TwProject {
         defaultStatusId: _ns(m['default_status_id']),
         memberPreview: [for (final a in _maps(m['member_preview'] ?? m['members_preview'])) TwAssignee.fromJson(a)],
         updatedAt: _i(m['updated_at']),
-        chatChannel: _ns(m['chat_channel']),
+        chatChannel: m['chat_channel'] is Map ? _ns((m['chat_channel'] as Map)['id']) : _ns(m['chat_channel']),
+        chatChannelName: m['chat_channel'] is Map ? _ns((m['chat_channel'] as Map)['display_name'] ?? (m['chat_channel'] as Map)['name']) : null,
         cover: TwCover.fromJson(m['cover']),
+        deletedAt: m['deleted_at'] == null ? null : _i(m['deleted_at']),
+        aiProject: TwAiProjectLink.fromJson(m['ai_project']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -222,9 +234,24 @@ class TwProject {
         'default_status_id': defaultStatusId,
         'member_preview': [for (final a in memberPreview) a.toJson()],
         'updated_at': updatedAt,
-        'chat_channel': chatChannel,
+        'chat_channel': chatChannel == null ? null : {'id': chatChannel, 'display_name': chatChannelName},
         'cover': cover?.toJson(),
+        'ai_project': aiProject?.toJson(),
       };
+}
+
+/// Dự án AI gắn với dự án TeamWork (máy chủ lưu; kênh `p-<chủ>-…` của người gắn).
+class TwAiProjectLink {
+  const TwAiProjectLink({required this.channelId, this.teamId = '', this.name = '', this.displayName = '', this.boundBy = '', this.boundAt = 0});
+  final String channelId, teamId, name, displayName, boundBy;
+  final int boundAt;
+  static TwAiProjectLink? fromJson(Object? v) {
+    if (v is! Map || _s(v['channel_id']).isEmpty) return null;
+    return TwAiProjectLink(channelId: _s(v['channel_id']), teamId: _s(v['team_id']), name: _s(v['name']), displayName: _s(v['display_name']),
+        boundBy: _s(v['bound_by']), boundAt: _i(v['bound_at']));
+  }
+
+  Map<String, dynamic> toJson() => {'channel_id': channelId, 'team_id': teamId, 'name': name, 'display_name': displayName, 'bound_by': boundBy, 'bound_at': boundAt};
 }
 
 /// Dự án kèm cấu hình (trạng thái, nhãn, thành viên).
@@ -313,8 +340,19 @@ class TwRun {
     this.stepCount = 0,
     this.lastStep,
     this.summary,
+    this.projectId = '',
+    this.bypassEligible = false,
+    this.threadId,
+    this.prompt,
+    this.action,
   });
+  /// Lượt "project": cuộc trò chuyện, lời hỏi và nút nhanh đã dùng.
+  final String? threadId, prompt, action;
   final String id, taskId, taskKey, botId, botName, startedBy;
+  /// Dự án của lượt chạy (lượt "project" của khung AI dự án không gắn với việc nào).
+  final String projectId;
+  /// Lượt chạy được phép chạy không cần duyệt (chủ bot xác nhận).
+  final bool bypassEligible;
   String state; // queued | running | review | done | failed | cancelled | blocked
   /// start (Bắt đầu / trạng thái bắt đầu) | mention (@nhắc agent trong bình luận).
   final String kind;
@@ -352,6 +390,11 @@ class TwRun {
         stepCount: _i(m['step_count']),
         lastStep: m['last_step'] is Map ? _ns((m['last_step'] as Map)['title']) : _ns(m['last_step']),
         summary: _ns(m['summary']),
+        projectId: _s(m['project_id']),
+        bypassEligible: _b(m['bypass_eligible']),
+        threadId: _ns(m['thread_id']),
+        prompt: _ns(m['prompt']),
+        action: _ns(m['action']),
       );
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -1091,4 +1134,100 @@ String rankBetween(String a, String b) {
     i++;
     if (i > 40) return '${out}i';
   }
+}
+
+// ------------------------------------------------------------ AI của dự án
+/// Một cuộc trò chuyện AI của dự án (dùng chung một phiên của agent).
+class TwAiThread {
+  const TwAiThread({required this.id, this.title = '', this.botId = '', this.botName = '', this.updatedAt = 0, this.turnCount = 0, this.sessionChannel});
+  final String id, title, botId, botName;
+  /// Phiên AI (kênh chat) gắn với cuộc trò chuyện.
+  final String? sessionChannel;
+  final int updatedAt, turnCount;
+  factory TwAiThread.fromJson(Map m) {
+    final last = m['last_run'] is Map ? m['last_run'] as Map : const {};
+    return TwAiThread(
+      id: _s(m['id']),
+      title: _s(m['title'], 'Cuộc trò chuyện'),
+      botId: _s(m['bot_id'] ?? last['bot_id']),
+      botName: _s(m['bot_name'] ?? last['bot_name']),
+      updatedAt: _i(m['updated_at']),
+      turnCount: _i(m['run_count'] ?? m['turn_count']),
+      sessionChannel: _ns(m['session_channel']),
+    );
+  }
+}
+
+/// Một lượt hỏi trong cuộc trò chuyện: lời người dùng + lượt chạy của agent.
+class TwAiTurn {
+  TwAiTurn({required this.prompt, this.action, this.at = 0, this.user = '', this.run});
+  final String prompt, user;
+  final String? action;
+  final int at;
+  TwRun? run;
+  factory TwAiTurn.fromJson(Map m) => TwAiTurn(
+        prompt: _s(m['prompt'] ?? m['text']),
+        action: _ns(m['action']),
+        at: _i(m['at'] ?? m['created_at']),
+        user: _s(m['user'] ?? m['started_by']),
+        run: m['run'] is Map ? TwRun.fromJson(m['run'] as Map) : null,
+      );
+}
+
+/// Một thao tác agent đã làm trong lượt chạy (có thể hoàn tác).
+class TwAiAction {
+  TwAiAction({
+    required this.id,
+    required this.kind,
+    this.summary = '',
+    this.targetType = '',
+    this.targetId = '',
+    this.targetKey = '',
+    this.targetTitle = '',
+    this.at = 0,
+    this.severity = 'normal',
+    this.undone = false,
+    this.undoable = true,
+    this.conflict,
+    this.runId = '',
+  });
+  final String runId;
+  final String id, kind, summary, targetType, targetId, targetKey, targetTitle, severity;
+  final int at;
+  bool undone, undoable;
+  String? conflict;
+  bool get high => severity == 'high';
+  factory TwAiAction.fromJson(Map m) {
+    final t = m['target'] is Map ? m['target'] as Map : const {};
+    return TwAiAction(
+      id: _s(m['id']),
+      kind: _s(m['op'] ?? m['kind']),
+      runId: _s(m['run_id']),
+      summary: _s(m['summary'] ?? m['text']),
+      targetType: _s(t['type'] ?? m['target_type']),
+      targetId: _s(t['id'] ?? m['target_id']),
+      targetKey: _s(t['key'] ?? m['target_key']),
+      targetTitle: _s(t['title'] ?? m['target_title']),
+      at: _i(m['at'] ?? m['created_at']),
+      severity: _s(m['severity'], 'normal'),
+      undone: m['undone_at'] != null || _b(m['undone']),
+      undoable: m['undoable'] != false,
+      conflict: _ns(m['conflict'] is Map ? (m['conflict'] as Map)['message'] : m['conflict']),
+    );
+  }
+}
+
+/// Lệnh chờ app của người dùng làm bằng token của chính họ (tạo / gắn nhóm chat).
+class TwUserOp {
+  const TwUserOp({required this.id, required this.kind, required this.userId, this.projectId = '', this.params = const {}, this.runId = ''});
+  final String id, kind, userId, projectId, runId; // kind (type): channel_create | channel_link
+  final Map<String, dynamic> params;
+  factory TwUserOp.fromJson(Map m) => TwUserOp(
+        id: _s(m['id']),
+        kind: _s(m['type'] ?? m['kind']),
+        userId: _s(m['user'] ?? m['user_id']),
+        projectId: _s(m['project_id']),
+        runId: _s(m['run_id']),
+        params: (m['payload'] ?? m['params']) is Map ? ((m['payload'] ?? m['params']) as Map).cast<String, dynamic>() : {},
+      );
 }

@@ -119,6 +119,53 @@ class StickerPacks {
     stickers: [for (final s in const ['xin-chao', 'da-ro', 'ok-sep', 'cam-on', 'cong-viec-sao-roi', 'tuyet-qua', 'tra-sua-khong', 'ca-phe-nhe', 'dang-hop', 'cho-chut', 'dang-xu-ly', 'xong-roi', 'gui-roi-nhe', 'check-mail', 'hop-thoi', 'co-len', 'chuc-mung', 'xin-loi', 'gap-lam', 'duyet', 'di-an-trua', 'nghi-trua', 've-thoi', 'cuoi-tuan-vui', 'sinh-nhat', 'de-em-xem']) '$_office/$s.png'],
   );
 
+  /// Bộ có sẵn do máy chủ đang dùng cung cấp (`flygo-update/stickers/packs.json`, vd. bộ theo mùa), đứng sau bộ
+  /// "Văn phòng". Đường dẫn ảnh trong file tính từ thư mục stickers/; lỗi mạng thì dùng bản đã lưu lần trước.
+  static final server = ValueNotifier<List<SigStickPack>>([]);
+  static String? _serverFrom;
+  static List<SigStickPack> get builtins => [builtin, ...server.value.where((p) => p.id != builtin.id)];
+
+  static List<SigStickPack> _parseServer(Object? j, String base) {
+    String abs(String u) => u.startsWith('http') ? u : '$base/$u';
+    return [
+      for (final p in (j is Map ? j['packs'] as List? : null) ?? const [])
+        if (p is Map && p['id'] is String && p['stickers'] is List)
+          SigStickPack(
+            id: p['id'] as String,
+            title: p['title'] as String? ?? '',
+            cover: abs('${p['dir'] ?? ''}/${p['cover'] ?? (p['stickers'] as List).first}'),
+            stickers: [for (final f in p['stickers'] as List) if (f is String) abs('${p['dir'] ?? ''}/$f')],
+          ),
+    ].where((p) => p.stickers.isNotEmpty).toList();
+  }
+
+  static Future<void> refreshServer() async {
+    final base = '${staticBase('flygo-update')}/stickers';
+    if (_serverFrom == base) return;
+    _serverFrom = base;
+    server.value = _parseServer(_serverCache[base], base);
+    try {
+      final res = await http.get(Uri.parse('$base/packs.json')).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) {
+        if (res.statusCode == 404) {
+          server.value = [];
+        } else {
+          _serverFrom = null;
+        }
+        return;
+      }
+      final j = jsonDecode(utf8.decode(res.bodyBytes));
+      server.value = _parseServer(j, base);
+      _serverCache[base] = j;
+      await _save();
+    } catch (e) {
+      _serverFrom = null;
+      debugPrint('[stickers] server packs: $e');
+    }
+  }
+
+  static final Map<String, Object?> _serverCache = {};
+
   static final saved = ValueNotifier<List<SigStickPack>>([]);
   static final recent = ValueNotifier<List<String>>([]);
   /// Id các bộ đang được thêm (đang chép ảnh về máy chủ).
@@ -133,17 +180,21 @@ class StickerPacks {
   }
 
   static Future<void> load() async {
-    if (_loaded) return;
-    _loaded = true;
-    try {
-      final f = await _file();
-      if (!await f.exists()) return;
-      final j = jsonDecode(await f.readAsString()) as Map;
-      saved.value = [for (final p in (j['packs'] as List? ?? const [])) ?SigStickPack.fromSaved(p)];
-      recent.value = (j['recent'] as List? ?? const []).whereType<String>().toList();
-    } catch (e) {
-      debugPrint('[stickers] load: $e');
+    if (!_loaded) {
+      _loaded = true;
+      try {
+        final f = await _file();
+        if (await f.exists()) {
+          final j = jsonDecode(await f.readAsString()) as Map;
+          saved.value = [for (final p in (j['packs'] as List? ?? const [])) ?SigStickPack.fromSaved(p)];
+          recent.value = (j['recent'] as List? ?? const []).whereType<String>().toList();
+          if (j['server'] is Map) _serverCache.addAll((j['server'] as Map).cast<String, Object?>());
+        }
+      } catch (e) {
+        debugPrint('[stickers] load: $e');
+      }
     }
+    unawaited(refreshServer());
   }
 
   static Future<void> _save() async {
@@ -151,6 +202,7 @@ class StickerPacks {
       await (await _file()).writeAsString(jsonEncode({
         'packs': [for (final p in saved.value) p.toJson()],
         'recent': recent.value,
+        'server': _serverCache,
       }));
     } catch (e) {
       debugPrint('[stickers] save: $e');

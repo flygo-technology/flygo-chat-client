@@ -3,15 +3,18 @@
 // WebSocket bridge của Gateway (<máy chủ chat>/__apps/gateway/ws). Chỉ trả lời extension của mình (Origin
 // chrome-extension://<id>, hoặc không có Origin mà có header X-Flygo-Bridge = id: trang web không gửi được header riêng
 // tới 127.0.0.1 mà không qua preflight CORS, và ở đây không trả lời preflight). Mỗi lần ghép cặp hiện thông báo một lần.
-//   GET  /flygo/hello  -> {app:"flygo-chat", role:"pairing", server, user, version}
-//   POST /flygo/pair {client:{name, engine, os}, replace?} -> {server, ws_url, token, client, user}
+//   GET  /flygo/hello  -> {app:"flygo-chat", role:"pairing", server (đang mở), user, servers:[{url, name, current}]}
+//   POST /flygo/pair {server?, client:{name, engine, os}, replace?} -> {server, ws_url, token, client, user}
+// Đăng nhập nhiều máy chủ: extension tự chọn máy chủ có bridge (servers là mọi máy chủ có phiên đã lưu).
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../auth/auth_service.dart';
 import '../config.dart';
+import '../data/servers.dart';
 import '../i18n/i18n.dart';
 import '../state/app_state.dart';
 import 'my_browsers.dart';
@@ -76,7 +79,7 @@ class BrowserPairing {
     if (app == null) return _send(req, 503, {'error': 'Flygo Chat chưa đăng nhập'});
     final me = app.me;
     if (req.uri.path == '/flygo/hello' && req.method == 'GET') {
-      return _send(req, 200, {'app': 'flygo-chat', 'role': 'pairing', 'server': kServerUrl, 'user': me?.displayName ?? me?.username ?? ''});
+      return _send(req, 200, {'app': 'flygo-chat', 'role': 'pairing', 'server': kServerUrl, 'user': me?.displayName ?? me?.username ?? '', 'servers': await _servers()});
     }
     if (req.uri.path == '/flygo/pair' && req.method == 'POST') {
       final now = DateTime.now();
@@ -85,14 +88,50 @@ class BrowserPairing {
       _hits.add(now);
       final body = await utf8.decodeStream(req).timeout(const Duration(seconds: 10));
       final j = body.isEmpty ? <String, dynamic>{} : (jsonDecode(body) as Map).cast<String, dynamic>();
-      final client = (j['client'] as Map?)?.cast<String, dynamic>() ?? const {};
-      final r = await MyBrowsers.pair(app.token, client: client, replace: j['replace'] as String?);
-      final c = (r['client'] as Map?)?.cast<String, dynamic>() ?? const {};
-      await _send(req, 200, {'server': kServerUrl, 'ws_url': r['ws_url'], 'token': r['token'], 'client': c, 'user': me?.displayName ?? ''});
-      _notice(tr('Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).', ['${c['name'] ?? ''}', '${c['slug'] ?? ''}']));
+      try {
+        await _pair(req, app, j);
+      } catch (e) {
+        // Báo rõ lý do cho extension (vd tài khoản chưa được cấp app Kết nối), không trả 500 trống.
+        final msg = '$e'.replaceFirst(RegExp(r'^(HttpException|Exception|StateError): ?'), '');
+        return _send(req, 502, {'error': msg.isEmpty ? 'không ghép được' : msg});
+      }
       return;
     }
     return _send(req, 404, {});
+  }
+
+  static Future<void> _pair(HttpRequest req, AppState app, Map<String, dynamic> j) async {
+    final me = app.me;
+    final client = (j['client'] as Map?)?.cast<String, dynamic>() ?? const {};
+    {
+      final want = (j['server'] as String?)?.replaceAll(RegExp(r'/+$'), '');
+      final Map<String, dynamic> r;
+      var server = kServerUrl;
+      if (want == null || want.isEmpty || want == kServerUrl.replaceAll(RegExp(r'/+$'), '')) {
+        r = await MyBrowsers.pair(app.token, client: client, replace: j['replace'] as String?);
+      } else {
+        // Máy chủ khác đã đăng nhập trong app.
+        final known = ServerList.items.any((e) => e.url.replaceAll(RegExp(r'/+$'), '') == want);
+        final tok = known ? await TokenStore.readFor(want) : null;
+        if (tok == null) return _send(req, 403, {'error': 'Flygo Chat chưa đăng nhập máy chủ này'});
+        r = await MyBrowsers.pairOn(want, tok, client: client, replace: j['replace'] as String?);
+        server = want;
+      }
+      final c = (r['client'] as Map?)?.cast<String, dynamic>() ?? const {};
+      await _send(req, 200, {'server': server, 'ws_url': r['ws_url'], 'token': r['token'], 'client': c, 'user': me?.displayName ?? ''});
+      _notice(tr('Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).', ['${c['name'] ?? ''}', '${c['slug'] ?? ''}']));
+    }
+  }
+
+  /// Máy chủ có phiên đã lưu trong app (máy chủ đang mở luôn có).
+  static Future<List<Map<String, dynamic>>> _servers() async {
+    final out = <Map<String, dynamic>>[];
+    for (final e in ServerList.items) {
+      final cur = e.url.replaceAll(RegExp(r'/+$'), '') == kServerUrl.replaceAll(RegExp(r'/+$'), '');
+      if (cur || await TokenStore.readFor(e.url) != null) out.add({'url': e.url.replaceAll(RegExp(r'/+$'), ''), 'name': e.name, 'current': cur});
+    }
+    if (!out.any((x) => x['current'] == true)) out.insert(0, {'url': kServerUrl, 'name': '', 'current': true});
+    return out;
   }
 
   static void _notice(String text) {

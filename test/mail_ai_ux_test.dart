@@ -8,6 +8,7 @@ import 'package:flygo_chat/ui/mail/attachments.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/thread_view.dart' show MailHooks;
 import 'package:flygo_chat/ui/mail/html_view.dart';
+import 'package:flygo_chat/ui/mail/image_trust.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
@@ -33,7 +34,7 @@ void main() {
     await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
     await t.pump();
     expect(find.byKey(const ValueKey('mail-loading')), findsOneWidget);
-    expect(find.text('Đang tải hộp thư…'), findsOneWidget);
+    expect(find.byKey(const ValueKey('mail-list-skeleton')), findsOneWidget);
     api.gate.complete();
     for (var i = 0; i < 10; i++) {
       await t.pump(const Duration(milliseconds: 100));
@@ -253,5 +254,58 @@ void main() {
     await t.fling(find.byType(PageView), const Offset(-600, 0), 1200);
     await t.pumpAndSettle();
     expect(find.widgetWithText(AppBar, a1.name), findsOneWidget);
+  });
+
+  testWidgets('chữ ký bảng lồng nhau: không lặp, bỏ ô kẻ 1px, biểu tượng nhỏ bị ẩn không chiếm chỗ', (t) async {
+    const html = '<table><tbody><tr><td><table><tbody><tr><td>0986 00 77 00 (Zalo)</td></tr></tbody></table></td>'
+        '<td width="1" style="width:1px;border-left:1px solid red"><br>\\<br></td>'
+        '<td><img src="https://cdn.example/phone.png" width="13"></td></tr></tbody></table>';
+    await t.pumpWidget(const MaterialApp(home: Scaffold(body: MailHtml(html))));
+    expect(find.textContaining('0986 00 77 00', findRichText: true), findsOneWidget);
+    expect(find.textContaining('\\', findRichText: true), findsNothing);
+    expect(find.text('Ảnh'), findsNothing);
+  });
+
+  test('ảnh từ mạng: nhận ra thư có ảnh ngoài, không tính ảnh dán trong thư', () {
+    expect(MailImageTrust.hasRemoteImages('<img src="https://x/y.png">'), true);
+    expect(MailImageTrust.hasRemoteImages('<img src="/mail/api/attachments/a/b">'), false);
+  });
+
+  testWidgets('khung chờ: đổi tab Quảng cáo, đổi hộp thư (cả địa chỉ), mở thư', (t) async {
+    t.view.physicalSize = const Size(1440, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final api = DemoMailApi(latency: const Duration(milliseconds: 300));
+    final store = MailStore(api);
+    await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    store.setCategory('promo');
+    await t.pump();
+    expect(find.byKey(const ValueKey('mail-list-skeleton')), findsOneWidget);
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    store.setCategory('primary');
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    final other = store.me!.boxes.firstWhere((b) => b.id != store.me!.current.id);
+    store.switchMailbox(other.id);
+    await t.pump();
+    expect(find.byKey(const ValueKey('mail-box-skeleton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('mail-list-skeleton')), findsOneWidget);
+    for (var i = 0; i < 30; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byKey(const ValueKey('mail-box-skeleton')), findsNothing);
+    t.state<MailHomeState>(find.byType(MailHome)).openThread(store.items.first);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.byKey(const ValueKey('mail-thread-skeleton')), findsOneWidget);
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
   });
 }

@@ -4,7 +4,7 @@
 // - Tin trong luồng -> trả lời trong luồng: thẻ tiến trình (props.flygo_agent) + tin stream (props.flygo_agent_message).
 // - Duyệt quyền: post "Cần Sếp duyệt" trong chủ đề, chủ bot bấm Xác nhận / Từ chối (reaction +1 / -1).
 // - Chế độ --json: in sự kiện JSON từng dòng ra stdout cho app Flygo Chat (log ra stderr).
-import { desktopMcp, desktopPersona, saveExtensionToken, setupBridge } from "./desktop-mcp";
+import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
@@ -37,6 +37,7 @@ import { MM, defuseMentions, type Post } from "./mm";
 import { describe as schedDescribe, HISTORY_MAX, nextRun, normalize as schedNormalize, type RunRecord, type Schedule } from "./schedule";
 import { spawn } from "./spawn";
 import { createGatewayRuns } from "./gateway";
+import { bilingualOf } from "./bilingual";
 
 // Tiền tố id plugin của máy chủ chat.
 const PLUGIN_VENDOR = "matter" + "most";
@@ -284,7 +285,15 @@ const saveSession = (s: Session) =>
     .run(Object.fromEntries(Object.entries(s).map(([k, v]) => [`$${k}`, v])) as any);
 
 // ---- Flygo Gateway (0.6.78): tool MCP theo quyền của người nhờ, qua MCP flygo_chat của lượt (gateway.ts) ----
-const gateway = createGatewayRuns({ flygoId: cfg.flygoId, serverUrl: cfg.serverUrl, botToken: cfg.botToken, log });
+// Đồng ý chạy thay (lịch hẹn có đủ tool như lượt thường): id theo người, lưu trong kv của bot.
+db.run(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
+const gateway = createGatewayRuns({
+  flygoId: cfg.flygoId, serverUrl: cfg.serverUrl, botToken: cfg.botToken, log, owners: cfg.ownerUserIds,
+  consents: {
+    get: (u) => { try { const r = db.query("SELECT v FROM kv WHERE k = ?").get(`gw_consent:${u}`) as { v: string } | null; return r ? JSON.parse(r.v) : null; } catch { return null; } },
+    set: (u, v) => { v ? db.query("INSERT OR REPLACE INTO kv VALUES (?, ?)").run(`gw_consent:${u}`, JSON.stringify(v)) : db.query("DELETE FROM kv WHERE k = ?").run(`gw_consent:${u}`); },
+  },
+});
 
 // ---- bộ công cụ chat (chat-ops.ts, 0.6.61): đọc / gửi / thao tác / quản lý chat trong phạm vi của bot ----
 // Tạo sớm (presence đọc trạng thái riêng của bot); các hàm phụ thuộc chỉ được gọi lúc chạy tool.
@@ -470,7 +479,7 @@ const http = Bun.serve({
       const plan = tool_name === "ExitPlanMode"; // chế độ Lập kế hoạch: Claude xin duyệt kế hoạch trước khi làm
       const { kind, title, detail } = approvalOf(tool_name, input);
       log(`xin duyệt ${tool_name}: ${oneLine(title, 160)}`);
-      const d = await ask({ kind, title, detail });
+      const d = await ask({ kind, title, detail, tool: tool_name });
       log(`duyệt ${tool_name}: ${d === "accept" ? "cho phép" : "từ chối"}`);
       return Response.json({ allow: d === "accept", message: d === "accept" ? "" : "Sếp không cho phép thao tác này." });
     }
@@ -538,24 +547,6 @@ const http = Bun.serve({
         ctx.card.step({ id: `files-${ids[0]}`, kind: "tool", title, label: clip(title, 60), status: "done" });
       }
       return Response.json({ ok: true, inline: ctx.card.inline });
-    }
-    if (url.pathname === "/browser_setup" && req.method === "POST") { // browser_extension_setup: cài tiện ích + tự lấy token
-      const b = await req.json();
-      const ctx = orchRuns.get(String(b.key ?? ""));
-      if (!ctx || !isOwner(ctx.assigner ?? "")) return Response.json({ text: "Chỉ chủ bot mới thiết lập Chrome được." });
-      const r = setupBridge();
-      ctx.card.step({ id: `brset-${crypto.randomUUID().slice(0, 6)}`, kind: "tool", title: r.split(".")[0], label: "Thiết lập Chrome", status: "done" });
-      log(`browser_extension_setup: ${r.slice(0, 80)}`);
-      return Response.json({ text: r });
-    }
-    if (url.pathname === "/browser_token" && req.method === "POST") { // browser_token_set: token tiện ích Playwright MCP Bridge
-      const b = await req.json();
-      const ctx = orchRuns.get(String(b.key ?? ""));
-      if (!ctx || !isOwner(ctx.assigner ?? "")) return Response.json({ text: "Chỉ chủ bot mới lưu được token Chrome." });
-      const r = saveExtensionToken(String(b.token ?? ""));
-      ctx.card.step({ id: `brtok-${crypto.randomUUID().slice(0, 6)}`, kind: "tool", title: r.startsWith("Đã") ? r.split(".")[0] : "Lưu token Chrome (lỗi)", label: "Token Chrome", status: r.startsWith("Đã") ? "done" : "error" });
-      log(`browser_token_set: ${r.slice(0, 60)}`);
-      return Response.json({ text: r });
     }
     if (url.pathname.startsWith("/plan/") && req.method === "POST") { // update_plan / wrap_up: kế hoạch + tóm tắt trên thẻ của lượt
       const b = await req.json();
@@ -845,6 +836,17 @@ let metaSent = "";
 /** Đăng kiểm kê (kỹ năng, model, chế độ quyền, hạn mức) lên props của bot qua relay; [inv]=false: chỉ làm mới hạn mức. */
 async function publishMeta(inv = true) {
   if (inv || !inventory) inventory = await engines[ENGINE].inventory().catch((e) => { log(`kiểm kê ${ENGINE}: ${e?.message ?? e}`); return inventory; });
+  // Claude / agy chỉ biết kỹ năng sau sự kiện init của một lượt: mới khởi động lại thì danh sách rỗng, đăng lên relay sẽ xoá
+  // tab Kỹ năng của app tới lượt kế tiếp. Nhớ danh sách gần nhất trong kv của bot và dùng lại khi chưa có lượt nào.
+  if (inventory) {
+    try {
+      if (inventory.skills.length) db.query("INSERT OR REPLACE INTO kv VALUES ('engine_skills', ?)").run(JSON.stringify(inventory.skills));
+      else {
+        const r = db.query("SELECT v FROM kv WHERE k = 'engine_skills'").get() as { v: string } | null;
+        if (r) inventory = { ...inventory, skills: JSON.parse(r.v) };
+      }
+    } catch {}
+  }
   await refreshLimits();
   const own = listSkills(BOT_ID, cfg.skillsDir);
   const skills = [
@@ -2717,15 +2719,11 @@ async function reportOut(a: any): Promise<string> {
   const { outer, card } = ctx;
   let message = String(a.message ?? "").trim();
   if (!message) return "Thiếu nội dung báo cáo.";
-  // Song ngữ (như nút Dịch AI của app): bản gốc + dòng kẻ + bản dịch, props.flygo_bilingual để app hiện nút cờ.
-  let bilingual: any = null;
-  if (a.translation) {
-    const code = (x: any) => String(x ?? "").trim().toLowerCase().split(/[-_]/)[0];
-    const t1 = String(a.translation).trim(), l0 = code(a.lang), l1 = code(a.translation_lang);
-    if (!t1 || !/^[a-z]{2,3}$/.test(l0) || !/^[a-z]{2,3}$/.test(l1) || l0 === l1) return "Gửi song ngữ cần lang và translation_lang là hai mã ngôn ngữ khác nhau (vi, en, ko, th…) và translation không rỗng.";
-    bilingual = { v: 1, langs: [l0, l1], texts: [message, t1] };
-    message = `${message}\n\n───\n${t1}`;
-  }
+  // Song ngữ (như nút Dịch AI của app): bản gốc + dòng kẻ + bản dịch, props.flygo_bilingual để app hiện nút cờ (bilingual.ts).
+  const bi = bilingualOf(a, message);
+  if (bi && "error" in bi) return bi.error;
+  const bilingual = bi ? bi.props.flygo_bilingual : null;
+  if (bi) message = bi.message;
   if (ctx.sent >= 3) return "Đã gửi báo cáo ra ngoài 3 lần trong lượt này.";
   if (outer.noAccess) return `Không gửi được: bạn (@${BOT_NAME}) không phải thành viên nhóm gắn với chat AI này (nhóm riêng tư, thường vì nhóm đã có trợ lý khác), nên không đọc hay gửi tin vào đó được. Báo người giao việc đúng lý do này, đưa sẵn nội dung báo cáo để họ tự gửi vào nhóm; muốn bạn gửi thẳng thì chủ nhóm phải thêm @${BOT_NAME} vào nhóm.`;
   const paths: string[] = [], bad: string[] = [];
@@ -2840,10 +2838,9 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
     ai ? `- spawn_task(title, prompt): giao một việc độc lập, tốn thời gian cho phiên con chạy ngầm (song song, không chờ); prompt phải đủ ngữ cảnh vì phiên con không thấy cuộc trò chuyện này; xong phiên con tự báo kết quả về đây; tối đa 5 việc ngầm cùng lúc` : "",
     `- update_plan(items | advance | done, start) · wrap_up(recap, ask?, actions?, blocked?): việc có từ 3 bước trở lên thì lập kế hoạch bằng update_plan ngay đầu lượt và advance mỗi khi xong một bước (app hiện checklist dưới thẻ); cuối lượt gọi wrap_up một lần với tóm tắt ngắn, cần Sếp quyết định thì kèm ask + 2–4 nút actions và không hỏi lại trong câu trả lời`,
     owner ? desktopPersona(desktopMcp(cfg), MY_HOST) : "",
-    owner ? `- browser_extension_setup(): Sếp muốn agent dùng chính Chrome của Sếp mà chưa có server MCP "chrome" thì gọi tool này: tự cài tiện ích Playwright MCP Bridge (Sếp chỉ bấm Thêm một lần) và tự lấy token cho các lần sau` : "",
-    owner ? `- browser_token_set(token): Sếp gửi PLAYWRIGHT_MCP_EXTENSION_TOKEN (từ tiện ích Playwright MCP Bridge) thì lưu ngay bằng tool này để lần sau nối Chrome thật của Sếp tự động; không nhắc lại token trong câu trả lời` : "",
+    `- VIỆC TRÊN WEB / TRÌNH DUYỆT (mở trang, đọc, tìm kiếm, bấm, điền form, tải tệp, xem log mạng…): ƯU TIÊN dùng trình duyệt Flygo (extension Flygo Browser Bridge) qua tool browser_* của Gateway (tên dạng vn_flygo_clients__browser_*): browser_list xem trình duyệt online, browser_select chọn (người dùng tag chip 🌐 thì đã chọn sẵn), rồi browser_navigate / browser_snapshot / browser_click / browser_type…; tab khác của người dùng: browser_tabs_all + browser_tab_attach. Chỉ dùng công cụ khác (trình duyệt riêng playwright, điều khiển desktop, curl / tải trang thô) khi không có trình duyệt Flygo nào online, tool trình duyệt báo lỗi, hoặc Sếp yêu cầu; khi đó nói rõ lý do.`,
     `- file_read(path, offset?, limit?) · file_write(path, content, append?) · file_copy(from, to, overwrite?) · file_move(from, to, overwrite?) · file_trash(path | paths) · run_command(command, cwd?, timeout_sec?): đọc / ghi / chép / chuyển tệp và chạy lệnh trên máy ${MY_HOST} (đổi gì cũng cần duyệt). XOÁ tệp luôn bằng file_trash (vào thùng rác, khôi phục được), KHÔNG dùng rm / del / Remove-Item`,
-    `- chat_send_bilingual(text, lang, translation, translation_lang): gửi tin song ngữ (như nút Dịch AI của app, có nút cờ đổi bản gốc / bản dịch) khi được bảo gửi song ngữ hoặc nhắn cho người nói tiếng khác; tự dịch rồi truyền cả hai bản`,
+    `- chat_send_bilingual(text, lang, translation, translation_lang, to?, thread_root?): gửi tin song ngữ có nút cờ đổi ngôn ngữ (như nút Dịch AI của app), ở đây hoặc chat khác; mọi tool gửi tin khác cũng nhận lang + translation + translation_lang. Không ghép hai bản bằng dòng kẻ`,
     o.report ? `- chat_report_out(message, files?, lang?, translation?, translation_lang?): báo cáo ra ${n ? `${isAi ? "chat chính của nhóm" : `tầng ${n - 1}`} "${chain[n - 1].name}"` : "chat chính của nhóm"}, chỉ khi được yêu cầu; kèm lang + translation + translation_lang để gửi song ngữ (có nút cờ)` : "",
     a2a ? `- Bot khác: CÙNG DỰ ÁN thì dùng team_list / team_ask / team_session_read / team_post. Khác dự án / chat / app: chỉ khi người dùng TAG agent đó (hoặc gắn phiên của nó) trong tin đang xử lý mới nhờ được, bằng ask_agent(bot, message, session?, files?, data?); không tag thì không tự tìm hay hỏi agent khác` : "",
     `- schedule_create(title, prompt, kind, at? | repeat?, target?) · schedule_list() · schedule_update(id, …) · schedule_delete(id): lịch hẹn — bot tự chạy prompt vào giờ hẹn ở chỗ này (hoặc target), kết quả hiện ở đó. Giờ theo Asia/Ho_Chi_Minh. Tạo khi người dùng muốn việc lặp lại / làm vào giờ nào đó ("mỗi sáng 8h…", "5 giờ chiều mai nhắc…").`,
@@ -3364,8 +3361,16 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   sendTyping();
   const typingTimer = setInterval(sendTyping, 4000);
 
+  // Lượt vắng mặt (lịch hẹn, nhắc hẹn): không ai ngồi duyệt. Tool GHI của app công ty (Gateway) tự duyệt theo luật của Sếp
+  // ("lượt tự chạy bỏ qua 👍"), nhưng mỗi lần gọi đều ghi một bước trên thẻ và log để kiểm lại; lệnh máy / tệp vẫn hỏi như cũ.
+  const unattended = !!post.props?.flygo_schedule_run || !!post.props?.flygo_silent;
   const ask = async (req: ApprovalRequest): Promise<ApprovalDecision> => {
     const sid = `approval-${crypto.randomUUID()}`;
+    if (unattended && /^mcp__flygo_chat__[a-z0-9_]+__[A-Za-z0-9_.-]+$/.test(req.tool ?? "")) {
+      card.step({ id: sid, kind: "approval", title: `🕒 Lượt tự chạy, tự duyệt tool app: ${req.title.slice(0, 100)}`, status: "done" });
+      log(`lượt tự chạy ${runId}: tự duyệt ${req.tool} (${oneLine(req.title, 120)})`);
+      return "accept";
+    }
     if (isBypass(root) || tw?.bypass) { // đã "luôn cho phép" / lượt TeamWork không cần duyệt: tự duyệt (danh sách cấm vẫn chặn trước đó)
       card.step({ id: sid, kind: "approval", title: `🔓 Tự duyệt: ${req.title.slice(0, 100)}`, status: "done" });
       return "accept";
@@ -3409,7 +3414,19 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   if (outer) reportRuns.set(runId, { outer, card, reply, assigner: post.user_id, channelId: post.channel_id, postId: post.id, dir, signal: ac.signal, sent: 0 });
 
   let release = () => {};
-  gateway.start(runId, post.id, post.props as Record<string, any> | undefined);
+  gateway.start(runId, post.id, post.props as Record<string, any> | undefined, { assigner: post.user_id, schedule: post.props?.flygo_schedule_run?.schedule_id });
+  // Lượt vắng mặt: nói rõ đang mang quyền của ai, để model không đoán "mất công cụ".
+  let unattendedNote = "";
+  if (unattended && gateway.enabled) {
+    const gm = await gateway.mode(runId).catch(() => null);
+    if (gm?.via === "consent") {
+      card.step({ id: "unattended", kind: "approval", title: `🕒 Lượt tự chạy · quyền của ${owner} (đồng ý chạy thay)`, status: "done" });
+      unattendedNote = `\n(Lượt tự chạy: dùng quyền của ${owner} theo đồng ý chạy thay, đủ tool như lượt thường, kể cả tool vn_flygo_*. Tool ghi của app không chờ duyệt nhưng mỗi lần gọi đều được ghi lại trên thẻ.)`;
+    } else if (gm) {
+      card.step({ id: "unattended", kind: "approval", title: `🕒 Lượt tự chạy · chỉ quyền riêng của agent: ${gm.reduced ?? "không có đồng ý chạy thay"}`, status: "done" });
+      unattendedNote = `\n(Lượt tự chạy chỉ có quyền riêng của agent vì ${gm.reduced ?? "không có đồng ý chạy thay"}, nên có thể thiếu tool vn_flygo_*. Tool flygo_chat vẫn dùng bình thường. Việc cần tool app mà thiếu thì báo lại đúng lý do này.)`;
+    }
+  }
   try {
     if (!out?.noSlot) release = await acquireSlot(ac.signal, () => { card.setStatus("queued"); reply.touch(); });
     if (card.status === "queued") card.setStatus("thinking");
@@ -3418,7 +3435,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         sessionId: session.session_id || undefined,
         forkFrom: session.session_id ? undefined : forkFrom || undefined,
         cwd: dir,
-        prompt: prompt + planNote + researchNote + (post.props?.flygo_voice ? `\n(Tin này ${owner} NÓI bằng giọng trong chế độ trò chuyện giọng nói; app sẽ ĐỌC TO câu trả lời: trả lời ngắn gọn bằng văn nói tự nhiên, không bảng, không khối mã, không liệt kê dài; việc cần chi tiết thì làm xong rồi tóm tắt bằng lời.)` : ""),
+        prompt: prompt + planNote + researchNote + unattendedNote + (post.props?.flygo_voice ? `\n(Tin này ${owner} NÓI bằng giọng trong chế độ trò chuyện giọng nói; app sẽ ĐỌC TO câu trả lời: trả lời ngắn gọn bằng văn nói tự nhiên, không bảng, không khối mã, không liệt kê dài; việc cần chi tiết thì làm xong rồi tóm tắt bằng lời.)` : ""),
         research,
         extMcp: await extStore.servers().catch(() => ({})),
         persona: botPersona(),
@@ -3799,6 +3816,7 @@ async function runScheduled(s: Schedule, trigger: Post, resume: boolean) {
   const key = threadRootOf(post) || mainKey(post.channel_id);
   const { rule } = schedDescribe(s);
   const by = await mm.displayName(s.created_by).catch(() => s.created_by);
+  // Quyền của lượt (đồng ý chạy thay hay chỉ quyền riêng của agent) do runTurn nói rõ (unattendedNote).
   const text = `(Lịch hẹn "${s.title}" của ${by} — ${rule}; tự chạy, ${by} không ngồi chờ: làm xong rồi báo kết quả ở đây.)\n${s.prompt}`;
   const out: { text?: string; error?: string } = {};
   enqueuedPosts.add(post.id);

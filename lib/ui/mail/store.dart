@@ -49,6 +49,8 @@ class MailStore extends ChangeNotifier {
   int total = 0, page = 1;
   final int size = 50;
   bool loading = false;
+  /// Đang đổi sang hộp thư khác (hiện khung chờ cả địa chỉ hộp).
+  bool switching = false;
   Object? error;
   final selected = <String>{};
   bool _disposed = false;
@@ -208,8 +210,14 @@ class MailStore extends ChangeNotifier {
     total = 0;
     selected.clear();
     loading = true;
+    switching = true;
     _notify();
-    await start();
+    try {
+      await start();
+    } finally {
+      switching = false;
+      _notify();
+    }
   }
 
   Future<void> open(MailView v) async {
@@ -226,6 +234,8 @@ class MailStore extends ChangeNotifier {
     category = c;
     page = 1;
     selected.clear();
+    items = []; // khung chờ ngay, không để danh sách của tab cũ
+    total = 0;
     await load();
   }
 

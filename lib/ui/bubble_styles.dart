@@ -190,6 +190,20 @@ Color bubbleTextOn(Color fill) {
   return _contrast(ink, fill) >= 4.5 ? ink : Colors.black;
 }
 
+/// Màu [c] chỉnh cho đọc được trên nền [bg] (tương phản ≥ [min]): đủ rồi thì giữ nguyên, chưa đủ thì kéo dần về phía
+/// màu chữ của nền (trắng hoặc gần đen) — giữ sắc màu (vd. màu tên từng người) càng nhiều càng tốt.
+/// [c] có độ trong suốt thì tính theo màu thật sau khi phủ lên [bg].
+Color bubbleReadable(Color c, Color bg, {double min = 4.5}) {
+  final flat = Color.alphaBlend(c, bg);
+  if (_contrast(flat, bg) >= min) return c;
+  final to = bubbleTextOn(bg);
+  for (var t = .1; t < 1; t += .1) {
+    final x = Color.lerp(flat, to, t)!;
+    if (_contrast(x, bg) >= min) return x;
+  }
+  return to;
+}
+
 /// Bảng màu cho nội dung trong bong bóng có nền [fill] (chữ, link, trích dẫn, dấu đã xem).
 Pal bubblePal(Pal p, Color fill) {
   final fg = bubbleTextOn(fill);
@@ -199,7 +213,7 @@ Pal bubblePal(Pal p, Color fill) {
     surface: p.surface,
     surface2: p.surface2,
     text: fg,
-    sub: fg.withValues(alpha: .78),
+    sub: bubbleReadable(fg.withValues(alpha: .78), fill),
     divider: fg.withValues(alpha: .22),
     accent: p.accent,
     // Link trong bong bóng: cùng màu chữ (gạch chân) để luôn đủ tương phản trên mọi màu nền.
