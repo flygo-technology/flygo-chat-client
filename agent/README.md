@@ -429,7 +429,8 @@ Mỗi máy (mỗi người dùng hệ điều hành) chạy **một** tiến tr�
   - `owners`: máy chủ chat → user id của chủ runner. App ghi mục này khi người dùng đăng nhập thành công máy chủ đó trên máy này.
   - `defaults`: cài đặt chung cho mọi bot.
   - `servers`: cài đặt theo máy chủ (vd. `a2a.relay`, `flygoId`).
-  - `flygoAi` (0.7.6, chỉ engine claude): `{ "url": "http://192.168.2.4:8807", "keyFile": "/path/runner.key" }`.
+  - `flygoAi` (0.7.6, chỉ engine claude): `{ "keyFile": "/path/runner.key" }`. `url` mặc định là `<serverUrl>/__apps/ai` (đường công khai); trong LAN có thể đặt `http://192.168.2.4:8807`.
+    - Nên đặt thêm `claude.tools` (vd. `"Read,Glob,Grep,WebFetch,WebSearch,Skill"`) và `claude.models` (vd. Haiku 5.5, Sonnet 5.5). Bộ tool có sẵn của Claude Code tốn khoảng 26k token mỗi lượt. Tool MCP nạp khi cần (`ENABLE_TOOL_SEARCH`).
     - Bot gọi model qua **Cổng AI** công ty thay vì gói Claude của máy.
     - Mỗi lượt gửi kèm email người nhờ (`X-Flygo-User`), nên chi phí tính vào hạn mức của người đó. Hết hạn mức thì cổng hạ xuống model rẻ, rồi chặn.
     - `keyFile` là khoá ứng dụng `fgk_…` có quyền gọi thay người dùng, do quản trị Cổng AI cấp. Khoá chỉ nằm trên máy runner.

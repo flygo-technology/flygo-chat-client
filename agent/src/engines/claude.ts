@@ -138,18 +138,22 @@ export function claudePerms(cfg: Config, input: Pick<TurnInput, "bypass" | "mode
  * Biến môi trường cho Claude Code khi bot chạy qua Cổng AI: địa chỉ cổng, khoá ứng dụng (Bearer) và header người nhờ.
  * Không có email người nhờ thì ném lỗi: không gọi model khi không biết tính vào hạn mức của ai.
  */
-export async function flygoAiEnv(cfg: Pick<Config, "flygoAi">, email: string): Promise<Record<string, string>> {
+export async function flygoAiEnv(cfg: Pick<Config, "flygoAi" | "serverUrl">, email: string): Promise<Record<string, string>> {
   const g = cfg.flygoAi!;
   const key = (await Bun.file(g.keyFile).text().catch(() => "")).trim();
   if (!key.startsWith("fgk_")) throw new Error(`Cổng AI: không đọc được khoá ứng dụng ở ${g.keyFile}`);
   if (!/^[^\s@]+@[^\s@]+$/.test(email)) throw new Error("Cổng AI: không biết email người nhờ, không tính được hạn mức");
   return {
-    ANTHROPIC_BASE_URL: g.url.replace(/\/+$/, ""),
+    // Mặc định: đường công khai của Cổng AI trên chính máy chủ chat (https://chat.congty.vn/__apps/ai).
+    ANTHROPIC_BASE_URL: (g.url || `${cfg.serverUrl.replace(/\/+$/, "")}/__apps/ai`).replace(/\/+$/, ""),
     ANTHROPIC_AUTH_TOKEN: key,
     ANTHROPIC_API_KEY: "",
     ANTHROPIC_CUSTOM_HEADERS: `X-Flygo-User: ${email}\nX-Flygo-App: ${g.app ?? "vn.flygo.agent"}`,
     // Model Claude Code chưa biết (vd. bản mới hơn CLI): không tự chặn ngữ cảnh 200k.
     CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1",
+    // Claude Code tắt tool search khi ANTHROPIC_BASE_URL không phải của Anthropic: bật lại để tool MCP (~90 tool flygo_chat,
+    // ~33k token) chỉ nạp khi cần, không nạp hết vào mỗi lượt.
+    ENABLE_TOOL_SEARCH: "true",
   };
 }
 
@@ -164,7 +168,7 @@ export class ClaudeEngine implements Engine {
       skills: this.initSkills.map((name) => ({ name, description: "" })),
       // Claude Code trỏ sang endpoint tương thích (ANTHROPIC_BASE_URL, vd. DeepSeek) với claude.models trong cấu hình: báo đúng
       // các model đó, không báo model Anthropic (app sẽ cho chọn model mà endpoint không có).
-      models: this.cfg.claude.models?.length && process.env.ANTHROPIC_BASE_URL && !/(^|\.)anthropic\.com(:|\/|$)/.test(new URL(process.env.ANTHROPIC_BASE_URL, "http://x").host)
+      models: this.cfg.claude.models?.length && (this.cfg.flygoAi || (process.env.ANTHROPIC_BASE_URL && !/(^|\.)anthropic\.com(:|\/|$)/.test(new URL(process.env.ANTHROPIC_BASE_URL, "http://x").host)))
         ? this.cfg.claude.models.map((id) => ({ id, efforts: this.cfg.claude.efforts?.length ? this.cfg.claude.efforts : CLAUDE_EFFORTS, defaultEffort: this.cfg.claude.effort ?? "medium", isDefault: id === this.cfg.claude.model }))
         : CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
     };
@@ -224,6 +228,7 @@ export class ClaudeEngine implements Engine {
     ];
     const model = input.model ?? this.cfg.claude.model;
     if (model) args.push("--model", model);
+    if (this.cfg.claude.tools !== undefined) args.push("--tools", this.cfg.claude.tools);
     if (input.effort) args.push("--effort", input.effort);
     if (input.sessionId) { adoptSession(input.sessionId, input.cwd); args.push("--resume", input.sessionId); }
     else if (input.forkFrom && sessionFile(input.forkFrom)) { adoptSession(input.forkFrom, input.cwd); args.push("--resume", input.forkFrom, "--fork-session"); } // phiên mới mang ngữ cảnh phiên cha

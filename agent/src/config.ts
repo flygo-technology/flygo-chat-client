@@ -60,6 +60,11 @@ export interface Config {
     effort?: string; // mặc định high
     /** Bật Claude in Chrome (claude --chrome): agent điều khiển Chrome thật của người dùng qua extension. */
     chrome?: boolean;
+    /**
+     * Tool có sẵn của Claude Code được nạp (claude --tools, vd. "Read,Glob,Grep,WebFetch,WebSearch,Skill"); thiếu = mặc định
+     * (đủ bộ, ~26k token mỗi lượt). Bot chat chạy qua Cổng AI nên giới hạn để giảm token (Sếp 2026-11-17: "hi" tốn 68k).
+     */
+    tools?: string;
   };
   // Antigravity CLI (agy): mỗi lượt chạy `agy -p … --output-format stream-json`, nói tiếp bằng --conversation.
   agy: {
@@ -91,7 +96,7 @@ export interface Config {
    * email người nhờ (X-Flygo-User) để tính vào hạn mức của chính người đó. keyFile: khoá ứng dụng fgk_… có quyền gọi thay
    * người dùng (quản trị Cổng AI cấp), chỉ nằm trên máy runner. Chỉ dùng cho engine claude.
    */
-  flygoAi?: { url: string; keyFile: string; app?: string };
+  flygoAi?: { url?: string; keyFile: string; app?: string };
 }
 
 /** Model "mặc định của agy": không truyền --model. */
