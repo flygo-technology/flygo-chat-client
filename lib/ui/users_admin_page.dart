@@ -362,11 +362,50 @@ class _GuardCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (guard['passkey'] is Map) ..._passkey(pal, guard['passkey'] as Map),
           ],
         ),
       ),
     );
   }
+
+  /// Passkey bắt buộc cả công ty + phạm vi (chỉ điện thoại / mọi thiết bị).
+  List<Widget> _passkey(Pal pal, Map pk) => [
+    Divider(height: 1, color: pal.divider),
+    SwitchListTile(
+      key: const ValueKey('passkey-company'),
+      contentPadding: const EdgeInsets.fromLTRB(16, 4, 10, 0),
+      secondary: const Icon(Icons.fingerprint_rounded, color: Color(0xFF14B8A6), size: 30),
+      title: Text(tr('Bắt buộc passkey (cả công ty)'), style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(
+        pk['company'] == true
+            ? tr('Đang bật: lần đăng nhập mới phải xác thực passkey; máy mới phải được duyệt. Máy đang đăng nhập chỉ được nhắc.')
+            : tr('Đang tắt. Có thể bật riêng từng người trong trang chi tiết.{0}', [pk['users'] is num && pk['users'] > 0 ? ' ${tr('Đang bật riêng: {0} người.', [pk['users']])}' : '']),
+      ),
+      value: pk['company'] == true,
+      onChanged: (v) => onPatch({'passkey_all': v}, v ? tr('Đã bắt buộc passkey cả công ty') : tr('Đã tắt bắt buộc passkey cả công ty')),
+    ),
+    Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+      child: SegmentedButton<String>(
+        showSelectedIcon: false,
+        segments: [
+          ButtonSegment(value: 'phones', label: Text(tr('Chỉ điện thoại')), icon: const Icon(Icons.smartphone_rounded)),
+          ButtonSegment(value: 'all', label: Text(tr('Mọi thiết bị')), icon: const Icon(Icons.devices_rounded)),
+        ],
+        selected: {pk['scope'] == 'all' ? 'all' : 'phones'},
+        onSelectionChanged: (x) => onPatch({'passkey_scope': x.first}, tr('Đã lưu phạm vi passkey')),
+      ),
+    ),
+    if (pk['scope'] == 'all')
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Text(
+          tr('Mọi thiết bị: máy tính xin duyệt trên điện thoại đã duyệt. Trình duyệt web chưa xác thực được, phiên web mới sẽ bị thu hồi sau 10 phút.'),
+          style: TextStyle(fontSize: 12.5, color: pal.sub),
+        ),
+      ),
+  ];
 }
 
 /// Chọn phòng ban được phép đăng nhập (mọi thành viên, kể cả phòng con).
@@ -1575,19 +1614,19 @@ class _UserDetailPageState extends State<UserDetailPage> {
                   ),
           ),
         ],
-        if (login != null)
+        if (login != null && login.containsKey('passkey_required'))
           _switch(
             pal,
             key: const ValueKey('sw-passkey'),
             icon: Icons.fingerprint_rounded,
-            title: tr('Bắt buộc passkey trên mỗi thiết bị'),
-            subtitle: login['passkey_policy'] == 'all'
-                ? tr('Đang bắt buộc cho mọi người (cài đặt chung) từ lần đăng nhập mới.')
-                : tr('Lần đăng nhập mới (máy mới) phải đăng ký / xác thực passkey (vân tay, Face ID, mã PIN). Máy đang đăng nhập không bị đăng xuất.'),
+            title: tr('Bắt buộc passkey trên điện thoại'),
+            subtitle: switch (login['passkey_policy']) {
+              'all' => tr('Cả công ty đang bắt buộc. Tắt ở đây = miễn riêng cho người này.'),
+              'exempt' => tr('Được miễn (cả công ty đang bắt buộc).'),
+              _ => tr('Lần đăng nhập mới phải xác thực passkey (vân tay, Face ID, mã mở máy); máy mới phải được duyệt. Máy đang đăng nhập không bị đăng xuất.'),
+            },
             value: login['passkey_required'] == true,
-            onChanged: login['passkey_policy'] == 'all'
-                ? null
-                : (v) => _do('PATCH', '/v1/admin/users/$id', {'passkey_required': v}, v ? tr('Đã bắt buộc passkey') : tr('Đã bỏ bắt buộc passkey')),
+            onChanged: (v) => _do('PATCH', '/v1/admin/users/$id', {'passkey_required': v}, v ? tr('Đã bắt buộc passkey') : tr('Đã bỏ bắt buộc passkey')),
           ),
         _switch(
           pal,
@@ -1701,11 +1740,38 @@ class _UserDetailPageState extends State<UserDetailPage> {
         children: [
           Text(lines.join(), style: TextStyle(fontSize: 12.5, color: pal.sub)),
           const SizedBox(height: 4),
+          // Máy mới có passkey chưa được tin: quản trị duyệt (sau khi chắc chắn là chính chủ, vd gọi điện hỏi).
+          if (pk != null && pk['trusted'] == false)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: FilledButton.tonalIcon(
+                key: ValueKey('trust-${d['device_id']}'),
+                style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text(tr('Duyệt passkey của "{0}"?', ['${d['name'] ?? ''}'])),
+                      content: Text(tr('Chỉ duyệt khi chắc chắn máy này là của {0} (vd gọi điện hỏi trực tiếp). Duyệt xong, máy đó dùng được tài khoản.', [_name])),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Huỷ'))),
+                        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Duyệt'))),
+                      ],
+                    ),
+                  );
+                  if (ok == true) {
+                    await _do('POST', '/v1/admin/users/${widget.userId}/devices/${d['device_id']}/passkey-trust', null, tr('Đã duyệt passkey'));
+                  }
+                },
+                icon: const Icon(Icons.verified_user_rounded, size: 16),
+                label: Text(tr('Duyệt passkey')),
+              ),
+            ),
           Wrap(
             spacing: 6,
             runSpacing: 4,
             children: [
-              if (pk != null)
+              if (pk != null && pk['trusted'] != false)
                 _Chip(
                   [
                     'Passkey',
@@ -1714,6 +1780,8 @@ class _UserDetailPageState extends State<UserDetailPage> {
                   ].join(' · '),
                   const Color(0xFF14B8A6),
                 )
+              else if (pk != null)
+                _Chip(tr('Passkey chờ duyệt'), _amber)
               else if (needPasskey)
                 _Chip(tr('Chưa có passkey'), _amber)
               else if ((d['key'] as Map?)?['biometric_bound'] == true)

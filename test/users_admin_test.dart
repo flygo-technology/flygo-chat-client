@@ -9,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/browser/flygo_id.dart';
 import 'package:flygo_chat/data/models.dart';
+import 'package:flygo_chat/security/passkey_gate.dart';
+import 'package:flygo_chat/security/passkey_page.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/password_page.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -103,7 +105,8 @@ final _guard = <String, dynamic>{
   'enabled': true,
   'allowed_count': 18,
   'total': 46,
-  'existing_sessions': 'keep',
+  'supported': true,
+  'passkey': {'company': false, 'scope': 'phones', 'users': 3},
   'allowed_depts': [
     {'id': 'kt', 'name': 'Kế toán'},
     {'id': 'ky', 'name': 'Kỹ thuật'},
@@ -166,7 +169,7 @@ Map<String, dynamic> _detail(String id, {required bool guard}) {
       ],
     },
     'password_login': {'google_linked': true, 'has_password': !noPw, 'allowed': false, 'enabled': false, 'google_enabled': false},
-    if (guard) 'login': {'allowed': u['login_allowed'] == true, 'via': id == 'u2' ? 'user' : 'dept:kt', 'via_name': 'Kế toán', 'passkey_required': true},
+    if (guard) 'login': {'allowed': u['login_allowed'] == true, 'via': id == 'u2' ? 'user' : 'dept:kt', 'via_name': 'Kế toán', 'passkey_required': true, 'passkey_policy': 'user'},
     'perms': _perms,
     'devices': [
       {
@@ -175,7 +178,7 @@ Map<String, dynamic> _detail(String id, {required bool guard}) {
         'platform': 'iOS 19.1',
         'app_version': '1.0.5+496',
         'last_seen': _ago(const Duration(minutes: 12)),
-        if (guard) 'passkey': {'kind': 'Face ID', 'last_used': _ago(const Duration(minutes: 12))},
+        if (guard) 'passkey': {'kind': 'Face ID', 'trusted': true, 'last_used': _ago(const Duration(minutes: 12))},
       },
       {
         'device_id': 'd2',
@@ -183,9 +186,16 @@ Map<String, dynamic> _detail(String id, {required bool guard}) {
         'platform': 'macOS 16',
         'app_version': '1.0.5+494',
         'last_seen': _ago(const Duration(days: 2)),
-        if (guard) 'passkey': {'kind': 'Touch ID', 'last_used': _ago(const Duration(days: 2))},
+        if (guard) 'passkey': {'kind': 'Touch ID', 'trusted': true, 'last_used': _ago(const Duration(days: 2))},
       },
-      {'device_id': 'd3', 'name': 'Galaxy A55', 'platform': 'Android 16', 'app_version': '1.0.5+490', 'last_seen': _ago(const Duration(days: 9))},
+      {
+        'device_id': 'd3',
+        'name': 'Galaxy A55',
+        'platform': 'Android 16',
+        'app_version': '1.0.5+490',
+        'last_seen': _ago(const Duration(minutes: 3)),
+        if (guard) 'passkey': {'kind': 'vân tay / khuôn mặt', 'trusted': false, 'pending': true},
+      },
     ],
     'audit': [
       {'action': 'user.password', 'at': _ago(const Duration(hours: 3)), 'actor': 'mm:ba'},
@@ -403,6 +413,62 @@ void main() {
     });
   });
 
+  group('passkey', () {
+    testWidgets('phiên mới chưa xác thực: chặn app; xác thực xong vào app', (t) async {
+      final api = _FakePk(_pkStatus('verify'));
+      await _pump(t, PasskeyGate(api: api, onLogout: () {}, child: const Text('HOME')));
+      expect(find.text('HOME'), findsNothing);
+      await t.tap(find.byKey(const ValueKey('passkey-action')));
+      await _settle(t);
+      expect(find.text('HOME'), findsOneWidget);
+    });
+
+    testWidgets('phiên cũ: không chặn, chỉ nhắc', (t) async {
+      final api = _FakePk(PasskeyStatus({'required': true, 'enforced': false, 'session_ok': false, 'needs': 'enroll'}));
+      await _pump(t, PasskeyGate(api: api, onLogout: () {}, child: const Scaffold(body: Text('HOME'))));
+      expect(find.text('HOME'), findsOneWidget);
+      expect(find.text('Đăng ký ngay'), findsOneWidget);
+    });
+
+    testWidgets('không bắt buộc: vào thẳng', (t) async {
+      final api = _FakePk(PasskeyStatus({'required': false, 'needs': 'none'}));
+      await _pump(t, PasskeyGate(api: api, onLogout: () {}, child: const Scaffold(body: Text('HOME'))));
+      expect(find.text('HOME'), findsOneWidget);
+      expect(find.text('Đăng ký ngay'), findsNothing);
+    });
+
+    testWidgets('máy mới: xin duyệt hiện số; chưa có máy đã duyệt thì cần quản trị', (t) async {
+      final st = _pkStatus('approve');
+      await _pump(t, PasskeyScreen(api: _FakePk(st), initial: st, onLogout: () {}, keySupported: true));
+      await t.tap(find.byKey(const ValueKey('passkey-action')));
+      await _settle(t);
+      expect(find.text('42'), findsOneWidget);
+      await _pump(t, PasskeyScreen(api: _FakePk(st, needAdmin: true), initial: st, onLogout: () {}, keySupported: true));
+      await t.tap(find.byKey(const ValueKey('passkey-action')));
+      await _settle(t);
+      expect(find.text('Cần quản trị viên duyệt'), findsOneWidget);
+    });
+
+    testWidgets('trang passkey cá nhân: máy này, máy của tôi, yêu cầu duyệt máy mới', (t) async {
+      await _pump(t, PasskeyPage(api: _FakePk(_pkPersonal())), size: const Size(500, 1400));
+      expect(find.text('Máy này có passkey'), findsOneWidget);
+      expect(find.text('"Galaxy A55" xin dùng tài khoản của bạn'), findsOneWidget);
+      expect(find.text('Passkey chờ duyệt'), findsOneWidget);
+      expect(find.text('Thu hồi'), findsNWidgets(2));
+    });
+
+    testWidgets('quản trị: thiết bị chờ duyệt có nút Duyệt passkey', (t) async {
+      final id = _Id();
+      await _pump(t, UserDetailPage(id: id, userId: 'u2', policy: _loadPolicy), size: const Size(500, 2600));
+      expect(find.text('Passkey chờ duyệt'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('trust-d3')));
+      await _settle(t);
+      await t.tap(find.text('Duyệt').last);
+      await _settle(t);
+      expect(id.calls, contains('POST /v1/admin/users/u2/devices/d3/passkey-trust'));
+    });
+  });
+
   _previews();
 }
 
@@ -518,16 +584,22 @@ void _previews() {
       await t.tap(find.byKey(const ValueKey('pw-submit')));
       await save(t, 'phone-$th-09-mat-khau-loi-may-chu');
 
-      // Phía người dùng: passkey bắt buộc, bị chặn đăng nhập.
-      for (final (i, (name, w)) in [
-        ('dang-ky-passkey', const _PasskeyRegister()),
-        ('xac-thuc-passkey', const _PasskeyVerify()),
-        ('mat-may-khong-xac-thuc-duoc', const _PasskeyLost()),
-        ('bi-chan-dang-nhap', const _LoginBlocked()),
-      ].indexed) {
-        await _pump(t, w, size: phone, b: b, ratio: 2);
-        await save(t, 'phone-$th-${10 + i}-nguoi-dung-$name');
+      // Phía người dùng (màn thật, Flygo ID giả).
+      Future<void> gate(String name, PasskeyStatus st, {bool key = true, bool tapAction = false, bool help = false, bool admin = false}) async {
+        await _pump(t, PasskeyScreen(api: _FakePk(st, needAdmin: admin), initial: st, onLogout: () {}, keySupported: key), size: phone, b: b, ratio: 2);
+        if (tapAction) await t.tap(find.byKey(const ValueKey('passkey-action')));
+        if (help) await t.tap(find.text('Không xác thực được?'));
+        await save(t, 'phone-$th-$name');
       }
+
+      await gate('10-nguoi-dung-dang-ky-passkey', _pkStatus('enroll'));
+      await gate('11-nguoi-dung-may-moi-cho-duyet', _pkStatus('approve'));
+      await gate('12-nguoi-dung-bam-so-tren-may-kia', _pkStatus('approve'), tapAction: true);
+      await gate('13-nguoi-dung-can-quan-tri-duyet', _pkStatus('approve'), tapAction: true, admin: true);
+      await gate('14-nguoi-dung-xac-thuc-passkey', _pkStatus('verify'));
+      await gate('15-nguoi-dung-khong-xac-thuc-duoc', _pkStatus('verify'), help: true);
+      await _pump(t, PasskeyPage(api: _FakePk(_pkPersonal())), size: phone, b: b, ratio: 2);
+      await save(t, 'phone-$th-16-ca-nhan-passkey');
       debugDisableShadows = true;
     });
 
@@ -555,190 +627,51 @@ void _previews() {
       await _settle(t);
       await top('QUYỀN');
       await save(t, 'desktop-$th-02-quyen-va-thiet-bi');
-      await _pump(t, const _PasskeyVerify(), size: const Size(1440, 1000), b: b);
-      await save(t, 'desktop-$th-04-nguoi-dung-xac-thuc-passkey');
+      final st = _pkStatus('approve');
+      await _pump(t, PasskeyScreen(api: _FakePk(st), initial: st, onLogout: () {}, keySupported: false), size: const Size(1440, 1000), b: b);
+      await t.tap(find.byKey(const ValueKey('passkey-action')));
+      await save(t, 'desktop-$th-04-may-tinh-xin-duyet-tren-dien-thoai');
       debugDisableShadows = true;
     });
   }
 }
 
-/// Khung chung của các màn người dùng (bản xem trước, chưa có trong app).
-class _GateScreen extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title, body;
-  final List<Widget> actions;
-  final Widget? extra;
-  const _GateScreen({required this.icon, required this.color, required this.title, required this.body, required this.actions, this.extra});
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    return Scaffold(
-      backgroundColor: pal.bg,
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 104,
-                      height: 104,
-                      decoration: BoxDecoration(shape: BoxShape.circle, color: color.withValues(alpha: .14)),
-                      child: Icon(icon, size: 56, color: color),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    body,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14.5, height: 1.4, color: pal.sub),
-                  ),
-                  if (extra != null) ...[const SizedBox(height: 18), extra!],
-                  const SizedBox(height: 28),
-                  ...actions,
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-Widget _account(Pal pal) => Container(
-  padding: const EdgeInsets.all(12),
-  decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(14)),
-  child: Row(
-    children: [
-      CircleAvatar(
-        radius: 20,
-        backgroundColor: pal.avatarBg,
-        child: Icon(Icons.person, color: pal.avatarFg),
-      ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Nguyễn Thị Hoa', style: TextStyle(fontWeight: FontWeight.w600)),
-            Text('hoa.nt@flygo.vn · iPhone 15', style: TextStyle(fontSize: 12.5, color: pal.sub)),
-          ],
-        ),
-      ),
-    ],
-  ),
-);
-
-class _PasskeyRegister extends StatelessWidget {
-  const _PasskeyRegister();
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    return _GateScreen(
-      icon: Icons.fingerprint_rounded,
-      color: const Color(0xFF14B8A6),
-      title: 'Đăng ký passkey cho máy này',
-      body:
-          'Công ty yêu cầu mỗi thiết bị có passkey. Bạn chỉ cần xác nhận bằng Face ID, vân tay hoặc mã mở máy. '
-          'Không có passkey thì chưa dùng được app trên máy này.',
-      extra: _account(pal),
-      actions: [
-        FilledButton.icon(onPressed: () {}, icon: const Icon(Icons.fingerprint_rounded), label: const Text('Tạo passkey bằng Face ID')),
-        const SizedBox(height: 8),
-        TextButton(onPressed: () {}, child: const Text('Đăng xuất')),
+PasskeyStatus _pkPersonal() => PasskeyStatus({
+      'required': true,
+      'enforced': false,
+      'session_ok': false,
+      'needs': 'verify',
+      'device': {'device_id': 'd1', 'has_key': true, 'trusted': true},
+      'devices': [
+        {'device_id': 'd1', 'name': 'iPhone 15 của Hoa', 'platform': 'ios', 'current': true, 'has_key': true, 'trusted': true},
+        {'device_id': 'd2', 'name': 'MacBook Air', 'platform': 'macos', 'has_key': false, 'trusted': false},
+        {'device_id': 'd3', 'name': 'Galaxy A55', 'platform': 'android', 'has_key': true, 'trusted': false, 'pending': true},
       ],
-    );
-  }
-}
-
-class _PasskeyVerify extends StatelessWidget {
-  const _PasskeyVerify();
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    return _GateScreen(
-      icon: Icons.lock_person_rounded,
-      color: pal.accent,
-      title: 'Xác thực để mở Flygo Chat',
-      body: 'Dùng passkey của máy này (Face ID / vân tay / mã mở máy) để tiếp tục.',
-      extra: _account(pal),
-      actions: [
-        FilledButton.icon(onPressed: () {}, icon: const Icon(Icons.face_rounded), label: const Text('Xác thực bằng Face ID')),
-        const SizedBox(height: 8),
-        TextButton(onPressed: () {}, child: const Text('Không xác thực được?')),
+      'to_approve': [
+        {'verify_id': 'vr_abcdefghijkl', 'device_id': 'd3', 'device_name': 'Galaxy A55', 'expires_at': 0},
       ],
-    );
-  }
-}
+    });
 
-class _PasskeyLost extends StatelessWidget {
-  const _PasskeyLost();
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    Widget step(String n, String t) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 11,
-            backgroundColor: pal.accent.withValues(alpha: .15),
-            child: Text(n, style: TextStyle(fontSize: 12, color: pal.accent)),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(t, style: const TextStyle(fontSize: 14))),
-        ],
-      ),
-    );
-    return _GateScreen(
-      icon: Icons.phonelink_erase_rounded,
-      color: const Color(0xFFF5B544),
-      title: 'Không xác thực được passkey',
-      body: 'Đổi máy, cài lại app hoặc mất passkey? Vì an toàn, chỉ quản trị viên mới đặt lại được.',
-      extra: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(14)),
-        child: Column(
-          children: [
-            step('1', 'Báo quản trị viên (Quản trị › Người dùng › Thiết bị & passkey).'),
-            step('2', 'Quản trị viên thu hồi máy cũ; máy này bị đăng xuất.'),
-            step('3', 'Đăng nhập lại và đăng ký passkey mới.'),
-          ],
-        ),
-      ),
-      actions: [
-        FilledButton.icon(onPressed: () {}, icon: const Icon(Icons.support_agent_rounded), label: const Text('Nhắn quản trị viên')),
-        const SizedBox(height: 8),
-        TextButton(onPressed: () {}, child: const Text('Thử lại')),
-      ],
-    );
-  }
-}
+PasskeyStatus _pkStatus(String needs) =>
+    PasskeyStatus({'required': true, 'enforced': true, 'session_ok': false, 'needs': needs, 'trusted_phones': 1});
 
-class _LoginBlocked extends StatelessWidget {
-  const _LoginBlocked();
+/// Flygo ID giả cho màn passkey: xin duyệt trả số 42 (hoặc 409 cần quản trị), xác thực thì đạt.
+class _FakePk extends PasskeyApi {
+  _FakePk(this.st, {this.needAdmin = false}) : super(_Id(), 't');
+  PasskeyStatus st;
+  final bool needAdmin;
+  int approvals = 0;
   @override
-  Widget build(BuildContext context) => const _GateScreen(
-    icon: Icons.shield_rounded,
-    color: Color(0xFFFF6B6B),
-    title: 'Tài khoản chưa được phép đăng nhập',
-    body:
-        'Công ty đang chặn đăng nhập để bảo vệ tài khoản. Nhờ quản trị viên bật "Được phép đăng nhập" cho bạn '
-        'hoặc cho phòng ban của bạn, rồi đăng nhập lại.',
-    actions: [],
-  );
+  Future<PasskeyStatus> status() async => st;
+  @override
+  Future<void> enroll(String deviceName) async => st = _pkStatus('verify');
+  @override
+  Future<PasskeyStatus> verify() async => st = PasskeyStatus({...st.raw, 'session_ok': true, 'needs': 'none'});
+  @override
+  Future<Map<String, dynamic>> requestApproval() async {
+    approvals++;
+    if (needAdmin) throw FlygoIdException(409, 'chưa có điện thoại nào đã duyệt');
+    st = PasskeyStatus({...st.raw, 'pending_approval': {'verify_id': 'vr_x', 'status': 'pending'}});
+    return {'verify_id': 'vr_x', 'code': '42', 'expires_at': 0};
+  }
 }
