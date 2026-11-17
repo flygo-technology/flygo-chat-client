@@ -237,8 +237,10 @@ void main() {
             const Size(390, 844),
             b,
             (c) => ListView(padding: EdgeInsets.zero, children: [
+                  // Thẻ người dùng gọn ở đầu trang điện thoại (như app thật), rồi tên công ty, rồi dải Lịch thu gọn.
+                  Padding(padding: const EdgeInsets.only(top: 52), child: AppsUserCard(compact: true, dense: true, onProfile: () {}, onSettings: () {})),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 56, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                     child: Center(child: Text('Công ty Mẫu', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Pal.of(c).text))),
                   ),
                   UpcomingEvents(compact: true, clock: () => clock, onOpen: (e) => opened.add(e.instanceId)),
@@ -256,8 +258,21 @@ void main() {
         expect(find.text('Kiểm tra PCCC – Văn phòng'), findsOneWidget);
         expect(find.text('còn 2 giờ 40 phút'), findsOneWidget);
         await shot(t, 'p-phone-next-$sfx');
+        // Bấm dải: mở rộng thành lịch hôm nay + 7 ngày tới; bấm sự kiện mở sự kiện; ˄ thu lại.
+        expect(find.text('HÔM NAY · T3 17/11'), findsNothing);
+        await t.tap(find.byKey(const ValueKey('upcoming-banner')));
+        await t.pump();
+        expect(find.text('HÔM NAY · T3 17/11'), findsOneWidget);
+        expect(find.text('7 NGÀY TỚI'), findsOneWidget);
+        expect(find.text('Gặp khách hàng'), findsOneWidget);
+        expect(t.takeException(), isNull);
+        await shot(t, 'p-phone-expanded-$sfx');
         await t.tap(find.byKey(const ValueKey('upcoming-pccc')));
         expect(opened, ['pccc']);
+        await t.tap(find.byKey(const ValueKey('upcoming-collapse')));
+        await t.pump();
+        expect(find.text('HÔM NAY · T3 17/11'), findsNothing);
+        expect(find.byKey(const ValueKey('upcoming-banner')), findsOneWidget);
         await done(t);
       });
     }
