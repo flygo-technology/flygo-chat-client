@@ -3631,7 +3631,7 @@ class AppsUserCard extends StatelessWidget {
       }
     }
 
-    // Chip trạng thái: chấm hoạt động + trạng thái riêng (hoặc tên hoạt động); bấm mở menu.
+    // Trạng thái: chấm hoạt động + trạng thái riêng (hoặc tên hoạt động); bấm mở menu.
     final chip = PopupMenuButton<String>(
       key: const ValueKey('apps-status-chip'),
       tooltip: tr('Trạng thái'),
@@ -3666,9 +3666,9 @@ class AppsUserCard extends StatelessWidget {
           PopupMenuItem(
               value: 'clear', child: Row(children: [Icon(Icons.close_rounded, size: 18, color: pal.sub), const SizedBox(width: 10), Text(tr('Xóa trạng thái'))])),
       ],
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(8, 5, 6, 5),
-        decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(999)),
+      // Chữ thường, không khung (Sếp, 2026-11-17: "bỏ box bao quanh"); chỉ sáng nhẹ khi rê chuột.
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(2, 3, 4, 3),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           statusDot(st, pal, size: 9),
           const SizedBox(width: 6),
@@ -3747,7 +3747,7 @@ class AppsUserCard extends StatelessWidget {
                   Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
                 ]),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               chip,
             ]),
           ),
