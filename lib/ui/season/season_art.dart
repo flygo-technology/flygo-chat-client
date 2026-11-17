@@ -496,7 +496,7 @@ class GarlandPainter extends CustomPainter {
   bool shouldRepaint(GarlandPainter old) => old.dark != dark || old.backing != backing;
 }
 
-/// Ảnh bìa Giáng sinh của thẻ người dùng (Trang chủ máy tính): trời đêm xanh, đèn mờ, dây đèn vắt ngang mép trên,
+/// Ảnh bìa Giáng sinh của thẻ người dùng (Trang chủ): trời đêm xanh, đèn mờ,
 /// rặng thông dưới chân, tuyết. [dark] = bản tối (đêm sâu); bản sáng là trời xanh chạng vạng. Vẽ tĩnh ([t] cố định).
 class XmasCoverPainter extends CustomPainter {
   final bool dark;
@@ -540,7 +540,8 @@ class XmasCoverPainter extends CustomPainter {
           ..close(),
         Paint()..color = dark ? const Color(0xFF223F69) : const Color(0xFFE8F0FB));
     _snowfall(c, s, _snow, t, Colors.white, flakes: true, alpha: dark ? .75 : .9);
-    LightStringPainter(t + 1.3, scale: .62).paint(c, s);
+    // Không có dây đèn (Sếp, 2026-11-17: "bỏ dải đèn ở phần ảnh cover").
+
   }
 
   @override

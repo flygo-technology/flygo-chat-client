@@ -2565,4 +2565,11 @@ const Map<String, String> zh = {
   'Vàng nghệ': '琥珀',
   'Xanh ngọc': '青色',
   'Xám đá': '石板灰',
+  // Biểu tượng app Lịch: thứ trên dải đỏ.
+  'THỨ HAI': '周一',
+  'THỨ BA': '周二',
+  'THỨ TƯ': '周三',
+  'THỨ NĂM': '周四',
+  'THỨ SÁU': '周五',
+  'THỨ BẢY': '周六',
 };

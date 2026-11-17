@@ -2565,4 +2565,11 @@ const Map<String, String> ko = {
   'Vàng nghệ': '앰버',
   'Xanh ngọc': '청록',
   'Xám đá': '슬레이트',
+  // Biểu tượng app Lịch: thứ trên dải đỏ.
+  'THỨ HAI': '월',
+  'THỨ BA': '화',
+  'THỨ TƯ': '수',
+  'THỨ NĂM': '목',
+  'THỨ SÁU': '금',
+  'THỨ BẢY': '토',
 };

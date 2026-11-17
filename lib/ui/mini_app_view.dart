@@ -211,8 +211,57 @@ const _tileIcons = <String, IconData>{
   'palette': Icons.palette_rounded,
 };
 
+/// Ô app Lịch: nền xanh → xanh ngọc (xem [AppTileIcon]), biểu tượng là [CalendarAppGlyph] (Sếp, 2026-11-17, phương án A).
+const kCalTileColor = Color(0xFF2F7BF5);
+const _kCalAppId = 'vn.flygo.calendar';
+
+/// Trang lịch trắng: dải đỏ ghi thứ, số ngày hôm nay màu xanh đậm (đổi theo ngày, kiểu Google Calendar). Vẽ bằng widget,
+/// không dùng emoji.
+class CalendarAppGlyph extends StatelessWidget {
+  final double size;
+  const CalendarAppGlyph({super.key, this.size = 30});
+  static const _wd = ['THỨ HAI', 'THỨ BA', 'THỨ TƯ', 'THỨ NĂM', 'THỨ SÁU', 'THỨ BẢY', 'CN'];
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final w = size * 1.12, band = w * .29;
+    return Container(
+      key: const ValueKey('calendar-app-glyph'),
+      width: w,
+      height: w,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(w * .24),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .15), blurRadius: 4, offset: const Offset(0, 2))],
+      ),
+      child: Column(children: [
+        Container(
+          height: band,
+          width: double.infinity,
+          color: const Color(0xFFFF5A5F),
+          padding: EdgeInsets.symmetric(horizontal: w * .08),
+          alignment: Alignment.center,
+          child: FittedBox(
+            child: Text(tr(_wd[now.weekday - 1]),
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: band * .62, letterSpacing: .4, height: 1)),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: Text('${now.day}',
+                style: TextStyle(color: const Color(0xFF1E5BD8), fontWeight: FontWeight.w900, fontSize: w * .5, height: 1, letterSpacing: -.5)),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
 /// Màu ô của app (manifest "tile.color"), hoặc null nếu app không khai.
 Color? miniAppTileColor(MiniApp a) {
+  if (a.id == _kCalAppId) return kCalTileColor;
   final c = '${a.tile?['color'] ?? ''}'.replaceFirst('#', '');
   final v = c.length == 6 ? int.tryParse(c, radix: 16) : null;
   return v == null ? null : Color(0xFF000000 | v);
@@ -226,6 +275,7 @@ class MiniAppIcon extends StatelessWidget {
   const MiniAppIcon(this.app, {super.key, this.size = 30, this.radius});
   @override
   Widget build(BuildContext context) {
+    if (app.id == _kCalAppId) return CalendarAppGlyph(size: size);
     final named = _tileIcons['${app.tile?['icon'] ?? ''}'];
     if (named != null && miniAppTileColor(app) != null) return Icon(named, size: size, color: Colors.white);
     final fallback = Icon(Icons.apps_rounded, size: size, color: Pal.of(context).accentText);

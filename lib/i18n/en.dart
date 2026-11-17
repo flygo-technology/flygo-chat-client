@@ -3513,4 +3513,11 @@ const Map<String, String> en = {
   'Vàng nghệ': 'Amber',
   'Xanh ngọc': 'Teal',
   'Xám đá': 'Slate',
+  // Biểu tượng app Lịch: thứ trên dải đỏ.
+  'THỨ HAI': 'MON',
+  'THỨ BA': 'TUE',
+  'THỨ TƯ': 'WED',
+  'THỨ NĂM': 'THU',
+  'THỨ SÁU': 'FRI',
+  'THỨ BẢY': 'SAT',
 };
