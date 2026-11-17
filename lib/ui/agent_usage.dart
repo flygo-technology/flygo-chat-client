@@ -187,7 +187,7 @@ class _AgentUsageSectionState extends State<AgentUsageSection> {
         if (q != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(tr('Hạn mức của bạn ({0}): đã dùng {1}% tháng này, tính cả các ứng dụng khác.', [q.tierName, q.usedPct]), style: note),
+            child: Text(tr('Hạn mức của bạn ({0}): đã dùng {1}% tháng này, tính cả các ứng dụng khác.', [q.tierLabel, q.usedPct]), style: note),
           ),
         // Từng model (Sếp 2026-11-17): chỉ %, không tiền.
         if (q != null && q.models.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: AiModelLines(quota: q, compact: true)),

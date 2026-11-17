@@ -56,18 +56,18 @@ class _AiQuotaPageState extends State<AiQuotaPage> {
                 Center(child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(color: stateColor(q.state).withValues(alpha: .16), borderRadius: BorderRadius.circular(12)),
-                  child: Text('${stateLabel(q.state)} · ${tr('Hạng {0}', [q.tierName])}', style: TextStyle(color: stateColor(q.state), fontWeight: FontWeight.w600)),
+                  child: Text('${stateLabel(q.state)} · ${q.tierLabel}', style: TextStyle(color: stateColor(q.state), fontWeight: FontWeight.w600)),
                 )),
                 const SizedBox(height: 22),
                 _row(pal, Icons.today_rounded, tr('Hôm nay'), '${q.dayPct}%', bar: q.dayPct),
                 _row(pal, Icons.calendar_month_rounded, tr('Tháng này'), '${q.usedPct}%', bar: q.usedPct),
-                if (q.smartLeft != null) _row(pal, Icons.auto_awesome_rounded, tr('Lượt Kỹ hơn còn lại'), '${q.smartLeft}'),
-                _row(pal, Icons.bolt_rounded, tr('Nhanh'), q.state == 'blocked' ? tr('Tạm dừng') : tr('Dùng thoải mái')),
+                if (q.smartLeft != null) _row(pal, Icons.auto_awesome_rounded, tr('Lượt mức Nâng cao còn lại'), '${q.smartLeft}'),
+                _row(pal, Icons.bolt_rounded, tr('Mức Cơ bản'), q.state == 'blocked' ? tr('Tạm dừng') : tr('Dùng thoải mái')),
                 if (q.resetsAt != null) _row(pal, Icons.restart_alt_rounded, tr('Làm mới'), '${q.resetsAt!.day.toString().padLeft(2, '0')}/${q.resetsAt!.month.toString().padLeft(2, '0')} · 00:00'),
                 const SizedBox(height: 16),
                 Text(
                   switch (q.state) {
-                    'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Chế độ Nhanh vẫn dùng bình thường.'),
+                    'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Mức Cơ bản vẫn dùng bình thường.'),
                     'degraded' => tr('Một model đã hết hạn mức: AI tự chuyển sang model rẻ hơn còn hạn mức tới khi làm mới.'),
                     'blocked' => tr('AI của bạn đang tạm dừng. Hãy nhờ quản lý cộng thêm hạn mức.'),
                     _ => tr('Hạn mức tính chung cho Dự án AI, Thư, Office, Báo cáo và Dịch.'),
@@ -156,7 +156,7 @@ class AiUsageCard extends StatelessWidget {
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(color: stateColor(q.state).withValues(alpha: .16), borderRadius: BorderRadius.circular(10)),
-      child: Text('${stateLabel(q.state)} · ${q.tierName}', style: TextStyle(fontSize: 12, color: stateColor(q.state), fontWeight: FontWeight.w600)),
+      child: Text('${stateLabel(q.state)} · ${q.tierLabel}', style: TextStyle(fontSize: 12, color: stateColor(q.state), fontWeight: FontWeight.w600)),
     );
     final title = Row(children: [
       Icon(Icons.data_usage_rounded, size: 18, color: pal.accent),
@@ -166,7 +166,7 @@ class AiUsageCard extends StatelessWidget {
     ]);
     final note = Text(
       [
-        if (q.smartLeft != null) tr('Còn {0} lượt Kỹ hơn', ['${q.smartLeft}']),
+        if (q.smartLeft != null) tr('Còn {0} lượt mức Nâng cao', ['${q.smartLeft}']),
         if (reset.isNotEmpty) tr('Làm mới {0}', [reset]),
       ].join(' · '),
       style: TextStyle(fontSize: 12.5, color: pal.sub),
@@ -202,7 +202,7 @@ class AiUsageCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 switch (q.state) {
-                  'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Chế độ Nhanh vẫn dùng bình thường.'),
+                  'warn' => tr('Bạn sắp dùng hết hạn mức tháng. Mức Cơ bản vẫn dùng bình thường.'),
                   'degraded' => tr('Một model đã hết hạn mức: AI tự chuyển sang model rẻ hơn còn hạn mức tới khi làm mới.'),
                   'blocked' => tr('AI của bạn đang tạm dừng. Hãy nhờ quản lý cộng thêm hạn mức.'),
                   _ => tr('Tính chung cho Dự án AI, Thư, Office, Báo cáo và Dịch.'),
@@ -214,7 +214,7 @@ class AiUsageCard extends StatelessWidget {
   }
 }
 
-/// % đã dùng của từng mức AI cho nhân viên (Sếp 2026-11-17: "Nhanh: 20% · Kỹ hơn: còn 40%"), không bao giờ hiện tiền.
+/// % đã dùng của từng mức AI cho nhân viên (Sếp 2026-11-17: "Cơ bản: 20% · Nâng cao: còn 40%"), không bao giờ hiện tiền.
 /// Model hạng không có thì ghi "không có"; model không có trần riêng thì ghi "theo hạn mức chung".
 class AiModelLines extends StatelessWidget {
   const AiModelLines({super.key, required this.quota, this.compact = false});
