@@ -369,6 +369,10 @@ class ThreadViewState extends State<ThreadView> {
         children: [
           const SizedBox(width: 6),
           IconButton(tooltip: 'Quay lại (u)', icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
+          // Nút hành động tách xa nút quay lại cho khỏi bấm nhầm (Sếp, 2026-11-17).
+          SizedBox(width: widget.wide ? 14 : 6),
+          _sep(mc),
+          SizedBox(width: widget.wide ? 14 : 6),
           if (store.readOnly) ...[
             IconButton(tooltip: 'Thêm vào Lịch', icon: const Icon(Icons.event_outlined), onPressed: _toCalendar),
             IconButton(tooltip: 'Gửi vào chat', icon: const Icon(Icons.forward_to_inbox_outlined), onPressed: _toChat),
