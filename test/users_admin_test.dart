@@ -457,6 +457,30 @@ void main() {
       expect(find.text('Thu hồi'), findsNWidgets(2));
     });
 
+    testWidgets('máy tính, không bắt buộc: không chặn, không có nút Xác thực cụt (lỗi Mac mini 499)', (t) async {
+      final st = PasskeyStatus({'required': false, 'needs': 'none', 'device': {'device_id': 'mac', 'has_key': false, 'trusted': false}});
+      await _pump(t, PasskeyGate(api: _FakePk(st), onLogout: () {}, child: const Scaffold(body: Text('HOME'))));
+      expect(find.text('HOME'), findsOneWidget);
+      await _pump(t, PasskeyScreen(api: _FakePk(st), initial: st, onLogout: () {}, dismissible: true, keySupported: false));
+      expect(find.text('Máy tính không cần passkey'), findsOneWidget);
+      expect(find.text('Xác thực'), findsNothing);
+      await _pump(t, PasskeyPage(api: _FakePk(st), keySupported: false));
+      expect(find.text('Máy tính không cần passkey'), findsOneWidget);
+      expect(find.byKey(const ValueKey('passkey-this-action')), findsNothing);
+    });
+
+    testWidgets('điện thoại chưa có khoá, không bắt buộc: mở ra là Đăng ký, không phải Xác thực', (t) async {
+      final st = PasskeyStatus({'required': false, 'needs': 'none', 'device': {'device_id': 'p', 'has_key': false, 'trusted': false}});
+      await _pump(t, PasskeyScreen(api: _FakePk(st), initial: st, onLogout: () {}, dismissible: true, keySupported: true));
+      expect(find.text('Tạo passkey'), findsOneWidget);
+    });
+
+    testWidgets('máy tính bị bắt buộc nhưng phạm vi chỉ điện thoại: không chặn', (t) async {
+      final st = PasskeyStatus({'required': true, 'enforced': true, 'session_ok': false, 'scope': 'phones', 'needs': 'approve', 'device': {'has_key': false}});
+      await _pump(t, PasskeyGate(api: _FakePk(st), onLogout: () {}, child: const Scaffold(body: Text('HOME'))));
+      expect(find.text('HOME'), findsOneWidget);
+    });
+
     testWidgets('quản trị: thiết bị chờ duyệt có nút Duyệt passkey', (t) async {
       final id = _Id();
       await _pump(t, UserDetailPage(id: id, userId: 'u2', policy: _loadPolicy), size: const Size(500, 2600));
@@ -652,8 +676,15 @@ PasskeyStatus _pkPersonal() => PasskeyStatus({
       ],
     });
 
-PasskeyStatus _pkStatus(String needs) =>
-    PasskeyStatus({'required': true, 'enforced': true, 'session_ok': false, 'needs': needs, 'trusted_phones': 1});
+PasskeyStatus _pkStatus(String needs) => PasskeyStatus({
+      'required': true,
+      'enforced': true,
+      'session_ok': false,
+      'scope': 'all',
+      'needs': needs,
+      'trusted_phones': 1,
+      'device': {'device_id': 'p1', 'has_key': needs != 'enroll', 'trusted': needs == 'verify'},
+    });
 
 /// Flygo ID giả cho màn passkey: xin duyệt trả số 42 (hoặc 409 cần quản trị), xác thực thì đạt.
 class _FakePk extends PasskeyApi {
