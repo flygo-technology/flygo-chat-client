@@ -390,10 +390,11 @@ class _GuardCard extends StatelessWidget {
       child: SegmentedButton<String>(
         showSelectedIcon: false,
         segments: [
-          ButtonSegment(value: 'phones', label: Text(tr('Chỉ điện thoại')), icon: const Icon(Icons.smartphone_rounded)),
+          ButtonSegment(value: 'phones', label: Text(tr('Điện thoại')), icon: const Icon(Icons.smartphone_rounded)),
+          ButtonSegment(value: 'phones_mac', label: Text(tr('+ Mac')), icon: const Icon(Icons.laptop_mac_rounded)),
           ButtonSegment(value: 'all', label: Text(tr('Mọi thiết bị')), icon: const Icon(Icons.devices_rounded)),
         ],
-        selected: {pk['scope'] == 'all' ? 'all' : 'phones'},
+        selected: {pk['scope'] == 'all' || pk['scope'] == 'phones_mac' ? '${pk['scope']}' : 'phones'},
         onSelectionChanged: (x) => onPatch({'passkey_scope': x.first}, tr('Đã lưu phạm vi passkey')),
       ),
     ),

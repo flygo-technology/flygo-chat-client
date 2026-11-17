@@ -71,6 +71,14 @@ class PasskeyGate extends StatefulWidget {
 }
 
 class _PasskeyGateState extends State<PasskeyGate> with WidgetsBindingObserver {
+  /// Chỉ chặn máy thuộc phạm vi (máy chủ cũng tính enforced như vậy): điện thoại; Mac khi phạm vi "+ Mac"; mọi máy khi "all".
+  static bool _blockable(PasskeyStatus st) {
+    final scope = '${st.raw['scope'] ?? 'phones'}';
+    if (scope == 'all') return true;
+    if (Platform.isIOS || Platform.isAndroid) return true;
+    return Platform.isMacOS && scope == 'phones_mac';
+  }
+
   PasskeyApi? _api;
   PasskeyStatus? _st;
   bool _prompted = false;
@@ -147,7 +155,7 @@ class _PasskeyGateState extends State<PasskeyGate> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final st = _st;
     // Máy tính (không có khoá thiết bị) chỉ bị chặn khi phạm vi là "mọi thiết bị" (máy chủ cũng kiểm như vậy).
-    if (st != null && st.blocking && _api != null && (DeviceKey.platformSupported || st.raw['scope'] == 'all')) {
+    if (st != null && st.blocking && _api != null && _blockable(st)) {
       return PasskeyScreen(api: _api!, initial: st, onLogout: widget.onLogout, onDone: (s) => setState(() => _st = s));
     }
     return widget.child;
@@ -269,13 +277,13 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
             : switch (needs) {
                 'enroll' => (Icons.fingerprint_rounded, const Color(0xFF14B8A6), tr('Đăng ký passkey cho máy này'),
                     tr('Công ty yêu cầu mỗi điện thoại có passkey. Chỉ cần xác nhận bằng Face ID, vân tay hoặc mã mở máy.')),
-                'desktop' => (Icons.laptop_mac_rounded, pal.accent, tr('Máy tính không cần passkey'),
-                    tr('Passkey chỉ dùng trên điện thoại (iPhone / Android). Máy tính này dùng bình thường, không phải đăng ký.')),
+                'desktop' => (Icons.laptop_mac_rounded, pal.accent, tr('Máy này không dùng passkey'),
+                    tr('Passkey dùng trên điện thoại (iPhone / Android) và máy Mac có Secure Enclave. Máy này dùng bình thường, không phải đăng ký.')),
                 'approve' => (Icons.verified_user_outlined, pal.accent, tr('Máy này cần được duyệt'),
                     _keyOk
                         ? tr('Passkey đã tạo. Để chắc chắn là bạn, hãy duyệt máy này trên một điện thoại khác đã dùng passkey (bấm đúng số + vân tay).')
                         : tr('Xác nhận lần đăng nhập này trên điện thoại đã dùng passkey của bạn (bấm đúng số + vân tay).')),
-                _ => (Icons.lock_person_rounded, pal.accent, tr('Xác thực để mở Flygo Chat'), tr('Dùng passkey của máy này (Face ID / vân tay / mã mở máy) để tiếp tục.')),
+                _ => (Icons.lock_person_rounded, pal.accent, tr('Xác thực để mở Flygo Chat'), tr('Dùng passkey của máy này (Face ID / Touch ID / vân tay / mật khẩu máy) để tiếp tục.')),
               };
     final code = _approval?['code'];
     return Scaffold(

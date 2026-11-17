@@ -1,5 +1,7 @@
 import Cocoa
+import CryptoKit
 import FlutterMacOS
+import LocalAuthentication
 import ScreenCaptureKit
 
 class MainFlutterWindow: NSWindow {
@@ -19,6 +21,10 @@ class MainFlutterWindow: NSWindow {
 
     // Ô chọn tệp trong webview mini app (Drive: Tải tệp lên): macos/Runner/WebViewFilePanel.swift.
     WebViewFilePanel.install()
+
+    // Khoá thiết bị / passkey (Dart: lib/security/device_key.dart), cùng kênh với iOS / Android.
+    let deviceKey = FlutterMethodChannel(name: "flygo/devicekey", binaryMessenger: flutterViewController.engine.binaryMessenger)
+    deviceKey.setMethodCallHandler { call, result in DeviceKeyCore.handle(call, result) }
 
     // Số tin chưa đọc trên biểu tượng ở Dock (Dart: lib/ui/app_badge.dart).
     let badge = FlutterMethodChannel(name: "flygo/badge", binaryMessenger: flutterViewController.engine.binaryMessenger)
@@ -209,5 +215,133 @@ class MainFlutterWindow: NSWindow {
     ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
     guard let p = ctx.data else { return nil }
     return (Data(bytes: p, count: w * h * 4), w, h)
+  }
+}
+
+/// Khoá thiết bị trên máy Mac (passkey của Flygo): P-256 trong Secure Enclave (CryptoKit), không xuất được; mỗi lần ký
+/// phải qua Touch ID hoặc mật khẩu đăng nhập máy (.userPresence: Mac mini không có Touch ID vẫn dùng được). Khoá lưu dạng
+/// dataRepresentation (khối đã mã hoá, chỉ Secure Enclave của chính máy này mở được) trong Application Support, nên không
+/// cần keychain-access-groups / provisioning profile. Mac Intel không có chip T2: không hỗ trợ.
+enum DeviceKeyCore {
+  struct Failure: Error { let code: String; let message: String }
+
+  static var file: URL {
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("FlygoChat", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir.appendingPathComponent("device-key.v1")
+  }
+
+  static func access() throws -> SecAccessControl {
+    var cfErr: Unmanaged<CFError>?
+    guard let a = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage, .userPresence], &cfErr) else {
+      throw cfErr!.takeRetainedValue() as Error
+    }
+    return a
+  }
+
+  static func load(context: LAContext? = nil) -> SecureEnclave.P256.Signing.PrivateKey? {
+    guard SecureEnclave.isAvailable, let blob = try? Foundation.Data(contentsOf: file) else { return nil }
+    return try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob, authenticationContext: context)
+  }
+
+  static func hasBiometrics() -> Bool { LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) }
+
+  /// "ok" khi máy xác thực được chủ máy (Touch ID hoặc mật khẩu đăng nhập).
+  static func presence() -> String {
+    var err: NSError?
+    if LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) { return "ok" }
+    if let e = err as? LAError, e.code == .passcodeNotSet { return "none_enrolled" }
+    return "unavailable"
+  }
+
+  static func status() -> [String: Any?] {
+    guard SecureEnclave.isAvailable else {
+      return ["supported": false, "biometric": "no_hardware", "enrolled": false, "hw_backed": false, "biometric_bound": false, "public_key": nil]
+    }
+    let key = load()
+    return [
+      "supported": true,
+      "biometric": presence(),
+      "enrolled": key != nil,
+      "hw_backed": key != nil,
+      // Có Touch ID thì coi như gắn sinh trắc; Mac không có Touch ID dùng mật khẩu đăng nhập máy.
+      "biometric_bound": key != nil && hasBiometrics(),
+      "public_key": key?.publicKey.x963Representation.base64EncodedString(),
+    ]
+  }
+
+  static func create() throws {
+    guard SecureEnclave.isAvailable else {
+      throw Failure(code: "unsupported", message: "Máy Mac này không có Secure Enclave (cần chip Apple hoặc chip T2)")
+    }
+    guard presence() == "ok" else { throw Failure(code: "devicekey", message: "Máy chưa đặt mật khẩu đăng nhập / Touch ID") }
+    let key = try SecureEnclave.P256.Signing.PrivateKey(compactRepresentable: false, accessControl: access())
+    try key.dataRepresentation.write(to: file, options: [.atomic])
+    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+  }
+
+  static func delete() { try? FileManager.default.removeItem(at: file) }
+
+  /// Ký sau khi chủ máy xác thực (Touch ID / mật khẩu); trả về chữ ký ECDSA P-256 / SHA-256 dạng DER, base64.
+  static func sign(_ data: Foundation.Data, reason: String, _ done: @escaping (Result<String, Failure>) -> Void) {
+    guard load() != nil else {
+      done(.failure(Failure(code: "no_key", message: "Máy này chưa có passkey")))
+      return
+    }
+    let ctx = LAContext()
+    ctx.localizedCancelTitle = "Hủy"
+    guard let ac = try? access() else {
+      done(.failure(Failure(code: "devicekey", message: "Không tạo được quyền truy cập khoá")))
+      return
+    }
+    ctx.evaluateAccessControl(ac, operation: .useKeySign, localizedReason: reason) { ok, err in
+      guard ok else {
+        let cancelled = (err as? LAError)?.code == .userCancel || (err as? LAError)?.code == .appCancel
+        done(.failure(Failure(code: cancelled ? "cancelled" : "auth", message: err?.localizedDescription ?? "Chưa xác thực")))
+        return
+      }
+      guard let key = load(context: ctx) else {
+        done(.failure(Failure(code: "no_key", message: "Máy này chưa có passkey")))
+        return
+      }
+      do {
+        done(.success(try key.signature(for: data).derRepresentation.base64EncodedString()))
+      } catch {
+        done(.failure(Failure(code: "sign", message: error.localizedDescription)))
+      }
+    }
+  }
+}
+
+extension DeviceKeyCore {
+  static func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+    let args = call.arguments as? [String: Any] ?? [:]
+    switch call.method {
+    case "status": result(status())
+    case "create":
+      do {
+        try create()
+        result(status())
+      } catch let f as Failure {
+        result(FlutterError(code: f.code, message: f.message, details: nil))
+      } catch {
+        result(FlutterError(code: "devicekey", message: error.localizedDescription, details: nil))
+      }
+    case "delete":
+      delete()
+      result(true)
+    case "sign":
+      let data = Foundation.Data(base64Encoded: args["data"] as? String ?? "") ?? Foundation.Data()
+      sign(data, reason: args["title"] as? String ?? "Xác thực") { r in
+        DispatchQueue.main.async {
+          switch r {
+          case .success(let sig): result(sig)
+          case .failure(let f): result(FlutterError(code: f.code, message: f.message, details: nil))
+          }
+        }
+      }
+    default: result(FlutterMethodNotImplemented)
+    }
   }
 }
