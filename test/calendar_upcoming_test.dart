@@ -201,13 +201,13 @@ void main() {
         await t.tap(find.byKey(const ValueKey('apps-settings')));
         await t.tap(find.text('Minh An'));
         expect((settings, profile), (1, 1));
-        // Lịch hôm nay: cả sự kiện đã xong (mờ), vạch bây giờ, đang diễn ra, sắp tới; rồi 7 ngày tới (tối đa 5).
+        // Lịch hôm nay: bỏ sự kiện đã xong (Sếp 17/11); vạch bây giờ, đang diễn ra, sắp tới; rồi 7 ngày tới (tối đa 5).
         expect(find.byKey(const ValueKey('upcoming-events')), findsOneWidget);
         expect(find.text('Sắp diễn ra'), findsOneWidget);
         expect(find.text('HÔM NAY · T3 17/11'), findsOneWidget);
         expect(find.text('7 NGÀY TỚI'), findsOneWidget);
-        expect(find.text('Đã xong'), findsOneWidget);
-        expect(find.textContaining('đã xong'), findsOneWidget);
+        expect(find.text('Đã xong'), findsNothing);
+        expect(find.textContaining('đã xong'), findsNothing);
         expect(find.byKey(const ValueKey('upcoming-now')), findsOneWidget);
         // Banner = sự kiện gần nhất (đang diễn ra) + cùng sự kiện trong lịch hôm nay.
         expect(find.byKey(const ValueKey('upcoming-hero-countdown')), findsOneWidget);
@@ -221,11 +221,11 @@ void main() {
         expect(find.text('Chưa trả lời'), findsOneWidget);
         expect(t.takeException(), isNull);
         await shot(t, 'd-desktop-$sfx');
-        // Đồng hồ chạy: 1 giờ sau, giao ban đã xong (vẫn trong lịch hôm nay, mờ), PCCC còn 2 giờ 40 phút.
+        // Đồng hồ chạy: 1 giờ sau, giao ban đã xong nên biến khỏi lịch hôm nay, PCCC còn 2 giờ 40 phút.
         clock = _now.add(const Duration(hours: 1));
         await t.pump(const Duration(seconds: 1));
-        expect(find.text('Giao ban đầu tuần'), findsOneWidget);
-        expect(find.textContaining('đã xong'), findsNWidgets(2));
+        expect(find.text('Giao ban đầu tuần'), findsNothing);
+        expect(find.textContaining('đã xong'), findsNothing);
         expect(find.text('Kiểm tra PCCC – Văn phòng'), findsNWidgets(2));
         expect(find.text('còn 2g 40p'), findsNWidgets(2));
         await t.tap(find.byKey(const ValueKey('upcoming-pccc')));

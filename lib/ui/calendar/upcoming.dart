@@ -295,8 +295,8 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
     if (d == null) return const SizedBox.shrink();
     final now = _now;
     final list = upcomingFrom(d.events, now);
-    // Lịch hôm nay (kể cả đã xong) + các sự kiện những ngày tới.
-    final today = todayFrom(d.events, now, d.tz);
+    // Lịch hôm nay (bỏ sự kiện đã xong, Sếp 17/11) + các sự kiện những ngày tới.
+    final today = [for (final e in todayFrom(d.events, now, d.tz)) if (e.endMs! > now.millisecondsSinceEpoch) e];
     final todayIds = {for (final e in today) e.instanceId};
     final later = [for (final e in list) if (!todayIds.contains(e.instanceId)) e];
     if (widget.compact) {
