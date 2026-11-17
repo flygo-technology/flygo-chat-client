@@ -189,44 +189,95 @@ class _UsersAdminPageState extends State<UsersAdminPage> {
     );
   }
 
-  Widget _head(Pal pal) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      if (_guard != null) _GuardCard(guard: _guard!, onPatch: _setGuard),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-        child: TextField(
-          controller: _q,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search_rounded),
-            hintText: tr('Tìm theo tên, tên đăng nhập, email'),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            isDense: true,
+  /// Đầu danh sách: ô tìm (nền nhạt, bo tròn), bộ lọc trạng thái và số người căn phải. Lề 16 (điện thoại) / 24 (máy tính).
+  Widget _head(Pal pal) {
+    final side = isDesktop ? 24.0 : 16.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_guard != null) _GuardCard(guard: _guard!, onPatch: _setGuard),
+        Padding(
+          padding: EdgeInsets.fromLTRB(side, 12, side, 0),
+          child: TextField(
+            controller: _q,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              prefixIcon: Icon(Icons.search_rounded, color: pal.sub),
+              hintText: tr('Tìm theo tên, tên đăng nhập, email'),
+              hintStyle: TextStyle(color: pal.sub),
+              filled: true,
+              fillColor: pal.surface,
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: pal.accent, width: 1.5)),
+              isDense: true,
+            ),
+            onSubmitted: (_) => _load(),
           ),
-          onSubmitted: (_) => _load(),
         ),
-      ),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Wrap(
-          spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            for (final (v, l) in [('active', tr('Đang hoạt động')), ('inactive', tr('Đã khoá')), ('all', tr('Tất cả'))])
-              ChoiceChip(
-                label: Text(l),
-                selected: _status == v,
-                onSelected: (_) {
-                  setState(() => _status = v);
-                  _load();
-                },
+        Padding(
+          padding: EdgeInsets.fromLTRB(side, 12, side, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final (v, l) in [('active', tr('Đang hoạt động')), ('inactive', tr('Đã khoá')), ('all', tr('Tất cả'))])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _FilterChip(
+                            label: l,
+                            selected: _status == v,
+                            onTap: () {
+                              setState(() => _status = v);
+                              _load();
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            Text(tr('{0} người', ['$_total']), style: TextStyle(color: pal.sub, fontSize: 13)),
-          ],
+              const SizedBox(width: 8),
+              Text(tr('{0} người', ['$_total']), style: TextStyle(color: pal.sub, fontSize: 12.5)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Chip lọc: cao 34, bo tròn hẳn, chọn = nền màu nhấn nhạt, chữ đậm.
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _FilterChip({required this.label, required this.selected, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    return Material(
+      color: selected ? pal.chipSelBg : pal.surface,
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 13.5, fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: selected ? pal.chipSelFg : pal.text),
+          ),
         ),
       ),
-    ],
-  );
+    );
+  }
 }
 
 /// Công tắc tổng "Chặn đăng nhập (toàn bộ)" ở đầu danh sách. Bật: không ai đăng nhập được (mật khẩu, Google, mọi
@@ -248,8 +299,9 @@ class _GuardCard extends StatelessWidget {
         if (d is Map) '${d['name']}',
     ];
     final color = on ? pal.accent : _amber;
+    final side = isDesktop ? 24.0 : 16.0;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+      padding: EdgeInsets.fromLTRB(side, 8, side, 6),
       child: Material(
         color: Color.alphaBlend(color.withValues(alpha: .08), pal.bg),
         shape: RoundedRectangleBorder(
@@ -426,7 +478,7 @@ class _Chip extends StatelessWidget {
     decoration: BoxDecoration(color: color.withValues(alpha: .14), borderRadius: BorderRadius.circular(6)),
     child: Text(
       text,
-      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: toneOn(color, Theme.of(context).brightness)),
     ),
   );
 }
@@ -438,24 +490,33 @@ class _Pill extends StatelessWidget {
   final Color color;
   const _Pill(this.icon, this.text, this.color);
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(color: color.withValues(alpha: .13), borderRadius: BorderRadius.circular(20)),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            text,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+  Widget build(BuildContext context) {
+    final fg = toneOn(color, Theme.of(context).brightness);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(color: color.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg),
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
+}
+
+/// Màu chữ đủ tương phản trên nền nhạt cùng màu: nền sáng thì đậm lại, nền tối thì sáng lên.
+Color toneOn(Color c, Brightness b) {
+  final h = HSLColor.fromColor(c);
+  return (b == Brightness.light ? h.withLightness((h.lightness * .55).clamp(.22, .38)) : h.withLightness(h.lightness.clamp(.68, .80))).toColor();
 }
 
 // ---------------------------------------------------------------- mật khẩu
@@ -950,10 +1011,15 @@ class _GrantsCardState extends State<_GrantsCard> {
             child: TextField(
               key: const ValueKey('grants-search'),
               decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                prefixIcon: Icon(Icons.search_rounded, size: 20, color: pal.sub),
                 hintText: tr('Tìm app hoặc quyền'),
+                hintStyle: TextStyle(color: pal.sub),
                 isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                filled: true,
+                fillColor: pal.bg,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: pal.accent, width: 1.5)),
               ),
               onChanged: (v) => setState(() => _q = v.trim()),
             ),
@@ -1223,35 +1289,55 @@ class _UserDetailPageState extends State<UserDetailPage> {
           ? Center(
               child: _error != null ? Text(_error!, style: TextStyle(color: pal.sub)) : const CircularProgressIndicator(),
             )
-          : Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 32),
-                  children: [
-                    _header(pal),
-                    _signIn(pal),
-                    _depts(pal),
-                    _GrantsCard(
-                      perms: [
-                        for (final p in (_d?['perms'] as List? ?? const []))
-                          if (p is Map) p,
-                      ],
-                      deptNames: {
-                        for (final d in (_u['depts'] as List? ?? const []))
-                          if (d is Map) '${d['id']}': '${d['name']}',
-                      },
-                    ),
-                    _devices(pal),
-                    _audit(pal),
+          : LayoutBuilder(
+              builder: (context, box) {
+                final grants = _GrantsCard(
+                  perms: [
+                    for (final p in (_d?['perms'] as List? ?? const []))
+                      if (p is Map) p,
                   ],
-                ),
-              ),
+                  deptNames: {
+                    for (final d in (_u['depts'] as List? ?? const []))
+                      if (d is Map) '${d['id']}': '${d['name']}',
+                  },
+                );
+                // Máy tính, đủ rộng: 2 cột (trái: hồ sơ, đăng nhập, phòng ban, thiết bị; phải: quyền, nhật ký).
+                if (isDesktop && box.maxWidth >= 900) {
+                  return SingleChildScrollView(
+                    key: const ValueKey('detail-2col'),
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 32),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1240),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: Column(children: [_header(pal), _signIn(pal), _depts(pal), _devices(pal)])),
+                            Expanded(child: Column(children: [grants, _audit(pal)])),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: ListView(
+                      padding: const EdgeInsets.only(bottom: 32),
+                      children: [_header(pal), _signIn(pal), _depts(pal), grants, _devices(pal), _audit(pal)],
+                    ),
+                  ),
+                );
+              },
             ),
     );
   }
 
+  /// Thẻ đầu trang: nền phẳng (không gradient), ảnh + tên căn giữa theo chiều dọc, nhãn trạng thái đủ tương phản, hàng
+  /// nút: Đặt mật khẩu / Sửa thông tin (hoặc Mở khoá) hiện sẵn, Khoá tài khoản trong ⋮.
   Widget _header(Pal pal) {
     final u = _u;
     final inactive = u['status'] == 'inactive';
@@ -1259,100 +1345,113 @@ class _UserDetailPageState extends State<UserDetailPage> {
     final google = pw != null && (pw['google_linked'] == true || pw['google_enabled'] == true);
     final password = pw == null ? true : pw['has_password'] == true && pw['allowed'] == true;
     final passkey = _login?['passkey_required'] == true;
-    final sub = [if (u['position'] != null && '${u['position']}'.trim().isNotEmpty) '${u['position']}', '@${u['username']}'].join(' · ');
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [pal.accent.withValues(alpha: .16), pal.surface]),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Opacity(
-                opacity: inactive ? .5 : 1,
-                child: Avatar(userId: widget.userId, name: _name, size: 60),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 19)),
-                    const SizedBox(height: 2),
-                    Text(sub, style: TextStyle(color: pal.sub, fontSize: 13.5)),
-                    if ('${u['email'] ?? ''}'.isNotEmpty) Text('${u['email']}', style: TextStyle(color: pal.sub, fontSize: 13.5)),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                key: const ValueKey('user-menu'),
-                tooltip: tr('Thêm'),
-                icon: const Icon(Icons.more_vert_rounded),
-                onSelected: (v) => switch (v) {
-                  'edit' => _edit(),
-                  'lock' => _deactivate(),
-                  'unlock' => _do('POST', '/v1/admin/users/${widget.userId}/activate', null, tr('Đã mở khoá tài khoản')),
-                  _ => null,
-                },
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: ListTile(leading: const Icon(Icons.edit_rounded), title: Text(tr('Sửa thông tin'))),
-                  ),
-                  inactive
-                      ? PopupMenuItem(
-                          value: 'unlock',
-                          child: ListTile(leading: const Icon(Icons.lock_open_rounded), title: Text(tr('Mở khoá tài khoản'))),
-                        )
-                      : PopupMenuItem(
-                          value: 'lock',
-                          child: ListTile(
-                            leading: const Icon(Icons.lock_rounded, color: _red),
-                            title: Text(tr('Khoá tài khoản…'), style: const TextStyle(color: _red)),
-                          ),
+    final position = '${u['position'] ?? ''}'.trim();
+    final email = '${u['email'] ?? ''}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Material(
+        color: pal.surface,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 8, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Opacity(opacity: inactive ? .5 : 1, child: Avatar(userId: widget.userId, name: _name, size: 64)),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20, color: pal.text)),
+                        const SizedBox(height: 4),
+                        Text(
+                          [if (position.isNotEmpty) position, '@${u['username']}'].join(' · '),
+                          style: TextStyle(color: pal.sub, fontSize: 13.5),
                         ),
+                        if (email.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(email, style: TextStyle(color: pal.sub, fontSize: 13.5)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    key: const ValueKey('user-menu'),
+                    tooltip: tr('Thêm'),
+                    icon: Icon(Icons.more_vert_rounded, color: pal.sub),
+                    onSelected: (v) => switch (v) {
+                      'edit' => _edit(),
+                      'lock' => _deactivate(),
+                      'unlock' => _do('POST', '/v1/admin/users/${widget.userId}/activate', null, tr('Đã mở khoá tài khoản')),
+                      _ => null,
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(value: 'edit', child: ListTile(leading: const Icon(Icons.edit_rounded), title: Text(tr('Sửa thông tin')))),
+                      inactive
+                          ? PopupMenuItem(value: 'unlock', child: ListTile(leading: const Icon(Icons.lock_open_rounded), title: Text(tr('Mở khoá tài khoản'))))
+                          : PopupMenuItem(
+                              value: 'lock',
+                              child: ListTile(
+                                leading: const Icon(Icons.lock_rounded, color: _red),
+                                title: Text(tr('Khoá tài khoản…'), style: const TextStyle(color: _red)),
+                              ),
+                            ),
+                    ],
+                  ),
                 ],
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              if (u['system_admin'] == true) _Pill(Icons.admin_panel_settings_rounded, tr('Quản trị viên'), _violet),
-              if (inactive) _Pill(Icons.lock_rounded, tr('Đang khoá'), _red) else _Pill(Icons.check_circle_rounded, tr('Đang hoạt động'), _green),
-              if (google) _Pill(Icons.g_mobiledata_rounded, 'Google', pal.accent),
-              if (password) _Pill(Icons.password_rounded, tr('Mật khẩu'), pal.accent),
-              if (passkey) _Pill(Icons.fingerprint_rounded, 'Passkey', const Color(0xFF14B8A6)),
-              if (_login != null && _login!['allowed'] == false && u['system_admin'] != true) _Pill(Icons.block_rounded, tr('Bị chặn đăng nhập'), _amber),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.tonalIcon(
-                key: const ValueKey('btn-password'),
-                onPressed: _password,
-                icon: const Icon(Icons.password_rounded, size: 18),
-                label: Text(tr('Đặt mật khẩu')),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (inactive) _Pill(Icons.lock_rounded, tr('Đang khoá'), _red) else _Pill(Icons.check_circle_rounded, tr('Đang hoạt động'), _green),
+                  if (u['system_admin'] == true) _Pill(Icons.admin_panel_settings_rounded, tr('Quản trị viên'), _violet),
+                  if (google) _Pill(Icons.g_mobiledata_rounded, 'Google', pal.accent),
+                  if (password) _Pill(Icons.password_rounded, tr('Mật khẩu'), pal.accent),
+                  if (passkey) _Pill(Icons.fingerprint_rounded, 'Passkey', const Color(0xFF14B8A6)),
+                  if (_login != null && _login!['allowed'] == false && u['system_admin'] != true)
+                    _Pill(Icons.block_rounded, tr('Bị chặn đăng nhập'), _amber),
+                ],
               ),
-              if (inactive)
-                FilledButton.icon(
-                  onPressed: () => _do('POST', '/v1/admin/users/${widget.userId}/activate', null, tr('Đã mở khoá tài khoản')),
-                  icon: const Icon(Icons.lock_open_rounded, size: 18),
-                  label: Text(tr('Mở khoá')),
-                ),
-            ],
-          ),
-        ],
+            ),
+            Divider(height: 1, color: pal.divider),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (inactive)
+                    FilledButton.icon(
+                      onPressed: () => _do('POST', '/v1/admin/users/${widget.userId}/activate', null, tr('Đã mở khoá tài khoản')),
+                      icon: const Icon(Icons.lock_open_rounded, size: 18),
+                      label: Text(tr('Mở khoá')),
+                    ),
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('btn-password'),
+                    onPressed: _password,
+                    icon: const Icon(Icons.password_rounded, size: 18),
+                    label: Text(tr('Đặt mật khẩu')),
+                  ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('btn-edit'),
+                    onPressed: _edit,
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    label: Text(tr('Sửa thông tin')),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
