@@ -86,6 +86,12 @@ export interface Config {
   forwards: Array<{ listen: number; host: string; port: number }>;
   /** Flygo ID + Flygo Gateway của máy chủ chat: tool MCP theo quyền của người nhờ (xem gateway.ts). Không có = tắt. */
   flygoId?: { url: string; gatewayUrl: string };
+  /**
+   * Cổng AI công ty (vn.flygo.ai, 0.7.6): bot engine claude gọi model qua cổng thay vì gói Claude của máy. Mỗi lượt gửi kèm
+   * email người nhờ (X-Flygo-User) để tính vào hạn mức của chính người đó. keyFile: khoá ứng dụng fgk_… có quyền gọi thay
+   * người dùng (quản trị Cổng AI cấp), chỉ nằm trên máy runner. Chỉ dùng cho engine claude.
+   */
+  flygoAi?: { url: string; keyFile: string; app?: string };
 }
 
 /** Model "mặc định của agy": không truyền --model. */

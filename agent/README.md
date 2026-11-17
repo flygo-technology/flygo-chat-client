@@ -429,6 +429,11 @@ Mỗi máy (mỗi người dùng hệ điều hành) chạy **một** tiến tr�
   - `owners`: máy chủ chat → user id của chủ runner. App ghi mục này khi người dùng đăng nhập thành công máy chủ đó trên máy này.
   - `defaults`: cài đặt chung cho mọi bot.
   - `servers`: cài đặt theo máy chủ (vd. `a2a.relay`, `flygoId`).
+  - `flygoAi` (0.7.6, chỉ engine claude): `{ "url": "http://192.168.2.4:8807", "keyFile": "/path/runner.key" }`.
+    - Bot gọi model qua **Cổng AI** công ty thay vì gói Claude của máy.
+    - Mỗi lượt gửi kèm email người nhờ (`X-Flygo-User`), nên chi phí tính vào hạn mức của người đó. Hết hạn mức thì cổng hạ xuống model rẻ, rồi chặn.
+    - `keyFile` là khoá ứng dụng `fgk_…` có quyền gọi thay người dùng, do quản trị Cổng AI cấp. Khoá chỉ nằm trên máy runner.
+    - Máy không cần đăng nhập gói Claude, chỉ cần cài `claude`.
   - `bots[]`: mỗi bot một mục, có `key`, `serverUrl`, `botToken` (hoặc `botTokenFile`), `engine`, các trường khác như `config.json` cũ, `enabled`, `env`.
 - **Runner thuộc một người:**
   - bot chỉ chạy khi `owners[serverUrl]` có giá trị và bot thuộc đúng người đó;

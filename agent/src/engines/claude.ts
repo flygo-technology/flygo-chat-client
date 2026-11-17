@@ -134,6 +134,25 @@ export function claudePerms(cfg: Config, input: Pick<TurnInput, "bypass" | "mode
   return { full, permMode: full ? "bypassPermissions" : permMode, permissions: full ? { defaultMode: "bypassPermissions" } : { defaultMode: permMode, deny: cfg.claude.deny } };
 }
 
+/**
+ * Biến môi trường cho Claude Code khi bot chạy qua Cổng AI: địa chỉ cổng, khoá ứng dụng (Bearer) và header người nhờ.
+ * Không có email người nhờ thì ném lỗi: không gọi model khi không biết tính vào hạn mức của ai.
+ */
+export async function flygoAiEnv(cfg: Pick<Config, "flygoAi">, email: string): Promise<Record<string, string>> {
+  const g = cfg.flygoAi!;
+  const key = (await Bun.file(g.keyFile).text().catch(() => "")).trim();
+  if (!key.startsWith("fgk_")) throw new Error(`Cổng AI: không đọc được khoá ứng dụng ở ${g.keyFile}`);
+  if (!/^[^\s@]+@[^\s@]+$/.test(email)) throw new Error("Cổng AI: không biết email người nhờ, không tính được hạn mức");
+  return {
+    ANTHROPIC_BASE_URL: g.url.replace(/\/+$/, ""),
+    ANTHROPIC_AUTH_TOKEN: key,
+    ANTHROPIC_API_KEY: "",
+    ANTHROPIC_CUSTOM_HEADERS: `X-Flygo-User: ${email}\nX-Flygo-App: ${g.app ?? "vn.flygo.agent"}`,
+    // Model Claude Code chưa biết (vd. bản mới hơn CLI): không tự chặn ngữ cảnh 200k.
+    CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1",
+  };
+}
+
 export class ClaudeEngine implements Engine {
   name = "claude" as const;
   private initSkills: string[] = []; // kỹ năng claude nạp (sự kiện init của lượt gần nhất)
@@ -150,7 +169,9 @@ export class ClaudeEngine implements Engine {
         : CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
     };
   }
-  constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void) {}
+  constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void,
+    /** Email theo id Mattermost (Cổng AI): runner tra qua API chat, có bộ nhớ đệm. */
+    private emailOf: (mmId: string) => Promise<string> = async () => "") {}
 
   async contextTokens(id: string) {
     const f = sessionFile(id);
@@ -209,7 +230,8 @@ export class ClaudeEngine implements Engine {
     args.push("--name", input.title);
     if (this.cfg.claude.chrome) args.push("--chrome");
 
-    const proc = spawn(args, { env: { ...process.env, ...this.cfg.env, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
+    const gate = this.cfg.flygoAi ? await flygoAiEnv(this.cfg, await this.emailOf(input.requester || this.cfg.ownerUserIds[0] || "").catch(() => "")) : {};
+    const proc = spawn(args, { env: { ...process.env, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
 

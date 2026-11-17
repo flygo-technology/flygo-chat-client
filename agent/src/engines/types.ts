@@ -60,6 +60,7 @@ export interface TurnInput {
   research?: boolean; // Nghiên cứu sâu: Codex bật tìm web trực tiếp (web_search = "live")
   mode?: PermMode; // chế độ quyền của lượt (thiếu = mặc định của engine: Claude thủ công, Codex chấp nhận chỉnh sửa)
   readOnly?: boolean; // hỏi ngầm (team_ask / session_ask): sandbox chỉ đọc, không xin duyệt, mọi thay đổi bị chặn (Codex)
+  requester?: string; // id Mattermost của người nhờ lượt này (Cổng AI tính hạn mức theo người này; thiếu = chủ bot)
 }
 
 export interface TurnResult {
