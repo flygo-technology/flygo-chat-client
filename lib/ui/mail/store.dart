@@ -185,18 +185,19 @@ class MailStore extends ChangeNotifier {
   }
 
   Future<void> start() async {
+    // Danh sách thư (đã kèm số thư chưa đọc) tải cùng lúc với thông tin hộp thư, không chờ nhau.
+    final list = load();
+    Object? err;
     try {
-      final r = await Future.wait([api.me(), api.labels(), api.counts()]);
+      final r = await Future.wait([api.me(), api.labels()]);
       me = r[0] as MailMe;
       labels = r[1] as List<MailLabel>;
-      counts = r[2] as MailCounts;
-      error = null;
     } catch (e) {
-      error = e;
-      _notify();
-      return;
+      err = e;
     }
-    await load();
+    await list;
+    if (err != null) error = err;
+    _notify();
   }
 
   /// Đổi sang hộp thư khác (bộ chọn hộp thư): máy chủ đổi theo X-Mailbox, mọi trạng thái màn hình làm lại từ đầu.
