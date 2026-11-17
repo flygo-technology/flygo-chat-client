@@ -90,7 +90,6 @@ class _AiAdminPageState extends State<AiAdminPage> {
   String? _error;
   String _filter = '';
   String _sort = 'month'; // month | day | user
-  final _cm = TextEditingController(), _cd = TextEditingController();
 
   AiGateApi get api => widget.api;
 
@@ -102,8 +101,6 @@ class _AiAdminPageState extends State<AiAdminPage> {
 
   @override
   void dispose() {
-    _cm.dispose();
-    _cd.dispose();
     super.dispose();
   }
 
@@ -120,8 +117,6 @@ class _AiAdminPageState extends State<AiAdminPage> {
         _log = r[4] as List<Map<String, dynamic>>;
         _providers = r[5] as List<Map<String, dynamic>>;
         _aliases = r[6] as List<Map<String, dynamic>>;
-        _cm.text = '${_ov!['month_usd']}';
-        _cd.text = '${_ov!['day_usd']}';
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -422,8 +417,9 @@ class _AiAdminPageState extends State<AiAdminPage> {
     return Row(children: [
       SizedBox(width: 44, child: p == null ? Container(height: 5, decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(3))) : usageBar(pal, p, height: 5)),
       const SizedBox(width: 5),
-      Flexible(child: Text('${p == null ? '∞' : '$p%'}${m.monthCap != null ? ' · ${_n(m.monthCap!)}\$' : ''}${m.custom ? ' ✎' : ''}',
+      Flexible(child: Text('${p == null ? '∞' : '$p%'}${m.monthCap != null ? ' · ${_n(m.monthCap!)}\$' : ''}',
           overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: m.exhausted ? const Color(0xFFFF6B6B) : pal.sub))),
+      if (m.custom) Padding(padding: const EdgeInsets.only(left: 3), child: Tooltip(message: tr('chỉnh riêng'), child: Icon(key: ValueKey('custom-${m.alias}'), Icons.tune_rounded, size: 12, color: pal.accent))),
     ]);
   }
 
@@ -659,7 +655,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: mc[a], keyboardType: TextInputType.number, decoration: InputDecoration(isDense: true, hintText: tr('trần tháng \$ (giữ)'), border: const OutlineInputBorder()))),
+                Expanded(child: TextField(controller: mc[a], keyboardType: TextInputType.number, decoration: InputDecoration(isDense: true, labelText: tr('Trần tháng \$'), hintText: tr('giữ nguyên'), border: const OutlineInputBorder()))),
               ]),
             ),
         ]))),
@@ -827,26 +823,199 @@ class _AiAdminPageState extends State<AiAdminPage> {
   }
 
   // ---------------------------------------------------------------- hạng & ngân sách
+  /// Nhãn trần của một model: "5 $/th", "5 $/th · 1 $/ngày", "∞" (không trần riêng), "—" (không dùng).
+  String _capLabel(bool on, Object? month, Object? day) {
+    if (!on) return '—';
+    final m = month is num ? '${_n(month.toDouble())} \$/th' : '∞';
+    return day is num ? '$m · ${_n(day.toDouble())} \$/ngày' : m;
+  }
+
+  Widget _capChip(Pal pal, String label, String alias) {
+    final off = label == '—';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: off ? Colors.transparent : modelColor(alias).withValues(alpha: .14), borderRadius: BorderRadius.circular(8)),
+      child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12, fontWeight: off ? FontWeight.w400 : FontWeight.w600, color: off ? pal.sub : pal.text)),
+    );
+  }
+
   Widget _tiersCard(Pal pal) {
     final tiers = ((_tiers?['tiers'] as Map?) ?? const {}).cast<String, dynamic>();
     final o = _ov!;
+    final def = '${_tiers?['default_tier'] ?? ''}';
+    int members(String id) => (_users ?? const <AiQuota>[]).where((u) => (u.tier.isEmpty ? def : u.tier) == id).length;
     return _card(pal, key: const ValueKey('ai-tiers'), icon: Icons.tune_rounded, title: tr('Hạng & ngân sách'), children: [
-      Row(children: [
-        Expanded(child: TextField(controller: _cm, keyboardType: TextInputType.number, decoration: InputDecoration(isDense: true, labelText: tr('Công ty / tháng'), suffixText: 'USD', border: const OutlineInputBorder()))),
-        const SizedBox(width: 8),
-        Expanded(child: TextField(controller: _cd, keyboardType: TextInputType.number, decoration: InputDecoration(isDense: true, labelText: tr('/ ngày'), suffixText: 'USD', border: const OutlineInputBorder()))),
-        const SizedBox(width: 8),
-        _small(tr('Lưu'), () => _run(() => api.setCompany(monthUsd: _num(_cm.text), dayUsd: _num(_cd.text)), tr('Đã lưu ngân sách')), primary: true),
-      ]),
+      // Ngân sách công ty: một dòng tóm tắt, ✎ để sửa.
+      InkWell(
+        key: const ValueKey('company-budget'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: _editCompany,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+          decoration: BoxDecoration(color: pal.surface2.withValues(alpha: .6), borderRadius: BorderRadius.circular(10)),
+          child: Row(children: [
+            Icon(Icons.account_balance_wallet_rounded, size: 18, color: pal.accent),
+            const SizedBox(width: 8),
+            Expanded(child: Text.rich(TextSpan(children: [
+              TextSpan(text: '${tr('Ngân sách công ty')}: ', style: TextStyle(color: pal.sub)),
+              TextSpan(text: '${_n((o['month_usd'] as num?)?.toDouble() ?? 0)}\u00a0USD/${tr('tháng')}', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+              if (((o['day_usd'] as num?) ?? 0) > 0) TextSpan(text: ' · ${_n((o['day_usd'] as num).toDouble())}\u00a0USD/${tr('ngày')}', style: TextStyle(color: pal.text)),
+            ]), style: const TextStyle(fontSize: 13))),
+            Icon(Icons.edit_rounded, size: 17, color: pal.sub),
+          ]),
+        ),
+      ),
       const SizedBox(height: 10),
-      for (final e in tiers.entries) _TierRow(key: ValueKey('tier-${e.key}'), id: e.key, t: (e.value as Map).cast<String, dynamic>(), isDefault: e.key == _tiers?['default_tier'],
-          aliases: _aliasIds, onSave: (v) => _run(() => api.setTier(e.key, v), tr('Đã lưu hạng'))),
-      const SizedBox(height: 8),
+      LayoutBuilder(builder: (context, c) {
+        final narrow = c.maxWidth < 560;
+        if (narrow) {
+          // Điện thoại: mỗi hạng một thẻ với các nhãn trần.
+          return Column(children: [
+            for (final e in tiers.entries)
+              InkWell(
+                key: ValueKey('tier-${e.key}'),
+                onTap: () => _editTier(e.key, (e.value as Map).cast<String, dynamic>()),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                  decoration: BoxDecoration(border: Border.all(color: pal.divider), borderRadius: BorderRadius.circular(10)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Text('${(e.value as Map)['name'] ?? e.key}', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+                      if (e.key == def) ...[const SizedBox(width: 6), _chip(pal, tr('mặc định'), const Color(0xFF3DD68C))],
+                      const Spacer(),
+                      _k(pal, tr('{0} người', ['${members(e.key)}'])),
+                      Icon(Icons.chevron_right_rounded, color: pal.sub),
+                    ]),
+                    const SizedBox(height: 6),
+                    Wrap(spacing: 6, runSpacing: 6, children: [
+                      for (final a in _aliasIds)
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          _dot(a), const SizedBox(width: 4),
+                          _capChip(pal, _capLabel(((e.value as Map)['aliases'] as List? ?? const []).contains(a), (((e.value as Map)['models'] as Map?)?[a] as Map?)?['month_usd'], (((e.value as Map)['models'] as Map?)?[a] as Map?)?['day_usd']), a),
+                        ]),
+                      _k(pal, '${tr('Tổng')} ${_capLabel(true, (e.value as Map)['month_usd'], (e.value as Map)['day_usd'])}'),
+                    ]),
+                  ]),
+                ),
+              ),
+          ]);
+        }
+        // Máy tính: bảng hạng × model.
+        Widget head(String t, {Widget? lead}) => Row(children: [?lead, if (lead != null) const SizedBox(width: 5), Flexible(child: Text(t, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pal.sub)))]);
+        return Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(children: [
+              Expanded(flex: 22, child: head(tr('Hạng'))),
+              for (final a in _aliasIds) Expanded(flex: 18, child: head(tr(aiModelName(a)), lead: _dot(a))),
+              Expanded(flex: 18, child: head(tr('Tổng'))),
+              const SizedBox(width: 28),
+            ]),
+          ),
+          Divider(height: 1, color: pal.divider),
+          for (final e in tiers.entries)
+            InkWell(
+              key: ValueKey('tier-${e.key}'),
+              onTap: () => _editTier(e.key, (e.value as Map).cast<String, dynamic>()),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: pal.divider))),
+                child: Row(children: [
+                  Expanded(flex: 22, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Flexible(child: Text('${(e.value as Map)['name'] ?? e.key}', overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: pal.text))),
+                      if (e.key == def) ...[const SizedBox(width: 6), _chip(pal, tr('mặc định'), const Color(0xFF3DD68C))],
+                    ]),
+                    _k(pal, tr('{0} người', ['${members(e.key)}'])),
+                  ])),
+                  for (final a in _aliasIds)
+                    Expanded(flex: 18, child: Align(alignment: Alignment.centerLeft, child: _capChip(pal,
+                        _capLabel(((e.value as Map)['aliases'] as List? ?? const []).contains(a), (((e.value as Map)['models'] as Map?)?[a] as Map?)?['month_usd'], (((e.value as Map)['models'] as Map?)?[a] as Map?)?['day_usd']), a))),
+                  Expanded(flex: 18, child: Text(_capLabel(true, (e.value as Map)['month_usd'], (e.value as Map)['day_usd']), overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.sub))),
+                  SizedBox(width: 28, child: Icon(Icons.edit_rounded, size: 16, color: pal.sub)),
+                ]),
+              ),
+            ),
+        ]);
+      }),
+      const SizedBox(height: 10),
       Row(children: [
         Expanded(child: _k(pal, o['access'] == 'all' ? tr('Đang mở cho mọi nhân viên') : tr('Đang mở cho {0} người trong danh sách', ['${o['access']}']))),
         if (o['access'] != 'all') _small(tr('Mở cho mọi người'), _confirmAll) else _small(tr('Quay về danh sách'), () => _run(() => api.setAccessAll(false), tr('Đã quay về danh sách'))),
       ]),
     ]);
+  }
+
+  Future<void> _editCompany() async {
+    final o = _ov!;
+    final m = TextEditingController(text: _n((o['month_usd'] as num?)?.toDouble() ?? 0)), d = TextEditingController(text: ((o['day_usd'] as num?) ?? 0) > 0 ? _n((o['day_usd'] as num).toDouble()) : '');
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(tr('Ngân sách công ty')),
+      content: SizedBox(width: 380, child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: m, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: tr('Trần tháng (USD)'), border: const OutlineInputBorder())),
+        const SizedBox(height: 12),
+        TextField(controller: d, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: tr('Trần ngày (USD)'), hintText: tr('tuỳ chọn'), helperText: tr('Hết trần công ty là chặn mọi người. Đổi trần sẽ báo Telegram cho Sếp.'), helperMaxLines: 2, border: const OutlineInputBorder())),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('Huỷ'))), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Lưu')))],
+    ));
+    if (ok != true) return;
+    await _run(() => api.setCompany(monthUsd: _num(m.text), dayUsd: _num(d.text) ?? 0), tr('Đã lưu ngân sách'));
+  }
+
+  /// Sửa một hạng: mỗi model một dòng "Cho phép" + trần tháng / ngày; trần tổng; Lưu / Huỷ ở dưới.
+  Future<void> _editTier(String id, Map<String, dynamic> t) async {
+    final caps = ((t['models'] as Map?) ?? const {}).cast<String, dynamic>();
+    final on = {for (final a in _aliasIds) a: ((t['aliases'] as List?) ?? const []).contains(a)};
+    String v(Object? x) => x is num ? _n(x.toDouble()) : '';
+    final mc = {for (final a in _aliasIds) a: TextEditingController(text: v((caps[a] as Map?)?['month_usd']))};
+    final dc = {for (final a in _aliasIds) a: TextEditingController(text: v((caps[a] as Map?)?['day_usd']))};
+    final tm = TextEditingController(text: v(t['month_usd'])), td = TextEditingController(text: v(t['day_usd']));
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
+      final pal = Pal.of(ctx);
+      return AlertDialog(
+        title: Text('${tr('Hạng')} ${t['name'] ?? id}'),
+        content: SizedBox(width: 460, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (final a in _aliasIds) ...[
+            Row(key: ValueKey('tier-model-$a'), children: [
+              _dot(a), const SizedBox(width: 6),
+              Expanded(child: Text(tr(aiModelName(a)), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text))),
+              Text(tr('Cho phép'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+              Switch(value: on[a]!, onChanged: (x) => set(() => on[a] = x)),
+            ]),
+            if (on[a]!) Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(children: [
+                Expanded(child: TextField(controller: mc[a], keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(isDense: true, labelText: tr('Trần tháng (USD)'), hintText: tr('không giới hạn riêng'), border: const OutlineInputBorder()))),
+                const SizedBox(width: 10),
+                Expanded(child: TextField(controller: dc[a], keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(isDense: true, labelText: tr('Trần ngày (USD)'), hintText: tr('tuỳ chọn'), border: const OutlineInputBorder()))),
+              ]),
+            ) else Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(tr('Hạng này không dùng model này.'), style: TextStyle(fontSize: 12, color: pal.sub))),
+          ],
+          Divider(color: pal.divider),
+          const SizedBox(height: 6),
+          Text(tr('Tổng của hạng'), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(controller: tm, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(isDense: true, labelText: tr('Trần tháng (USD)'), border: const OutlineInputBorder()))),
+            const SizedBox(width: 10),
+            Expanded(child: TextField(controller: td, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(isDense: true, labelText: tr('Trần ngày (USD)'), border: const OutlineInputBorder()))),
+          ]),
+          const SizedBox(height: 8),
+          Text(tr('Áp ngay cho mọi người thuộc hạng (trừ phần đã chỉnh riêng).'), style: TextStyle(fontSize: 12, color: pal.sub)),
+        ]))),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('Huỷ'))), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Lưu hạng')))],
+      );
+    }));
+    if (ok != true) return;
+    await _run(() => api.setTier(id, {
+          'month_usd': _num(tm.text), 'day_usd': _num(td.text),
+          'aliases': [for (final a in _aliasIds) if (on[a]!) a],
+          'models': {for (final a in _aliasIds) a: {'month_usd': _num(mc[a]!.text), 'day_usd': _num(dc[a]!.text)}},
+        }), tr('Đã lưu hạng'));
   }
 
   Future<void> _confirmAll() async {
@@ -1081,91 +1250,6 @@ class _AiAdminPageState extends State<AiAdminPage> {
   }
 }
 
-/// Một hạng (mẫu): bật/tắt từng model + trần tháng / ngày từng model, trần tổng; sửa ngay trên dòng.
-class _TierRow extends StatefulWidget {
-  const _TierRow({super.key, required this.id, required this.t, required this.isDefault, required this.aliases, required this.onSave});
-  final String id;
-  final Map<String, dynamic> t;
-  final bool isDefault;
-  final List<String> aliases;
-  final void Function(Map<String, dynamic>) onSave;
-  @override
-  State<_TierRow> createState() => _TierRowState();
-}
-
-class _TierRowState extends State<_TierRow> {
-  late final Map<String, bool> _on = {for (final a in widget.aliases) a: ((widget.t['aliases'] as List?) ?? const []).contains(a)};
-  late final Map<String, TextEditingController> _m = {
-    for (final a in widget.aliases) a: TextEditingController(text: _cap(a, 'month_usd')),
-  };
-  late final Map<String, TextEditingController> _d = {
-    for (final a in widget.aliases) a: TextEditingController(text: _cap(a, 'day_usd')),
-  };
-  late final _tm = TextEditingController(text: '${widget.t['month_usd']}');
-  late final _td = TextEditingController(text: '${widget.t['day_usd']}');
-
-  String _cap(String a, String k) {
-    final v = (((widget.t['models'] as Map?)?[a] as Map?)?[k]);
-    return v == null ? '' : '$v';
-  }
-
-  @override
-  void dispose() {
-    for (final c in [..._m.values, ..._d.values, _tm, _td]) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    InputDecoration dec(String l, [String? hint]) => InputDecoration(isDense: true, labelText: l, hintText: hint, border: const OutlineInputBorder());
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 5),
-      padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
-      decoration: BoxDecoration(border: Border.all(color: pal.divider), borderRadius: BorderRadius.circular(10)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Text('${widget.t['name'] ?? widget.id}', style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
-          if (widget.isDefault) Text(tr('mặc định'), style: const TextStyle(fontSize: 11, color: Color(0xFF3DD68C))),
-          const SizedBox(width: 12),
-          SizedBox(width: 82, child: TextField(controller: _tm, keyboardType: TextInputType.number, decoration: dec(tr('Tổng/tháng')))),
-          const SizedBox(width: 6),
-          SizedBox(width: 72, child: TextField(controller: _td, keyboardType: TextInputType.number, decoration: dec(tr('/ngày')))),
-          IconButton(key: ValueKey('save-tier-${widget.id}'),
-            tooltip: tr('Lưu hạng'),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => widget.onSave({
-              'month_usd': _num(_tm.text),
-              'day_usd': _num(_td.text),
-              'aliases': [for (final a in widget.aliases) if (_on[a]!) a],
-              'models': {for (final a in widget.aliases) a: {'month_usd': _num(_m[a]!.text), 'day_usd': _num(_d[a]!.text)}},
-            }),
-            icon: Icon(Icons.check_circle_rounded, color: pal.accent),
-          ),
-        ]),
-        const SizedBox(height: 6),
-        Wrap(spacing: 10, runSpacing: 8, children: [
-          for (final a in widget.aliases)
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              Container(width: 9, height: 9, decoration: BoxDecoration(color: _AiAdminPageState.modelColor(a), shape: BoxShape.circle)),
-              const SizedBox(width: 4),
-              Text(tr(aiModelName(a)), style: TextStyle(fontSize: 12.5, color: pal.text)),
-              Switch(value: _on[a]!, onChanged: (v) => setState(() => _on[a] = v)),
-              if (_on[a]!) ...[
-                SizedBox(width: 80, child: TextField(controller: _m[a], keyboardType: TextInputType.number, decoration: dec(tr('tháng \$'), '∞'))),
-                const SizedBox(width: 4),
-                SizedBox(width: 72, child: TextField(controller: _d[a], keyboardType: TextInputType.number, decoration: dec(tr('ngày \$'), '∞'))),
-              ] else
-                Text(tr('không dùng'), style: TextStyle(fontSize: 12, color: pal.sub)),
-            ]),
-        ]),
-      ]),
-    );
-  }
-}
-
 /// Biểu đồ cột chi phí từng ngày trong tháng: có trục, cột hôm nay tô vàng, vạch trung bình cho phép mỗi ngày (ngân sách / số ngày).
 class _DayChart extends CustomPainter {
   _DayChart({required this.days, required this.nDays, required this.today, required this.month, required this.avgCap, required this.pal, this.font});
@@ -1208,7 +1292,9 @@ class _DayChart extends CustomPainter {
         final bh = math.max(2.0, h * v / top4);
         canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, top + h - bh, bw * .7, bh), const Radius.circular(3)), d == today ? todayBar : bar);
       }
-      if (d == 1 || d % 5 == 0 || d == today) label('$d/$month', Offset(x - 2, top + h + 4));
+      // Nhãn ngày: 1, mỗi 5 ngày và hôm nay; bỏ nhãn quá sát nhãn hôm nay (màn hẹp) để khỏi chồng chữ.
+      final near = d != today && (d - today).abs() * bw < 34;
+      if ((d == 1 || d % 5 == 0 || d == today) && !near) label('$d/$month', Offset(x - 2, top + h + 4));
     }
     if (avgCap > 0) {
       final y = top + h - h * avgCap / top4;

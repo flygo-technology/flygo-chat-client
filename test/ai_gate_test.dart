@@ -218,7 +218,7 @@ void main() {
     final g = FakeGate();
     await app(t, const Size(1440, 1180), Brightness.dark, AiAdminPage(api: g.api));
     expect(find.descendant(of: find.byKey(const ValueKey('ai-users')), matching: find.text('Kỹ hơn')), findsWidgets);
-    expect(find.textContaining('20\$ ✎'), findsOneWidget); // lan: Kỹ hơn riêng 20$
+    expect(find.textContaining('20\$'), findsWidgets); expect(find.byKey(const ValueKey('custom-flygo-smart')), findsOneWidget); // lan: Kỹ hơn riêng 20$
     await t.ensureVisible(find.text('lan@flygo.vn'));
     await settle(t);
     await t.tap(find.text('lan@flygo.vn'));
@@ -253,6 +253,51 @@ void main() {
     expect(g.calls, contains('POST /__apps/ai/admin/api/users/bulk'));
     expect(g.bodies.last['filter'], {'dept': 'ke-toan'});
   });
+
+  for (final (name, size, b) in [
+    ('desktop-dark', const Size(1440, 1180), Brightness.dark),
+    ('desktop-light', const Size(1440, 1180), Brightness.light),
+    ('phone-dark', const Size(390, 844), Brightness.dark),
+    ('phone-light', const Size(390, 844), Brightness.light),
+  ]) {
+    testWidgets('hạng & ngân sách gọn ($name): bảng nhãn, không ô nhập, sửa qua hộp thoại', (t) async {
+      final g = FakeGate();
+      await app(t, size, b, AiAdminPage(api: g.api), ratio: size.width < 600 ? 2 : 1);
+      final card = find.byKey(const ValueKey('ai-tiers'));
+      await t.ensureVisible(card);
+      await settle(t);
+      expect(find.descendant(of: card, matching: find.byType(TextField)), findsNothing);
+      expect(find.descendant(of: card, matching: find.textContaining('Ngân sách công ty')), findsOneWidget);
+      expect(find.descendant(of: card, matching: find.text('10 \$/th')), findsWidgets); // Chuyên sâu: Nhanh 10, Agent 10
+      expect(find.descendant(of: card, matching: find.text('—')), findsWidgets);          // Cơ bản: không Kỹ hơn/Agent
+      await save(t, 'ai-tiers-$name');
+      if (name != 'desktop-dark') return;
+      // sửa hạng Cơ bản: bật Kỹ hơn 2$/tháng
+      await t.tap(find.byKey(const ValueKey('tier-co-ban')));
+      await settle(t);
+      await t.tap(find.descendant(of: find.byKey(const ValueKey('tier-model-flygo-smart')), matching: find.byType(Switch)));
+      await settle(t);
+      await save(t, 'ai-tiers-edit');
+      await t.enterText(find.widgetWithText(TextField, 'Trần tháng (USD)').at(1), '2');
+      await t.tap(find.text('Lưu hạng'));
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await settle(t);
+      expect(g.calls, contains('PUT /__apps/ai/admin/api/tiers/co-ban'));
+      final body = g.bodies.last;
+      expect(body['aliases'], ['flygo-fast', 'flygo-smart']);
+      expect((body['models'] as Map)['flygo-smart'], {'month_usd': 2.0, 'day_usd': null});
+      // ngân sách công ty qua hộp thoại nhỏ
+      await t.tap(find.byKey(const ValueKey('company-budget')));
+      await settle(t);
+      await save(t, 'ai-company-edit');
+      await t.enterText(find.widgetWithText(TextField, 'Trần tháng (USD)'), '50');
+      await t.tap(find.text('Lưu').last);
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await settle(t);
+      expect(g.calls, contains('PUT /__apps/ai/admin/api/company'));
+      expect(g.bodies.last['month_usd'], 50.0);
+    });
+  }
 
   testWidgets('quản trị trên điện thoại: một cột cuộn dọc, bảng thành thẻ', (t) async {
     for (final b in [Brightness.dark, Brightness.light]) {
