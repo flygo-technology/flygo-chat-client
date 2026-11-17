@@ -197,6 +197,12 @@ void main() {
     testWidgets('ảnh quản trị $m', (t) async {
       if (out != null) await shot(t, 'admin', const Size(390, 1700), dark, const AppearanceAdminPage());
     });
+    testWidgets('ảnh Màu nền $m', (t) async {
+      if (out == null) return;
+      SeasonState.instance.mine = {'motion': false, 'home_bg': 'season', 'home_color': '4A78B8'};
+      await shot(t, 'home-color-phone', const Size(390, 1000), dark, const HomeBackgroundPage());
+      await shot(t, 'home-color-desktop', const Size(1100, 760), dark, const HomeBackgroundPage());
+    });
     testWidgets('ảnh Giao diện chat (tab Hình nền) $m', (t) async {
       if (out == null) return;
       await shot(t, 'chat-appearance', const Size(390, 1100), dark, const DefaultTabController(length: 1, child: _WallTab()));

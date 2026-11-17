@@ -277,12 +277,32 @@ class SeasonState extends ChangeNotifier {
     return w == null ? null : WallpaperChoice(w);
   }
 
-  /// Nền Trang chủ (danh sách ứng dụng) trong mùa Giáng sinh: lựa chọn của mình → mặc định của công ty → Giáng sinh.
-  /// null = không có (ngoài mùa, mình tắt mùa lễ / chọn "Không", công ty tắt hình nền mùa).
-  Wallpaper? homeBackground() {
-    if (!available || activeSeason() != 'giangsinh' || !on('wallpaper')) return null;
-    final id = (mine['home_bg'] as String?) ?? ((cfg['defaults'] as Map?)?['home_bg'] as String?) ?? homeBackgroundIds.first;
-    return id == 'none' ? null : wallpaperById(id);
+  /// "Màu nền" Trang chủ (danh sách ứng dụng), lưu ở `flygo_season/me`:
+  /// - `home_bg`: `season` (theo mùa lễ: nền Giáng sinh trong mùa, ngoài mùa dùng `home_color`), `none`, `plain:RRGGBB`,
+  ///   hoặc mã một nền Giáng sinh (luôn hiện);
+  /// - `home_color`: màu dùng ngoài mùa lễ khi chọn "Theo mùa lễ".
+  /// Chưa chọn: mặc định của công ty (`defaults.home_bg`), rồi `season`.
+  String get homeBgId => (mine['home_bg'] as String?) ?? ((cfg['defaults'] as Map?)?['home_bg'] as String?) ?? 'season';
+
+  /// Nền Trang chủ đang dùng (null = nền thường của app).
+  WallpaperChoice? homeChoice() {
+    final id = homeBgId;
+    if (id == 'none') return null;
+    if (id == 'season') {
+      if (available && activeSeason() == 'giangsinh' && on('wallpaper')) {
+        final d = (cfg['defaults'] as Map?)?['home_bg'] as String?;
+        return WallpaperChoice(wallpaperById(d != null && wallpaperById(d) != null ? d : 'giangsinh')!);
+      }
+      return _plain(mine['home_color'] as String?);
+    }
+    if (id.startsWith('plain:')) return _plain(id.substring(6));
+    final art = wallpaperById(id);
+    return art == null ? null : WallpaperChoice(art);
+  }
+
+  WallpaperChoice? _plain(String? hex) {
+    final c = hex == null ? null : int.tryParse(hex, radix: 16);
+    return c == null ? null : WallpaperChoice.plain(Color(0xFF000000 | c));
   }
 
   /// Bong bóng mùa lễ của [userId] (lớp "mùa lễ" trong AppState.resolveBubble): null nếu không có mùa / mình tắt mùa lễ /

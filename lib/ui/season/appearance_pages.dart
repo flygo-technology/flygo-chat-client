@@ -10,6 +10,7 @@ import '../bubble_picker.dart';
 import '../bubble_styles.dart';
 import '../theme.dart';
 import 'chat_appearance.dart';
+import 'chat_wallpaper.dart' show ChatWallpaperArt;
 import 'season.dart';
 import 'season_state.dart';
 
@@ -154,7 +155,7 @@ class AppearancePage extends StatelessWidget {
                 if (c != null) await app.setBubble(kBubbleDefaultKey, c);
               }),
               _div(context),
-              nav(Icons.space_dashboard_outlined, tr('Nền trang chủ'), _homeBgName(s), () => Navigator.of(context).push(AppPageRoute(builder: (_) => const HomeBackgroundPage()))),
+              nav(Icons.format_color_fill_rounded, tr('Màu nền Trang chủ'), _homeBgName(s), () => Navigator.of(context).push(AppPageRoute(builder: (_) => const HomeBackgroundPage()))),
               _div(context),
               nav(Icons.wallpaper_rounded, tr('Hình nền chat mặc định'), wpLabel, () => Navigator.of(context).push(AppPageRoute(
                     builder: (ctx) => Scaffold(
@@ -646,14 +647,14 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
         ),
         _div(context, 16),
         ListTile(
-          title: Text(tr('Nền trang chủ (mùa Giáng sinh)'), style: TextStyle(fontSize: 15, color: pal.text)),
+          title: Text(tr('Màu nền Trang chủ'), style: TextStyle(fontSize: 15, color: pal.text)),
           trailing: DropdownButton<String>(
-            value: homeBackgroundIds.contains(defaults['home_bg']) || defaults['home_bg'] == 'none' ? defaults['home_bg'] as String : homeBackgroundIds.first,
+            value: homeBackgroundIds.contains(defaults['home_bg']) || defaults['home_bg'] == 'none' ? defaults['home_bg'] as String : 'season',
             underline: const SizedBox.shrink(),
             items: [
-              for (final id in [...homeBackgroundIds, 'none']) DropdownMenuItem(value: id, child: Text(_wallpaperName(id))),
+              for (final id in ['season', ...homeBackgroundIds, 'none']) DropdownMenuItem(value: id, child: Text(_wallpaperName(id))),
             ],
-            onChanged: admin ? (v) => _edit(() => defaults['home_bg'] = v == homeBackgroundIds.first ? null : v) : null,
+            onChanged: admin ? (v) => _edit(() => defaults['home_bg'] = v == 'season' ? null : v) : null,
           ),
         ),
       ]),
@@ -662,13 +663,21 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
 }
 
 String _homeBgName(SeasonState s) {
-  final id = (s.mine['home_bg'] as String?) ?? ((s.cfg['defaults'] as Map?)?['home_bg'] as String?) ?? homeBackgroundIds.first;
-  return s.mine['home_bg'] == null ? tr('Mặc định ({0})', [_wallpaperName(id)]) : _wallpaperName(id);
+  final id = s.homeBgId;
+  return switch (id) {
+    'season' => tr('Theo mùa lễ'),
+    'none' => tr('Mặc định'),
+    _ when id.startsWith('plain:') => tr('Màu trơn'),
+    _ => _wallpaperName(id),
+  };
 }
 
-/// Chọn nền Trang chủ mùa Giáng sinh (lưu ở lựa chọn riêng `flygo_season/me.home_bg`).
+/// "Màu nền" Trang chủ: theo mùa lễ / màu trơn (tự đổi sáng / tối) / nền Giáng sinh, có xem trước.
 class HomeBackgroundPage extends StatelessWidget {
   const HomeBackgroundPage({super.key});
+
+  static const palette = ['4A78B8', '1E88E5', '0E9F8E', '2E8B6E', '6D8B74', 'B8860B', 'D4A373', 'C0504D', '9E4770', '8E5BB5', '5C6B7A', '37474F'];
+
   @override
   Widget build(BuildContext context) {
     final s = SeasonState.instance;
@@ -676,48 +685,150 @@ class HomeBackgroundPage extends StatelessWidget {
       listenable: s,
       builder: (context, _) {
         final pal = Pal.of(context);
-        final cur = s.mine['home_bg'] as String?;
-        Widget tile(String? id, Widget art, String name) {
-          final on = cur == id;
+        final id = s.homeBgId;
+        final auto = id == 'season';
+        final color = auto ? s.mine['home_color'] as String? : (id.startsWith('plain:') ? id.substring(6) : null);
+        void pickColor(String? hex) {
+          if (auto) {
+            s.setMine('home_color', hex);
+          } else {
+            s.setMine('home_bg', hex == null ? 'none' : 'plain:$hex');
+          }
+        }
+
+        Widget swatch(String? hex, {bool on = false}) => GestureDetector(
+              onTap: () => pickColor(hex),
+              child: Container(
+                width: 46,
+                height: 46,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 3 : 1),
+                ),
+                // Nửa trái: chế độ sáng, nửa phải: chế độ tối.
+                child: hex == null
+                    ? Container(color: pal.bg, child: Icon(Icons.block_rounded, size: 18, color: pal.sub))
+                    : Row(children: [
+                        for (final d in [false, true]) Expanded(child: Container(color: plainWallpaperColor(Color(0xFF000000 | int.parse(hex, radix: 16)), d))),
+                      ]),
+              ),
+            );
+        Widget art(String wid) {
+          final on = id == wid;
           return SizedBox(
-            width: 104,
+            width: 96,
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
-              onTap: () => s.setMine('home_bg', id),
+              onTap: () => s.setMine('home_bg', wid),
               child: Column(children: [
                 Container(
-                  width: 92,
-                  height: 150,
+                  width: 84,
+                  height: 130,
                   padding: EdgeInsets.all(on ? 3 : 1),
                   decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 3 : 1)),
-                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: art),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: WallpaperView(wallpaper: wallpaperById(wid)!, frozenT: 2)),
                 ),
-                const SizedBox(height: 6),
-                Text(name, maxLines: 2, textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, height: 1.2, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text)),
+                const SizedBox(height: 5),
+                Text(_wallpaperName(wid), maxLines: 2, textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12.5, height: 1.2, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text)),
               ]),
             ),
           );
         }
 
-        final def = ((s.cfg['defaults'] as Map?)?['home_bg'] as String?) ?? homeBackgroundIds.first;
+        Widget head(String t) => Padding(
+              padding: const EdgeInsets.fromLTRB(6, 18, 6, 10),
+              child: Text(t, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: pal.text)),
+            );
+        final choice = s.homeChoice();
         return Scaffold(
           backgroundColor: pal.bg,
-          appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Nền trang chủ'))),
-          body: ListView(padding: const EdgeInsets.fromLTRB(10, 4, 10, 30), children: [
+          appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Màu nền'))),
+          body: ListView(padding: const EdgeInsets.fromLTRB(10, 0, 10, 30), children: [
+            // Xem trước: nền + một nhóm ô trên kính mờ.
             Padding(
-              padding: const EdgeInsets.fromLTRB(6, 0, 6, 14),
-              child: Text(tr('Nền danh sách ứng dụng trong mùa Giáng sinh. Mỗi nền tự đổi theo chế độ sáng / tối của máy.'),
-                  style: TextStyle(fontSize: 13, color: pal.sub)),
+              padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  height: 170,
+                  child: Stack(fit: StackFit.expand, children: [
+                    if (choice != null) ChatWallpaperArt(choice: choice, motion: false) else ColoredBox(color: pal.bg),
+                    Align(
+                      alignment: Alignment.center,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: _PreviewGroup(frosted: choice != null),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
             ),
-            Wrap(spacing: 4, runSpacing: 14, children: [
-              tile(null, def == 'none' ? Container(color: pal.bg) : WallpaperView(wallpaper: wallpaperById(def)!, frozenT: 2), tr('Mặc định của công ty')),
-              for (final id in homeBackgroundIds) tile(id, WallpaperView(wallpaper: wallpaperById(id)!, frozenT: 2), _wallpaperName(id)),
-              tile('none', Container(color: pal.bg, child: Center(child: Icon(Icons.block_rounded, color: pal.sub))), tr('Không')),
-            ]),
+            SwitchListTile(
+              value: auto,
+              onChanged: (v) => s.setMine('home_bg', v ? 'season' : (color == null ? 'none' : 'plain:$color')),
+              title: Text(tr('Theo mùa lễ'), style: TextStyle(fontSize: 15, color: pal.text)),
+              subtitle: Text(tr('Trong mùa Giáng sinh dùng nền Giáng sinh; ngoài mùa dùng màu bên dưới.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+            ),
+            head(auto ? tr('Màu ngoài mùa lễ') : tr('Màu trơn')),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Wrap(spacing: 10, runSpacing: 10, children: [
+                swatch(null, on: color == null && (auto || id == 'none')),
+                for (final h in palette) swatch(h, on: color == h),
+                GestureDetector(
+                  onTap: () async {
+                    final c = await pickBubbleColor(context, color == null ? const Color(0xFF4A78B8) : Color(0xFF000000 | int.parse(color, radix: 16)));
+                    if (c == null) return;
+                    pickColor((c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase());
+                  },
+                  child: Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: pal.divider)),
+                    child: Icon(Icons.colorize_rounded, color: pal.sub, size: 20),
+                  ),
+                ),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
+              child: Text(tr('Mỗi màu tự có bản nhạt (sáng) và đậm (tối).'), style: TextStyle(fontSize: 12, color: pal.sub)),
+            ),
+            head(tr('Nền Giáng sinh')),
+            Wrap(spacing: 2, runSpacing: 12, children: [for (final w in homeBackgroundIds) art(w)]),
           ]),
         );
       },
     );
+  }
+}
+
+/// Một nhóm ô mẫu cho ô xem trước "Màu nền".
+class _PreviewGroup extends StatelessWidget {
+  final bool frosted;
+  const _PreviewGroup({required this.frosted});
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    Widget t(IconData i, Color c, String l) => Expanded(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 44, height: 44, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(12)), child: Icon(i, color: Colors.white, size: 24)),
+            const SizedBox(height: 5),
+            Text(l, style: TextStyle(fontSize: 11.5, color: pal.text)),
+          ]),
+        );
+    final row = Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+      child: Row(children: [
+        t(Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat'),
+        t(Icons.event_rounded, const Color(0xFF1E7BFF), tr('Lịch')),
+        t(Icons.videocam_rounded, const Color(0xFF0EA5E9), tr('Họp')),
+        t(Icons.settings_rounded, const Color(0xFF14A38B), tr('Cài đặt')),
+      ]),
+    );
+    return frosted ? FrostedSection(child: row) : row;
   }
 }

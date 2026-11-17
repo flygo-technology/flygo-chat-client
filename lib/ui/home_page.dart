@@ -41,8 +41,9 @@ import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
-import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin;
-import 'season/season.dart' show WallpaperView, FrostedSection;
+import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin, HomeBackgroundPage;
+import 'season/season.dart' show FrostedSection;
+import 'season/chat_wallpaper.dart' show HomeBackground;
 import 'season/season_art.dart' show XmasCoverPainter;
 import 'season/season_state.dart';
 import 'password_page.dart';
@@ -75,7 +76,6 @@ import 'devices_page.dart';
 import 'my_browsers_page.dart';
 import 'mail/mail_page.dart' show openMailAdmin;
 import 'users_admin_page.dart';
-import 'wallpaper.dart';
 import '../browser/runtime.dart' show kKysoExtensionId;
 import '../kyso/kyso_api.dart';
 import '../browser/browser_page.dart' show KysoHomePage;
@@ -121,7 +121,8 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'terms',
         'ai',
         // Hình nền Trang chủ (máy tính, lưu trên máy này).
-        if (desktop) 'wallpaper',
+        // Màu nền Trang chủ (màu trơn / nền Giáng sinh / theo mùa lễ), thay ứng dụng Hình nền cũ.
+        'homebg',
       ]),
     ].where((g) => g.$2.isNotEmpty).toList();
 
@@ -144,7 +145,7 @@ List<String> _workAppOrder(Iterable<String> ids) {
   return [...order.where(all.contains), ...all.where((id) => !order.contains(id))];
 }
 
-const kDeskTabApps = {'meet', 'zalo', 'wechat', 'wallpaper', 'devices', 'browsers', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
+const kDeskTabApps = {'meet', 'zalo', 'wechat', 'devices', 'browsers', 'users', 'contacts', 'org', 'delegations', 'calls', 'computers', 'settings', 'assistants', 'bots', 'mcp', 'password', 'blocked'};
 
 /// Màn hình chính. Màn hình rộng (máy tính) chia hai cột, vùng nội dung chia được tới 4 ô; màn hình hẹp
 /// (điện thoại) có thanh tab nổi ở dưới như WhatsApp iOS.
@@ -564,7 +565,6 @@ class _HomePageState extends State<HomePage> {
     // Bảng tin chạy nền (Sếp): tab hiện ngay, đếm tin mới, tải sẵn trang đầu.
     BangTinService.instance.addListener(_kysoChanged);
     unawaited(BangTinService.instance.start(context.read<AppState>().token));
-    if (isDesktop) Wallpaper.load();
     // Ẩn / hiện / lưu quy trình ở mục Quy trình: Trang chủ tải lại danh sách quy trình ngay.
     flowsChanged.addListener(_kysoChanged);
     unawaited(KysoApi.refresh(context.read<AppState>().token));
@@ -1021,7 +1021,7 @@ class _HomePageState extends State<HomePage> {
             selectedId: _wide && open == null ? _selected : null,
             bottomPadding: bottom,
             header: header ?? _tabTitle(tr('Các trợ lý'), nav)),
-        3 => _apps(app, bottom, nav, open: open, onLaunch: isDesktop ? null : (id) => _mobileLaunch(id, app)),
+        3 => HomeBackground(child: _apps(app, bottom, nav, open: open, onLaunch: isDesktop ? null : (id) => _mobileLaunch(id, app))),
         // Điện thoại: tab Bảng tin (Sếp 10/11) ngay sau Trợ lý.
                 5 => BangTinTab(bottomPadding: bottom),
         // Module Việc đã bỏ (05/11): ô / cửa sổ cũ trỏ mục Việc hiện Chat.
@@ -1093,8 +1093,8 @@ class _HomePageState extends State<HomePage> {
       // Trình duyệt (extension Flygo Browser Bridge) cho agent điều khiển (lib/ui/my_browsers_page.dart).
       'browsers': (Icons.public, const Color(0xFF00B8D4), tr('Trình duyệt'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const MyBrowsersPage()))),
-      'wallpaper': (Icons.wallpaper_rounded, const Color(0xFF0EA5E9), tr('Hình nền'), 0,
-          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const WallpaperPage()))),
+      'homebg': (Icons.format_color_fill_rounded, const Color(0xFF0EA5E9), tr('Màu nền'), 0,
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const HomeBackgroundPage()))),
       // Zalo / WeChat (mục Chính của Trang chủ): đang phát triển, mở tab báo "Chức năng đang phát triển".
       'zalo': (Icons.chat_rounded, const Color(0xFF0068FF), 'Zalo', 0, () {}),
       'wechat': (Icons.forum_rounded, const Color(0xFF07C160), 'WeChat', 0, () {}),
@@ -1140,16 +1140,9 @@ class _HomePageState extends State<HomePage> {
     // Ô ứng dụng kiểu iOS: nền màu chuyển sắc (sáng → đậm), biểu tượng trắng, bóng mềm cùng màu.
     // [color] null = ô nền trắng có viền (mini app: biểu tượng riêng của app là ảnh / emoji).
     // Có hình nền (Trang chủ máy tính): chữ đặt trên nền mờ bo tròn để không chìm vào ảnh.
-    final wall = onLaunch != null && Wallpaper.state.value.isSet;
-    // Mùa Giáng sinh: nền Trang chủ (tranh êm, tự đổi sáng / tối) + mỗi nhóm ô trên tấm kính mờ. Ảnh nền tự chọn (máy tính) được ưu tiên.
-    final seasonBg = onLaunch != null && !wall ? SeasonState.instance.homeBackground() : null;
-    Widget onWall(Widget text) => !wall
-        ? text
-        : Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(color: pal.surface.withValues(alpha: .82), borderRadius: BorderRadius.circular(8)),
-            child: text,
-          );
+    // Có "Màu nền" (HomeBackground vẽ phía sau trang): mỗi nhóm ô đặt trên tấm kính mờ cho chữ luôn rõ.
+    final frosted = onLaunch != null && SeasonState.instance.homeChoice() != null;
+    Widget onWall(Widget text) => text;
 
     /// [circle]: ô tròn không viền (ô "Hồ sơ" là ảnh đại diện tròn, khung vuông bo góc sẽ lòi góc ra ngoài ảnh).
     Widget appTile(Widget icon, Color? color, String label, int badge, VoidCallback onTap0, {bool circle = false}) {
@@ -1208,7 +1201,7 @@ class _HomePageState extends State<HomePage> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: onWall(Text(title.toUpperCase(),
-                    style: TextStyle(fontSize: 12.5, letterSpacing: .5, fontWeight: FontWeight.w700, color: wall ? pal.text : pal.sub))),
+                    style: TextStyle(fontSize: 12.5, letterSpacing: .5, fontWeight: FontWeight.w700, color: pal.sub))),
               ),
             ),
             LayoutBuilder(builder: (ctx, c) {
@@ -1224,7 +1217,7 @@ class _HomePageState extends State<HomePage> {
             }),
           ],
         );
-      return seasonBg == null ? col : FrostedSection(child: col);
+      return frosted ? FrostedSection(child: col) : col;
     }
 
     Widget section(String title, List<(IconData, Color, String, int, VoidCallback)> items) => grid(title, [for (final it in items) tile(it)]);
@@ -1298,7 +1291,7 @@ class _HomePageState extends State<HomePage> {
                   hintText: tr('Tìm ứng dụng'),
                   prefixIcon: Icon(Icons.search_rounded, size: 20, color: pal.sub),
                   filled: true,
-                  fillColor: pal.surface.withValues(alpha: wall ? .9 : 1),
+                  fillColor: pal.surface,
                   contentPadding: const EdgeInsets.symmetric(vertical: 8),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(19), borderSide: BorderSide(color: pal.divider)),
                   enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(19), borderSide: BorderSide(color: pal.divider)),
@@ -1455,11 +1448,7 @@ class _HomePageState extends State<HomePage> {
           Expanded(child: appsList(phone: false)),
         ]);
       });
-      if (seasonBg == null) return page;
-      return Stack(children: [
-        Positioned.fill(child: WallpaperView(wallpaper: seasonBg, motion: false)),
-        page,
-      ]);
+      return page;
     }
 
     return ListView(padding: EdgeInsets.only(bottom: bottom + 16), children: [
@@ -2074,14 +2063,11 @@ class _HomePageState extends State<HomePage> {
           observers: [_TabRootObserver(() => setState(() => _tabTitles.remove(t.id)))],
           root: Scaffold(
             backgroundColor: Pal.of(context).bg,
-            // Trang chủ có hình nền (cài ở ứng dụng Hình nền, lưu trên máy này).
-            body: WallpaperBackground(child: Center(
+            // Trang chủ: "Màu nền" (màu trơn / nền Giáng sinh / theo mùa lễ) phủ cả cửa sổ.
+            body: HomeBackground(child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1440),
-                child: ValueListenableBuilder<WallpaperState>(
-                  valueListenable: Wallpaper.state,
-                  builder: (context, _, _) => _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id), tab: t),
-                ),
+                child: _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id), tab: t),
               ),
             )),
           ),
@@ -2100,7 +2086,7 @@ class _HomePageState extends State<HomePage> {
     final pal = Pal.of(context);
     final page = _appPageBody(id, app);
     // Ứng dụng mở thành tab: nội dung rộng tối đa 920px ở giữa (Tổ chức hai cột và Hình nền toàn màn hình thì để rộng).
-        if (id == 'org' || id == 'wallpaper' || id == 'users' || id == 'meet' || id == kBangTinTab) return page;
+        if (id == 'org' || id == 'users' || id == 'meet' || id == kBangTinTab) return page;
     return ColoredBox(
       color: pal.bg,
       child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 920), child: page)),
@@ -2125,7 +2111,6 @@ class _HomePageState extends State<HomePage> {
       'mcp' => const McpPage(),
       'password' => const PasswordPage(),
       'blocked' => const BlockedUsersPage(),
-      'wallpaper' => const WallpaperPage(),
       'devices' => const DevicesPage(),
       'browsers' => const MyBrowsersPage(),
       'users' => KysoApi.flygoId == null ? const _Welcome() : UsersAdminPage(id: KysoApi.flygoId!),

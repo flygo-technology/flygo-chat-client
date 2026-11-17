@@ -106,4 +106,20 @@ void main() {
     s.mine = {};
     expect(s.activeSeason(nov), isNull);
   });
+
+  test('màu nền Trang chủ: theo mùa lễ / màu trơn / nền Giáng sinh', () {
+    s.clock = () => DateTime.utc(2026, 12, 10, 3);
+    expect(s.homeChoice()?.art?.id, 'giangsinh'); // mặc định: theo mùa lễ, đang trong mùa
+    s.mine = {'home_bg': 'season', 'home_color': '4A78B8'};
+    expect(s.homeChoice()?.art?.id, 'giangsinh');
+    s.clock = () => DateTime.utc(2027, 1, 10, 3); // ngoài mùa: dùng màu
+    expect(s.homeChoice()?.color?.toARGB32(), 0xFF4A78B8);
+    s.mine = {'home_bg': 'anhden'}; // chọn hẳn một nền Giáng sinh: luôn hiện
+    expect(s.homeChoice()?.art?.id, 'anhden');
+    s.mine = {'home_bg': 'none'};
+    expect(s.homeChoice(), isNull);
+    s.mine = {'home_bg': 'plain:0E9F8E'};
+    expect(s.homeChoice()?.color?.toARGB32(), 0xFF0E9F8E);
+    s.clock = DateTime.now;
+  });
 }

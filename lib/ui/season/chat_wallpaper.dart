@@ -82,3 +82,24 @@ class SeasonLights extends StatelessWidget {
     );
   }
 }
+
+/// Nền Trang chủ ("Màu nền"): vẽ phía sau toàn bộ trang danh sách ứng dụng (điện thoại + máy tính).
+class HomeBackground extends StatelessWidget {
+  final Widget child;
+  const HomeBackground({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    final s = SeasonState.instance;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final w = s.homeChoice();
+        if (w == null) return child;
+        return Stack(fit: StackFit.expand, children: [
+          ChatWallpaperArt(choice: w, motion: false),
+          child,
+        ]);
+      },
+    );
+  }
+}
