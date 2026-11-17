@@ -24,6 +24,7 @@ import 'look.dart';
 import 'model.dart';
 import 'my_tasks_view.dart';
 import 'pickers.dart';
+import 'project_ai.dart';
 import 'projects_view.dart';
 import 'rich_mentions.dart';
 import 'settings_page.dart';
@@ -38,6 +39,11 @@ Future<TwStore> teamworkStore(BuildContext context, MiniApp app) async {
   if (id == null) throw StateError('Máy chủ này chưa có Flygo ID');
   final s = TwStore(TwApi(base: app.baseUrl, id: id), cacheKey: '${serverKey}_${state.me?.id ?? 'me'}'.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_'));
   s.launcher = AppAgentLauncher(state);
+  s.chatOps = AppChatOps(state);
+  s.aiAgentId = await state.uiPref<String>('teamwork_ai_agent');
+  s.saveAiAgent = (id) => state.setUiPref('teamwork_ai_agent', id);
+  s.aiPanelWidth = await state.uiPref<double>('teamwork_ai_panel_width');
+  s.saveAiPanelWidth = (w) => state.setUiPref('teamwork_ai_panel_width', w);
   // Độ rộng khung việc bên phải: nhớ trên máy này (tuỳ chọn giao diện của app).
   s.panelWidth = await state.uiPref<double>('teamwork_panel_width');
   s.savePanelWidth = (w) => state.setUiPref('teamwork_panel_width', w);
@@ -55,6 +61,10 @@ Future<void> openTeamwork(BuildContext context, MiniApp app, {String? taskKey}) 
     final store = await teamworkStore(context, app);
     await nav.push(AppPageRoute(builder: (c) {
       (store.launcher as AppAgentLauncher?)?.context = c;
+      (store.chatOps as AppChatOps?)?.context = c;
+      store.onToast = (t) {
+        if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(t)));
+      };
       return TeamworkHome(store: store, openTaskKey: taskKey);
     }));
     tab?.onTitle?.call(null);
@@ -111,15 +121,18 @@ class TeamworkHomeState extends State<TeamworkHome> {
 
   TwFilter filterOf(String pid) => _filters.putIfAbsent(pid, TwFilter.new);
 
-  void _openProject(TwProject p) {
+  /// Mở dự án; [ai]: mở luôn khung "AI của dự án".
+  bool _openAi = false;
+  void _openProject(TwProject p, {bool ai = false}) {
     if (store.fullOf(p.id) == null) unawaited(store.openProject(p.id));
     if (twWide(context)) {
       setState(() {
         section = 'project';
         projectId = p.id;
+        _openAi = ai;
       });
     } else {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwProjectScreen(store: store, projectId: p.id, filter: filterOf(p.id), initialView: view)));
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TwProjectScreen(store: store, projectId: p.id, filter: filterOf(p.id), initialView: view, initialAi: ai)));
     }
   }
 
@@ -254,11 +267,11 @@ class TeamworkHomeState extends State<TeamworkHome> {
       case 'search':
         main = SearchView(store: store);
       case 'project' when projectId != null:
-        main = TwProjectScreen(key: ValueKey('ps-$projectId'), store: store, projectId: projectId!, filter: filterOf(projectId!), embedded: true, initialView: view, onView: (v) => view = v);
+        main = TwProjectScreen(key: ValueKey('ps-$projectId-$_openAi'), store: store, projectId: projectId!, filter: filterOf(projectId!), embedded: true, initialView: view, onView: (v) => view = v, initialAi: _openAi);
       default:
         main = Column(children: [
           _top('Tất cả dự án', actions: [FilledButton.icon(key: const ValueKey('new-project'), onPressed: _newProject, icon: const Icon(Icons.add, size: 18), label: const Text('Dự án mới'))]),
-          Expanded(child: TwProjectsView(store: store, onOpen: _openProject)),
+          Expanded(child: TwProjectsView(store: store, onOpen: _openProject, onAskAi: (p) => _openProject(p, ai: true))),
         ]);
     }
     return Scaffold(
@@ -290,7 +303,7 @@ class TeamworkHomeState extends State<TeamworkHome> {
       0 => TwMyTasksView(store: store, onOpen: (t) => openTask(context, store, t.key)),
       2 => NotificationsView(store: store),
       3 => SearchView(store: store, phone: true),
-      _ => TwProjectsView(store: store, onOpen: _openProject),
+      _ => TwProjectsView(store: store, onOpen: _openProject, onAskAi: (p) => _openProject(p, ai: true)),
     };
     return Scaffold(
       backgroundColor: look.bg,
@@ -342,7 +355,7 @@ class TeamworkHomeState extends State<TeamworkHome> {
 
 // ------------------------------------------------------------ màn hình một dự án
 class TwProjectScreen extends StatefulWidget {
-  const TwProjectScreen({super.key, required this.store, required this.projectId, required this.filter, this.embedded = false, this.initialView = 'kanban', this.onView});
+  const TwProjectScreen({super.key, required this.store, required this.projectId, required this.filter, this.embedded = false, this.initialView = 'kanban', this.onView, this.initialAi = false});
   final TwStore store;
   final String projectId;
   final TwFilter filter;
@@ -350,12 +363,17 @@ class TwProjectScreen extends StatefulWidget {
   final bool embedded;
   final String initialView;
   final ValueChanged<String>? onView;
+  /// Mở sẵn khung "AI của dự án".
+  final bool initialAi;
   @override
   State<TwProjectScreen> createState() => _TwProjectScreenState();
 }
 
 class _TwProjectScreenState extends State<TwProjectScreen> {
   late String _view = widget.initialView;
+  /// Máy tính: khung "AI của dự án" đang mở.
+  late bool _ai = widget.initialAi;
+  bool _aiSheetShown = false;
   /// Mục mở đầu của tab Cài đặt (nút "Mời" mở thẳng Thành viên).
   String? _settingsTab;
   int _settingsRev = 0;
@@ -410,6 +428,12 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
       return widget.embedded ? body : Scaffold(appBar: AppBar(), body: body);
     }
     final pr = f.project;
+    if (!widget.embedded && widget.initialAi && !_aiSheetShown) {
+      _aiSheetShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) showProjectAiSheet(context, store, f);
+      });
+    }
     // Máy tính: bấm là mở ngay hộp xem nhanh (trang đầy đủ qua nút "Mở toàn trang" trong hộp). Điện thoại: bấm là mở trang.
     final wideNow = twWide(context);
     void open(TwTask t) => wideNow ? showTaskPreview(context, store, t.key) : openTask(context, store, t.key);
@@ -432,6 +456,9 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
           titleSpacing: 0,
           title: Text(pr.name, style: const TextStyle(fontWeight: FontWeight.w700)),
           actions: [
+            IconButton(key: const ValueKey('project-ai'), tooltip: 'AI của dự án', icon: Icon(Icons.auto_awesome, color: look.ai), onPressed: () => showProjectAiSheet(context, store, f)),
+            if (pr.chatChannel != null && store.chatOps != null)
+              IconButton(key: const ValueKey('open-chat'), tooltip: 'Mở nhóm chat', icon: const Icon(Icons.forum_outlined), onPressed: () => store.chatOps!.openChannel(pr.chatChannel!)),
             IconButton(
               key: const ValueKey('phone-filter'),
               tooltip: 'Lọc',
@@ -487,7 +514,29 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
           const SizedBox(width: 12),
           TwAvatars(users, size: 28, max: 5),
           const SizedBox(width: 10),
+          if (pr.chatChannel != null && store.chatOps != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: OutlinedButton.icon(key: const ValueKey('open-chat'), onPressed: () => store.chatOps!.openChannel(pr.chatChannel!), icon: const Icon(Icons.forum_outlined, size: 18), label: const Text('Mở nhóm chat')),
+            )
+          else if (pr.canAdmin && store.chatOps != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: TextButton.icon(key: const ValueKey('link-chat'), onPressed: () => linkProjectChat(context, store, f), icon: const Icon(Icons.add_link, size: 18), label: const Text('Gắn nhóm chat')),
+            ),
           if (pr.canAdmin) OutlinedButton.icon(key: const ValueKey('invite'), onPressed: () => _settings('members'), icon: const Icon(Icons.person_add_alt, size: 18), label: const Text('Mời')),
+          const SizedBox(width: 6),
+          OutlinedButton.icon(
+            key: const ValueKey('project-ai'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: look.ai,
+              backgroundColor: _ai ? look.aiSoft : null,
+              side: BorderSide(color: _ai ? look.ai : look.divider),
+            ),
+            onPressed: () => setState(() => _ai = !_ai),
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: const Text('AI'),
+          ),
           const SizedBox(width: 6),
           if (pr.canEdit) FilledButton.icon(key: const ValueKey('new-task'), onPressed: _create, icon: const Icon(Icons.add, size: 18), label: const Text('Việc mới')),
         ]),
@@ -515,7 +564,12 @@ class _TwProjectScreenState extends State<TwProjectScreen> {
         ]),
       ),
       if (_view != 'overview' && _view != 'settings') FilterBar(store: store, project: f, filter: widget.filter, showGroup: _view == 'list', onChanged: _changed),
-      Expanded(child: viewWidget),
+      Expanded(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(child: viewWidget),
+          if (_ai) TwProjectAiSide(store: store, project: f, onClose: () => setState(() => _ai = false)),
+        ]),
+      ),
     ]);
   }
 

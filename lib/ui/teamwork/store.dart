@@ -37,6 +37,22 @@ abstract class TwAgentLauncher {
   void open(String channelId);
 }
 
+/// Thao tác chat bằng token của chính người dùng (tạo / gắn nhóm chat cho dự án). App cài bằng AppState; kiểm thử dùng bản giả.
+abstract class TwChatOps {
+  /// Tạo kênh; trả về id kênh.
+  Future<String> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''});
+  Future<void> addMember(String channelId, String userId);
+  /// Mình có là thành viên kênh không.
+  Future<bool> isMember(String channelId);
+  /// Team có nhiều người trong [userIds] nhất (trong các team của mình); null = team đang dùng.
+  Future<String?> bestTeam(List<String> userIds);
+  /// Kênh mình đang tham gia (để gắn vào dự án): (id, tên).
+  Future<List<(String, String)>> myChannels();
+  /// Id người dùng theo username (vd bot teamwork-app).
+  Future<String?> userIdByUsername(String username);
+  void openChannel(String channelId);
+}
+
 class TwStore extends ChangeNotifier {
   TwStore(this.api, {this.cacheKey, DateTime Function()? clock, this.live = true}) : _clock = clock ?? DateTime.now;
 
@@ -46,6 +62,19 @@ class TwStore extends ChangeNotifier {
   /// Bật WebSocket (kiểm thử tắt).
   final bool live;
   TwAgentLauncher? launcher;
+  TwChatOps? chatOps;
+  /// Thông báo ngắn (vd "Đã tạo nhóm chat …"); app gắn vào SnackBar.
+  void Function(String text)? onToast;
+  /// Id bot teamwork-app trên máy chủ chat (thêm vào nhóm chat của dự án để đăng cập nhật).
+  String botUserId = '';
+  /// Agent đã chọn ở khung AI dự án (nhớ trên máy) + độ rộng khung.
+  String? aiAgentId;
+  Future<void> Function(String botId)? saveAiAgent;
+  double? aiPanelWidth;
+  Future<void> Function(double width)? saveAiPanelWidth;
+  /// Tăng khi một lượt chạy có thao tác mới / được hoàn tác (run_action).
+  final Map<String, int> actionRev = {};
+  final Set<String> _doingOps = {};
 
   String meId = '', meName = '';
   bool isAdmin = false;
@@ -135,6 +164,8 @@ class TwStore extends ChangeNotifier {
       meId = '${u['id'] ?? ''}';
       meName = '${u['name'] ?? u['username'] ?? ''}';
       isAdmin = me['is_admin'] == true;
+      final bot = me['bot'] is Map ? me['bot'] as Map : const {};
+      botUserId = '${me['bot_user_id'] ?? bot['id'] ?? botUserId}';
       prefs = me['prefs'] is Map ? (me['prefs'] as Map).cast<String, dynamic>() : {};
       offline = false;
       error = null;
@@ -148,6 +179,7 @@ class TwStore extends ChangeNotifier {
         unawaited(openProject(pid));
       }
       unawaited(checkRuns());
+      unawaited(runUserOps());
     } catch (e) {
       _netError(e);
       loaded = true;
@@ -217,6 +249,16 @@ class TwStore extends ChangeNotifier {
     final type = '${ev['type'] ?? ''}';
     final pid = ev['project_id'] as String?;
     final tid = ev['task_id'] as String?;
+    if (type == 'run_action') {
+      final id = ev['id'] as String? ?? ev['run_id'] as String?;
+      if (id != null) actionRev[id] = (actionRev[id] ?? 0) + 1;
+      _changed(persist: false);
+      return;
+    }
+    if (type == 'user_op') {
+      unawaited(runUserOps());
+      return;
+    }
     if (type == 'run_progress') {
       final id = ev['id'] as String?;
       if (id != null) runRev[id] = (runRev[id] ?? 0) + 1;
@@ -512,8 +554,12 @@ class TwStore extends ChangeNotifier {
           await api.reportRun(r.id, 'blocked', error: 'Người bắt đầu không được dùng agent ${r.botName.isEmpty ? r.botId : r.botName}');
           continue;
         }
-        final d = await api.task(r.taskId.isNotEmpty ? r.taskId : r.taskKey);
-        final brief = claimed.$2 ?? briefOf(d, api.taskLink(d.task.key));
+        // Lượt "project" (khung AI dự án): không gắn với việc nào, bản giao việc do máy chủ soạn.
+        final project = r.kind == 'project' || claimed.$1.kind == 'project';
+        final d = project ? null : await api.task(r.taskId.isNotEmpty ? r.taskId : r.taskKey);
+        final pname = projectById(claimed.$1.projectId.isNotEmpty ? claimed.$1.projectId : r.projectId)?.name ?? 'dự án';
+        final brief = claimed.$2 ?? (d == null ? '' : briefOf(d, api.taskLink(d.task.key)));
+        final title = d == null ? 'AI · $pname' : '${d.task.key} · ${d.task.title}';
         // @nhắc agent: tiếp tục trong phiên sẵn có của việc này nếu còn dùng được, không thì mở phiên mới.
         final hint = claimed.$1.sessionHint ?? r.sessionHint;
         // run_token: runner kiểm bằng khoá của TeamWork rồi mới đẩy tiến độ / chạy không cần duyệt.
@@ -523,10 +569,11 @@ class TwStore extends ChangeNotifier {
           await l.post(hint, brief, props: props);
           ch = hint;
         } else {
-          ch = await l.launch(r.botId, '${d.task.key} · ${d.task.title}', brief, props: props);
+          ch = await l.launch(r.botId, title, brief, props: props);
         }
         await api.reportRun(r.id, 'running', sessionChannel: ch);
-        taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;
+        if (d != null) taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;
+        runRev[r.id] = (runRev[r.id] ?? 0) + 1;
       } catch (e) {
         try {
           await api.reportRun(r.id, 'failed', error: '$e');
@@ -536,6 +583,81 @@ class TwStore extends ChangeNotifier {
       }
     }
     _changed(persist: false);
+  }
+
+  // ------------------------------------------------------------ lệnh của người dùng (nhóm chat)
+  /// Làm các lệnh đang chờ của CHÍNH người dùng này bằng token của họ (tạo / gắn nhóm chat), rồi báo kết quả.
+  /// Lệnh của người khác không bao giờ làm.
+  Future<void> runUserOps() async {
+    final ops = chatOps;
+    if (ops == null || meId.isEmpty) return;
+    List<TwUserOp> list;
+    try {
+      list = await api.userOps();
+    } catch (_) {
+      return;
+    }
+    for (final op in list) {
+      if (op.userId != meId || !_doingOps.add(op.id)) continue;
+      try {
+        final p = op.params;
+        final bot = '${p['bot_id'] ?? ''}'.isNotEmpty ? '${p['bot_id']}' : (botUserId.isNotEmpty ? botUserId : await ops.userIdByUsername('teamwork-app') ?? '');
+        String channel;
+        if (op.kind == 'channel_create') {
+          final members = [for (final m in p['members'] as List? ?? const []) '$m'];
+          final team = '${p['team_id'] ?? ''}'.isNotEmpty ? '${p['team_id']}' : await ops.bestTeam(members);
+          final display = '${p['display_name'] ?? p['name'] ?? 'Dự án'}';
+          channel = await ops.createChannel(
+            teamId: team,
+            name: '${p['name'] ?? ''}'.isNotEmpty ? '${p['name']}' : _slug(display),
+            displayName: display,
+            private: p['private'] != false,
+            purpose: '${p['purpose'] ?? ''}',
+            header: '${p['header'] ?? ''}',
+          );
+          for (final m in members) {
+            if (m == meId) continue;
+            try {
+              await ops.addMember(channel, m);
+            } catch (_) {}
+          }
+          if (bot.isNotEmpty) await ops.addMember(channel, bot);
+          await api.reportUserOp(op.id, 'done', channelId: channel);
+          onToast?.call('Đã tạo nhóm chat "$display"');
+        } else if (op.kind == 'channel_link') {
+          channel = '${p['channel_id'] ?? ''}';
+          if (channel.isEmpty || !await ops.isMember(channel)) {
+            await api.reportUserOp(op.id, 'failed', error: 'Bạn không ở trong kênh này');
+            continue;
+          }
+          if (bot.isNotEmpty) await ops.addMember(channel, bot);
+          await api.reportUserOp(op.id, 'done', channelId: channel);
+          onToast?.call('Đã gắn nhóm chat vào dự án');
+        } else {
+          await api.reportUserOp(op.id, 'failed', error: 'Không hỗ trợ ${op.kind}');
+          continue;
+        }
+        if (op.projectId.isNotEmpty && full.containsKey(op.projectId)) unawaited(openProject(op.projectId));
+      } catch (e) {
+        try {
+          await api.reportUserOp(op.id, 'failed', error: '$e');
+        } catch (_) {}
+      } finally {
+        _doingOps.remove(op.id);
+      }
+    }
+  }
+
+  /// Tên kỹ thuật của kênh từ tên hiển thị (chữ thường, không dấu, gạch nối) + đuôi ngẫu nhiên ngắn.
+  static String _slug(String s) {
+    const from = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
+    const to = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd';
+    final b = s.toLowerCase().split('').map((c) {
+      final i = from.indexOf(c);
+      return i < 0 ? c : to[i];
+    }).join().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
+    final tail = DateTime.now().millisecondsSinceEpoch.toRadixString(36).substring(4);
+    return '${b.isEmpty ? 'du-an' : (b.length > 40 ? b.substring(0, 40) : b)}-$tail';
   }
 
   // ------------------------------------------------------------ hàng đợi khi mất mạng

@@ -313,8 +313,14 @@ class TwRun {
     this.stepCount = 0,
     this.lastStep,
     this.summary,
+    this.projectId = '',
+    this.bypassEligible = false,
   });
   final String id, taskId, taskKey, botId, botName, startedBy;
+  /// Dự án của lượt chạy (lượt "project" của khung AI dự án không gắn với việc nào).
+  final String projectId;
+  /// Lượt chạy được phép chạy không cần duyệt (chủ bot xác nhận).
+  final bool bypassEligible;
   String state; // queued | running | review | done | failed | cancelled | blocked
   /// start (Bắt đầu / trạng thái bắt đầu) | mention (@nhắc agent trong bình luận).
   final String kind;
@@ -352,6 +358,8 @@ class TwRun {
         stepCount: _i(m['step_count']),
         lastStep: m['last_step'] is Map ? _ns((m['last_step'] as Map)['title']) : _ns(m['last_step']),
         summary: _ns(m['summary']),
+        projectId: _s(m['project_id']),
+        bypassEligible: _b(m['bypass_eligible']),
       );
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -1091,4 +1099,90 @@ String rankBetween(String a, String b) {
     i++;
     if (i > 40) return '${out}i';
   }
+}
+
+// ------------------------------------------------------------ AI của dự án
+/// Một cuộc trò chuyện AI của dự án (dùng chung một phiên của agent).
+class TwAiThread {
+  const TwAiThread({required this.id, this.title = '', this.botId = '', this.botName = '', this.updatedAt = 0, this.turnCount = 0});
+  final String id, title, botId, botName;
+  final int updatedAt, turnCount;
+  factory TwAiThread.fromJson(Map m) => TwAiThread(
+        id: _s(m['id']),
+        title: _s(m['title'], 'Cuộc trò chuyện'),
+        botId: _s(m['bot_id']),
+        botName: _s(m['bot_name']),
+        updatedAt: _i(m['updated_at']),
+        turnCount: _i(m['turn_count'] ?? (m['turns'] is List ? (m['turns'] as List).length : 0)),
+      );
+}
+
+/// Một lượt hỏi trong cuộc trò chuyện: lời người dùng + lượt chạy của agent.
+class TwAiTurn {
+  TwAiTurn({required this.prompt, this.action, this.at = 0, this.user = '', this.run});
+  final String prompt, user;
+  final String? action;
+  final int at;
+  TwRun? run;
+  factory TwAiTurn.fromJson(Map m) => TwAiTurn(
+        prompt: _s(m['prompt'] ?? m['text']),
+        action: _ns(m['action']),
+        at: _i(m['at'] ?? m['created_at']),
+        user: _s(m['user'] ?? m['started_by']),
+        run: m['run'] is Map ? TwRun.fromJson(m['run'] as Map) : null,
+      );
+}
+
+/// Một thao tác agent đã làm trong lượt chạy (có thể hoàn tác).
+class TwAiAction {
+  TwAiAction({
+    required this.id,
+    required this.kind,
+    this.summary = '',
+    this.targetType = '',
+    this.targetId = '',
+    this.targetKey = '',
+    this.targetTitle = '',
+    this.at = 0,
+    this.severity = 'normal',
+    this.undone = false,
+    this.undoable = true,
+    this.conflict,
+  });
+  final String id, kind, summary, targetType, targetId, targetKey, targetTitle, severity;
+  final int at;
+  bool undone, undoable;
+  String? conflict;
+  bool get high => severity == 'high';
+  factory TwAiAction.fromJson(Map m) {
+    final t = m['target'] is Map ? m['target'] as Map : const {};
+    return TwAiAction(
+      id: _s(m['id']),
+      kind: _s(m['kind'] ?? m['type']),
+      summary: _s(m['summary'] ?? m['text']),
+      targetType: _s(t['type'] ?? m['target_type']),
+      targetId: _s(t['id'] ?? m['target_id']),
+      targetKey: _s(t['key'] ?? m['target_key']),
+      targetTitle: _s(t['title'] ?? m['target_title']),
+      at: _i(m['at'] ?? m['created_at']),
+      severity: _s(m['severity'], 'normal'),
+      undone: _b(m['undone']) || m['undo_state'] == 'done',
+      undoable: m['undoable'] != false,
+      conflict: _ns(m['conflict'] is Map ? (m['conflict'] as Map)['message'] : m['conflict']),
+    );
+  }
+}
+
+/// Lệnh chờ app của người dùng làm bằng token của chính họ (tạo / gắn nhóm chat).
+class TwUserOp {
+  const TwUserOp({required this.id, required this.kind, required this.userId, this.projectId = '', this.params = const {}});
+  final String id, kind, userId, projectId; // kind: channel_create | channel_link
+  final Map<String, dynamic> params;
+  factory TwUserOp.fromJson(Map m) => TwUserOp(
+        id: _s(m['id']),
+        kind: _s(m['kind']),
+        userId: _s(m['user_id'] ?? m['user']),
+        projectId: _s(m['project_id']),
+        params: m['params'] is Map ? (m['params'] as Map).cast<String, dynamic>() : {},
+      );
 }
