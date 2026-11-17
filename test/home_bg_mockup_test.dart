@@ -159,6 +159,7 @@ void main() {
             (Icons.translate_rounded, const Color(0xFF9B51E0), 'Ngôn ngữ', 0),
             (Icons.password_rounded, const Color(0xFFF2C94C), 'Mật khẩu', 0),
             (Icons.privacy_tip_outlined, const Color(0xFF5B6CFF), 'Quyền riêng tư', 0),
+            (Icons.format_color_fill_rounded, const Color(0xFF0EA5E9), 'Màu nền', 0),
           ]),
         ], glass: glass, panel: panel),
       ];

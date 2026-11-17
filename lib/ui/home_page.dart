@@ -125,9 +125,9 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'ai',
         // Hạn mức AI công ty của chính mình (Cổng AI); chỉ hiện khi máy chủ có Cổng AI và mình được dùng.
         'aiquota',
-        // Hình nền Trang chủ (máy tính, lưu trên máy này).
-        // Màu nền Trang chủ (màu trơn / nền Giáng sinh / theo mùa lễ), thay ứng dụng Hình nền cũ.
-        if (!desktop) 'homebg',
+        // Màu nền (màu trơn / nền Giáng sinh / theo mùa lễ): ô cuối của Cá nhân, cả điện thoại lẫn máy tính (Sếp, 2026-11-17).
+        // Trang "Mở ứng dụng" trên máy tính vẫn để nền thường.
+        'homebg',
       ]),
     ].where((g) => g.$2.isNotEmpty).toList();
 

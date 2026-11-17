@@ -232,6 +232,9 @@ void main() {
       expect(g.expand((e) => e.$2), isNot(contains('schedules')));
       expect(personal, isNot(contains('qr')));
       expect(youAppGroups(desktop: false)[1].$2, contains('qr'));
+      // Màu nền: ô cuối của Cá nhân trên cả máy tính lẫn điện thoại.
+      expect(personal.last, 'homebg');
+      expect(youAppGroups(desktop: false)[1].$2.last, 'homebg');
       // Máy tính của chính mình (điều khiển từ xa) nằm trong nhóm Công việc.
       expect(g[0].$2, ['contacts', 'org', 'delegations', 'calls', 'computers']);
     });
