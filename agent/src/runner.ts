@@ -221,7 +221,9 @@ cleanups.push(() => { liveBots.delete(BOT_ID); try { if (readFileSync(lockPath, 
 
 // ---- engine có sẵn trên máy ----
 const report = await doctor({ codex: cfg.codex.bin, claude: cfg.claude.bin, agy: cfg.agy.bin, codexSkipLogin: cfg.codex.skipLoginCheck });
-const available = ENGINE_NAMES.filter((e) => report[e].installed && report[e].loggedIn);
+// Bot chạy qua Cổng AI (cfg.flygoAi): claude chỉ cần cài, không cần đăng nhập gói Claude trên máy.
+const available = ENGINE_NAMES.filter((e) => report[e].installed && (report[e].loggedIn || (e === "claude" && !!cfg.flygoAi)));
+if (cfg.flygoAi && cfg.engine !== "claude") log(`Cổng AI chỉ dùng cho engine claude; bot ${cfg.engine} bỏ qua flygoAi`);
 if (!available.includes(cfg.engine)) {
   emit({ event: "error", code: "no_engine", engine: cfg.engine, message: `Bot @${BOT_NAME} dùng ${cfg.engine} nhưng máy chưa cài hoặc chưa đăng nhập ${cfg.engine}.`, doctor: report });
   liveBots.delete(BOT_ID);
@@ -322,7 +324,7 @@ async function kickTurn(o: Origin, notice: string, text: string) {
 const mcpCommand = { command: io.selfCommand[0], args: [...io.selfCommand.slice(1), "mcp-chat"] };
 const engines: Record<EngineName, Engine> = {
   codex: new CodexEngine(cfg, mcpCommand, log),
-  claude: new ClaudeEngine(cfg, mcpCommand, log),
+  claude: new ClaudeEngine(cfg, mcpCommand, log, async (id) => (id ? String((await mm.user(id))?.email ?? "") : "")),
   agy: new AntigravityEngine(cfg, mcpCommand, log),
 };
 
@@ -3448,6 +3450,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
         bypass,
         twBypass: !!tw?.bypass,
         mode,
+        requester: post.user_id, // Cổng AI: tính vào hạn mức của người nhờ
         mcpEnv: mcpEnvFor(root, {
           MM_URL: cfg.serverUrl, MM_TOKEN: cfg.botToken, CHANNEL_ID: post.channel_id, ROOT_ID: threadRoot,
           RUN_KEY: runId, WORKDIR: dir, OWNER_ID: post.user_id,
