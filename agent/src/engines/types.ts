@@ -6,6 +6,7 @@ export interface ApprovalRequest {
   kind: "command" | "file" | "tool" | "report" | "plan";
   title: string; // một dòng: lệnh / file / tool
   detail?: string;
+  tool?: string; // tên tool xin duyệt (vd. mcp__flygo_chat__vn_flygo_mail__mail_send)
 }
 export type ApprovalDecision = "accept" | "decline";
 /** Chế độ quyền người dùng chọn trên app: Thủ công / Chấp nhận chỉnh sửa / Lập kế hoạch / Tự động. */

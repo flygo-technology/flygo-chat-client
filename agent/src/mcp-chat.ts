@@ -18,6 +18,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { ancestorChain, type Level } from "./chain";
 import { MM, type Post } from "./mm";
 import { CHAT_OP_TOOLS, isTextFile, parseWhen, safeFileName } from "./chat-ops";
+import { BILINGUAL_ARGS, BILINGUAL_HINT } from "./bilingual";
+const TO_ARG = { type: "string", description: "chat đích: id kênh, ~tên kênh / tên chat, @username (nhắn riêng giữa bot và người đó), ref_id của chat được tag; bỏ trống / \"here\" = chat hiện tại" };
+const POST_ARG = { type: "string", description: "id tin (26 ký tự, #id trong chat_history / chat_thread / chat_search / chat_unread)" };
 import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
 import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
@@ -537,15 +540,13 @@ const A2A_TOOLS = [
 ];
 const REPORT_TOOL = {
   name: "chat_report_out",
-  description: "Gửi báo cáo ra chat chính của nhóm ngoài (luồng mở: chat chính của nhóm; luồng bí mật: nhóm cha; chat AI riêng: nhóm gắn). Gửi ngay, không qua bước duyệt. CHỈ dùng khi người giao việc yêu cầu báo cáo ra ngoài hoặc đã dặn trước là xong thì báo. Tệp kèm phải nằm trong thư mục làm việc.",
+  description: "Gửi báo cáo ra chat chính của nhóm ngoài (luồng mở: chat chính của nhóm; luồng bí mật: nhóm cha; chat AI riêng: nhóm gắn). Gửi ngay, không qua bước duyệt. CHỈ dùng khi người giao việc yêu cầu báo cáo ra ngoài hoặc đã dặn trước là xong thì báo. Tệp kèm phải nằm trong thư mục làm việc." + BILINGUAL_HINT,
   inputSchema: {
     type: "object",
     properties: {
       message: { type: "string", description: "nội dung báo cáo, viết cho người ngoài luồng đọc hiểu được, không cần dòng tiêu đề" },
       files: { type: "array", items: { type: "string" }, description: "đường dẫn tệp gửi kèm (tuỳ chọn, tối đa 10)" },
-      lang: { type: "string", description: "gửi SONG NGỮ (như nút Dịch AI, có nút cờ đổi bản gốc / bản dịch): mã ngôn ngữ của message, vd. vi" },
-      translation: { type: "string", description: "gửi song ngữ: bản dịch của message (tự dịch)" },
-      translation_lang: { type: "string", description: "gửi song ngữ: mã ngôn ngữ của bản dịch, vd. th" },
+      ...BILINGUAL_ARGS,
     },
     required: ["message"],
   },
@@ -847,7 +848,7 @@ const CHAT_TOOLS = [
     },
     {
       name: "chat_send_bilingual",
-      description: "GỬI TIN SONG NGỮ vào chủ đề hiện tại, giống nút \"Dịch AI\" của app: người đọc thấy phần theo ngôn ngữ của họ và có nút cờ để đổi giữa bản gốc và bản dịch. Dùng khi người giao việc bảo gửi / trả lời song ngữ, nhắn cho người nói tiếng khác (vd. đối tác Hàn, Thái), hoặc nhóm có người không đọc được ngôn ngữ của tin. Tự dịch rồi truyền cả hai bản; không dùng cho câu trả lời thường của lượt (cứ viết trong câu trả lời). Tool này gửi vào CHỖ ĐANG Ở; đang ở chat AI riêng / luồng mà cần gửi song ngữ ra nhóm thì dùng chat_report_out kèm lang, translation, translation_lang. Mã ngôn ngữ ISO 639-1: vi, en, ko, ja, th, zh…",
+      description: "GỬI TIN SONG NGỮ có nút cờ đổi ngôn ngữ (vd. vi + th), giống nút \"Dịch AI\" của app: người đọc thấy bản theo ngôn ngữ của họ và bấm cờ để xem bản kia. Dùng MỖI KHI tin phải có hai ngôn ngữ (đối tác Thái / Hàn…, nhóm có người không đọc được ngôn ngữ của tin, người giao việc bảo gửi song ngữ). Mặc định gửi vào chỗ đang ở; to = chat khác (id, ~tên, @username) và thread_root = trả lời trong luồng của tin đó (chat khác cần duyệt như chat_send). Tự dịch rồi truyền cả hai bản; KHÔNG ghép hai bản vào một tin bằng dòng kẻ. Ví dụ: text=\"สวัสดีค่ะพี่ ได้รับเงินแล้วค่ะ\", lang=\"th\", translation=\"Chào anh, em đã nhận tiền\", translation_lang=\"vi\". Mã ngôn ngữ ISO 639-1: vi, en, th, ko, ja, zh…",
       inputSchema: {
         type: "object",
         properties: {
@@ -855,6 +856,8 @@ const CHAT_TOOLS = [
           lang: { type: "string", description: "mã ngôn ngữ của bản gốc, vd. vi" },
           translation: { type: "string", description: "bản dịch (cùng ý, giữ @nhắc tên, link, số, emoji)" },
           translation_lang: { type: "string", description: "mã ngôn ngữ của bản dịch, vd. ko" },
+          to: TO_ARG,
+          thread_root: POST_ARG,
         },
         required: ["text", "lang", "translation", "translation_lang"],
       },
@@ -897,8 +900,6 @@ const CHAT_TOOLS = [
     },
 ];
 // ---- bộ công cụ chat (runner: chat-ops.ts) ----
-const TO_ARG = { type: "string", description: "chat đích: id kênh, ~tên kênh / tên chat, @username (nhắn riêng giữa bot và người đó), ref_id của chat được tag; bỏ trống / \"here\" = chat hiện tại" };
-const POST_ARG = { type: "string", description: "id tin (26 ký tự, #id trong chat_history / chat_thread / chat_search / chat_unread)" };
 const WHEN = "giờ Việt Nam dạng 2026-11-02T08:00, hoặc tương đối \"30m\" / \"2h\" / \"1d\"";
 const WHEN_PAST = "giờ Việt Nam dạng 2026-11-01 / 2026-11-01T08:00, tương đối \"7d\" (7 ngày trước), hoặc số ms";
 const CHAT_OPS = [
@@ -918,10 +919,10 @@ const CHAT_OPS = [
   { name: "chat_pinned", description: "TIN ĐÃ GHIM của một chat.", inputSchema: { type: "object", properties: { chat: CHAT_ARG } } },
   { name: "chat_digest", description: "DỮ LIỆU ĐỂ TÓM TẮT một hay nhiều chat từ một thời điểm: số tin, ai nói nhiều, luồng sôi nổi, tin khẩn, bình chọn, tệp và các tin (cũ → mới). Bạn tự viết bản tóm tắt (việc cần làm, quyết định, câu hỏi chưa trả lời). Bỏ trống chats = các chat có tin mới (tối đa 15).", inputSchema: { type: "object", properties: { chats: { type: "array", items: { type: "string" }, description: "danh sách chat (id / ~tên / @username)" }, since: { type: "string", description: `từ lúc nào (${WHEN}; mặc định 24 giờ qua)` }, limit_per_chat: { type: "number", description: "số tin tối đa mỗi chat (mặc định 40)" } } } },
   // ---- gửi (cần người giao việc duyệt, trừ khi gửi vào chat hiện tại; tự duyệt khi "Luôn cho phép") ----
-  { name: "chat_send", description: "GỬI TIN tới bất kỳ chat nào bot thấy, hoặc NHẮN RIÊNG một người (to=@username: chat 1-1 giữa bot và người đó). Chỉ gửi khi người giao việc muốn gửi tới đó. Gửi ra chat khác cần người giao việc duyệt. Tuỳ chọn: thread_root (trả lời trong luồng của tin đó), files (tệp trong thư mục làm việc), file_ids (gửi lại tệp của tin có sẵn ở chat bot đọc được), priority important|urgent và ack (tin gốc: gắn nhãn, người nhận bấm xác nhận đã đọc), silent (không báo), mention (username được @nhắc thật; mặc định @tên trong tin không báo ai). Tin hiện dưới tên bot.", inputSchema: { type: "object", properties: { to: TO_ARG, message: { type: "string" }, files: { type: "array", items: { type: "string" } }, file_ids: { type: "array", items: { type: "string" }, description: "file_id của tệp ở tin có sẵn (chat_get_message / chat_get_files) để gửi lại, không cần tải về; bot phải đọc được tin chứa tệp. Tối đa 10 tệp mỗi tin (cộng cả files)" }, thread_root: POST_ARG, priority: { type: "string", enum: ["important", "urgent"] }, ack: { type: "boolean" }, silent: { type: "boolean" }, mention: { type: "array", items: { type: "string" } } }, required: ["to", "message"] } },
-  { name: "chat_reply", description: "TRẢ LỜI một tin (trong luồng của tin đó), ở bất kỳ chat nào bot thấy. Tuỳ chọn: files (tệp trong thư mục làm việc), file_ids (gửi lại tệp của tin có sẵn). Chat khác chat hiện tại cần duyệt.", inputSchema: { type: "object", properties: { post_id: POST_ARG, message: { type: "string" }, files: { type: "array", items: { type: "string" } }, file_ids: { type: "array", items: { type: "string" }, description: "file_id của tệp ở tin có sẵn (chat_get_message / chat_get_files) để gửi lại, không cần tải về; bot phải đọc được tin chứa tệp. Tối đa 10 tệp mỗi tin (cộng cả files)" } }, required: ["post_id", "message"] } },
+  { name: "chat_send", description: "GỬI TIN tới bất kỳ chat nào bot thấy, hoặc NHẮN RIÊNG một người (to=@username: chat 1-1 giữa bot và người đó). Chỉ gửi khi người giao việc muốn gửi tới đó. Gửi ra chat khác cần người giao việc duyệt. Tuỳ chọn: thread_root (trả lời trong luồng của tin đó), files (tệp trong thư mục làm việc), file_ids (gửi lại tệp của tin có sẵn ở chat bot đọc được), priority important|urgent và ack (tin gốc: gắn nhãn, người nhận bấm xác nhận đã đọc), silent (không báo), mention (username được @nhắc thật; mặc định @tên trong tin không báo ai). Tin hiện dưới tên bot." + BILINGUAL_HINT, inputSchema: { type: "object", properties: { ...BILINGUAL_ARGS, to: TO_ARG, message: { type: "string" }, files: { type: "array", items: { type: "string" } }, file_ids: { type: "array", items: { type: "string" }, description: "file_id của tệp ở tin có sẵn (chat_get_message / chat_get_files) để gửi lại, không cần tải về; bot phải đọc được tin chứa tệp. Tối đa 10 tệp mỗi tin (cộng cả files)" }, thread_root: POST_ARG, priority: { type: "string", enum: ["important", "urgent"] }, ack: { type: "boolean" }, silent: { type: "boolean" }, mention: { type: "array", items: { type: "string" } } }, required: ["to", "message"] } },
+  { name: "chat_reply", description: "TRẢ LỜI một tin (trong luồng của tin đó), ở bất kỳ chat nào bot thấy. Tuỳ chọn: files (tệp trong thư mục làm việc), file_ids (gửi lại tệp của tin có sẵn). Chat khác chat hiện tại cần duyệt." + BILINGUAL_HINT, inputSchema: { type: "object", properties: { ...BILINGUAL_ARGS, post_id: POST_ARG, message: { type: "string" }, files: { type: "array", items: { type: "string" } }, file_ids: { type: "array", items: { type: "string" }, description: "file_id của tệp ở tin có sẵn (chat_get_message / chat_get_files) để gửi lại, không cần tải về; bot phải đọc được tin chứa tệp. Tối đa 10 tệp mỗi tin (cộng cả files)" } }, required: ["post_id", "message"] } },
   { name: "chat_forward", description: "CHUYỂN TIẾP một tin sang chat khác, kèm đủ tệp của tin đó (bot tải lại vào chat đích), tuỳ chọn kèm lời nhắn. Cần duyệt nếu đích không phải chat hiện tại. Chỉ gửi lại vài tệp: chat_send với file_ids.", inputSchema: { type: "object", properties: { post_id: POST_ARG, to: TO_ARG, comment: { type: "string" } }, required: ["post_id", "to"] } },
-  { name: "chat_schedule_message", description: "HẸN GIỜ GỬI một tin (tin hẹn giờ của máy chủ, như nút Hẹn giờ gửi của app): máy chủ tự gửi đúng giờ dưới tên bot, kể cả khi máy chạy bot tắt. Cần duyệt nếu đích không phải chat hiện tại. Việc bot phải TỰ LÀM lúc đó thì dùng schedule_create.", inputSchema: { type: "object", properties: { to: TO_ARG, message: { type: "string" }, at: { type: "string", description: WHEN }, thread_root: POST_ARG }, required: ["to", "message", "at"] } },
+  { name: "chat_schedule_message", description: "HẸN GIỜ GỬI một tin (tin hẹn giờ của máy chủ, như nút Hẹn giờ gửi của app): máy chủ tự gửi đúng giờ dưới tên bot, kể cả khi máy chạy bot tắt. Cần duyệt nếu đích không phải chat hiện tại. Việc bot phải TỰ LÀM lúc đó thì dùng schedule_create." + BILINGUAL_HINT, inputSchema: { type: "object", properties: { ...BILINGUAL_ARGS, to: TO_ARG, message: { type: "string" }, at: { type: "string", description: WHEN }, thread_root: POST_ARG }, required: ["to", "message", "at"] } },
   { name: "chat_poll", description: "TẠO BÌNH CHỌN (hiện thành thẻ bình chọn trên app, mọi người bấm chọn ngay trong tin). Câu hỏi ngắn, 2–20 phương án. Tuỳ chọn: multi (chọn nhiều), revote (đổi phiếu, mặc định có), allow_add (người khác thêm phương án), duration_min hoặc ends_at (hết hạn), pin (ghim). Người giao việc là người tạo (khoá được trên app). Xem kết quả bằng chat_get_message.", inputSchema: { type: "object", properties: { to: TO_ARG, question: { type: "string" }, options: { type: "array", items: { type: "string" } }, multi: { type: "boolean" }, revote: { type: "boolean" }, allow_add: { type: "boolean" }, duration_min: { type: "number" }, ends_at: { type: "string", description: WHEN }, thread_root: POST_ARG, pin: { type: "boolean" } }, required: ["to", "question", "options"] } },
   { name: "chat_send_card", description: "GỬI THẺ CÓ NÚT (1–9 nút) vào một chat: ai trong chat bấm một nút thì bạn được gọi lại ở CHỖ NÀY trong một lượt mới, kèm người bấm và lựa chọn (thẻ chỉ nhận lần bấm đầu tiên). Dùng để xin xác nhận / lựa chọn của người khác (vd. \"Duyệt chi 5 triệu?\" [Đồng ý] [Từ chối]). Hỏi chính người giao việc ngay trong lượt thì dùng ask_user. Cần duyệt nếu đích không phải chat hiện tại.", inputSchema: { type: "object", properties: { to: TO_ARG, text: { type: "string" }, buttons: { type: "array", items: { type: "object", properties: { label: { type: "string" }, description: { type: "string" } }, required: ["label"] } }, multi: { type: "boolean", description: "cho chọn nhiều nút rồi xác nhận" }, header: { type: "string", description: "nhãn ngắn ≤12 ký tự" }, thread_root: POST_ARG }, required: ["to", "text", "buttons"] } },
   // ---- thao tác trên tin ----
@@ -1273,6 +1274,11 @@ async function callTool(req: any): Promise<any> {
       return text(`Đã đăng artifact "${title}" v${version} (artifact_id=${id}, tin #${post.id}). Sửa tiếp thì gọi lại với artifact_id=${id}.`);
     }
     case "chat_send_bilingual": {
+      // Gửi tới chat khác / trả lời trong luồng: như chat_send (runner kiểm quyền, xin duyệt) kèm tham số song ngữ.
+      if ((a.to && String(a.to).trim() !== "here") || a.thread_root) {
+        const r = await runner("/chat_op/chat_send", { to: a.to, thread_root: a.thread_root, message: a.text, lang: a.lang, translation: a.translation, translation_lang: a.translation_lang }).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
+        return text(r.text ?? JSON.stringify(r));
+      }
       const code = (x: any) => String(x ?? "").trim().toLowerCase().split(/[-_]/)[0];
       const t0 = String(a.text ?? "").trim(), t1 = String(a.translation ?? "").trim(), l0 = code(a.lang), l1 = code(a.translation_lang);
       if (!t0 || !t1 || !/^[a-z]{2,3}$/.test(l0) || !/^[a-z]{2,3}$/.test(l1)) return text("Thiếu text / translation hoặc mã ngôn ngữ không hợp lệ (dùng mã ISO 639-1 như vi, en, ko).");
