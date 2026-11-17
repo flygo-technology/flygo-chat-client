@@ -48,6 +48,9 @@ class SeasonState extends ChangeNotifier {
   bool get available => app != null;
   bool get canAdmin => org?['can_admin'] == true;
 
+  /// "Xem thử" của quản trị viên: hiện mùa này trên các máy của mình, bất kể ngày và công ty đã bật hay chưa.
+  String? get preview => canAdmin && mine['preview'] is String ? mine['preview'] as String : null;
+
   // ---------------------------------------------------------------- tải
   Future<void> load(AppState state) async {
     _app = state;
@@ -151,6 +154,8 @@ class SeasonState extends ChangeNotifier {
   /// Mùa đang diễn ra (công ty đã bật và hôm nay nằm trong khung), null = không có.
   String? activeSeason([DateTime? now]) {
     if (!available) return null;
+    final p = preview;
+    if (p != null) return p;
     final today = _today(now ?? clock());
     for (final w in (org?['windows'] as List? ?? const [])) {
       if (w is! Map || w['enabled'] != true) continue;
@@ -182,7 +187,7 @@ class SeasonState extends ChangeNotifier {
   /// Mũ Noel cho ảnh đại diện của [user]: chỉ tháng 12, mình bật xem mũ, chủ ảnh không tắt.
   bool hatFor(Map<String, dynamic>? userRaw, double size) {
     if (size < 20 || userRaw == null || userRaw['is_bot'] == true) return false;
-    if (activeSeason() != 'giangsinh' || clock().month != 12 || !on('hats')) return false;
+    if (activeSeason() != 'giangsinh' || (clock().month != 12 && preview == null) || !on('hats')) return false;
     return (userRaw['props'] as Map?)?['flygo_no_hat'] != 'true';
   }
 
@@ -362,4 +367,15 @@ class SeasonBanner extends StatelessWidget {
       },
     );
   }
+}
+
+/// Ảnh xem trước: ép bật / tắt nền mùa lễ của thanh tab (null = theo mùa đang diễn ra).
+bool? debugNavBg;
+
+/// Thanh tab điện thoại dùng nền Giáng sinh: mùa đang diễn ra, công ty bật "Dây đèn" (trang trí), mình không tắt
+/// "Trang trí thanh điều hướng".
+bool seasonNavBg() {
+  if (debugNavBg != null) return debugNavBg!;
+  final s = SeasonState.instance;
+  return s.activeSeason() == 'giangsinh' && s.on('lights') && s.mine['navbar'] != false;
 }

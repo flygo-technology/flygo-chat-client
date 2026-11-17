@@ -177,11 +177,20 @@ class WhiteSnowPainter extends CustomPainter {
 /// Dây đèn Noel vắt ngang mép trên khung chat; từng bóng sáng dịu lên xuống lệch nhịp nhau.
 class LightStringPainter extends CustomPainter {
   final double t;
-  LightStringPainter(this.t);
+  /// Cỡ bóng / nhịp dây (1 = cỡ ở khung chat).
+  final double scale;
+  LightStringPainter(this.t, {this.scale = 1});
   static const colors = [Color(0xFFFF4D4D), Color(0xFFFFC23D), Color(0xFF3DDC84), Color(0xFF4DA3FF), Color(0xFFFF7AD9)];
 
   @override
-  void paint(Canvas c, Size s) {
+  void paint(Canvas c, Size size) {
+    c.save();
+    c.scale(scale);
+    _paint(c, size / scale);
+    c.restore();
+  }
+
+  void _paint(Canvas c, Size s) {
     const span = 96.0, sag = 9.0, top = 3.0;
     final n = math.max(1, (s.width / span).round());
     final w = s.width / n;
@@ -225,7 +234,7 @@ class LightStringPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(LightStringPainter old) => old.t != t;
+  bool shouldRepaint(LightStringPainter old) => old.t != t || old.scale != scale;
 }
 
 /// Mũ Noel vẽ trong khung [size] (rộng ≈ 0.8 đường kính ảnh đại diện), đỉnh mũ rủ sang phải.
@@ -397,4 +406,56 @@ class MiniTreePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(MiniTreePainter old) => old.t != t;
+}
+
+/// Nền thanh tab điện thoại mùa Giáng sinh (thay nền kính): tối = trời đêm xanh, sáng = nền kem; bông tuyết mờ,
+/// hàng thông nhỏ dưới đáy. Chữ / biểu tượng giữ màu thường nên vẫn rõ.
+class XmasBarPainter extends CustomPainter {
+  final bool dark;
+  const XmasBarPainter({required this.dark});
+
+  @override
+  void paint(Canvas c, Size s) {
+    final r = Offset.zero & s;
+    c.drawRect(
+        r,
+        Paint()
+          ..shader = LinearGradient(
+            colors: dark
+                ? const [Color(0xFF0A1830), Color(0xFF142C54), Color(0xFF0A1830)]
+                : const [Color(0xFFFFFCF6), Color(0xFFFCF1DF), Color(0xFFFFFCF6)],
+          ).createShader(r));
+    final rnd = math.Random(17);
+    // Chấm sao / tuyết li ti.
+    final dot = Paint()..color = (dark ? Colors.white : const Color(0xFFB89A6A)).withValues(alpha: dark ? .32 : .22);
+    for (var i = 0; i < (s.width / 14).round(); i++) {
+      c.drawCircle(Offset(rnd.nextDouble() * s.width, rnd.nextDouble() * s.height * .42), .5 + rnd.nextDouble() * .7, dot);
+    }
+    // Vài bông tuyết sáu cánh mờ.
+    final flake = Paint()
+      ..color = (dark ? const Color(0xFFBFD4F2) : const Color(0xFFC9A66B)).withValues(alpha: dark ? .22 : .22)
+      ..strokeWidth = 1
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < (s.width / 70).round(); i++) {
+      drawSnowflake(c, Offset((i + .5) * s.width / (s.width / 70).round() + (rnd.nextDouble() - .5) * 30, 10 + rnd.nextDouble() * (s.height - 30)),
+          4 + rnd.nextDouble() * 4, flake, rot: rnd.nextDouble());
+    }
+    // Hàng thông nhỏ sát đáy.
+    final pine = Paint()..color = dark ? const Color(0xFF1E3A63).withValues(alpha: .9) : const Color(0xFF7FA88A).withValues(alpha: .28);
+    var x = 4.0;
+    while (x < s.width) {
+      final h = 7 + rnd.nextDouble() * 6, w = h * .7;
+      c.drawPath(
+          Path()
+            ..moveTo(x, s.height - h)
+            ..lineTo(x + w / 2, s.height)
+            ..lineTo(x - w / 2, s.height)
+            ..close(),
+          pine);
+      x += w * (.8 + rnd.nextDouble() * 1.4);
+    }
+  }
+
+  @override
+  bool shouldRepaint(XmasBarPainter old) => old.dark != dark;
 }
