@@ -854,6 +854,17 @@ let metaSent = "";
 /** Đăng kiểm kê (kỹ năng, model, chế độ quyền, hạn mức) lên props của bot qua relay; [inv]=false: chỉ làm mới hạn mức. */
 async function publishMeta(inv = true) {
   if (inv || !inventory) inventory = await engines[ENGINE].inventory().catch((e) => { log(`kiểm kê ${ENGINE}: ${e?.message ?? e}`); return inventory; });
+  // Claude / agy chỉ biết kỹ năng sau sự kiện init của một lượt: mới khởi động lại thì danh sách rỗng, đăng lên relay sẽ xoá
+  // tab Kỹ năng của app tới lượt kế tiếp. Nhớ danh sách gần nhất trong kv của bot và dùng lại khi chưa có lượt nào.
+  if (inventory) {
+    try {
+      if (inventory.skills.length) db.query("INSERT OR REPLACE INTO kv VALUES ('engine_skills', ?)").run(JSON.stringify(inventory.skills));
+      else {
+        const r = db.query("SELECT v FROM kv WHERE k = 'engine_skills'").get() as { v: string } | null;
+        if (r) inventory = { ...inventory, skills: JSON.parse(r.v) };
+      }
+    } catch {}
+  }
   await refreshLimits();
   const own = listSkills(BOT_ID, cfg.skillsDir);
   const skills = [
