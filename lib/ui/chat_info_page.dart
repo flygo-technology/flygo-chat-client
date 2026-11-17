@@ -441,7 +441,7 @@ class _ChatInfoPageState extends State<ChatInfoPage> {
               title: tr('Giao diện chat'),
               value: [
                 chatThemeById(ch.themeId)?.name ?? tr('Mặc định'),
-                ?app.resolvedBubble(ch.id)?.def?.name,
+                ?app.resolveBubble(ch.id)?.def?.name,
               ].join(' · '),
               onTap: () => openChatAppearance(context, ch),
             ),
