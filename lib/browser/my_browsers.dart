@@ -77,6 +77,11 @@ class MyBrowsers {
     final t = await http.post(Uri.parse('$root/flygo-id/v1/token'),
         headers: {'Authorization': 'Bearer $chatToken', 'X-MM-Server': root, 'Content-Type': 'application/json', 'User-Agent': kUserAgent},
         body: jsonEncode({'audience': kBrowserApp})).timeout(const Duration(seconds: 15));
+    if (t.statusCode == 403) {
+      // Flygo ID: tài khoản chưa được cấp app Kết nối trên máy chủ này.
+      final who = await http.get(Uri.parse('$root/api/v4/users/me'), headers: {'Authorization': 'Bearer $chatToken'}).then((r) => (jsonDecode(r.body) as Map)['username'], onError: (_) => null);
+      throw HttpException('Tài khoản ${who ?? ''} trên ${Uri.parse(root).host} chưa được cấp quyền dùng app Kết nối (nhờ quản trị cấp quyền)');
+    }
     final ticket = '${(_decode(t) as Map)['token'] ?? ''}';
     if (ticket.isEmpty) throw const HttpException('Flygo ID không cấp vé');
     final r = await http.post(Uri.parse('$root/__apps/gateway/api/pair'),
