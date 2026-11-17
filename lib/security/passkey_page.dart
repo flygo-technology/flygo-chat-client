@@ -10,13 +10,16 @@ import '../state/app_state.dart';
 import '../ui/app_route.dart';
 import '../ui/devices_page.dart' show confirmCountdown;
 import '../ui/theme.dart';
+import 'device_key.dart';
 import 'passkey_gate.dart';
 import 'verify_page.dart';
 
 class PasskeyPage extends StatefulWidget {
   /// Thử nghiệm: thay Flygo ID.
   final PasskeyApi? api;
-  const PasskeyPage({super.key, this.api});
+  /// Thử nghiệm: máy có khoá thiết bị không (mặc định: điện thoại iOS / Android).
+  final bool? keySupported;
+  const PasskeyPage({super.key, this.api, this.keySupported});
   @override
   State<PasskeyPage> createState() => _PasskeyPageState();
 }
@@ -50,7 +53,8 @@ class _PasskeyPageState extends State<PasskeyPage> {
   }
 
   Future<void> _open() async {
-    await Navigator.of(context).push(AppPageRoute(builder: (_) => PasskeyScreen(api: _api!, initial: _st!, onLogout: () {}, dismissible: true)));
+    await Navigator.of(context)
+        .push(AppPageRoute(builder: (_) => PasskeyScreen(api: _api!, initial: _st!, onLogout: () {}, dismissible: true, keySupported: widget.keySupported)));
     _load();
   }
 
@@ -117,7 +121,10 @@ class _PasskeyPageState extends State<PasskeyPage> {
   Widget _thisDevice(Pal pal, PasskeyStatus st) {
     final dev = st.raw['device'] as Map?;
     final trusted = dev?['trusted'] == true, hasKey = dev?['has_key'] == true;
-    final (IconData icon, Color color, String title, String body, String action) = st.sessionOk
+    final desktop = !hasKey && !(widget.keySupported ?? DeviceKey.platformSupported);
+    final (IconData icon, Color color, String title, String body, String action) = desktop
+        ? (Icons.laptop_mac_rounded, pal.accent, tr('Máy tính không cần passkey'), tr('Passkey chỉ dùng trên điện thoại (iPhone / Android). Máy tính này dùng bình thường.'), '')
+        : st.sessionOk
         ? (Icons.verified_user_rounded, const Color(0xFF14B8A6), tr('Máy này đã xác thực passkey'), tr('Phiên đăng nhập này đã được xác nhận.'), tr('Xác thực lại'))
         : trusted
             ? (Icons.fingerprint_rounded, const Color(0xFF14B8A6), tr('Máy này có passkey'),
@@ -147,12 +154,14 @@ class _PasskeyPageState extends State<PasskeyPage> {
               Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
               const SizedBox(height: 3),
               Text(body, style: TextStyle(fontSize: 13, color: pal.sub)),
-              if (st.required) ...[
+              if (st.required && !desktop) ...[
                 const SizedBox(height: 6),
                 Text(tr('Công ty đang bắt buộc passkey'), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pal.accentText)),
               ],
-              const SizedBox(height: 10),
-              FilledButton.tonal(key: const ValueKey('passkey-this-action'), onPressed: _open, child: Text(action)),
+              if (action.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                FilledButton.tonal(key: const ValueKey('passkey-this-action'), onPressed: _open, child: Text(action)),
+              ],
             ]),
           ),
         ]),

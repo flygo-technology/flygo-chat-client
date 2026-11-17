@@ -146,7 +146,8 @@ class _PasskeyGateState extends State<PasskeyGate> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final st = _st;
-    if (st != null && st.blocking && _api != null) {
+    // Máy tính (không có khoá thiết bị) chỉ bị chặn khi phạm vi là "mọi thiết bị" (máy chủ cũng kiểm như vậy).
+    if (st != null && st.blocking && _api != null && (DeviceKey.platformSupported || st.raw['scope'] == 'all')) {
       return PasskeyScreen(api: _api!, initial: st, onLogout: widget.onLogout, onDone: (s) => setState(() => _st = s));
     }
     return widget.child;
@@ -176,6 +177,15 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
   Timer? _poll;
 
   bool get _keyOk => widget.keySupported ?? DeviceKey.platformSupported;
+
+  /// Việc cần làm, suy từ trạng thái khoá của máy (không chỉ theo needs: khi không bắt buộc needs là "none").
+  /// Máy tính không có khoá thiết bị: không bao giờ bắt xác thực; chỉ phải xin duyệt khi phiên này bị bắt buộc
+  /// (phạm vi "mọi thiết bị").
+  String get _mode {
+    final d = _st.raw['device'] as Map?;
+    if (d?['has_key'] != true) return _keyOk ? 'enroll' : (_st.blocking ? 'approve' : 'desktop');
+    return d?['trusted'] == true ? 'verify' : 'approve';
+  }
 
   @override
   void dispose() {
@@ -249,7 +259,7 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    final needs = _st.needs == 'enroll' && !_keyOk ? 'approve' : _st.needs;
+    final needs = _mode;
     final (IconData icon, Color color, String title, String body) = _help
         ? (Icons.phonelink_erase_rounded, const Color(0xFFF5B544), tr('Không xác thực được passkey'),
             tr('Đổi máy, cài lại app, thêm vân tay mới hoặc mất máy? Vì an toàn, chỉ quản trị viên mới duyệt lại được.'))
@@ -259,6 +269,8 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
             : switch (needs) {
                 'enroll' => (Icons.fingerprint_rounded, const Color(0xFF14B8A6), tr('Đăng ký passkey cho máy này'),
                     tr('Công ty yêu cầu mỗi điện thoại có passkey. Chỉ cần xác nhận bằng Face ID, vân tay hoặc mã mở máy.')),
+                'desktop' => (Icons.laptop_mac_rounded, pal.accent, tr('Máy tính không cần passkey'),
+                    tr('Passkey chỉ dùng trên điện thoại (iPhone / Android). Máy tính này dùng bình thường, không phải đăng ký.')),
                 'approve' => (Icons.verified_user_outlined, pal.accent, tr('Máy này cần được duyệt'),
                     _keyOk
                         ? tr('Passkey đã tạo. Để chắc chắn là bạn, hãy duyệt máy này trên một điện thoại khác đã dùng passkey (bấm đúng số + vân tay).')
@@ -307,8 +319,19 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
                     Text(_error!, key: const ValueKey('passkey-error'), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFFF6B6B))),
                   ],
                   const SizedBox(height: 28),
-                  if (_help) ...[
-                    FilledButton(onPressed: () => setState(() => _help = false), child: Text(tr('Thử lại'))),
+                  if (needs == 'desktop' && !_help) ...[
+                    if (widget.dismissible) FilledButton(onPressed: () => Navigator.of(context).maybePop(), child: Text(tr('Đóng'))),
+                  ] else if (_help) ...[
+                    // Đường thoát: xin duyệt (điện thoại đã duyệt khác, hoặc báo cần quản trị viên) thay vì kẹt ở Xác thực.
+                    FilledButton(
+                        onPressed: _busy
+                            ? null
+                            : () {
+                                setState(() => _help = false);
+                                _requestApproval();
+                              },
+                        child: Text(tr('Xin duyệt lại máy này'))),
+                    TextButton(onPressed: () => setState(() => _help = false), child: Text(tr('Thử lại'))),
                   ] else if (_needAdmin) ...[
                     FilledButton(onPressed: _busy ? null : _recheck, child: Text(tr('Kiểm tra lại'))),
                   ] else if (code == null)
@@ -331,7 +354,7 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
                       }),
                     ),
                   const SizedBox(height: 8),
-                  if (!_help) TextButton(onPressed: () => setState(() => _help = true), child: Text(tr('Không xác thực được?'))),
+                  if (!_help && needs != 'desktop') TextButton(onPressed: () => setState(() => _help = true), child: Text(tr('Không xác thực được?'))),
                   if (!widget.dismissible) TextButton(onPressed: widget.onLogout, child: Text(tr('Đăng xuất'))),
                 ]),
               ),
