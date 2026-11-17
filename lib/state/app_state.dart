@@ -3269,8 +3269,12 @@ class AppState extends ChangeNotifier {
 
   /// Kiểu dùng khi gửi tin vào [channelId], theo thứ tự: lựa chọn riêng của chat → mặc định chung của mình →
   /// mùa lễ hội đang chạy → bong bóng thường (null). Lựa chọn "Mặc định" (kiểu rỗng) ở bước nào cũng dừng tại đó.
+  /// Lớp nào được dùng (đặt từ cấu hình Giao diện của công ty): lựa chọn từng chat, mặc định riêng của mình.
+  ({bool perChat, bool own}) Function()? bubbleRules;
+
   BubbleChoice? resolveBubble(String channelId) {
-    final c = bubbles[channelId] ?? bubbles[kBubbleDefaultKey] ?? seasonBubble?.call(channelId);
+    final r = bubbleRules?.call() ?? (perChat: true, own: true);
+    final c = (r.perChat ? bubbles[channelId] : null) ?? (r.own ? bubbles[kBubbleDefaultKey] : null) ?? seasonBubble?.call(channelId);
     return c == null || c.style.isEmpty ? null : c;
   }
 

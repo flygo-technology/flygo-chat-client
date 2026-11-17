@@ -50,6 +50,19 @@ class SeasonState extends ChangeNotifier {
   bool get available => org != null;
   bool get canAdmin => org?['can_admin'] == true;
 
+  /// Chế độ của người dùng: mặc định "Theo cài đặt admin" (mọi thứ theo Quản trị › Giao diện, đồng bộ mọi máy);
+  /// `mine.mode == 'custom'` = "Cài riêng" (lựa chọn riêng trong `flygo_season/me` có hiệu lực).
+  bool get custom => mine['mode'] == 'custom';
+
+  /// Lựa chọn riêng đang có hiệu lực (rỗng khi theo cài đặt admin).
+  Map<String, dynamic> get own => custom ? mine : const {};
+
+  /// Cấu hình giao diện chung của công ty (`cfg.defaults`).
+  Map get companyDefaults => (cfg['defaults'] as Map?) ?? const {};
+
+  /// Nhân viên được tự đổi giao diện từng chat (bong bóng, hình nền riêng): công tắc của admin, mặc định bật.
+  bool get allowChatCustom => companyDefaults['allow_chat_custom'] != false;
+
   /// "Xem thử" của quản trị viên: hiện mùa này trên các máy của mình, bất kể ngày và công ty đã bật hay chưa.
   String? get preview => canAdmin && mine['preview'] is String ? mine['preview'] as String : null;
 
@@ -58,6 +71,8 @@ class SeasonState extends ChangeNotifier {
     _app = state;
     // Lớp "mùa lễ" trong thứ tự bong bóng: chat riêng → mặc định của mình → mùa lễ → thường (AppState.resolveBubble).
     state.seasonBubble = (_) => seasonBubble(state.me?.id ?? '');
+    // Theo cài đặt admin: bỏ qua bong bóng mặc định riêng; admin tắt "tự đổi giao diện chat": bỏ qua lựa chọn từng chat.
+    state.bubbleRules = () => (perChat: allowChatCustom, own: custom);
     await _restoreCache();
     final raw = await state.loadPrefCategory(kSeasonPref);
     mine = _decode(raw['me']);
@@ -66,7 +81,8 @@ class SeasonState extends ChangeNotifier {
     await refresh();
     _timer?.cancel();
     // Khung ngày tính ở máy (qua nửa đêm tự bật / tắt); tải lại cài đặt công ty vài giờ một lần.
-    _timer = Timer.periodic(const Duration(hours: 3), (_) => refresh());
+    // Admin đổi giao diện là mọi máy cập nhật: tải lại cài đặt công ty mỗi 2 phút (GET rất nhẹ).
+    _timer = Timer.periodic(const Duration(minutes: 2), (_) => refresh());
   }
 
   void clear() {
@@ -190,13 +206,13 @@ class SeasonState extends ChangeNotifier {
   /// Phần [feature] của mùa đang diễn ra có bật không: công ty bật sẵn + mình không tắt.
   bool on(String feature, [DateTime? now]) {
     final s = activeSeason(now);
-    if (s == null || mine['off'] == true) return false;
+    if (s == null || own['off'] == true) return false;
     if (((cfg['seasons'] as Map?)?[s] as Map?)?['features']?[feature] == false) return false;
-    return mine[feature] != false;
+    return own[feature] != false;
   }
 
   /// "Hiệu ứng động": tuyết rơi, đèn nhấp nháy (không tính hiệu ứng một lần khi có lời chúc).
-  bool get motion => mine['motion'] != false;
+  bool get motion => own['motion'] != false;
 
   /// Mũ Noel cho ảnh đại diện của [user]: chỉ tháng 12, mình bật xem mũ, chủ ảnh không tắt.
   bool hatFor(Map<String, dynamic>? userRaw, double size) {
@@ -239,15 +255,17 @@ class SeasonState extends ChangeNotifier {
 
   // ---------------------------------------------------------------- hình nền
   /// Lựa chọn riêng của chat (null = theo mặc định).
-  String? wallpaperOf(String channelId) => wallpapers[channelId];
-  String? get wallpaperDefault => wallpapers[kDefaultKey];
+  String? wallpaperOf(String channelId) => allowChatCustom ? wallpapers[channelId] : null;
+  /// Hình nền chat mặc định của mình (chỉ khi "Cài riêng").
+  String? get wallpaperDefault => custom ? wallpapers[kDefaultKey] : null;
 
   /// Hình nền thật dùng cho [channelId]: riêng của chat → mặc định của mình → mùa lễ đang diễn ra (hình nền mùa do quản trị
   /// chọn) → mặc định của công ty. Trả về null = nền chat thường.
   WallpaperChoice? resolveWallpaper(String channelId, bool dark) {
     if (!available) return null;
-    final key = wallpapers.containsKey(channelId) ? channelId : kDefaultKey;
-    final id = wallpapers[channelId] ?? wallpapers[kDefaultKey] ?? 'season';
+    final chat = wallpaperOf(channelId);
+    final key = chat != null ? channelId : kDefaultKey;
+    final id = chat ?? wallpaperDefault ?? (companyDefaults['wallpaper'] as String?) ?? 'season';
     if (id == 'season') return _seasonWallpaper(dark);
     return _choice(id, key);
   }
@@ -262,8 +280,7 @@ class SeasonState extends ChangeNotifier {
       final art = wallpaperById(w) ?? wallpaperById(s);
       return art == null ? null : WallpaperChoice(art);
     }
-    final d = (cfg['defaults'] as Map?)?['wallpaper'] as String?;
-    return d == null || d == 'season' ? null : _choice(d, kDefaultKey);
+    return null;
   }
 
   WallpaperChoice? _choice(String id, String key) {
@@ -277,23 +294,21 @@ class SeasonState extends ChangeNotifier {
     return w == null ? null : WallpaperChoice(w);
   }
 
-  /// "Màu nền" Trang chủ (danh sách ứng dụng), lưu ở `flygo_season/me`:
-  /// - `home_bg`: `season` (theo mùa lễ: nền Giáng sinh trong mùa, ngoài mùa dùng `home_color`), `none`, `plain:RRGGBB`,
-  ///   hoặc mã một nền Giáng sinh (luôn hiện);
-  /// - `home_color`: màu dùng ngoài mùa lễ khi chọn "Theo mùa lễ".
-  /// Chưa chọn: mặc định của công ty (`defaults.home_bg`), rồi `season`.
-  String get homeBgId => (mine['home_bg'] as String?) ?? ((cfg['defaults'] as Map?)?['home_bg'] as String?) ?? 'season';
+  /// Nền Trang chủ (danh sách ứng dụng) của điện thoại / máy tính: `season` | `none` | `plain:RRGGBB` | mã hình nền.
+  /// Theo cài đặt admin: `defaults.home_bg_phone` / `home_bg_desktop` (mặc định điện thoại theo mùa lễ, máy tính không nền);
+  /// Cài riêng: `mine.home_bg_phone` / `home_bg_desktop` nếu đã chọn.
+  String homeBgId({required bool desktop}) {
+    final k = desktop ? 'home_bg_desktop' : 'home_bg_phone';
+    return (own[k] as String?) ?? (companyDefaults[k] as String?) ?? (desktop ? 'none' : (companyDefaults['home_bg'] as String?) ?? 'season');
+  }
 
-  /// Nền Trang chủ đang dùng (null = nền thường của app).
-  WallpaperChoice? homeChoice() {
-    final id = homeBgId;
+  /// Nền Trang chủ đang dùng (null = nền thường của app). "Theo mùa lễ" ngoài mùa = không nền.
+  WallpaperChoice? homeChoice({required bool desktop}) {
+    final id = homeBgId(desktop: desktop);
     if (id == 'none') return null;
     if (id == 'season') {
-      if (available && activeSeason() == 'giangsinh' && on('wallpaper')) {
-        final d = (cfg['defaults'] as Map?)?['home_bg'] as String?;
-        return WallpaperChoice(wallpaperById(d != null && wallpaperById(d) != null ? d : 'giangsinh')!);
-      }
-      return _plain(mine['home_color'] as String?);
+      if (available && activeSeason() == 'giangsinh' && on('wallpaper')) return WallpaperChoice(wallpaperById('giangsinh')!);
+      return null;
     }
     if (id.startsWith('plain:')) return _plain(id.substring(6));
     final art = wallpaperById(id);
@@ -309,11 +324,14 @@ class SeasonState extends ChangeNotifier {
   /// quản trị tắt bong bóng mùa.
   BubbleChoice? seasonBubble(String userId) {
     final s = activeSeason();
-    if (s == null || mine['off'] == true || userId.isEmpty) return null;
+    // Ngoài mùa / mình tắt mùa lễ: bong bóng mặc định của công ty (nếu admin đặt).
+    final def = companyDefaults['bubble'] as Map?;
+    final company = def == null ? null : BubbleChoice.fromJson(def);
+    if (s == null || own['off'] == true || userId.isEmpty) return company;
     final b = ((cfg['seasons'] as Map?)?[s] as Map?)?['bubble'] as Map?;
     final mode = b?['mode'] ?? 'random';
-    if (mode == 'off') return null;
-    return bubbleSeasonPick(s, userId, style: mode == 'one' ? b!['style'] as String? : null);
+    if (mode == 'off') return company;
+    return bubbleSeasonPick(s, userId, style: mode == 'one' ? b!['style'] as String? : null) ?? company;
   }
 
   /// "Áp dụng cho mọi chat": bỏ hình nền riêng của mọi chat (giữ mặc định của mình).

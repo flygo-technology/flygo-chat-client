@@ -9,8 +9,7 @@ import '../app_route.dart';
 import '../bubble_picker.dart';
 import '../bubble_styles.dart';
 import '../theme.dart';
-import 'chat_appearance.dart';
-import 'chat_wallpaper.dart' show ChatWallpaperArt;
+import 'appearance_widgets.dart';
 import 'season.dart';
 import 'season_state.dart';
 import '../app_shell.dart';
@@ -23,38 +22,12 @@ Future<void> openAppearance(BuildContext context) =>
 Future<void> openAppearanceAdmin(BuildContext context) =>
     AppHost.of(context).open(key: 'admin:appearance', title: tr('Quản trị Giao diện'), builder: (_) => const AppearanceAdminPage());
 
-Widget _group(BuildContext context, List<Widget> c, {String? title}) {
-  final pal = Pal.of(context);
-  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    if (title != null)
-      Padding(
-        padding: const EdgeInsets.fromLTRB(28, 6, 16, 6),
-        child: Text(title.toUpperCase(), style: TextStyle(fontSize: 12, letterSpacing: .4, fontWeight: FontWeight.w700, color: pal.sub)),
-      ),
-    Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-      child: Material(color: pal.surface, borderRadius: BorderRadius.circular(14), clipBehavior: Clip.antiAlias, child: Column(children: c)),
-    ),
-  ]);
-}
-
-Widget _sw(BuildContext context, IconData i, String title, String? sub, bool v, ValueChanged<bool>? onChanged) {
-  final pal = Pal.of(context);
-  return SwitchListTile(
-    value: v,
-    onChanged: onChanged,
-    secondary: Icon(i, color: pal.accent),
-    title: Text(title, style: TextStyle(fontSize: 15, color: pal.text)),
-    subtitle: sub == null ? null : Text(sub, style: TextStyle(fontSize: 12.5, color: pal.sub)),
-  );
-}
-
 Widget _div(BuildContext context, [double indent = 56]) => Divider(height: 1, color: Pal.of(context).divider, indent: indent);
 
 String _dm(String ymd) => ymd.length >= 10 ? '${ymd.substring(8, 10)}/${ymd.substring(5, 7)}' : ymd;
 
-/// "Giao diện" của mình (Cài đặt › Giao diện cho mọi người, và ô Giao diện ở Cá nhân): mùa lễ đang diễn ra, công tắc
-/// "Dùng giao diện mùa lễ" + từng phần, bong bóng / hình nền mặc định, "Áp dụng cho mọi chat".
+/// "Giao diện" của mình (Cá nhân › Giao diện, Cài đặt › Giao diện): "Theo cài đặt admin" (mặc định, mọi thứ theo
+/// Quản trị › Giao diện, đồng bộ mọi máy) hoặc "Cài riêng" (nền Trang chủ, mùa lễ, chat của riêng mình).
 class AppearancePage extends StatelessWidget {
   const AppearancePage({super.key});
 
@@ -66,129 +39,106 @@ class AppearancePage extends StatelessWidget {
       listenable: s,
       builder: (context, _) {
         final pal = Pal.of(context);
+        final custom = s.custom;
         final active = s.activeSeason();
-        final win = active == null ? null : s.windowOf(active);
         final seasonName = {for (final x in seasons) x.id: x.name}[active] ?? active;
-        final seasonPick = active == null ? null : s.seasonBubble(app.me?.id ?? '');
-        final useSeason = s.mine['off'] != true;
-        final def = app.bubbleDefault;
-        final bubbleLabel = def == null
-            ? (seasonPick != null && useSeason ? tr('Theo mùa lễ ({0})', [seasonPick.def?.name ?? '']) : tr('Mặc định'))
-            : def.style == 'none' || def.style.isEmpty
-                ? tr('Bong bóng thường')
-                : def.def?.name ?? tr('Mặc định');
-        final wpLabel = _wallpaperName(s.wallpaperDefault ?? 'season');
-        Widget sub(String title, String? subtitle, bool v, ValueChanged<bool> on) => SwitchListTile(
-              value: v && useSeason,
-              onChanged: useSeason ? on : null,
-              contentPadding: const EdgeInsets.only(left: 56, right: 12),
+        Widget sw(String title, String? sub, bool v, ValueChanged<bool> on) => SwitchListTile(
+              value: v,
+              onChanged: on,
+              dense: true,
               title: Text(title, style: TextStyle(fontSize: 14.5, color: pal.text)),
-              subtitle: subtitle == null ? null : Text(subtitle, style: TextStyle(fontSize: 12.5, color: pal.sub)),
+              subtitle: sub == null ? null : Text(sub, style: TextStyle(fontSize: 12, color: pal.sub)),
             );
-        Widget nav(IconData i, String title, String value, VoidCallback onTap) => ListTile(
-              leading: Icon(i, color: pal.accent),
-              title: Text(title, style: TextStyle(fontSize: 15, color: pal.text)),
-              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 150),
-                    child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: pal.sub))),
-                Icon(Icons.chevron_right_rounded, color: pal.sub),
+        final def = app.bubbleDefault;
+        final seasonPick = s.seasonBubble(app.me?.id ?? '');
+        final sections = <Widget>[
+          SectionCard(title: tr('Nền Trang chủ'), icon: Icons.space_dashboard_outlined, children: [
+            subHead(context, tr('Điện thoại')),
+            BackgroundPicker(
+                value: s.homeBgId(desktop: false), arts: homeBackgroundIds, onChanged: (v) => s.setMine('home_bg_phone', v)),
+            subHead(context, tr('Máy tính')),
+            BackgroundPicker(
+                value: s.homeBgId(desktop: true), arts: homeBackgroundIds, onChanged: (v) => s.setMine('home_bg_desktop', v)),
+          ]),
+          SectionCard(
+              title: tr('Mùa lễ hội'),
+              icon: Icons.celebration_outlined,
+              subtitle: active == null ? tr('Hiện không có mùa lễ nào') : tr('Đang có: {0}', [seasonName!]),
+              children: [
+                sw(tr('Dùng giao diện mùa lễ'), tr('Tắt để giữ giao diện thường'), s.own['off'] != true, (v) => s.setMine('off', !v)),
+                sw(tr('Dải cây thông trên khung chat'), null, s.own['lights'] != false, (v) => s.setMine('lights', v)),
+                sw(tr('Hiện mũ Noel của mọi người'), null, s.own['hats'] != false, (v) => s.setMine('hats', v)),
+                sw(tr('Đội mũ cho ảnh của mình'), tr('Tắt thì mọi người thấy ảnh mình không mũ'), s.myHat, (v) => s.setMyHat(v)),
+                sw(tr('Hiệu ứng khi có lời chúc'), null, s.own['effect'] != false, (v) => s.setMine('effect', v)),
+                sw(tr('Banner ở Trang chủ'), null, s.own['banner'] != false, (v) => s.setMine('banner', v)),
+                sw(tr('Hiệu ứng động'), tr('Tự tắt khi máy bật giảm chuyển động'), s.motion, (v) => s.setMine('motion', v)),
               ]),
-              onTap: onTap,
-            );
+          SectionCard(title: tr('Chat'), icon: Icons.chat_bubble_outline_rounded, children: [
+            subHead(context, tr('Hình nền chat mặc định')),
+            BackgroundPicker(
+              value: s.wallpaperDefault ?? 'season',
+              arts: [for (final w in wallpapers) w.id],
+              onChanged: (v) => s.setWallpaper(SeasonState.kDefaultKey, v == 'season' ? null : v),
+            ),
+            subHead(context, tr('Bong bóng mặc định')),
+            ListTile(
+              dense: true,
+              title: Text(def == null ? tr('Theo công ty / mùa lễ') : def.def?.name ?? tr('Bong bóng thường'),
+                  style: TextStyle(fontSize: 14.5, color: pal.text)),
+              trailing: Icon(Icons.chevron_right_rounded, color: pal.sub),
+              onTap: () async {
+                final c = await Navigator.of(context).push<BubbleChoice>(AppPageRoute(
+                  builder: (_) => BubblePickerPage(current: def, allowInherit: true, inherited: seasonPick, defaultFill: Pal.of(context).outBubble),
+                ));
+                if (c != null) await app.setBubble(kBubbleDefaultKey, c);
+              },
+            ),
+            if (s.allowChatCustom)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await Future.wait([app.clearChatBubbles(), s.clearChatWallpapers()]);
+                    messenger.showSnackBar(toast(Text(tr('Mọi chat đã dùng giao diện mặc định'))));
+                  },
+                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                  label: Text(tr('Áp dụng cho mọi chat')),
+                ),
+              ),
+          ]),
+        ];
         return Scaffold(
           backgroundColor: pal.bg,
           appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Giao diện'))),
           body: ListView(padding: const EdgeInsets.only(bottom: 30), children: [
-            _group(context, [
-              if (active != null)
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                  decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF13285A), Color(0xFF0B1838)])),
-                  child: Row(children: [
-                    const Icon(Icons.park_rounded, color: Color(0xFFE9B949), size: 26),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(s.preview != null ? tr('Đang xem thử: {0}', [seasonName!]) : tr('{0} đang diễn ra', [seasonName!]),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
-                        const SizedBox(height: 2),
-                        Text(
-                            s.preview != null
-                                ? tr('Chỉ mình thấy, nhân viên không thấy')
-                                : tr('Tới {0}, sau đó tự trở lại như cũ', [win == null ? '' : _dm(win.end)]),
-                            style: const TextStyle(color: Color(0xFFB9C6E0), fontSize: 12.5)),
-                      ]),
-                    ),
-                    if (seasonPick?.def != null)
-                      StyledBubble(
-                        style: seasonPick!.def,
-                        fill: seasonPick.fill,
-                        scale: .7,
-                        padding: const EdgeInsets.fromLTRB(9, 4, 9, 4),
-                        child: Text('Aa', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: bubbleTextOn(seasonPick.fill))),
-                      ),
-                  ]),
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  child: SegmentedButton<bool>(
+                    showSelectedIcon: false,
+                    segments: [
+                      ButtonSegment(value: false, icon: const Icon(Icons.business_rounded), label: Text(tr('Theo cài đặt admin'))),
+                      ButtonSegment(value: true, icon: const Icon(Icons.person_outline_rounded), label: Text(tr('Cài riêng'))),
+                    ],
+                    selected: {custom},
+                    onSelectionChanged: (v) => s.setMine('mode', v.first ? 'custom' : null),
+                  ),
                 ),
-              _sw(
-                  context,
-                  Icons.celebration_outlined,
-                  tr('Dùng giao diện mùa lễ'),
-                  active == null
-                      ? tr('Khi công ty bật mùa lễ, bong bóng và hình nền mùa lễ tự áp cho mọi chat. Tắt để giữ giao diện thường.')
-                      : tr('Bong bóng và hình nền mùa lễ cho mọi chat. Tắt để giữ giao diện thường.'),
-                  useSeason,
-                  (v) => s.setMine('off', !v)),
-              _div(context),
-              sub(tr('Dải cây thông trên khung chat'), null, s.mine['lights'] != false, (v) => s.setMine('lights', v)),
-              _div(context),
-              sub(tr('Hiện mũ Noel của mọi người'), tr('Chỉ trên máy của mình'), s.mine['hats'] != false, (v) => s.setMine('hats', v)),
-              _div(context),
-              sub(tr('Đội mũ cho ảnh của mình'), tr('Tắt thì mọi người thấy ảnh mình không có mũ'), s.myHat, (v) => s.setMyHat(v)),
-              _div(context),
-              sub(tr('Hiệu ứng khi có lời chúc'), null, s.mine['effect'] != false, (v) => s.setMine('effect', v)),
-              _div(context),
-              sub(tr('Banner ở Trang chủ'), null, s.mine['banner'] != false, (v) => s.setMine('banner', v)),
-              _div(context, 16),
-              nav(Icons.chat_bubble_outline_rounded, tr('Bong bóng mặc định'), bubbleLabel, () async {
-                final c = await Navigator.of(context).push<BubbleChoice>(AppPageRoute(
-                  builder: (_) => BubblePickerPage(current: app.bubbleDefault, allowInherit: true, inherited: seasonPick, defaultFill: Pal.of(context).outBubble),
-                ));
-                if (c != null) await app.setBubble(kBubbleDefaultKey, c);
-              }),
-              _div(context),
-              nav(Icons.format_color_fill_rounded, tr('Màu nền Trang chủ'), _homeBgName(s), () => Navigator.of(context).push(AppPageRoute(builder: (_) => const HomeBackgroundPage()))),
-              _div(context),
-              nav(Icons.wallpaper_rounded, tr('Hình nền chat mặc định'), wpLabel, () => Navigator.of(context).push(AppPageRoute(
-                    builder: (ctx) => Scaffold(
-                      backgroundColor: Pal.of(ctx).bg,
-                      appBar: AppBar(backgroundColor: Pal.of(ctx).bg, surfaceTintColor: Colors.transparent, title: Text(tr('Hình nền mặc định'))),
-                      body: const WallpaperPickerBody(prefKey: SeasonState.kDefaultKey, switches: false),
-                    ),
-                  ))),
-            ]),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
-              child: Text(tr('Chat nào đã chọn riêng bong bóng / hình nền thì giữ lựa chọn đó. "Áp dụng cho mọi chat" bỏ các lựa chọn riêng ấy.'),
-                  style: TextStyle(fontSize: 12.5, color: pal.sub, height: 1.35)),
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  await Future.wait([app.clearChatBubbles(), s.clearChatWallpapers()]);
-                  messenger.showSnackBar(toast(Text(tr('Mọi chat đã dùng giao diện mặc định'))));
-                },
-                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 13)),
-                icon: const Icon(Icons.restart_alt_rounded),
-                label: Text(tr('Áp dụng cho mọi chat'), style: const TextStyle(fontWeight: FontWeight.w600)),
-              ),
+              child: Text(
+                  custom
+                      ? tr('Lựa chọn riêng của bạn có hiệu lực trên mọi máy của bạn. Chọn lại "Theo cài đặt admin" để trở về giao diện của công ty.')
+                      : tr('Nền Trang chủ, mùa lễ và giao diện chat theo cài đặt của công ty (Quản trị › Giao diện), tự đồng bộ mọi máy.'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
             ),
-            _group(context, title: tr('Chuyển động'), [
-              _sw(context, Icons.animation_rounded, tr('Hiệu ứng động'), tr('Tuyết rơi trên hình nền. Tự tắt khi máy bật giảm chuyển động.'), s.motion,
-                  (v) => s.setMine('motion', v)),
-            ]),
+            if (custom) SectionGrid(children: sections),
           ]),
         );
       },
@@ -196,14 +146,6 @@ class AppearancePage extends StatelessWidget {
   }
 }
 
-String _wallpaperName(String id) => switch (id) {
-      'season' => tr('Theo mùa lễ'),
-      'none' => tr('Không'),
-      'off' => tr('Không'),
-      'photo' => tr('Ảnh của mình'),
-      _ when id.startsWith('plain:') => tr('Màu trơn'),
-      _ => wallpaperById(id)?.name ?? id,
-    };
 
 /// Trang quản trị Giao diện: mùa lễ của công ty, phần bật sẵn, hiệu ứng lời chúc, mặc định của công ty.
 class AppearanceAdminPage extends StatefulWidget {
@@ -500,9 +442,9 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
               : '${_dm(w.start)} – ${_dm(w.end)} (${tr('âm lịch')})';
       final (color, icon) = look[def.id] ?? (pal.accent, Icons.celebration_rounded);
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
         child: Material(
-          color: pal.surface,
+          color: pal.surface2.withValues(alpha: .5),
           borderRadius: BorderRadius.circular(14),
           clipBehavior: Clip.antiAlias,
           child: Container(
@@ -560,26 +502,86 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
     final kws = (eff['keywords'] as List);
     final defaults = (cfg['defaults'] as Map).cast<String, dynamic>();
     const fxNames = {'snow': 'Tuyết', 'gifts': 'Quà', 'mix': 'Trộn'};
-    return ListView(padding: const EdgeInsets.only(bottom: 30), children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        child: Text(
-            tr('Bật một lần, áp dụng cho cả công ty: đến ngày tự bật, hết ngày tự tắt, năm sau lặp lại. Mỗi người vẫn tự tắt được trong app Giao diện của mình.'),
-            style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
-      ),
-      if (admin)
-        _group(context, [
-          SwitchListTile(
-            value: s.preview != null,
-            onChanged: (v) => s.setMine('preview', v ? 'giangsinh' : null),
-            secondary: Icon(Icons.visibility_outlined, color: pal.accent),
-            title: Text(tr('Xem thử Giáng sinh'), style: TextStyle(fontSize: 15, color: pal.text)),
-            subtitle: Text(tr('Chỉ mình thấy, trên mọi máy của mình, bất kể ngày. Nhân viên không thấy gì.'),
-                style: TextStyle(fontSize: 12.5, color: pal.sub)),
+    final sections = <Widget>[
+      SectionCard(
+        title: tr('Nền Trang chủ'),
+        icon: Icons.space_dashboard_outlined,
+        subtitle: tr('Áp dụng cho mọi người đang "Theo cài đặt admin".'),
+        children: [
+          subHead(context, tr('Điện thoại')),
+          BackgroundPicker(
+            value: (defaults['home_bg_phone'] as String?) ?? (defaults['home_bg'] as String?) ?? 'season',
+            arts: homeBackgroundIds,
+            onChanged: admin ? (v) => _edit(() => defaults['home_bg_phone'] = v) : null,
           ),
-        ]),
-      for (final def in seasons) seasonCard(def),
-      _group(context, title: tr('Hiệu ứng lời chúc'), [
+          subHead(context, tr('Máy tính')),
+          BackgroundPicker(
+            value: (defaults['home_bg_desktop'] as String?) ?? 'none',
+            arts: homeBackgroundIds,
+            onChanged: admin ? (v) => _edit(() => defaults['home_bg_desktop'] = v) : null,
+          ),
+        ],
+      ),
+      SectionCard(
+        title: tr('Mùa lễ'),
+        icon: Icons.celebration_outlined,
+        subtitle: tr('Bật một lần: đến ngày tự bật, hết ngày tự tắt, năm sau lặp lại.'),
+        children: [
+          if (admin)
+            SwitchListTile(
+              value: s.preview != null,
+              onChanged: (v) => s.setMine('preview', v ? 'giangsinh' : null),
+              dense: true,
+              secondary: Icon(Icons.visibility_outlined, color: pal.accent),
+              title: Text(tr('Xem thử Giáng sinh'), style: TextStyle(fontSize: 14.5, color: pal.text)),
+              subtitle: Text(tr('Chỉ mình thấy, bất kể ngày'), style: TextStyle(fontSize: 12, color: pal.sub)),
+            ),
+          const SizedBox(height: 6),
+          for (final def in seasons) seasonCard(def),
+        ],
+      ),
+      SectionCard(
+        title: tr('Chat'),
+        icon: Icons.chat_bubble_outline_rounded,
+        children: [
+          subHead(context, tr('Hình nền chat mặc định')),
+          BackgroundPicker(
+            value: (defaults['wallpaper'] as String?) ?? 'season',
+            arts: [for (final w in wallpapers) w.id],
+            onChanged: admin ? (v) => _edit(() => defaults['wallpaper'] = v == 'season' ? null : v) : null,
+          ),
+          subHead(context, tr('Bong bóng mặc định')),
+        ListTile(
+          title: Text(tr('Bong bóng'), style: TextStyle(fontSize: 15, color: pal.text)),
+          subtitle: Text(tr('Người chưa tự chọn sẽ dùng kiểu này'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(bubbleStyleById('${(defaults['bubble'] as Map?)?['s'] ?? ''}')?.name ?? tr('Của app'), style: TextStyle(color: pal.sub)),
+            Icon(Icons.chevron_right_rounded, color: pal.sub),
+          ]),
+          onTap: !admin
+              ? null
+              : () async {
+                  final b = defaults['bubble'] as Map?;
+                  final cur = b == null ? null : BubbleChoice.fromJson(b);
+                  final c = await Navigator.of(context).push<BubbleChoice>(AppPageRoute(
+                    builder: (_) => BubblePickerPage(current: cur, defaultFill: Pal.of(context).outBubble),
+                  ));
+                  if (c != null) _edit(() => defaults['bubble'] = c.style.isEmpty ? null : c.toJson());
+                },
+        ),
+          SwitchListTile(
+            value: defaults['allow_chat_custom'] != false,
+            onChanged: admin ? (v) => _edit(() => defaults['allow_chat_custom'] = v) : null,
+            dense: true,
+            title: Text(tr('Cho phép nhân viên tự đổi giao diện chat'), style: TextStyle(fontSize: 14.5, color: pal.text)),
+            subtitle: Text(tr('Bong bóng, hình nền riêng từng chat'), style: TextStyle(fontSize: 12, color: pal.sub)),
+          ),
+        ],
+      ),
+      SectionCard(
+        title: tr('Hiệu ứng lời chúc'),
+        icon: Icons.auto_awesome_rounded,
+        children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: SegmentedButton<String>(
@@ -615,216 +617,16 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
             title: Text(tr('Thêm từ khoá'), style: TextStyle(fontSize: 14.5, color: pal.accent, fontWeight: FontWeight.w600)),
             onTap: _addKeyword,
           ),
-      ]),
-      _group(context, title: tr('Mặc định của công ty (không bắt buộc)'), [
-        ListTile(
-          title: Text(tr('Bong bóng'), style: TextStyle(fontSize: 15, color: pal.text)),
-          subtitle: Text(tr('Người chưa tự chọn sẽ dùng kiểu này'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(bubbleStyleById('${(defaults['bubble'] as Map?)?['s'] ?? ''}')?.name ?? tr('Của app'), style: TextStyle(color: pal.sub)),
-            Icon(Icons.chevron_right_rounded, color: pal.sub),
-          ]),
-          onTap: !admin
-              ? null
-              : () async {
-                  final b = defaults['bubble'] as Map?;
-                  final cur = b == null ? null : BubbleChoice.fromJson(b);
-                  final c = await Navigator.of(context).push<BubbleChoice>(AppPageRoute(
-                    builder: (_) => BubblePickerPage(current: cur, defaultFill: Pal.of(context).outBubble),
-                  ));
-                  if (c != null) _edit(() => defaults['bubble'] = c.style.isEmpty ? null : c.toJson());
-                },
-        ),
-        _div(context, 16),
-        ListTile(
-          title: Text(tr('Hình nền'), style: TextStyle(fontSize: 15, color: pal.text)),
-          trailing: DropdownButton<String>(
-            value: (defaults['wallpaper'] as String?) ?? 'season',
-            underline: const SizedBox.shrink(),
-            items: [
-              for (final id in ['season', 'none', for (final w in wallpapers) w.id]) DropdownMenuItem(value: id, child: Text(_wallpaperName(id))),
-            ],
-            onChanged: admin ? (v) => _edit(() => defaults['wallpaper'] = v == 'season' ? null : v) : null,
-          ),
-        ),
-        _div(context, 16),
-        ListTile(
-          title: Text(tr('Màu nền Trang chủ'), style: TextStyle(fontSize: 15, color: pal.text)),
-          trailing: DropdownButton<String>(
-            value: homeBackgroundIds.contains(defaults['home_bg']) || defaults['home_bg'] == 'none' ? defaults['home_bg'] as String : 'season',
-            underline: const SizedBox.shrink(),
-            items: [
-              for (final id in ['season', ...homeBackgroundIds, 'none']) DropdownMenuItem(value: id, child: Text(_wallpaperName(id))),
-            ],
-            onChanged: admin ? (v) => _edit(() => defaults['home_bg'] = v == 'season' ? null : v) : null,
-          ),
-        ),
-      ]),
-    ]);
-  }
-}
-
-String _homeBgName(SeasonState s) {
-  final id = s.homeBgId;
-  return switch (id) {
-    'season' => tr('Theo mùa lễ'),
-    'none' => tr('Mặc định'),
-    _ when id.startsWith('plain:') => tr('Màu trơn'),
-    _ => _wallpaperName(id),
-  };
-}
-
-/// "Màu nền" Trang chủ: theo mùa lễ / màu trơn (tự đổi sáng / tối) / nền Giáng sinh. Gọn: xem trước nhỏ, ô màu nhỏ,
-/// ảnh nền vuông nhỏ, tối đa ~720 px trên máy tính (Sếp, 2026-11-17).
-class HomeBackgroundPage extends StatelessWidget {
-  const HomeBackgroundPage({super.key});
-
-  static const palette = ['4A78B8', '1E88E5', '0E9F8E', '2E8B6E', '6D8B74', 'B8860B', 'D4A373', 'C0504D', '9E4770', '8E5BB5', '5C6B7A', '37474F'];
-
-  @override
-  Widget build(BuildContext context) {
-    final s = SeasonState.instance;
-    return ListenableBuilder(
-      listenable: s,
-      builder: (context, _) {
-        final pal = Pal.of(context);
-        final id = s.homeBgId;
-        final auto = id == 'season';
-        final color = auto ? s.mine['home_color'] as String? : (id.startsWith('plain:') ? id.substring(6) : null);
-        void pickColor(String? hex) {
-          if (auto) {
-            s.setMine('home_color', hex);
-          } else {
-            s.setMine('home_bg', hex == null ? 'none' : 'plain:$hex');
-          }
-        }
-
-        Widget swatch(String? hex, {bool on = false}) => GestureDetector(
-              onTap: () => pickColor(hex),
-              child: Container(
-                width: 32,
-                height: 32,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 2.5 : 1)),
-                // Nửa trái: chế độ sáng, nửa phải: chế độ tối.
-                child: hex == null
-                    ? Container(color: pal.bg, child: Icon(Icons.block_rounded, size: 14, color: pal.sub))
-                    : Row(children: [
-                        for (final d in [false, true]) Expanded(child: Container(color: plainWallpaperColor(Color(0xFF000000 | int.parse(hex, radix: 16)), d))),
-                      ]),
-              ),
-            );
-        Widget art(String wid) {
-          final on = id == wid;
-          return SizedBox(
-            width: 80,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => s.setMine('home_bg', wid),
-              child: Column(children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  padding: EdgeInsets.all(on ? 2.5 : 1),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 2.5 : 1)),
-                  child: ClipRRect(borderRadius: BorderRadius.circular(9), child: WallpaperView(wallpaper: wallpaperById(wid)!, frozenT: 2)),
-                ),
-                const SizedBox(height: 4),
-                Text(_wallpaperName(wid), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text)),
-              ]),
-            ),
-          );
-        }
-
-        Widget head(String t) => Padding(
-              padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-              child: Text(t.toUpperCase(), style: TextStyle(fontSize: 12, letterSpacing: .4, fontWeight: FontWeight.w700, color: pal.sub)),
-            );
-        final choice = s.homeChoice();
-        // Xem trước nhỏ: nền + một hàng ô mẫu.
-        final preview = ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: SizedBox(
-            height: 120,
-            child: Stack(fit: StackFit.expand, children: [
-              if (choice != null) ChatWallpaperArt(choice: choice, motion: false) else ColoredBox(color: pal.bg),
-              DecoratedBox(decoration: BoxDecoration(border: Border.all(color: pal.divider), borderRadius: BorderRadius.circular(14))),
-              const Center(child: _PreviewRow()),
-            ]),
-          ),
-        );
-        return Scaffold(
-          backgroundColor: pal.bg,
-          appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Màu nền'))),
-          body: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 30), children: [
-                preview,
-                const SizedBox(height: 6),
-                Row(children: [
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(tr('Theo mùa lễ'), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: pal.text)),
-                      Text(tr('Trong mùa: nền Giáng sinh; ngoài mùa: màu bên dưới'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
-                    ]),
-                  ),
-                  Switch(value: auto, onChanged: (v) => s.setMine('home_bg', v ? 'season' : (color == null ? 'none' : 'plain:$color'))),
-                ]),
-                head(auto ? tr('Màu ngoài mùa lễ') : tr('Màu trơn')),
-                Wrap(spacing: 10, runSpacing: 10, children: [
-                  swatch(null, on: color == null && (auto || id == 'none')),
-                  for (final h in palette) swatch(h, on: color == h),
-                  GestureDetector(
-                    onTap: () async {
-                      final c = await pickBubbleColor(context, color == null ? const Color(0xFF4A78B8) : Color(0xFF000000 | int.parse(color, radix: 16)));
-                      if (c == null) return;
-                      pickColor((c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase());
-                    },
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: pal.divider)),
-                      child: Icon(Icons.colorize_rounded, color: pal.sub, size: 16),
-                    ),
-                  ),
-                ]),
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(tr('Mỗi màu tự có bản nhạt (sáng) và đậm (tối).'), style: TextStyle(fontSize: 12, color: pal.sub)),
-                ),
-                head(tr('Nền Giáng sinh')),
-                Wrap(spacing: 4, runSpacing: 10, children: [for (final w in homeBackgroundIds) art(w)]),
-              ]),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Hàng ô mẫu trong ô xem trước "Màu nền".
-class _PreviewRow extends StatelessWidget {
-  const _PreviewRow();
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    Widget t(IconData i, Color c, String l) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 40, height: 40, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(11)), child: Icon(i, color: Colors.white, size: 22)),
-            const SizedBox(height: 4),
-            Text(l, style: TextStyle(fontSize: 11, color: pal.text, shadows: [Shadow(color: pal.bg.withValues(alpha: .9), blurRadius: 6)])),
-          ]),
-        );
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      t(Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat'),
-      t(Icons.event_rounded, const Color(0xFF1E7BFF), tr('Lịch')),
-      t(Icons.videocam_rounded, const Color(0xFF0EA5E9), tr('Họp')),
-      t(Icons.settings_rounded, const Color(0xFF14A38B), tr('Cài đặt')),
+              ],
+      ),
+    ];
+    return ListView(padding: const EdgeInsets.only(bottom: 30, top: 4), children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Text(tr('Admin chỉnh ở đây là mọi máy của nhân viên tự cập nhật (trừ người chọn "Cài riêng" trong Giao diện của họ).'),
+            style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
+      ),
+      SectionGrid(children: sections),
     ]);
   }
 }

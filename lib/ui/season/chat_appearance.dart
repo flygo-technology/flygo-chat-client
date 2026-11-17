@@ -31,13 +31,15 @@ class ChatAppearancePage extends StatelessWidget {
     final pal = Pal.of(context);
     final ch = app.channels[channelId];
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final wall = SeasonState.instance.available;
+    final wall = SeasonState.instance.available && SeasonState.instance.allowChatCustom;
+    // Admin tắt "Cho phép nhân viên tự đổi giao diện chat": chỉ còn Màu chat (giao diện chung của kênh).
+    final bubbles = SeasonState.instance.allowChatCustom;
     Widget note(String t) => Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
           child: Text(t, style: TextStyle(fontSize: 13, color: pal.sub)),
         );
     return DefaultTabController(
-      length: wall ? 3 : 2,
+      length: 1 + (bubbles ? 1 : 0) + (wall ? 1 : 0),
       child: Scaffold(
         backgroundColor: pal.bg,
         appBar: AppBar(
@@ -46,7 +48,7 @@ class ChatAppearancePage extends StatelessWidget {
           title: Text(tr('Giao diện chat'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: pal.text)),
           bottom: TabBar(tabs: [
             Tab(text: tr('Màu chat')),
-            Tab(text: tr('Bong bóng')),
+            if (bubbles) Tab(text: tr('Bong bóng')),
             if (wall) Tab(text: tr('Hình nền')),
           ]),
         ),
@@ -60,6 +62,7 @@ class ChatAppearancePage extends StatelessWidget {
               ),
             ),
           ]),
+          if (bubbles)
           BubblePickerBody(
             current: app.bubbleFor(channelId),
             allowInherit: true,
@@ -67,7 +70,7 @@ class ChatAppearancePage extends StatelessWidget {
             defaultFill: chatThemeById(ch?.themeId)?.colors(dark).outBubble ?? pal.outBubble,
             onChanged: (c) => app.setBubble(channelId, c),
           ),
-          if (wall) WallpaperPickerBody(prefKey: channelId),
+          if (wall) WallpaperPickerBody(prefKey: channelId, switches: false),
         ]),
       ),
     );
