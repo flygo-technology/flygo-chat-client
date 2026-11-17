@@ -21,6 +21,50 @@ class TwProjectsView extends StatefulWidget {
 class _TwProjectsViewState extends State<TwProjectsView> {
   String _status = 'active';
   String _q = '';
+  List<TwProject>? _deleted;
+
+  Future<void> _openDeleted() async {
+    setState(() => _status = 'deleted');
+    try {
+      final l = await widget.store.api.deletedProjects();
+      if (mounted) setState(() => _deleted = l);
+    } catch (e) {
+      if (mounted) setState(() => _deleted = []);
+    }
+  }
+
+  Widget _deletedList(TwLook look) {
+    final l = _deleted;
+    if (l == null) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    if (l.isEmpty) return Center(child: Text('Không có dự án nào đã xoá', style: TextStyle(color: look.sub)));
+    return ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+      for (final p in l)
+        ListTile(
+          key: ValueKey('deleted-${p.key}'),
+          leading: ProjectBadge(p, size: 30),
+          title: Text(p.name),
+          subtitle: Text([p.key, if (p.deletedAt != null) 'xoá ${timeAgo(p.deletedAt!, widget.store.now)}'].join(' · ')),
+          trailing: p.myRole == 'owner'
+              ? TextButton.icon(
+                  key: ValueKey('restore-${p.key}'),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await widget.store.api.restoreProject(p.id);
+                      await widget.store.refresh();
+                      messenger.showSnackBar(SnackBar(content: Text('Đã khôi phục ${p.name}')));
+                      await _openDeleted();
+                    } catch (e) {
+                      messenger.showSnackBar(SnackBar(content: Text('$e')));
+                    }
+                  },
+                  icon: const Icon(Icons.restore, size: 18),
+                  label: const Text('Khôi phục'),
+                )
+              : Text(kRoleNames[p.myRole] ?? '', style: TextStyle(fontSize: 12, color: look.sub)),
+        ),
+    ]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +88,10 @@ class _TwProjectsViewState extends State<TwProjectsView> {
                 child: Text('${kProjectStatusNames[s]} · ${counts[s]}'),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TwPill(key: const ValueKey('pstatus-deleted'), set: _status == 'deleted', onTap: _openDeleted, child: const Text('Đã xoá')),
+          ),
           if (wide) ...[
             const SizedBox(width: 16),
             SizedBox(
@@ -67,7 +115,9 @@ class _TwProjectsViewState extends State<TwProjectsView> {
         ]),
       ),
       Expanded(
-        child: list.isEmpty
+        child: _status == 'deleted'
+            ? _deletedList(look)
+            : list.isEmpty
             ? Center(child: Text(widget.store.loaded ? 'Chưa có dự án nào ở mục này' : 'Đang tải…', style: TextStyle(color: look.sub)))
             : Builder(builder: (context) {
                 // 4 cột từ ~1400px cửa sổ, 3 cột ~1050px, 2 cột máy tính bảng, 1 cột điện thoại.

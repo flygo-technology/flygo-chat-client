@@ -173,13 +173,16 @@ class FakeTw {
   /// Thao tác của lượt chạy AI dự án (GET /api/runs/:id/actions).
   final actions = <String, List<Map<String, dynamic>>>{
     'r-pdone': [
-      {'id': 'a1', 'kind': 'task_create', 'summary': 'Tạo việc "Đào tạo đại lý miền Bắc (40 đại lý)" + 4 việc con', 'target': {'type': 'task', 'id': 't-70', 'key': 'RA-70', 'title': 'Đào tạo đại lý miền Bắc'}, 'at': twNow.millisecondsSinceEpoch - 3500000},
-      {'id': 'a2', 'kind': 'task_assign', 'summary': 'Giao RA-41 cho Thu, hạn 12/12', 'target': {'type': 'task', 'id': 't-41', 'key': 'RA-41', 'title': 'Viết tài liệu hướng dẫn đại lý'}, 'at': twNow.millisecondsSinceEpoch - 3400000},
-      {'id': 'a3', 'kind': 'task_update', 'summary': 'Dời hạn RA-71 sang 09/01', 'target': {'type': 'task', 'id': 't-71', 'key': 'RA-71', 'title': 'Đào tạo đại lý miền Nam'}, 'at': twNow.millisecondsSinceEpoch - 3300000},
-      {'id': 'a4', 'kind': 'member_remove', 'summary': 'Gỡ Quân khỏi dự án', 'severity': 'high', 'target': {'type': 'member', 'id': 'u-quan', 'title': 'Quân'}, 'at': twNow.millisecondsSinceEpoch - 3200000},
+      {'id': 'a1', 'run_id': 'r-pdone', 'op': 'task_create', 'undoable': true, 'summary': 'Tạo việc "Đào tạo đại lý miền Bắc (40 đại lý)" + 4 việc con', 'target': {'type': 'task', 'id': 't-70', 'key': 'RA-70', 'title': 'Đào tạo đại lý miền Bắc'}, 'at': twNow.millisecondsSinceEpoch - 3500000},
+      {'id': 'a2', 'run_id': 'r-pdone', 'op': 'task_assign', 'undoable': true, 'summary': 'Giao RA-41 cho Thu, hạn 12/12', 'target': {'type': 'task', 'id': 't-41', 'key': 'RA-41', 'title': 'Viết tài liệu hướng dẫn đại lý'}, 'at': twNow.millisecondsSinceEpoch - 3400000},
+      {'id': 'a3', 'run_id': 'r-pdone', 'op': 'task_update', 'undoable': true, 'summary': 'Dời hạn RA-71 sang 09/01', 'target': {'type': 'task', 'id': 't-71', 'key': 'RA-71', 'title': 'Đào tạo đại lý miền Nam'}, 'at': twNow.millisecondsSinceEpoch - 3300000},
+      {'id': 'a4', 'run_id': 'r-pdone', 'op': 'member_remove', 'undoable': true, 'summary': 'Gỡ Quân khỏi dự án', 'severity': 'high', 'target': {'type': 'member', 'id': 'u-quan', 'title': 'Quân'}, 'at': twNow.millisecondsSinceEpoch - 3200000},
     ],
   };
   final userOps = <Map<String, dynamic>>[];
+  final deleted = <Map<String, dynamic>>[
+    _p('p-old', 'WS', 'Website cũ', '#7C5CFF', 'cancelled', {'done': 3}, 'owner')..['deleted_at'] = twNow.millisecondsSinceEpoch - 2 * 86400000,
+  ];
   final userOpReports = <String, Map<String, dynamic>>{};
   /// Tiến độ lượt chạy (GET /api/runs/:id).
   final progress = <String, Map<String, dynamic>>{
@@ -405,7 +408,7 @@ class FakeTw {
 
         if (p == '/tw/api/me') return _ok({'user': {'id': 'u-lan', 'name': 'Lan', 'username': 'lan'}, 'bot_user_id': 'bot-tw', 'is_admin': false, 'prefs': {'dm': {'assigned': true, 'mention': true, 'comment': true, 'status': true, 'due': true, 'agent': true}}});
         if (p == '/tw/api/me/prefs') return _ok({'prefs': body});
-        if (p == '/tw/api/projects' && req.method == 'GET') return _ok({'projects': projects});
+        if (p == '/tw/api/projects' && req.method == 'GET') return _ok({'projects': q['deleted'] == '1' ? deleted : projects});
         if (p == '/tw/api/projects' && req.method == 'POST') {
           final n = _p('p-new', '${body['key']}', '${body['name']}', '${body['color']}', 'active', {}, 'owner');
           projects.add(n);
@@ -534,7 +537,14 @@ class FakeTw {
           if (r['claimed'] == true) return _ok({'error': 'lượt chạy đã được một máy khác nhận', 'code': 'claimed'}, 409);
           r['claimed'] = true;
           r['attest_owner'] = body['attest_owner'] == true;
-          return _ok({'run': r, 'brief': r['task_id'] == null ? 'BRIEF PROJECT ${r['project_id']}' : 'BRIEF ${task(r['task_id'] as String)['key']}', 'run_token': 'TOKEN-${r['id']}', if (r['task_id'] != null) 'task': {'id': r['task_id']}});
+          return _ok({
+            'run': r,
+            'brief': r['task_id'] == null ? 'BRIEF PROJECT ${r['project_id']}' : 'BRIEF ${task(r['task_id'] as String)['key']}',
+            'run_token': 'TOKEN-${r['id']}',
+            'task': r['task_id'] == null ? null : {'id': r['task_id']},
+            if (r['task_id'] == null) 'project': {'id': r['project_id'], 'key': 'RA', 'name': 'Ra mắt app bán hàng'},
+            if (r['thread_id'] != null) 'thread_id': r['thread_id'],
+          });
         }
         if ((x = m(r'/runs/([\w-]+)/cancel')) != null) return _ok({'run': {'id': x![1], 'state': 'cancelled'}});
         if ((x = m(r'/runs/([\w-]+)')) != null && req.method == 'GET') {
@@ -640,39 +650,52 @@ class FakeTw {
         // ---- AI của dự án
         if ((x = m(r'/projects/([\w-]+)/ai')) != null && req.method == 'POST') {
           final id = 'r-p${_seq++}';
-          final r = {'id': id, 'kind': 'project', 'project_id': x![1], 'bot_id': body['bot_id'], 'bot_name': body['bot_id'] == 'b-claude' ? 'Claude' : 'Codex', 'started_by': 'u-lan', 'state': 'queued'};
+          final r = {'id': id, 'kind': 'project', 'task_id': null, 'project_id': x![1], 'thread_id': body['thread_id'] ?? 'th-new', 'prompt': body['prompt'], 'action': body['action'], 'bot_id': body['bot_id'], 'bot_name': body['bot_id'] == 'b-claude' ? 'Claude' : 'Codex', 'started_by': 'u-lan', 'state': 'queued', 'created_at': twNow.millisecondsSinceEpoch};
           runs.add(r);
           progress[id] = {...r, 'state': 'running', 'progress': {'seq': 2, 'steps': [
             {'id': 'tw-mode', 'kind': 'approval', 'title': '🔓 Chạy không cần duyệt (chủ bot)', 'status': 'done', 'at': 1},
             {'id': 's1', 'kind': 'tool', 'title': 'Đọc 19 việc của dự án', 'status': 'running', 'at': 2},
           ]}, 'text': '## Tiến độ tuần 47\n- **23/54** việc xong…'};
-          return _ok({'run': r, 'thread_id': body['thread_id'] ?? 'th-new'});
+          return _ok({'run': r, 'thread': {'id': body['thread_id'] ?? 'th-new', 'project_id': x[1]}}, 201);
         }
         if ((x = m(r'/projects/([\w-]+)/ai/threads')) != null) {
           return _ok({'threads': [
-            {'id': 'th0', 'title': 'Kế hoạch giai đoạn 3', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'updated_at': twNow.millisecondsSinceEpoch - 3600000, 'turn_count': 1},
+            {'id': 'th0', 'project_id': 'p-ra', 'user': 'u-lan', 'title': 'Kế hoạch giai đoạn 3', 'created_at': twNow.millisecondsSinceEpoch - 7200000, 'updated_at': twNow.millisecondsSinceEpoch - 3600000, 'run_count': 1, 'last_run': {'id': 'r-pdone', 'state': 'review', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'action': 'plan'}},
           ]});
         }
         if ((x = m(r'/ai/threads/([\w-]+)')) != null) {
           return _ok({
-            'thread': {'id': x![1], 'title': 'Kế hoạch giai đoạn 3', 'bot_id': 'b-claude', 'bot_name': 'Claude'},
-            'turns': [
-              {'prompt': 'Lập kế hoạch giai đoạn 3 – Ra mắt: đào tạo đại lý miền Bắc + miền Nam, xong trước 15/01.', 'action': 'plan', 'at': twNow.millisecondsSinceEpoch - 3600000, 'run': {'id': 'r-pdone', 'kind': 'project', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review'}},
+            'thread': {'id': x![1], 'project_id': 'p-ra', 'user': 'u-lan', 'title': 'Kế hoạch giai đoạn 3', 'run_count': 2},
+            'runs': [
+              {...progress['r-pdone']!, 'actions': actions['r-pdone']},
+              {'id': 'r-pupd', 'kind': 'project', 'project_id': 'p-ra', 'thread_id': x[1], 'prompt': 'Soạn cập nhật cho nhóm', 'action': 'update', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'created_at': twNow.millisecondsSinceEpoch - 1800000},
             ],
           });
         }
         if ((x = m(r'/runs/([\w-]+)/actions')) != null) return _ok({'actions': actions[x![1]] ?? []});
-        if ((x = m(r'/actions/([\w-]+)/undo')) != null) {
-          if (x![1] == 'a3') return _ok({'error': 'RA-71 đã bị Minh sửa sau đó, không hoàn tác tự động được', 'code': 'conflict'}, 409);
-          final a = actions.values.expand((l) => l).firstWhere((a) => a['id'] == x![1]);
-          a['undone'] = true;
-          return _ok({'action': a});
+        if ((x = m(r'/runs/([\w-]+)/actions/([\w-]+)/undo')) != null) {
+          final a = actions[x![1]]!.firstWhere((a) => a['id'] == x![2]);
+          if (x[2] == 'a3') return _ok({'code': 'conflict', 'action': a}, 409);
+          a['undone_at'] = twNow.millisecondsSinceEpoch;
+          return _ok({'result': 'ok', 'action': a});
         }
         if ((x = m(r'/runs/([\w-]+)/undo')) != null) {
           for (final a in actions[x![1]] ?? <Map<String, dynamic>>[]) {
-            if (a['id'] != 'a3') a['undone'] = true;
+            if (a['id'] != 'a3') a['undone_at'] = twNow.millisecondsSinceEpoch;
           }
+          return _ok({'results': [for (final a in actions[x[1]] ?? []) {'id': a['id'], 'ok': a['id'] != 'a3', if (a['id'] == 'a3') 'conflict': true}], 'actions': actions[x[1]]});
+        }
+        if ((x = m(r'/projects/([\w-]+)/chat-channel')) != null) {
+          final pr = projects.firstWhere((pr) => pr['id'] == x![1]);
+          pr['chat_channel'] = req.method == 'DELETE' ? null : body;
           return _ok({'ok': true});
+        }
+        if ((x = m(r'/projects/([\w-]+)/chat-channel/post')) != null) return _ok({'ok': true, 'post_id': 'post1'});
+        if ((x = m(r'/projects/([\w-]+)/restore')) != null) {
+          final d = deleted.firstWhere((d) => d['id'] == x![1]);
+          deleted.remove(d);
+          projects.add(d..remove('deleted_at'));
+          return _ok({'project': d});
         }
         if (p == '/tw/api/user-ops') return _ok({'ops': userOps});
         if ((x = m(r'/user-ops/([\w-]+)')) != null) {
@@ -723,9 +746,16 @@ class FakeChatOps implements TwChatOps {
   final opened = <String>[];
   Set<String> memberOf = {'ch-old'};
   @override
-  Future<String> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''}) async {
+  Future<TwChannelInfo> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''}) async {
     created.add({'team': teamId, 'name': name, 'display_name': displayName, 'private': private, 'purpose': purpose, 'header': header});
-    return 'ch-new${created.length}';
+    final id = 'ch-new${created.length}';
+    return (id: id, teamId: teamId ?? 'team-1', name: name, displayName: displayName, url: 'https://chat.example.com/flygo/channels/$name');
+  }
+
+  @override
+  Future<TwChannelInfo?> resolveChannel(String ref) async {
+    final id = ref.startsWith('~') ? 'ch-${ref.substring(1)}' : ref;
+    return id == 'ch-gone' ? null : (id: id, teamId: 'team-1', name: id.replaceFirst('ch-', ''), displayName: id == 'ch-old' ? 'Kênh Kỹ thuật' : id, url: 'https://chat.example.com/flygo/channels/${id.replaceFirst('ch-', '')}');
   }
 
   @override

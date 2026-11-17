@@ -109,7 +109,9 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   }
   if (app.nativeScreen == kTwScreen) {
     tab?.onTitle?.call(app.name);
-    await openTeamwork(context, app, taskKey: path == null ? null : RegExp(r'^/t/([A-Z][A-Z0-9]{1,5}-\d{1,7})').firstMatch(path)?.group(1));
+    await openTeamwork(context, app,
+        taskKey: path == null ? null : RegExp(r'^/t/([A-Z][A-Z0-9]{1,5}-\d{1,7})').firstMatch(path)?.group(1),
+        projectKey: path == null ? null : RegExp(r'^/p/([A-Z][A-Z0-9]{1,5})(?:[/?#]|$)').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == kDichScreen) {

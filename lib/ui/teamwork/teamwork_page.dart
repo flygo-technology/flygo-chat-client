@@ -52,8 +52,8 @@ Future<TwStore> teamworkStore(BuildContext context, MiniApp app) async {
   return s;
 }
 
-/// Mở TeamWork (từ ô ở mục Chính, hoặc link sâu `/t/<MÃ>` với [taskKey]).
-Future<void> openTeamwork(BuildContext context, MiniApp app, {String? taskKey}) async {
+/// Mở TeamWork (từ ô ở mục Chính, hoặc link sâu `/t/<MÃ>` với [taskKey], `/p/<MÃ DỰ ÁN>` với [projectKey]).
+Future<void> openTeamwork(BuildContext context, MiniApp app, {String? taskKey, String? projectKey}) async {
   final nav = Navigator.of(context);
   final tab = DeskTabScope.of(context);
   final messenger = ScaffoldMessenger.of(context);
@@ -65,7 +65,7 @@ Future<void> openTeamwork(BuildContext context, MiniApp app, {String? taskKey}) 
       store.onToast = (t) {
         if (c.mounted) ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(t)));
       };
-      return TeamworkHome(store: store, openTaskKey: taskKey);
+      return TeamworkHome(store: store, openTaskKey: taskKey, initialProject: projectKey);
     }));
     tab?.onTitle?.call(null);
   } catch (e) {

@@ -4,6 +4,8 @@
 // và gửi bản giao việc. Agent dùng tool TeamWork qua Gateway bằng vé của người giao: chỉ có đúng quyền của người đó.
 import 'package:flutter/material.dart';
 
+import '../../config.dart' show kServerUrl;
+
 import '../../state/app_state.dart';
 import '../sub_channel.dart' show openChannelAnywhere;
 import 'store.dart';
@@ -75,7 +77,7 @@ class AppChatOps implements TwChatOps {
   BuildContext? context;
 
   @override
-  Future<String> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''}) async {
+  Future<TwChannelInfo> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''}) async {
     final team = teamId ?? state.teamId;
     if (team == null) throw StateError('Chưa chọn team');
     final c = (await state.api.post('/channels', {
@@ -86,7 +88,39 @@ class AppChatOps implements TwChatOps {
       'purpose': purpose,
       'header': header,
     }) as Map);
-    return '${c['id']}';
+    return _info(c);
+  }
+
+  Future<TwChannelInfo> _info(Map c) async {
+    final team = '${c['team_id'] ?? ''}';
+    var teamName = '';
+    try {
+      teamName = '${(await state.api.get('/teams/$team') as Map)['name'] ?? ''}';
+    } catch (_) {}
+    final base = kServerUrl.replaceAll(RegExp(r'/+$'), '');
+    return (id: '${c['id']}', teamId: team, name: '${c['name'] ?? ''}', displayName: '${c['display_name'] ?? c['name'] ?? ''}', url: teamName.isEmpty ? '' : '$base/$teamName/channels/${c['name']}');
+  }
+
+  @override
+  Future<TwChannelInfo?> resolveChannel(String ref) async {
+    try {
+      var r = ref.trim();
+      // URL dạng …/<team>/channels/<tên> hoặc "~tên": tìm theo tên trong các team của mình.
+      final m = RegExp(r'/([^/]+)/channels/([^/?#]+)').firstMatch(r);
+      if (m != null) return await _info(await state.api.get('/teams/name/${m[1]}/channels/name/${m[2]}') as Map);
+      if (r.startsWith('~')) {
+        r = r.substring(1);
+        for (final t in (await state.api.get('/users/me/teams') as List)) {
+          try {
+            return await _info(await state.api.get('/teams/${(t as Map)['id']}/channels/name/$r') as Map);
+          } catch (_) {}
+        }
+        return null;
+      }
+      return await _info(await state.api.get('/channels/$r') as Map);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

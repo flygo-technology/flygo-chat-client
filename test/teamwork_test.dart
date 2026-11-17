@@ -202,13 +202,13 @@ void main() {
       final chat = FakeChatOps();
       final s = newTwStore(be, chat: chat);
       be.userOps.addAll([
-        {'id': 'op1', 'kind': 'channel_create', 'user_id': 'u-lan', 'project_id': 'p-ra', 'params': {
-          'display_name': 'Ra mắt app bán hàng', 'purpose': 'Nhóm chat của dự án: https://chat.example.com/__apps/teamwork/p/RA', 'header': '[Mở dự án RA](https://chat.example.com/__apps/teamwork/p/RA)',
-          'members': ['u-lan', 'u-minh', 'u-hung'],
+        {'id': 'op1', 'type': 'channel_create', 'user': 'u-lan', 'project_id': 'p-ra', 'run_id': 'r-pdone', 'state': 'pending', 'payload': {
+          'name': 'ra-mat-app', 'display_name': 'Ra mắt app bán hàng', 'private': true, 'purpose': 'Nhóm chat của dự án: https://chat.example.com/__apps/teamwork/p/RA', 'header': '[Mở dự án RA](https://chat.example.com/__apps/teamwork/p/RA)',
+          'members': ['u-lan', 'u-minh', 'u-hung'], 'bot_user_id': 'bot-tw2', 'project_url': 'https://chat.example.com/__apps/teamwork/p/RA',
         }},
-        {'id': 'op2', 'kind': 'channel_create', 'user_id': 'u-minh', 'params': {'display_name': 'Không phải của Lan', 'members': []}},
-        {'id': 'op3', 'kind': 'channel_link', 'user_id': 'u-lan', 'params': {'channel_id': 'ch-old'}},
-        {'id': 'op4', 'kind': 'channel_link', 'user_id': 'u-lan', 'params': {'channel_id': 'ch-not-member'}},
+        {'id': 'op2', 'type': 'channel_create', 'user': 'u-minh', 'payload': {'display_name': 'Không phải của Lan', 'members': [], 'bot_user_id': 'bot-tw2'}},
+        {'id': 'op3', 'type': 'channel_link', 'user': 'u-lan', 'payload': {'channel': '~old', 'bot_user_id': 'bot-tw2'}},
+        {'id': 'op4', 'type': 'channel_link', 'user': 'u-lan', 'payload': {'channel': 'ch-not-member', 'bot_user_id': 'bot-tw2'}},
       ]);
       final toasts = <String>[];
       s.onToast = toasts.add;
@@ -218,11 +218,13 @@ void main() {
       expect(chat.created.single, containsPair('private', true));
       expect(chat.created.single['team'], 'team-1');
       expect(chat.created.single['purpose'], contains('/p/RA'));
-      expect(chat.added, containsAll([('ch-new1', 'u-minh'), ('ch-new1', 'u-hung'), ('ch-new1', 'bot-tw'), ('ch-old', 'bot-tw')]));
+      expect(chat.created.single['name'], 'ra-mat-app');
+      expect(chat.added, containsAll([('ch-new1', 'u-minh'), ('ch-new1', 'u-hung'), ('ch-new1', 'bot-tw2'), ('ch-old', 'bot-tw2')]));
       expect(chat.added.where((a) => a.$2 == 'u-lan'), isEmpty);
-      expect(be.userOpReports['op1'], {'state': 'done', 'channel_id': 'ch-new1'});
+      expect(be.userOpReports['op1'], {'state': 'done', 'result': {'channel_id': 'ch-new1', 'team_id': 'team-1', 'name': 'ra-mat-app', 'display_name': 'Ra mắt app bán hàng', 'url': 'https://chat.example.com/flygo/channels/ra-mat-app'}});
       expect(be.userOpReports.containsKey('op2'), isFalse); // lệnh của Minh: không làm
-      expect(be.userOpReports['op3'], {'state': 'done', 'channel_id': 'ch-old'});
+      expect(be.userOpReports['op3']!['state'], 'done');
+      expect((be.userOpReports['op3']!['result'] as Map)['channel_id'], 'ch-old');
       expect(be.userOpReports['op4']!['state'], 'failed');
       expect(toasts.first, 'Đã tạo nhóm chat "Ra mắt app bán hàng"');
       s.dispose();
@@ -747,7 +749,7 @@ void main() {
           await t.ensureVisible(find.byKey(const ValueKey('action-undo-a1')));
           await t.tap(find.byKey(const ValueKey('action-undo-a1')));
           await settle(t, 3);
-          expect(be.calls, contains('POST /tw/api/actions/a1/undo'));
+          expect(be.calls, contains('POST /tw/api/runs/r-pdone/actions/a1/undo'));
           expect(find.text('đã hoàn tác'), findsOneWidget);
           await t.tap(find.byKey(const ValueKey('action-undo-a3')));
           await settle(t, 3);
@@ -776,11 +778,39 @@ void main() {
       await settle(t, 6);
       expect(chat.created.single['display_name'], 'Ra mắt app bán hàng');
       expect(chat.added, contains(('ch-new1', 'bot-tw')));
-      expect(be.bodies['PATCH /tw/api/projects/p-ra'], {'chat_channel': 'ch-new1'});
+      expect(be.bodies['PUT /tw/api/projects/p-ra/chat-channel'], {'id': 'ch-new1', 'team_id': 'team-1', 'name': chat.created.single['name'], 'display_name': 'Ra mắt app bán hàng', 'url': 'https://chat.example.com/flygo/channels/${chat.created.single['name']}'});
       await settle(t, 4);
       expect(find.byKey(const ValueKey('open-chat')), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('open-chat')));
       expect(chat.opened, ['ch-new1']);
+      await done(t, s);
+    });
+
+    testWidgets('"Soạn cập nhật" → nút Đăng cập nhật vào nhóm chat của dự án', (t) async {
+      be.projects.first['chat_channel'] = {'id': 'ch-proj', 'team_id': 'team-1', 'name': 'ra-mat', 'display_name': 'Nhóm Ra mắt', 'url': 'https://chat.example.com/flygo/channels/ra-mat'};
+      be.progress['r-pupd'] = {'id': 'r-pupd', 'kind': 'project', 'project_id': 'p-ra', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'action': 'update', 'text': '**Cập nhật tuần 47**: 23/54 việc xong.'};
+      final s = await pump(t, project: 'RA');
+      expect(find.byKey(const ValueKey('open-chat')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('project-ai')));
+      await settle(t, 4);
+      await openAiThread(t);
+      await t.scrollUntilVisible(find.byKey(const ValueKey('ai-post-r-pupd')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
+      expect(find.text('Đăng cập nhật vào Nhóm Ra mắt'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('ai-post-r-pupd')));
+      await settle(t, 4);
+      expect(be.bodies['POST /tw/api/projects/p-ra/chat-channel/post'], {'markdown': '**Cập nhật tuần 47**: 23/54 việc xong.'});
+      await done(t, s);
+    });
+
+    testWidgets('dự án đã xoá: danh sách + Khôi phục (chủ dự án)', (t) async {
+      final s = await pump(t);
+      await t.tap(find.byKey(const ValueKey('pstatus-deleted')));
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('deleted-WS')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('restore-WS')));
+      await settle(t, 6);
+      expect(be.calls, contains('POST /tw/api/projects/p-old/restore'));
+      expect(find.byKey(const ValueKey('deleted-WS')), findsNothing);
       await done(t, s);
     });
 

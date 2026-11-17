@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'api.dart' show TwException;
 import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
@@ -171,6 +172,21 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
     }
   }
 
+  /// Đăng câu trả lời "Soạn cập nhật" vào nhóm chat của dự án (bằng bot Làm việc nhóm).
+  Future<void> _postUpdate(String runId) async {
+    try {
+      final r = await store.api.run(runId);
+      final text = (r.text ?? r.summary ?? '').trim();
+      if (text.isEmpty) return _toast('Agent chưa viết xong bản cập nhật');
+      await store.api.postToChat(project.id, text);
+      _toast('Đã đăng cập nhật vào nhóm chat');
+    } on TwException catch (e) {
+      _toast(e.code == 'bot_not_member' ? 'Bot Làm việc nhóm chưa ở trong nhóm chat' : (e.code == 'no_channel' ? 'Dự án chưa gắn nhóm chat' : e.message));
+    } catch (e) {
+      _toast('$e');
+    }
+  }
+
   Future<void> _mentionTask() async {
     final t = await pickTask(context, store, projectId: project.id, title: 'Nhắc tới việc');
     if (t == null) return;
@@ -288,6 +304,16 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
           else ...[
             TwRunProgress(key: ValueKey('ai-run-${t.run!.id}'), store: store, runId: t.run!.id, botId: t.run!.botId, botName: t.run!.botName, state: t.run!.state, session: t.run!.sessionChannel, showFinalText: true),
             TwRunActions(key: ValueKey('ai-actions-${t.run!.id}'), store: store, runId: t.run!.id),
+            if ((t.action ?? t.run!.action) == 'update' && project.chatChannel != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: ValueKey('ai-post-${t.run!.id}'),
+                  onPressed: () => _postUpdate(t.run!.id),
+                  icon: const Icon(Icons.campaign_outlined, size: 18),
+                  label: Text('Đăng cập nhật vào ${project.chatChannelName ?? 'nhóm chat'}'),
+                ),
+              ),
           ],
         ],
       ]);
@@ -403,7 +429,7 @@ class _TwRunActionsState extends State<TwRunActions> {
   Future<void> _undo(TwAiAction a) async {
     setState(() => _busy.add(a.id));
     try {
-      final r = await store.api.undoAction(a.id);
+      final r = await store.api.undoAction(a.runId.isNotEmpty ? a.runId : widget.runId, a.id);
       setState(() {
         if (r.conflict != null) {
           a.conflict = r.conflict;
@@ -566,7 +592,7 @@ Future<void> linkProjectChat(BuildContext context, TwStore store, TwProjectFull 
   try {
     final pr = f.project;
     final bot = store.botUserId.isNotEmpty ? store.botUserId : await ops.userIdByUsername('teamwork-app') ?? '';
-    String ch;
+    TwChannelInfo? ch;
     if (pick == '+') {
       final members = [for (final m in f.members) if (m.subjectType == 'user') m.subjectId];
       final link = store.api.taskLink('').replaceFirst(RegExp(r'/t/$'), '/p/${pr.key}');
@@ -580,14 +606,17 @@ Future<void> linkProjectChat(BuildContext context, TwStore store, TwProjectFull 
       for (final m in members) {
         if (m == store.meId) continue;
         try {
-          await ops.addMember(ch, m);
+          await ops.addMember(ch.id, m);
         } catch (_) {}
       }
     } else {
-      ch = pick;
+      ch = await ops.resolveChannel(pick);
+      if (ch == null) throw StateError('Không đọc được kênh này');
     }
-    if (bot.isNotEmpty) await ops.addMember(ch, bot);
-    await store.updateProject(pr.id, {'chat_channel': ch});
+    if (bot.isNotEmpty) await ops.addMember(ch.id, bot);
+    await store.api.setChatChannel(pr.id, TwStore.channelJson(ch));
+    await store.openProject(pr.id);
+    await store.refresh();
     messenger.showSnackBar(SnackBar(content: Text(pick == '+' ? 'Đã tạo nhóm chat "${pr.name}"' : 'Đã gắn nhóm chat vào dự án')));
   } catch (e) {
     messenger.showSnackBar(SnackBar(content: Text('$e')));

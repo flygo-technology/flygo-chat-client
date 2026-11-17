@@ -38,9 +38,12 @@ abstract class TwAgentLauncher {
 }
 
 /// Thao tác chat bằng token của chính người dùng (tạo / gắn nhóm chat cho dự án). App cài bằng AppState; kiểm thử dùng bản giả.
+/// Thông tin kênh chat gửi lại cho TeamWork.
+typedef TwChannelInfo = ({String id, String teamId, String name, String displayName, String url});
+
 abstract class TwChatOps {
-  /// Tạo kênh; trả về id kênh.
-  Future<String> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''});
+  /// Tạo kênh; trả về thông tin kênh.
+  Future<TwChannelInfo> createChannel({String? teamId, required String name, required String displayName, bool private = true, String purpose = '', String header = ''});
   Future<void> addMember(String channelId, String userId);
   /// Mình có là thành viên kênh không.
   Future<bool> isMember(String channelId);
@@ -50,6 +53,8 @@ abstract class TwChatOps {
   Future<List<(String, String)>> myChannels();
   /// Id người dùng theo username (vd bot teamwork-app).
   Future<String?> userIdByUsername(String username);
+  /// Kênh theo id / "~tên" / URL (mình phải thấy được); null nếu không có.
+  Future<TwChannelInfo?> resolveChannel(String ref);
   void openChannel(String channelId);
 }
 
@@ -557,7 +562,7 @@ class TwStore extends ChangeNotifier {
         // Lượt "project" (khung AI dự án): không gắn với việc nào, bản giao việc do máy chủ soạn.
         final project = r.kind == 'project' || claimed.$1.kind == 'project';
         final d = project ? null : await api.task(r.taskId.isNotEmpty ? r.taskId : r.taskKey);
-        final pname = projectById(claimed.$1.projectId.isNotEmpty ? claimed.$1.projectId : r.projectId)?.name ?? 'dự án';
+        final pname = claimed.$4 ?? projectById(claimed.$1.projectId.isNotEmpty ? claimed.$1.projectId : r.projectId)?.name ?? 'dự án';
         final brief = claimed.$2 ?? (d == null ? '' : briefOf(d, api.taskLink(d.task.key)));
         final title = d == null ? 'AI · $pname' : '${d.task.key} · ${d.task.title}';
         // @nhắc agent: tiếp tục trong phiên sẵn có của việc này nếu còn dùng được, không thì mở phiên mới.
@@ -601,13 +606,12 @@ class TwStore extends ChangeNotifier {
       if (op.userId != meId || !_doingOps.add(op.id)) continue;
       try {
         final p = op.params;
-        final bot = '${p['bot_id'] ?? ''}'.isNotEmpty ? '${p['bot_id']}' : (botUserId.isNotEmpty ? botUserId : await ops.userIdByUsername('teamwork-app') ?? '');
-        String channel;
+        final bot = '${p['bot_user_id'] ?? p['bot_id'] ?? ''}'.isNotEmpty ? '${p['bot_user_id'] ?? p['bot_id']}' : botUserId;
         if (op.kind == 'channel_create') {
           final members = [for (final m in p['members'] as List? ?? const []) '$m'];
           final team = '${p['team_id'] ?? ''}'.isNotEmpty ? '${p['team_id']}' : await ops.bestTeam(members);
           final display = '${p['display_name'] ?? p['name'] ?? 'Dự án'}';
-          channel = await ops.createChannel(
+          final info = await ops.createChannel(
             teamId: team,
             name: '${p['name'] ?? ''}'.isNotEmpty ? '${p['name']}' : _slug(display),
             displayName: display,
@@ -618,21 +622,22 @@ class TwStore extends ChangeNotifier {
           for (final m in members) {
             if (m == meId) continue;
             try {
-              await ops.addMember(channel, m);
+              await ops.addMember(info.id, m);
             } catch (_) {}
           }
-          if (bot.isNotEmpty) await ops.addMember(channel, bot);
-          await api.reportUserOp(op.id, 'done', channelId: channel);
-          onToast?.call('Đã tạo nhóm chat "$display"');
+          if (bot.isNotEmpty) await ops.addMember(info.id, bot);
+          await api.reportUserOp(op.id, 'done', result: _infoJson(info));
+          onToast?.call('Đã tạo nhóm chat "${info.displayName}"');
         } else if (op.kind == 'channel_link') {
-          channel = '${p['channel_id'] ?? ''}';
-          if (channel.isEmpty || !await ops.isMember(channel)) {
+          final ref = '${p['channel'] ?? p['channel_id'] ?? ''}';
+          final info = ref.isEmpty ? null : await ops.resolveChannel(ref);
+          if (info == null || !await ops.isMember(info.id)) {
             await api.reportUserOp(op.id, 'failed', error: 'Bạn không ở trong kênh này');
             continue;
           }
-          if (bot.isNotEmpty) await ops.addMember(channel, bot);
-          await api.reportUserOp(op.id, 'done', channelId: channel);
-          onToast?.call('Đã gắn nhóm chat vào dự án');
+          if (bot.isNotEmpty) await ops.addMember(info.id, bot);
+          await api.reportUserOp(op.id, 'done', result: _infoJson(info));
+          onToast?.call('Đã gắn nhóm chat "${info.displayName}" vào dự án');
         } else {
           await api.reportUserOp(op.id, 'failed', error: 'Không hỗ trợ ${op.kind}');
           continue;
@@ -647,6 +652,9 @@ class TwStore extends ChangeNotifier {
       }
     }
   }
+
+  static Map<String, dynamic> _infoJson(TwChannelInfo i) => {'channel_id': i.id, 'team_id': i.teamId, 'name': i.name, 'display_name': i.displayName, 'url': i.url};
+  static Map<String, dynamic> channelJson(TwChannelInfo i) => {'id': i.id, 'team_id': i.teamId, 'name': i.name, 'display_name': i.displayName, 'url': i.url};
 
   /// Tên kỹ thuật của kênh từ tên hiển thị (chữ thường, không dấu, gạch nối) + đuôi ngẫu nhiên ngắn.
   static String _slug(String s) {
