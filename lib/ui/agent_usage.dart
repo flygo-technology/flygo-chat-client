@@ -258,12 +258,44 @@ List<BotRemaining> botRemaining(AppState app, AgentBot bot, {AiQuota? quota, Map
     final dayReset = DateTime.utc(vn.year, vn.month, vn.day + 1).subtract(const Duration(hours: 7)).toLocal();
     final m = quota.resetsAt;
     final monthReset = m == null ? null : DateTime.utc(m.year, m.month, m.day, m.hour, m.minute).subtract(const Duration(hours: 7)).toLocal();
-    return [
-      (name: tr('Ngày'), left: (100 - quota.dayPct).clamp(0, 100), reset: dayReset),
-      (name: tr('Tháng'), left: (100 - quota.usedPct).clamp(0, 100), reset: monthReset),
-    ];
+    int left(int? pct) => (100 - (pct ?? 0)).clamp(0, 100);
+    // Mức AI của trợ lý (theo model Claude của nó): % còn lại của riêng mức đó; mức không có trần riêng thì theo trần chung.
+    final alias = botAiLevel(app, bot);
+    final levels = quota.models;
+    final lv = levels.where((x) => x.alias == alias).firstOrNull;
+    if (lv == null) {
+      return [
+        (name: tr('Ngày'), left: left(quota.dayPct), reset: dayReset),
+        (name: tr('Tháng'), left: left(quota.usedPct), reset: monthReset),
+      ];
+    }
+    BotRemaining month(AiModel x, {String? prefix}) =>
+        (name: '${prefix ?? ''}${aiModelName(x.alias)}', left: left(x.usedPct ?? quota.usedPct), reset: monthReset);
+    final out = <BotRemaining>[month(lv)];
+    out.add(lv.dayPct != null
+        ? (name: tr('{0} hôm nay', [aiModelName(lv.alias)]), left: left(lv.dayPct), reset: dayReset)
+        : (name: tr('Ngày'), left: left(quota.dayPct), reset: dayReset));
+    // Mức đã hết / không được dùng: Cổng AI tự hạ xuống mức thấp hơn (Chuyên gia → Nâng cao → Cơ bản).
+    if (!lv.allowed || lv.exhausted) {
+      const order = ['flygo-agent', 'flygo-smart', 'flygo-fast'];
+      final lower = order.skip(order.indexOf(lv.alias) + 1);
+      final next = [for (final a in lower) ...levels.where((x) => x.alias == a && x.allowed && !x.exhausted)].firstOrNull;
+      if (next != null) out.insert(1, month(next, prefix: '→ '));
+    }
+    return out.take(3).toList();
   }
   return const [];
+}
+
+/// Mức AI của Cổng AI mà trợ lý dùng, theo model Claude của nó: haiku = flygo-fast, sonnet = flygo-smart, opus = flygo-agent.
+/// null = chưa biết model.
+String? botAiLevel(AppState app, AgentBot bot) {
+  final def = (_modelsMeta(app, bot.id)['default'] as Map?)?['model'];
+  final model = '${app.agentConfig[bot.id]?['model'] ?? def ?? ''}'.toLowerCase();
+  if (model.contains('haiku') || model == 'flygo-fast') return 'flygo-fast';
+  if (model.contains('sonnet') || model == 'flygo-smart') return 'flygo-smart';
+  if (model.contains('opus') || model == 'flygo-agent') return 'flygo-agent';
+  return null;
 }
 
 String _two(int n) => n.toString().padLeft(2, '0');
