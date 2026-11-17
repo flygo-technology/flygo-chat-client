@@ -42,7 +42,7 @@ void main() {
     expect(find.byKey(const ValueKey('mail-loading')), findsNothing);
   });
 
-  testWidgets('Tóm tắt bằng AI: nút cạnh "Xem hòm thư khác", liệt kê việc từ thư chưa đọc', (t) async {
+  testWidgets('Tóm tắt bằng AI: nút cạnh "Xem hòm thư khác", số thư chưa đọc + mỗi thư một dòng, bấm mở thư', (t) async {
     t.view.physicalSize = const Size(1440, 900);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
@@ -56,8 +56,26 @@ void main() {
     for (var i = 0; i < 10; i++) {
       await t.pump(const Duration(milliseconds: 100));
     }
-    expect(find.text('Việc cần làm'), findsOneWidget);
-    expect(find.textContaining('Đọc và trả lời'), findsWidgets);
+    final n = store.items.where((x) => x.unread).length;
+    expect(find.textContaining('cuộc hội thoại chưa đọc trong hộp Chính'), findsOneWidget);
+    expect(find.text('Thư chưa đọc'), findsOneWidget);
+    expect(find.text('Việc cần làm'), findsNothing);
+    expect(find.byIcon(Icons.mail_outline), findsWidgets);
+    expect(n, greaterThan(0));
+    // Bấm một dòng: đóng hộp tóm tắt, mở hội thoại đó.
+    await t.tap(find.byIcon(Icons.mail_outline).first);
+    for (var i = 0; i < 10; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('Thư chưa đọc'), findsNothing);
+  });
+
+  test('Tóm tắt từ máy chủ cũ (không có unread): vẫn là danh sách việc cần làm', () {
+    final d = MailDigest.fromJson({'summary': 's', 'tasks': [{'text': 'Gọi lại'}], 'threads': 1});
+    expect(d.perMail, isFalse);
+    final e = MailDigest.fromJson({'summary': 's', 'unread': 3, 'tasks': [{'text': 'Báo giá'}], 'threads': 3});
+    expect(e.perMail, isTrue);
+    expect(e.unread, 3);
   });
 
   testWidgets('AI soạn trả lời: mở ô trả lời có sẵn nội dung AI', (t) async {

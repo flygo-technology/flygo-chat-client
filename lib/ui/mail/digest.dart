@@ -75,7 +75,7 @@ class _DigestState extends State<_Digest> {
           Expanded(child: Text('Tóm tắt bằng AI', style: TextStyle(fontSize: 16, color: mc.text, fontWeight: FontWeight.w600))),
           IconButton(tooltip: 'Tóm tắt lại', onPressed: _busy ? null : _run, icon: const Icon(Icons.refresh, size: 20)),
         ]),
-        if (d != null && d.threads > 0)
+        if (d != null && d.threads > 0 && !d.perMail)
           Text('Từ ${d.threads} cuộc hội thoại chưa đọc', style: TextStyle(fontSize: 12, color: mc.muted)),
         const SizedBox(height: 8),
         Expanded(
@@ -91,9 +91,9 @@ class _DigestState extends State<_Digest> {
                       if (d!.summary.isNotEmpty) Text(d.summary, style: TextStyle(fontSize: 14, color: mc.text, height: 1.45)),
                       if (d.tasks.isNotEmpty) ...[
                         const SizedBox(height: 14),
-                        Text('Việc cần làm', style: TextStyle(fontSize: 12.5, color: mc.muted, fontWeight: FontWeight.w600)),
+                        Text(d.perMail ? 'Thư chưa đọc' : 'Việc cần làm', style: TextStyle(fontSize: 12.5, color: mc.muted, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 4),
-                        for (final t in d.tasks) _task(t, mc),
+                        for (final t in d.tasks) _task(t, mc, perMail: d.perMail),
                       ],
                     ]),
         ),
@@ -103,7 +103,7 @@ class _DigestState extends State<_Digest> {
     );
   }
 
-  Widget _task(MailDigestTask t, MailColors mc) => InkWell(
+  Widget _task(MailDigestTask t, MailColors mc, {bool perMail = false}) => InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: t.threadId == null ? null : () => widget.onOpen(t.threadId!),
         child: Padding(
@@ -111,7 +111,7 @@ class _DigestState extends State<_Digest> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Icon(t.urgent ? Icons.priority_high : Icons.check_box_outline_blank, size: 16, color: t.urgent ? mc.danger : mc.muted),
+              child: Icon(perMail ? Icons.mail_outline : (t.urgent ? Icons.priority_high : Icons.check_box_outline_blank), size: 16, color: t.urgent ? mc.danger : mc.muted),
             ),
             const SizedBox(width: 8),
             Expanded(
