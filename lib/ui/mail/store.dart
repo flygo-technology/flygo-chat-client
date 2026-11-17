@@ -198,24 +198,25 @@ class MailStore extends ChangeNotifier {
     if (me == null) await _restore();
     syncing = me != null && items.isNotEmpty;
     if (syncing) _notify();
+    // Danh sách thư (đã kèm số thư chưa đọc) tải cùng lúc với thông tin hộp thư, không chờ nhau.
+    // Đang hiện danh sách cũ: tải lặng lẽ, thay khi có bản mới.
+    final list = load(quiet: items.isNotEmpty);
+    Object? err;
     try {
-      final r = await Future.wait([api.me(), api.labels(), api.counts()]);
+      final r = await Future.wait([api.me(), api.labels()]);
       me = r[0] as MailMe;
       labels = r[1] as List<MailLabel>;
-      counts = r[2] as MailCounts;
-      error = null;
     } catch (e) {
-      error = e;
-      syncing = false;
-      _notify();
-      return;
+      err = e;
     }
-    // Đang hiện danh sách cũ: tải lặng lẽ, thay khi có bản mới.
-    await load(quiet: items.isNotEmpty);
-    if (syncing) {
-      syncing = false;
-      _notify();
+    await list;
+    if (err != null) {
+      error = err;
+    } else if (error == null) {
+      _persist(); // danh sách có thể về trước thông tin hộp thư: lưu lại khi đủ cả hai
     }
+    syncing = false;
+    _notify();
   }
 
   /// Mục mặc định (hộp thư đến, trang đầu): mục được lưu vào bộ nhớ đệm.
