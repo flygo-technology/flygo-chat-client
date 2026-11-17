@@ -88,7 +88,22 @@ class BrowserPairing {
       _hits.add(now);
       final body = await utf8.decodeStream(req).timeout(const Duration(seconds: 10));
       final j = body.isEmpty ? <String, dynamic>{} : (jsonDecode(body) as Map).cast<String, dynamic>();
-      final client = (j['client'] as Map?)?.cast<String, dynamic>() ?? const {};
+      try {
+        await _pair(req, app, j);
+      } catch (e) {
+        // Báo rõ lý do cho extension (vd tài khoản chưa được cấp app Kết nối), không trả 500 trống.
+        final msg = '$e'.replaceFirst(RegExp(r'^(HttpException|Exception|StateError): ?'), '');
+        return _send(req, 502, {'error': msg.isEmpty ? 'không ghép được' : msg});
+      }
+      return;
+    }
+    return _send(req, 404, {});
+  }
+
+  static Future<void> _pair(HttpRequest req, AppState app, Map<String, dynamic> j) async {
+    final me = app.me;
+    final client = (j['client'] as Map?)?.cast<String, dynamic>() ?? const {};
+    {
       final want = (j['server'] as String?)?.replaceAll(RegExp(r'/+$'), '');
       final Map<String, dynamic> r;
       var server = kServerUrl;
@@ -105,9 +120,7 @@ class BrowserPairing {
       final c = (r['client'] as Map?)?.cast<String, dynamic>() ?? const {};
       await _send(req, 200, {'server': server, 'ws_url': r['ws_url'], 'token': r['token'], 'client': c, 'user': me?.displayName ?? ''});
       _notice(tr('Đã kết nối trình duyệt "{0}" với tài khoản này. Agent của bạn dùng được trình duyệt đó (tag @{1}).', ['${c['name'] ?? ''}', '${c['slug'] ?? ''}']));
-      return;
     }
-    return _send(req, 404, {});
   }
 
   /// Máy chủ có phiên đã lưu trong app (máy chủ đang mở luôn có).
