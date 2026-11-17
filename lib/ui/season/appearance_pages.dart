@@ -26,7 +26,7 @@ Widget _div(BuildContext context, [double indent = 56]) => Divider(height: 1, co
 
 String _dm(String ymd) => ymd.length >= 10 ? '${ymd.substring(8, 10)}/${ymd.substring(5, 7)}' : ymd;
 
-/// "Giao diện" của mình (Cá nhân › Giao diện, Cài đặt › Giao diện): "Theo cài đặt admin" (mặc định, mọi thứ theo
+/// "Giao diện" của mình (Cá nhân › Giao diện, Cài đặt › Giao diện): luôn hiện lựa chọn của mình; chưa đổi gì thì theo công ty (mọi thứ theo
 /// Quản trị › Giao diện, đồng bộ mọi máy) hoặc "Cài riêng" (nền Trang chủ, mùa lễ, chat của riêng mình).
 class AppearancePage extends StatelessWidget {
   const AppearancePage({super.key});
@@ -49,36 +49,46 @@ class AppearancePage extends StatelessWidget {
               title: Text(title, style: TextStyle(fontSize: 14.5, color: pal.text)),
               subtitle: sub == null ? null : Text(sub, style: TextStyle(fontSize: 12, color: pal.sub)),
             );
+        // Đổi bất kỳ mục nào là chuyển sang cài riêng (Sếp, 2026-11-17: trang này chỉ là của riêng mình).
+        Future<void> mine(String k, Object? v) async {
+          if (!custom) await s.setMine('mode', 'custom');
+          await s.setMine(k, v);
+        }
         final def = app.bubbleDefault;
         final seasonPick = s.seasonBubble(app.me?.id ?? '');
         final sections = <Widget>[
           SectionCard(title: tr('Nền Trang chủ'), icon: Icons.space_dashboard_outlined, children: [
-            subHead(context, tr('Điện thoại')),
+            // Một lựa chọn chung cho điện thoại và máy tính (Sếp, 2026-11-17).
             BackgroundPicker(
-                value: s.homeBgId(desktop: false), arts: homeBackgroundIds, onChanged: (v) => s.setMine('home_bg_phone', v)),
-            subHead(context, tr('Máy tính')),
-            BackgroundPicker(
-                value: s.homeBgId(desktop: true), arts: homeBackgroundIds, onChanged: (v) => s.setMine('home_bg_desktop', v)),
+                value: s.homeBgId(desktop: false),
+                arts: homeBackgroundIds,
+                onChanged: (v) async {
+                  await mine('home_bg_phone', v);
+                  await mine('home_bg_desktop', v);
+                }),
           ]),
           SectionCard(
               title: tr('Mùa lễ hội'),
               icon: Icons.celebration_outlined,
               subtitle: active == null ? tr('Hiện không có mùa lễ nào') : tr('Đang có: {0}', [seasonName!]),
               children: [
-                sw(tr('Dùng giao diện mùa lễ'), tr('Tắt để giữ giao diện thường'), s.own['off'] != true, (v) => s.setMine('off', !v)),
-                sw(tr('Dải cây thông trên khung chat'), null, s.own['lights'] != false, (v) => s.setMine('lights', v)),
-                sw(tr('Hiện mũ Noel của mọi người'), null, s.own['hats'] != false, (v) => s.setMine('hats', v)),
+                sw(tr('Dùng giao diện mùa lễ'), tr('Tắt để giữ giao diện thường'), s.own['off'] != true, (v) => mine('off', !v)),
+                sw(tr('Dải cây thông trên khung chat'), null, s.own['lights'] != false, (v) => mine('lights', v)),
+                sw(tr('Hiện mũ Noel của mọi người'), null, s.own['hats'] != false, (v) => mine('hats', v)),
                 sw(tr('Đội mũ cho ảnh của mình'), tr('Tắt thì mọi người thấy ảnh mình không mũ'), s.myHat, (v) => s.setMyHat(v)),
-                sw(tr('Hiệu ứng khi có lời chúc'), null, s.own['effect'] != false, (v) => s.setMine('effect', v)),
-                sw(tr('Banner ở Trang chủ'), null, s.own['banner'] != false, (v) => s.setMine('banner', v)),
-                sw(tr('Hiệu ứng động'), tr('Tự tắt khi máy bật giảm chuyển động'), s.motion, (v) => s.setMine('motion', v)),
+                sw(tr('Hiệu ứng khi có lời chúc'), null, s.own['effect'] != false, (v) => mine('effect', v)),
+                sw(tr('Banner ở Trang chủ'), null, s.own['banner'] != false, (v) => mine('banner', v)),
+                sw(tr('Hiệu ứng động'), tr('Tự tắt khi máy bật giảm chuyển động'), s.motion, (v) => mine('motion', v)),
               ]),
           SectionCard(title: tr('Chat'), icon: Icons.chat_bubble_outline_rounded, children: [
             subHead(context, tr('Hình nền chat mặc định')),
             BackgroundPicker(
               value: s.wallpaperDefault ?? 'season',
               arts: [for (final w in wallpapers) w.id],
-              onChanged: (v) => s.setWallpaper(SeasonState.kDefaultKey, v == 'season' ? null : v),
+              onChanged: (v) async {
+                if (!custom) await s.setMine('mode', 'custom');
+                await s.setWallpaper(SeasonState.kDefaultKey, v == 'season' ? null : v);
+              },
             ),
             subHead(context, tr('Bong bóng mặc định')),
             ListTile(
@@ -90,7 +100,9 @@ class AppearancePage extends StatelessWidget {
                 final c = await Navigator.of(context).push<BubbleChoice>(AppPageRoute(
                   builder: (_) => BubblePickerPage(current: def, allowInherit: true, inherited: seasonPick, defaultFill: Pal.of(context).outBubble),
                 ));
-                if (c != null) await app.setBubble(kBubbleDefaultKey, c);
+                if (c == null) return;
+                if (!custom) await s.setMine('mode', 'custom');
+                await app.setBubble(kBubbleDefaultKey, c);
               },
             ),
             if (s.allowChatCustom)
@@ -116,29 +128,28 @@ class AppearancePage extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 640),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-                  child: SegmentedButton<bool>(
-                    showSelectedIcon: false,
-                    segments: [
-                      ButtonSegment(value: false, icon: const Icon(Icons.business_rounded), label: Text(tr('Theo cài đặt admin'))),
-                      ButtonSegment(value: true, icon: const Icon(Icons.person_outline_rounded), label: Text(tr('Cài riêng'))),
-                    ],
-                    selected: {custom},
-                    onSelectionChanged: (v) => s.setMine('mode', v.first ? 'custom' : null),
-                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                  child: Row(children: [
+                    Icon(custom ? Icons.person_outline_rounded : Icons.business_rounded, size: 18, color: pal.sub),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                          custom
+                              ? tr('Đang dùng giao diện riêng của bạn, áp dụng trên mọi máy của bạn.')
+                              : tr('Đang theo giao diện chung của công ty. Đổi bất kỳ mục nào bên dưới để cài riêng cho bạn.'),
+                          style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
+                    ),
+                    if (custom)
+                      TextButton.icon(
+                        onPressed: () => s.setMine('mode', null),
+                        icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                        label: Text(tr('Về giao diện công ty')),
+                      ),
+                  ]),
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-              child: Text(
-                  custom
-                      ? tr('Lựa chọn riêng của bạn có hiệu lực trên mọi máy của bạn. Chọn lại "Theo cài đặt admin" để trở về giao diện của công ty.')
-                      : tr('Nền Trang chủ, mùa lễ và giao diện chat theo cài đặt của công ty (Quản trị › Giao diện), tự đồng bộ mọi máy.'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
-            ),
-            if (custom) SectionGrid(children: sections),
+            SectionGrid(children: sections),
           ]),
         );
       },
@@ -506,19 +517,18 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
       SectionCard(
         title: tr('Nền Trang chủ'),
         icon: Icons.space_dashboard_outlined,
-        subtitle: tr('Áp dụng cho mọi người đang "Theo cài đặt admin".'),
+        subtitle: tr('Điện thoại và máy tính. Áp dụng cho mọi người chưa cài riêng.'),
         children: [
-          subHead(context, tr('Điện thoại')),
+          // Một lựa chọn chung cho điện thoại và máy tính (Sếp, 2026-11-17).
           BackgroundPicker(
             value: (defaults['home_bg_phone'] as String?) ?? (defaults['home_bg'] as String?) ?? 'season',
             arts: homeBackgroundIds,
-            onChanged: admin ? (v) => _edit(() => defaults['home_bg_phone'] = v) : null,
-          ),
-          subHead(context, tr('Máy tính')),
-          BackgroundPicker(
-            value: (defaults['home_bg_desktop'] as String?) ?? 'none',
-            arts: homeBackgroundIds,
-            onChanged: admin ? (v) => _edit(() => defaults['home_bg_desktop'] = v) : null,
+            onChanged: admin
+                ? (v) => _edit(() {
+                      defaults['home_bg_phone'] = v;
+                      defaults['home_bg_desktop'] = v;
+                    })
+                : null,
           ),
         ],
       ),
