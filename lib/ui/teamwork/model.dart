@@ -159,6 +159,7 @@ class TwProject {
     this.cover,
     this.chatChannelName,
     this.deletedAt,
+    this.aiProject,
   });
   final String id;
   String key, name, color, status, owner, myRole;
@@ -168,6 +169,8 @@ class TwProject {
   String? chatChannelName;
   /// Dự án đã xoá (xoá mềm, chủ dự án khôi phục được).
   int? deletedAt;
+  /// Dự án AI (tab Agents của app chat) gắn với dự án này; null = chưa gắn.
+  TwAiProjectLink? aiProject;
   /// Hình nền (null = màu chuyển nhạt từ màu dự án).
   TwCover? cover;
   List<TBlock> description;
@@ -209,6 +212,7 @@ class TwProject {
         chatChannelName: m['chat_channel'] is Map ? _ns((m['chat_channel'] as Map)['display_name'] ?? (m['chat_channel'] as Map)['name']) : null,
         cover: TwCover.fromJson(m['cover']),
         deletedAt: m['deleted_at'] == null ? null : _i(m['deleted_at']),
+        aiProject: TwAiProjectLink.fromJson(m['ai_project']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -232,7 +236,22 @@ class TwProject {
         'updated_at': updatedAt,
         'chat_channel': chatChannel == null ? null : {'id': chatChannel, 'display_name': chatChannelName},
         'cover': cover?.toJson(),
+        'ai_project': aiProject?.toJson(),
       };
+}
+
+/// Dự án AI gắn với dự án TeamWork (máy chủ lưu; kênh `p-<chủ>-…` của người gắn).
+class TwAiProjectLink {
+  const TwAiProjectLink({required this.channelId, this.teamId = '', this.name = '', this.displayName = '', this.boundBy = '', this.boundAt = 0});
+  final String channelId, teamId, name, displayName, boundBy;
+  final int boundAt;
+  static TwAiProjectLink? fromJson(Object? v) {
+    if (v is! Map || _s(v['channel_id']).isEmpty) return null;
+    return TwAiProjectLink(channelId: _s(v['channel_id']), teamId: _s(v['team_id']), name: _s(v['name']), displayName: _s(v['display_name']),
+        boundBy: _s(v['bound_by']), boundAt: _i(v['bound_at']));
+  }
+
+  Map<String, dynamic> toJson() => {'channel_id': channelId, 'team_id': teamId, 'name': name, 'display_name': displayName, 'bound_by': boundBy, 'bound_at': boundAt};
 }
 
 /// Dự án kèm cấu hình (trạng thái, nhãn, thành viên).
@@ -1120,8 +1139,10 @@ String rankBetween(String a, String b) {
 // ------------------------------------------------------------ AI của dự án
 /// Một cuộc trò chuyện AI của dự án (dùng chung một phiên của agent).
 class TwAiThread {
-  const TwAiThread({required this.id, this.title = '', this.botId = '', this.botName = '', this.updatedAt = 0, this.turnCount = 0});
+  const TwAiThread({required this.id, this.title = '', this.botId = '', this.botName = '', this.updatedAt = 0, this.turnCount = 0, this.sessionChannel});
   final String id, title, botId, botName;
+  /// Phiên AI (kênh chat) gắn với cuộc trò chuyện.
+  final String? sessionChannel;
   final int updatedAt, turnCount;
   factory TwAiThread.fromJson(Map m) {
     final last = m['last_run'] is Map ? m['last_run'] as Map : const {};
@@ -1132,6 +1153,7 @@ class TwAiThread {
       botName: _s(m['bot_name'] ?? last['bot_name']),
       updatedAt: _i(m['updated_at']),
       turnCount: _i(m['run_count'] ?? m['turn_count']),
+      sessionChannel: _ns(m['session_channel']),
     );
   }
 }

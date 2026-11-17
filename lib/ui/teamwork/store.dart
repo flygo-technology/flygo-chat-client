@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show BuildContext, Widget;
 import 'package:path_provider/path_provider.dart';
 
 import '../todo/model.dart';
@@ -58,6 +59,30 @@ abstract class TwChatOps {
   void openChannel(String channelId);
 }
 
+/// Dự án AI của app chat (tab Agents: kênh `p-<chủ>-…`, phiên = kênh `a-<dự án>-<chủ>-…` có một trợ lý).
+typedef TwAiProjectInfo = ({String channelId, String teamId, String name, String displayName});
+/// Một phiên AI của dự án AI: [at] = lúc có tin gần nhất (ms), [botId] = trợ lý trong phiên ('' nếu chưa biết).
+typedef TwAiSession = ({String id, String title, String botId, int at});
+
+/// Phiên AI thật của app (dùng lại "Dự án AI" + khung chat phiên AI). App cài bằng AppState; kiểm thử dùng bản giả.
+/// Báo thay đổi (phiên mới, tin mới) qua [Listenable].
+abstract class TwAiSessions implements Listenable {
+  /// Dự án AI [channelId] của mình còn dùng được; null nếu không (đã xoá, của người khác, không thấy).
+  TwAiProjectInfo? project(String channelId);
+  /// Dự án AI của mình có tên hiển thị đúng [name] (mới hoạt động nhất).
+  TwAiProjectInfo? projectByName(String name);
+  /// Tạo dự án AI [name] bằng đúng đường tạo dự án ở tab Agents (dưới tên người dùng).
+  Future<TwAiProjectInfo> createProject(String name);
+  /// Các phiên của dự án AI, mới nhất trước.
+  List<TwAiSession> sessions(String projectChannelId);
+  /// Mở phiên mới với trợ lý [botId] trong dự án AI; trả về id kênh phiên.
+  Future<String> createSession(String projectChannelId, String botId, String title);
+  /// Khung chat thật của phiên [sessionId] (thẻ tiến trình + câu trả lời stream trực tiếp). Tin chữ gõ ở ô nhắn đi qua [onSend];
+  /// [aboveComposer] hiện ngay trên ô nhắn; [runFooter] hiện dưới câu trả lời của agent cho lượt TeamWork (theo run_id).
+  Widget sessionView(BuildContext context, String sessionId,
+      {required Future<void> Function(String text) onSend, Widget? aboveComposer, Widget? Function(String runId)? runFooter});
+}
+
 class TwStore extends ChangeNotifier {
   TwStore(this.api, {this.cacheKey, DateTime Function()? clock, this.live = true}) : _clock = clock ?? DateTime.now;
 
@@ -68,6 +93,8 @@ class TwStore extends ChangeNotifier {
   final bool live;
   TwAgentLauncher? launcher;
   TwChatOps? chatOps;
+  /// Phiên AI thật (dự án AI + khung chat phiên); null = app không có (khung AI dự án báo không dùng được).
+  TwAiSessions? aiSessions;
   /// Thông báo ngắn (vd "Đã tạo nhóm chat …"); app gắn vào SnackBar.
   void Function(String text)? onToast;
   /// Id bot teamwork-app trên máy chủ chat (thêm vào nhóm chat của dự án để đăng cập nhật).
@@ -113,6 +140,8 @@ class TwStore extends ChangeNotifier {
   TwLive? _live;
   final Set<String> _dirtyProjects = {};
   final Set<String> _claiming = {};
+  /// Lượt đã nhận và gửi xong trên máy này (hai lần checkRuns chồng nhau không gửi trùng).
+  final Set<String> _handledRuns = {};
   /// Tên máy khi nhận lượt chạy (máy chủ chỉ cho một máy nhận).
   final String device = 'app-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
 
@@ -551,7 +580,7 @@ class TwStore extends ChangeNotifier {
       return;
     }
     for (final r in runs) {
-      if (!_claiming.add(r.id)) continue;
+      if (_handledRuns.contains(r.id) || !_claiming.add(r.id)) continue;
       try {
         final claimed = await api.claim(r.id, device, attestOwner: await l.isOwnerOf(r.botId));
         if (claimed == null) continue;
@@ -576,6 +605,7 @@ class TwStore extends ChangeNotifier {
         } else {
           ch = await l.launch(r.botId, title, brief, props: props);
         }
+        _handledRuns.add(r.id);
         await api.reportRun(r.id, 'running', sessionChannel: ch);
         if (d != null) taskRev[d.task.id] = (taskRev[d.task.id] ?? 0) + 1;
         runRev[r.id] = (runRev[r.id] ?? 0) + 1;
@@ -588,6 +618,50 @@ class TwStore extends ChangeNotifier {
       }
     }
     _changed(persist: false);
+  }
+
+  // ------------------------------------------------------------ AI của dự án = dự án AI cùng tên + phiên AI thật
+  /// Dự án AI gắn với dự án [pid]: dùng bản đã gắn nếu mình mở được; không thì tìm dự án AI cùng tên của mình, chưa có thì tạo
+  /// (đường tạo dự án ở tab Agents), rồi gắn lên máy chủ. Bản gắn của người khác (mình không mở được) giữ nguyên, mình dùng dự án
+  /// AI cùng tên của chính mình.
+  Future<TwAiProjectInfo> ensureAiProject(String pid) async {
+    final ai = aiSessions;
+    if (ai == null) throw StateError('App này chưa có Dự án AI');
+    final p = projectById(pid);
+    if (p == null) throw StateError('Không thấy dự án');
+    final link = p.aiProject;
+    if (link != null) {
+      final mine = ai.project(link.channelId);
+      if (mine != null) return mine;
+    }
+    final info = ai.projectByName(p.name) ?? await ai.createProject(p.name);
+    if (link == null || link.boundBy == meId || link.boundBy.isEmpty) {
+      try {
+        final np = await api.setAiProject(pid, {'channel_id': info.channelId, 'team_id': info.teamId, 'name': info.name, 'display_name': info.displayName});
+        _replaceProject(np);
+      } catch (e) {
+        debugPrint('[teamwork] không gắn được dự án AI: $e');
+      }
+    }
+    return info;
+  }
+
+  void _replaceProject(TwProject np) {
+    final i = projects.indexWhere((x) => x.id == np.id);
+    if (i >= 0) projects[i] = np;
+    full[np.id]?.project = np;
+    _changed();
+  }
+
+  /// Gửi một lượt AI dự án vào phiên [sessionId] (bot [botId] của phiên): tạo lượt chạy kèm cuộc trò chuyện gắn với phiên
+  /// (lượt tiếp trong phiên → brief ngắn), rồi nhận lượt và gửi tin có props flygo_teamwork vào đúng phiên đó.
+  Future<TwRun> askAi(String pid, {required String sessionId, required String botId, required String prompt, String? action}) async {
+    final threads = await api.aiThreads(pid, session: sessionId);
+    final th = threads.where((t) => t.sessionChannel == null || t.sessionChannel == sessionId).firstOrNull;
+    final (run, _) = await api.projectAi(pid,
+        botId: botId, prompt: prompt, action: action, threadId: th?.id, sessionChannel: sessionId, continuation: th != null && th.turnCount > 0);
+    await checkRuns();
+    return run;
   }
 
   // ------------------------------------------------------------ lệnh của người dùng (nhóm chat)

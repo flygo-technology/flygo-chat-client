@@ -35,6 +35,45 @@ class _Pushes extends NavigatorObserver {
   }
 }
 
+/// Dự án RA đã gắn dự án AI cùng tên; 3 phiên (gần nhất: Claude, 4 phút trước) với khung chat mẫu: lượt xong có "Đã làm",
+/// lượt đang chạy (thẻ stream). Cuộc trò chuyện th0 ↔ phiên 2, th1 ↔ phiên 1.
+({String project, String s1, String s2, String s3}) seedAi(FakeAiSessions ai, FakeTw be) {
+  final pid = FakeAiSessions.chId('aiprojra'), team = FakeAiSessions.chId('team');
+  final s1 = FakeAiSessions.chId('sesone'), s2 = FakeAiSessions.chId('sestwo'), s3 = FakeAiSessions.chId('sesthree');
+  final now = twNow.millisecondsSinceEpoch;
+  ai.projects[pid] = (channelId: pid, teamId: team, name: 'p-lan-ra', displayName: 'Ra mắt app bán hàng');
+  be.projects.first['ai_project'] = {'channel_id': pid, 'team_id': team, 'name': 'p-lan-ra', 'display_name': 'Ra mắt app bán hàng', 'bound_by': 'u-lan', 'bound_at': now - 86400000 * 3};
+  ai.sessionsOf[pid] = [
+    (id: s1, title: 'Tóm tắt tiến độ tuần 47', botId: 'b-claude', at: now - 4 * 60000),
+    (id: s2, title: 'Kế hoạch giai đoạn 3', botId: 'b-codex', at: now - 2 * 3600000),
+    (id: s3, title: 'Rủi ro & việc trễ', botId: 'b-claude', at: now - 26 * 3600000),
+  ];
+  be.threads.first['session_channel'] = s2;
+  be.threads.add({'id': 'th1', 'project_id': 'p-ra', 'user': 'u-lan', 'title': 'Tóm tắt tiến độ tuần 47', 'session_channel': s1, 'run_count': 2, 'updated_at': now - 4 * 60000});
+  Map<String, dynamic> step(String id, String title, {String kind = 'tool', String status = 'done'}) => {'id': id, 'kind': kind, 'title': title, 'status': status};
+  ai.feed[s1] = [
+    (user: true, text: 'Tóm tắt tiến độ', card: null, runId: null),
+    (
+      user: false,
+      text: 'Tuần 47: 23/54 việc xong (43%). Quá hạn 3 việc (RA-35, RA-38, RA-41), RA-32 đang chờ RA-29. Hùng đang giữ 7 việc mở, nên chuyển bớt RA-44 cho Thu.\n\nĐã tạo việc đào tạo đại lý miền Bắc và giao RA-41 cho Thu.',
+      card: {'status': 'done', 'engine': 'claude', 'title': 'Tóm tắt tiến độ', 'config': {'model': 'opus', 'effort': 'high'}, 'steps': [
+        step('m', '🔓 Chạy không cần duyệt (chủ bot)', kind: 'approval'), step('a', 'task_search · 54 việc'), step('b', 'Đọc bình luận gần đây'), step('c', 'task_create RA-70 + 4 việc con'), step('d', 'task_assign RA-41 → Thu'),
+      ]},
+      runId: 'r-pdone',
+    ),
+    (user: true, text: 'Lập kế hoạch đào tạo đại lý miền Nam, xong trước 15/01', card: null, runId: null),
+    (
+      user: false,
+      text: '## Kế hoạch đào tạo miền Nam\n- Tuần 1: chọn 30 đại lý thí điểm…',
+      card: {'status': 'running', 'engine': 'claude', 'title': 'Lập kế hoạch & chia việc', 'config': {'model': 'opus', 'effort': 'high'}, 'steps': [
+        step('m', '🔓 Chạy không cần duyệt (chủ bot)', kind: 'approval'), step('a', 'Đọc 19 việc của dự án'), step('b', 'Đang nghĩ cách chia việc', kind: 'thinking'), step('c', 'task_create RA-75 Đào tạo đại lý miền Nam', status: 'running'),
+      ]},
+      runId: 'r-prun',
+    ),
+  ];
+  return (project: pid, s1: s1, s2: s2, s3: s3);
+}
+
 void main() {
   final out = Platform.environment['TW_OUT'];
   final today = DateTime.utc(2026, 11, 19);
@@ -237,6 +276,53 @@ void main() {
       expect(promptText('Ai đang quá tải?', 'summary'), 'Ai đang quá tải?');
     });
 
+    test('dự án AI: chưa gắn → tạo cùng tên + gắn; gắn rồi → dùng lại; bản gắn của người khác (mình không mở được) → dùng dự án AI cùng tên của mình, không ghi đè', () async {
+      final be = FakeTw();
+      final ai = FakeAiSessions();
+      final s = newTwStore(be, ai: ai);
+      await s.refresh();
+      final a = await s.ensureAiProject('p-ra');
+      expect(ai.createdProjects, ['Ra mắt app bán hàng']);
+      expect(be.bodies['PUT /tw/api/projects/p-ra/ai-project']!['channel_id'], a.channelId);
+      expect(s.projectById('p-ra')!.aiProject!.boundBy, 'u-lan');
+      be.calls.clear();
+      expect((await s.ensureAiProject('p-ra')).channelId, a.channelId);
+      expect(be.calls.where((c) => c.startsWith('PUT')), isEmpty);
+      // Người khác gắn dự án AI của họ (mình không mở được).
+      be.projects[1]['ai_project'] = {'channel_id': FakeAiSessions.chId('other'), 'bound_by': 'u-minh'};
+      await s.refresh();
+      final h = await s.ensureAiProject('p-ht');
+      expect(ai.createdProjects.last, 'Hồ sơ thầu tháng 12');
+      expect(h.displayName, 'Hồ sơ thầu tháng 12');
+      expect(be.bodies.containsKey('PUT /tw/api/projects/p-ht/ai-project'), isFalse);
+      s.dispose();
+    });
+
+    test('askAi: lượt đầu của phiên brief đầy đủ, lượt sau continuation cùng cuộc trò chuyện; gửi vào đúng phiên kèm flygo_teamwork, không gửi trùng', () async {
+      final be = FakeTw();
+      final ai = FakeAiSessions();
+      final l = FakeLauncher();
+      final s = newTwStore(be, ai: ai, launcher: l);
+      await s.refresh();
+      final p = await s.ensureAiProject('p-ra');
+      final sid = await ai.createSession(p.channelId, 'b-claude', 'Tóm tắt');
+      final r1 = await s.askAi('p-ra', sessionId: sid, botId: 'b-claude', prompt: 'Tóm tắt tiến độ', action: 'summary');
+      expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-claude', 'prompt': 'Tóm tắt tiến độ', 'action': 'summary', 'session_channel': sid});
+      expect(be.calls, contains('GET /tw/api/projects/p-ra/ai/threads?session=$sid'));
+      expect(l.posted.single, (sid, 'BRIEF PROJECT p-ra'));
+      expect(l.props.single['flygo_teamwork'], {'run_token': 'TOKEN-${r1.id}', 'run_id': r1.id});
+      final r2 = await s.askAi('p-ra', sessionId: sid, botId: 'b-claude', prompt: 'Còn gì nữa?');
+      expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-claude', 'prompt': 'Còn gì nữa?', 'thread_id': 'th-new', 'session_channel': sid, 'continuation': true});
+      expect(l.posted.last, (sid, 'SHORT BRIEF ${r2.id}'));
+      expect(l.launched, isEmpty);
+      // checkRuns chồng nhau: không gửi lại lượt đã gửi.
+      be.runs.last['state'] = 'queued';
+      be.runs.last['claimed'] = false;
+      await s.checkRuns();
+      expect(l.posted, hasLength(2));
+      s.dispose();
+    });
+
     test('lượt chạy kiểu project: không đọc việc, phiên mới "AI · <dự án>"', () async {
       final be = FakeTw();
       final l = FakeLauncher();
@@ -323,11 +409,13 @@ void main() {
   // ------------------------------------------------------------ giao diện
   late FakeTw be;
   late FakeLauncher launcher;
+  late FakeAiSessions ai;
   late _Pushes pushes;
   setUp(() {
     pushes = _Pushes();
     be = FakeTw();
     launcher = FakeLauncher();
+    ai = FakeAiSessions();
   });
 
   Future<void> settle(WidgetTester t, [int n = 6]) async {
@@ -342,7 +430,7 @@ void main() {
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
     await t.runAsync(twFonts);
-    final s = newTwStore(be, launcher: launcher);
+    final s = newTwStore(be, launcher: launcher, ai: ai);
     await t.pumpWidget(RepaintBoundary(
       key: const ValueKey('shot'),
       child: MaterialApp(
@@ -719,94 +807,143 @@ void main() {
       }
     });
 
-    Future<void> openAiThread(WidgetTester t) async {
-      await t.tap(find.byKey(const ValueKey('ai-history')));
-      await settle(t, 4);
-      await t.tap(find.byKey(const ValueKey('ai-thread-th0')));
-      await settle(t, 8);
-    }
-
     for (final dark in [false, true]) {
-      testWidgets('AI của dự án: mở khung, chọn agent, nút nhanh → lượt chạy + nhận phiên; lịch sử: câu trả lời + "Đã làm" + hoàn tác (${dark ? 'dark' : 'light'})', (t) async {
+      testWidgets('AI của dự án = phiên AI thật: mở phiên gần nhất, chuyển phiên (3 phiên + Phiên mới), thẻ agent stream, nút nhanh, "Đã làm" dưới câu trả lời (${dark ? 'dark' : 'light'})', (t) async {
+        final ids = seedAi(ai, be);
         final s = await pump(t, project: 'RA', dark: dark);
         await t.tap(find.byKey(const ValueKey('project-ai')));
-        await settle(t, 4);
+        await settle(t, 6);
         expect(find.byKey(const ValueKey('ai-panel')), findsOneWidget);
-        expect(find.byKey(const ValueKey('ai-act-chat_group')), findsOneWidget);
+        // Đã gắn sẵn: không tạo dự án AI mới, mở phiên gần nhất.
+        expect(ai.createdProjects, isEmpty);
+        expect(be.bodies.containsKey('PUT /tw/api/projects/p-ra/ai-project'), isFalse);
+        expect(find.byKey(ValueKey('ai-session-view-${ids.s1}')), findsOneWidget);
+        expect(find.descendant(of: find.byKey(const ValueKey('ai-session-title')), matching: find.text('Tóm tắt tiến độ tuần 47'), matchRoot: true), findsOneWidget);
+        expect(find.text('3 phiên'), findsOneWidget);
         expect(find.byKey(const ValueKey('ai-bypass')), findsOneWidget); // Lan là chủ Claude
-        if (!dark) {
-          await t.tap(find.byKey(const ValueKey('ai-act-summary')));
-          await settle(t, 8);
-          expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-claude', 'prompt': 'Tóm tắt tiến độ', 'action': 'summary'});
-          expect(launcher.launched.single.$2, 'AI · Ra mắt app bán hàng');
-          expect(find.text('Đọc 19 việc của dự án'), findsOneWidget); // tiến độ trực tiếp
-          // Hỏi tiếp trong cùng cuộc trò chuyện.
-          await t.enterText(find.byKey(const ValueKey('ai-input')), 'Ai đang quá tải?');
-          await t.tap(find.byKey(const ValueKey('ai-send')));
-          await settle(t, 6);
-          expect(be.bodies.entries.where((e) => e.key == 'POST /tw/api/projects/p-ra/ai').last.value['thread_id'], 'th-new');
+        expect(find.byKey(const ValueKey('ai-chips')), findsOneWidget);
+        expect(find.byKey(const ValueKey('run-footer-r-prun')), findsOneWidget); // dưới câu trả lời đang stream
+        expect(find.text('Đọc 19 việc của dự án'), findsOneWidget);
+        await t.tap(find.byKey(const ValueKey('ai-session-switch')));
+        await settle(t, 3);
+        for (final id in [ids.s1, ids.s2, ids.s3]) {
+          expect(find.byKey(ValueKey('ai-session-$id')), findsOneWidget);
         }
-        await openAiThread(t);
-        // Bong bóng lời hỏi hiện đúng chữ (lượt nút nhanh không có lời hỏi: hiện tên nút).
-        expect(find.descendant(of: find.byKey(const ValueKey('ai-prompt-0')), matching: find.text('Lập kế hoạch giai đoạn 3 – Ra mắt: đào tạo đại lý miền Bắc + miền Nam, xong trước 15/01.')), findsOneWidget);
-        expect(find.byKey(const ValueKey('run-answer-r-pdone')), findsOneWidget);
-        await t.scrollUntilVisible(find.byKey(const ValueKey('ai-prompt-1')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
-        expect(find.descendant(of: find.byKey(const ValueKey('ai-prompt-1')), matching: find.text('Soạn cập nhật cho nhóm')), findsOneWidget);
-        await t.scrollUntilVisible(find.byKey(const ValueKey('ai-prompt-0')), -200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
-        expect(find.text('Đã làm · 4'), findsOneWidget);
-        final high = t.widget<Text>(find.descendant(of: find.byKey(const ValueKey('action-a4')), matching: find.byType(Text)).first);
-        expect((high.textSpan as TextSpan).children!.first.style!.color, const Color(0xFFE5484D));
-        await shot(t, dark ? 'd13-project-ai-dark' : 'd13-project-ai');
+        expect(find.byKey(const ValueKey('ai-session-new')), findsOneWidget);
+        expect(find.textContaining('Codex (của Minh) · '), findsOneWidget);
+        await shot(t, dark ? 'd14-ai-session-dark' : 'd14-ai-session-light');
         if (!dark) {
-          await t.ensureVisible(find.byKey(const ValueKey('action-undo-a1')));
+          // Chọn phiên khác.
+          await t.tap(find.byKey(ValueKey('ai-session-${ids.s2}')));
+          await settle(t, 4);
+          expect(find.byKey(ValueKey('ai-session-view-${ids.s2}')), findsOneWidget);
+          expect(find.descendant(of: find.byKey(const ValueKey('ai-session-title')), matching: find.text('Kế hoạch giai đoạn 3'), matchRoot: true), findsOneWidget);
+          expect(find.byKey(const ValueKey('ai-bypass')), findsNothing); // phiên của Codex (của Minh)
+          // Nút nhanh gửi vào phiên đang mở: cuộc trò chuyện của phiên (th0) → lượt tiếp (continuation), tin có flygo_teamwork.
+          await t.ensureVisible(find.byKey(const ValueKey('ai-act-risks')));
+          await t.pump();
+          await t.tap(find.byKey(const ValueKey('ai-act-risks')));
+          await settle(t, 8);
+          final body = be.bodies['POST /tw/api/projects/p-ra/ai']!;
+          expect(body, {'bot_id': 'b-codex', 'prompt': 'Rủi ro & việc trễ', 'action': 'risks', 'thread_id': 'th0', 'session_channel': ids.s2, 'continuation': true});
+          expect(launcher.posted.last.$1, ids.s2);
+          expect(launcher.posted.last.$2, startsWith('SHORT BRIEF'));
+          final run = be.runs.last;
+          expect(launcher.props.last['flygo_teamwork'], {'run_token': 'TOKEN-${run['id']}', 'run_id': run['id']});
+          expect(launcher.launched, isEmpty); // không mở phiên ngoài dự án AI
+          expect(run['session_channel'], ids.s2);
+          expect(run['state'], 'running');
+          // Ô nhắn của khung chat phiên cũng đi qua TeamWork.
+          await t.enterText(find.byKey(const ValueKey('session-input')), 'Ai đang quá tải?');
+          await t.tap(find.byKey(const ValueKey('session-send')));
+          await settle(t, 8);
+          expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-codex', 'prompt': 'Ai đang quá tải?', 'thread_id': 'th0', 'session_channel': ids.s2, 'continuation': true});
+          expect(launcher.posted.last.$1, ids.s2);
+          // Phiên mới: chọn agent, tin đầu tiên tạo phiên trong dự án AI + brief đầy đủ.
+          await t.tap(find.byKey(const ValueKey('ai-session-switch')));
+          await settle(t, 3);
+          await t.tap(find.byKey(const ValueKey('ai-session-new')));
+          await settle(t, 3);
+          expect(find.byKey(const ValueKey('ai-agent')), findsOneWidget);
+          await t.enterText(find.byKey(const ValueKey('ai-input')), 'Lập lịch họp tổng kết');
+          await t.tap(find.byKey(const ValueKey('ai-send')));
+          await settle(t, 8);
+          expect(ai.createdSessions.single, (ids.project, 'b-claude', 'Lập lịch họp tổng kết'));
+          final sNew = ai.sessionsOf[ids.project]!.last.id;
+          expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-claude', 'prompt': 'Lập lịch họp tổng kết', 'session_channel': sNew});
+          expect(launcher.posted.last, (sNew, 'BRIEF PROJECT p-ra'));
+          expect(find.byKey(ValueKey('ai-session-view-$sNew')), findsOneWidget);
+          expect(find.text('4 phiên'), findsOneWidget);
+          // Hoàn tác trong "Đã làm" dưới câu trả lời.
+          await t.tap(find.byKey(const ValueKey('ai-session-switch')));
+          await settle(t, 3);
+          await t.tap(find.byKey(ValueKey('ai-session-${ids.s1}')));
+          await settle(t, 4);
+          await t.scrollUntilVisible(find.byKey(const ValueKey('action-undo-a1')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('session-list')), matching: find.byType(Scrollable)));
+          expect(find.text('Đã làm · 4'), findsOneWidget); // dưới câu trả lời của lượt r-pdone
           await t.tap(find.byKey(const ValueKey('action-undo-a1')));
           await settle(t, 3);
           expect(be.calls, contains('POST /tw/api/runs/r-pdone/actions/a1/undo'));
           expect(find.text('đã hoàn tác'), findsOneWidget);
-          await t.tap(find.byKey(const ValueKey('action-undo-a3')));
-          await settle(t, 3);
-          expect(find.byKey(const ValueKey('action-conflict-a3')), findsOneWidget);
-          await t.tap(find.byKey(const ValueKey('run-undo-all-r-pdone')));
-          await settle(t, 4);
-          expect(be.calls, contains('POST /tw/api/runs/r-pdone/undo'));
-          // run_action → tải lại danh sách.
-          be.actions['r-pdone']!.add({'id': 'a5', 'kind': 'chat_post', 'summary': 'Đăng cập nhật vào nhóm chat', 'at': twNow.millisecondsSinceEpoch});
-          s.debugEvent({'type': 'run_action', 'id': 'r-pdone', 'project_id': 'p-ra'});
-          await settle(t, 4);
-          expect(find.text('Đã làm · 5'), findsOneWidget);
         }
         await done(t, s);
       });
     }
 
-    testWidgets('nhóm chat: "Gắn nhóm chat" tạo nhóm bằng token mình + gắn; có rồi thì "Mở nhóm chat"', (t) async {
-      final chat = FakeChatOps();
+    testWidgets('AI của dự án: chưa có dự án AI → tạo dự án AI cùng tên (tab Agents) + gắn lên máy chủ; phiên mới, nút nhanh → phiên + lượt', (t) async {
       final s = await pump(t, project: 'RA');
-      s.chatOps = chat;
-      await t.pump();
-      await t.tap(find.byKey(const ValueKey('link-chat')));
-      await settle(t, 4);
-      await t.tap(find.byKey(const ValueKey('chat-create')));
+      await t.tap(find.byKey(const ValueKey('project-ai')));
       await settle(t, 6);
-      expect(chat.created.single['display_name'], 'Ra mắt app bán hàng');
-      expect(chat.added, contains(('ch-new1', 'bot-tw')));
-      expect(be.bodies['PUT /tw/api/projects/p-ra/chat-channel'], {'id': 'ch-new1', 'team_id': 'team-1', 'name': chat.created.single['name'], 'display_name': 'Ra mắt app bán hàng', 'url': 'https://chat.example.com/flygo/channels/${chat.created.single['name']}'});
-      await settle(t, 4);
-      expect(find.byKey(const ValueKey('open-chat')), findsOneWidget);
-      await t.tap(find.byKey(const ValueKey('open-chat')));
-      expect(chat.opened, ['ch-new1']);
+      expect(ai.createdProjects, ['Ra mắt app bán hàng']);
+      final pid = ai.projects.keys.single;
+      expect(be.bodies['PUT /tw/api/projects/p-ra/ai-project'], {'channel_id': pid, 'team_id': FakeAiSessions.chId('team'), 'name': 'p-lan-1', 'display_name': 'Ra mắt app bán hàng'});
+      expect(s.projectById('p-ra')!.aiProject!.channelId, pid);
+      // Chưa có phiên: soạn phiên mới (chọn agent), nút nhanh.
+      expect(find.descendant(of: find.byKey(const ValueKey('ai-session-title')), matching: find.text('Phiên mới'), matchRoot: true), findsOneWidget);
+      expect(find.byKey(const ValueKey('ai-agent')), findsOneWidget);
+      expect(find.byKey(const ValueKey('ai-act-chat_group')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('ai-act-summary')));
+      await settle(t, 8);
+      expect(ai.createdSessions.single, (pid, 'b-claude', 'Tóm tắt tiến độ'));
+      final sid = ai.sessionsOf[pid]!.single.id;
+      expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-claude', 'prompt': 'Tóm tắt tiến độ', 'action': 'summary', 'session_channel': sid});
+      expect(launcher.posted.single, (sid, 'BRIEF PROJECT p-ra'));
+      expect(launcher.props.single['flygo_teamwork'], {'run_token': 'TOKEN-${be.runs.last['id']}', 'run_id': be.runs.last['id']});
+      expect(launcher.launched, isEmpty);
+      expect(find.byKey(ValueKey('ai-session-view-$sid')), findsOneWidget);
+      // Mở lại: dùng đúng dự án AI đã gắn, không tạo thêm.
+      await t.tap(find.byKey(const ValueKey('ai-close')));
+      await settle(t, 2);
+      await t.tap(find.byKey(const ValueKey('project-ai')));
+      await settle(t, 6);
+      expect(ai.createdProjects, hasLength(1));
+      expect(find.byKey(ValueKey('ai-session-view-$sid')), findsOneWidget);
       await done(t, s);
     });
 
-    testWidgets('"Soạn cập nhật" → nút Đăng cập nhật vào nhóm chat của dự án', (t) async {
+    testWidgets('AI của dự án: dự án AI cùng tên đã có (chưa gắn) → gắn cái đó, không tạo mới', (t) async {
+      final pid = FakeAiSessions.chId('oldproj');
+      ai.projects[pid] = (channelId: pid, teamId: FakeAiSessions.chId('team'), name: 'p-lan-old', displayName: 'Ra mắt app bán hàng');
+      final s = await pump(t, project: 'RA');
+      await t.tap(find.byKey(const ValueKey('project-ai')));
+      await settle(t, 6);
+      expect(ai.createdProjects, isEmpty);
+      expect(be.bodies['PUT /tw/api/projects/p-ra/ai-project']!['channel_id'], pid);
+      await done(t, s);
+    });
+
+    testWidgets('"Soạn cập nhật" → nút Đăng cập nhật vào nhóm chat của dự án (dưới câu trả lời)', (t) async {
+      final ids = seedAi(ai, be);
+      ai.feed[ids.s1] = [
+        (user: true, text: 'Soạn cập nhật cho nhóm', card: null, runId: null),
+        (user: false, text: '**Cập nhật tuần 47**: 23/54 việc xong.', card: {'status': 'done', 'engine': 'claude', 'title': 'Soạn cập nhật', 'steps': []}, runId: 'r-pupd'),
+      ];
       be.projects.first['chat_channel'] = {'id': 'ch-proj', 'team_id': 'team-1', 'name': 'ra-mat', 'display_name': 'Nhóm Ra mắt', 'url': 'https://chat.example.com/flygo/channels/ra-mat'};
       be.progress['r-pupd'] = {'id': 'r-pupd', 'kind': 'project', 'project_id': 'p-ra', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'action': 'update', 'text': '**Cập nhật tuần 47**: 23/54 việc xong.'};
       final s = await pump(t, project: 'RA');
       expect(find.byKey(const ValueKey('open-chat')), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('project-ai')));
-      await settle(t, 4);
-      await openAiThread(t);
-      await t.scrollUntilVisible(find.byKey(const ValueKey('ai-post-r-pupd')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
+      await settle(t, 8);
       expect(find.text('Đăng cập nhật vào Nhóm Ra mắt'), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('ai-post-r-pupd')));
       await settle(t, 4);
@@ -1201,18 +1338,22 @@ void main() {
       await done(t, s);
     });
 
-    testWidgets('điện thoại: AI của dự án là bảng kéo lên', (t) async {
+    testWidgets('điện thoại: AI của dự án là bảng kéo lên, phiên AI thật + chuyển phiên + nút nhanh', (t) async {
+      final ids = seedAi(ai, be);
       final s = await pump(t, size: _phone);
       await t.tap(find.byKey(const ValueKey('project-RA')));
       await settle(t, 8);
       await t.tap(find.byKey(const ValueKey('project-ai')));
       await settle(t, 6);
       expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      expect(find.byKey(ValueKey('ai-session-view-${ids.s1}')), findsOneWidget);
+      expect(find.byKey(const ValueKey('ai-session-switch')), findsOneWidget);
       expect(find.byKey(const ValueKey('ai-act-summary')), findsOneWidget);
+      await shot(t, 'p12-ai-session');
       await t.tap(find.byKey(const ValueKey('ai-act-summary')));
       await settle(t, 8);
-      expect(find.text('Đọc 19 việc của dự án'), findsOneWidget);
-      await shot(t, 'p11-project-ai');
+      expect(launcher.posted.last.$1, ids.s1);
+      expect(be.bodies['POST /tw/api/projects/p-ra/ai']!['continuation'], isTrue);
       await done(t, s);
     });
 
