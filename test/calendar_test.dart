@@ -3,6 +3,7 @@
 // Ảnh chụp (chạy tay): CAL_OUT=<thư mục> flutter test test/calendar_test.dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/calendar/editor.dart';
+import 'package:flygo_chat/ui/calendar/event_style.dart';
 import 'package:flygo_chat/ui/calendar/layout.dart';
 import 'package:flygo_chat/ui/calendar/lunar.dart';
 import 'package:flygo_chat/ui/calendar/model.dart';
@@ -125,6 +126,41 @@ void main() {
       expect(d.body()['notice'], isTrue);
       d.notice = false;
       expect(d.body()['notice'], isFalse);
+    });
+    test('biểu tượng & màu: tự chọn theo tiêu đề, màu chuyển, đọc / ghi', () {
+      expect(autoIcon('Kiểm tra PCCC – VP Hà Nội'), 'fire_extinguisher');
+      expect(autoIcon('kiem tra pccc'), 'fire_extinguisher');
+      expect(autoIcon('Họp giao ban tuần'), 'groups');
+      expect(autoIcon('Họp online với đối tác'), 'videocam');
+      expect(autoIcon('Ký hợp đồng thang Thủ Đức'), 'history_edu');
+      expect(autoIcon('Nghiệm thu thang máy'), 'fact_check');
+      expect(autoIcon('Sinh nhật chị Hà'), 'cake');
+      expect(autoIcon('Tiệc Giáng sinh công ty'), 'park');
+      expect(autoIcon('Không có gì đặc biệt'), 'event');
+      expect(kEventIcons.length, 32);
+      expect(kPickerColors.length, 11);
+      for (final c in kPickerColors) {
+        expect(kEventGradients.containsKey(c), isTrue);
+      }
+      // Màu: của sự kiện > đỏ cho PCCC (tự chọn) > màu lịch > xanh dương.
+      expect(colorIdOf(color: 'teal', calendarColor: 'blue', iconId: 'fire_extinguisher'), 'teal');
+      expect(colorIdOf(color: null, calendarColor: 'blue', iconId: 'fire_extinguisher'), 'red');
+      expect(colorIdOf(color: null, calendarColor: 'purple', iconId: 'groups'), 'purple');
+      expect(colorIdOf(color: null, calendarColor: null, iconId: 'groups'), 'blue');
+      expect(shortCountdown(const Duration(hours: 3, minutes: 40)), 'còn 3g 40p');
+      expect(shortCountdown(const Duration(minutes: 39, seconds: 30)), 'còn 40p');
+      expect(shortCountdown(const Duration(hours: 2)), 'còn 2g');
+      expect(shortCountdown(const Duration(days: 2, hours: 5)), 'còn 2 ngày');
+      final e = CEvent.fromJson({'id': 'e1', 'title': 'Kiểm tra PCCC', 'start': '2026-11-17T14:30', 'icon': 'school', 'color': 'noel'});
+      expect(e.icon, 'school');
+      expect(styleOf(e), (icon: 'school', color: 'noel'));
+      expect(e.clone().icon, 'school');
+      expect(styleOf(CEvent.fromJson({'id': 'e2', 'title': 'Kiểm tra PCCC', 'start': '2026-11-17T14:30'})), (icon: 'fire_extinguisher', color: 'red'));
+      final d = EventDraft.fromEvent(e);
+      expect(d.body()['icon'], 'school');
+      d.icon = null;
+      expect(d.body().containsKey('icon'), isTrue);
+      expect(d.body()['icon'], isNull);
     });
     test('cài đặt + lịch mặc định', () {
       final s = CSettings.fromJson(const {});

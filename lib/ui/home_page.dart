@@ -232,6 +232,11 @@ class _HomePageState extends State<HomePage> {
   /// Các tab như trình duyệt. Tab Chat đầu tiên giữ bố cục cũ (danh sách, chia ô, cột phải); các tab khác tự giữ
   /// trạng thái riêng (IndexedStack). Điện thoại và cửa sổ riêng không có tab.
   List<DeskTab> _deskTabs = [DeskTab('chat')];
+
+  // Trang chủ máy tính: bấm ô ứng dụng luôn mở tab mới (Sếp, 2026-11-17). Tab mở từ ô nào ([_tabOrigin]: id tab → tên ô)
+  // để lần sau bấm lại thì chuyển sang tab đó; [_pendingTap]: tab mới vừa tạo, chờ chạy ô đã bấm trong chính tab đó.
+  final _tabOrigin = <String, String>{};
+  final _pendingTap = <String, String>{};
   int _deskCur = 0;
   final List<DeskTab> _closedTabs = [];
   bool _tabsTouched = false;
@@ -439,6 +444,8 @@ class _HomePageState extends State<HomePage> {
     });
     _tabNavs.remove(t.id);
     _tabTitles.remove(t.id);
+    _tabOrigin.remove(t.id);
+    _pendingTap.remove(t.id);
     _tabChat.remove(t.id);
     _tabsChanged();
   }
@@ -484,6 +491,19 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Chọn một ứng dụng trong menu tab mới: mở ứng dụng ở một tab mới ngay sau, tab menu vẫn giữ nguyên.
+  /// Bấm một ô ở Trang chủ (tab [from]): đã có tab mở từ ô này thì chuyển sang; chưa thì mở tab mới (Trang chủ) và
+  /// chạy ô đó trong tab mới (mở ứng dụng ngay trong tab, hoặc đổi tab thành tab ứng dụng).
+  void _tapInNewTab(DeskTab from, String key) {
+    final i = homeTapExisting(_deskTabs, from, key, _tabOrigin);
+    if (i >= 0) return _selectDeskTab(i);
+    final t = DeskTab('launcher');
+    _tabOrigin[t.id] = key;
+    _pendingTap[t.id] = key;
+    final at = _deskTabs.indexOf(from);
+    if (at >= 0 && at != _deskCur) setState(() => _deskCur = at);
+    _openTab(t);
+  }
+
   void _launchInTab(DeskTab from, String id) {
     final DeskTab t;
     if (id == 'chat' || id == 'agents' || id == 'flows') {
@@ -494,6 +514,22 @@ class _HomePageState extends State<HomePage> {
       t = DeskTab('app', arg: id);
     }
     if (id == 'calls') _app.markCallsSeen();
+    // Tab vừa mở từ một ô Trang chủ: tab đó thành tab ứng dụng (đã có tab ứng dụng này thì đóng tab vừa mở, chuyển sang).
+    if (_tabOrigin.containsKey(from.id) && from.kind == 'launcher') {
+      final dup = homeLaunchExisting(_deskTabs, from, t.kind, t.arg);
+      if (dup >= 0) {
+        final target = _deskTabs[dup];
+        _closeDeskTab(_deskTabs.indexOf(from));
+        _selectDeskTab(_deskTabs.indexOf(target));
+        return;
+      }
+      setState(() {
+        from.kind = t.kind;
+        from.arg = t.arg;
+      });
+      _tabsChanged();
+      return;
+    }
     final i = _deskTabs.indexOf(from);
     if (i >= 0 && i != _deskCur) setState(() => _deskCur = i);
     _openTab(t);
@@ -1094,7 +1130,7 @@ class _HomePageState extends State<HomePage> {
 
   /// Tab Apps: lưới các ứng dụng theo nhóm [youAppGroups] (Danh bạ, Lịch sử cuộc gọi, Cài đặt, Trợ lý, Bot, Ngôn ngữ, Chặn…).
   Widget _apps(AppState app, double bottom, NavigatorState? Function() nav,
-      {void Function(String id)? open, void Function(String id)? onLaunch}) {
+      {void Function(String id)? open, void Function(String id)? onLaunch, DeskTab? tab}) {
     final pal = Pal.of(context);
     final me = app.me;
     final items = _appItems(app, nav, open: open);
@@ -1113,7 +1149,16 @@ class _HomePageState extends State<HomePage> {
           );
 
     /// [circle]: ô tròn không viền (ô "Hồ sơ" là ảnh đại diện tròn, khung vuông bo góc sẽ lòi góc ra ngoài ảnh).
-    Widget appTile(Widget icon, Color? color, String label, int badge, VoidCallback onTap, {bool circle = false}) {
+    Widget appTile(Widget icon, Color? color, String label, int badge, VoidCallback onTap0, {bool circle = false}) {
+      // Máy tính (tab Trang chủ): bấm ô thì mở tab mới; tab mới chạy đúng ô này một lần khi dựng xong.
+      final dt = tab;
+      if (dt != null && _pendingTap[dt.id] == label) {
+        _pendingTap.remove(dt.id);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) onTap0();
+        });
+      }
+      final VoidCallback onTap = dt == null ? onTap0 : () => _tapInNewTab(dt, label);
       if (_appQ.isNotEmpty && !_appFold(label).contains(_appFold(_appQ))) return const _HiddenTile();
       return InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -2026,7 +2071,7 @@ class _HomePageState extends State<HomePage> {
                 constraints: const BoxConstraints(maxWidth: 1440),
                 child: ValueListenableBuilder<WallpaperState>(
                   valueListenable: Wallpaper.state,
-                  builder: (context, _, _) => _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id)),
+                  builder: (context, _, _) => _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id), tab: t),
                 ),
               ),
             )),
@@ -3409,7 +3454,10 @@ class AppTileIcon extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color.lerp(c, Colors.white, .28)!, c, Color.lerp(c, Colors.black, .12)!],
+                  // Lịch: xanh → xanh ngọc (Sếp, 2026-11-17).
+                  colors: c == kCalTileColor
+                      ? const [Color(0xFF5AA8FF), kCalTileColor, Color(0xFF16B4E3)]
+                      : [Color.lerp(c, Colors.white, .28)!, c, Color.lerp(c, Colors.black, .12)!],
                   stops: const [0, .55, 1],
                 ),
                 boxShadow: [BoxShadow(color: c.withValues(alpha: .35), blurRadius: 12, offset: const Offset(0, 5))],

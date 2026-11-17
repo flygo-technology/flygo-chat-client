@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
+import 'package:flygo_chat/ui/calendar/event_style.dart';
 import 'package:flygo_chat/ui/calendar/model.dart';
 import 'package:flygo_chat/ui/calendar/upcoming.dart';
 import 'package:flygo_chat/ui/home_page.dart';
@@ -208,12 +209,15 @@ void main() {
         expect(find.text('Đã xong'), findsOneWidget);
         expect(find.textContaining('đã xong'), findsOneWidget);
         expect(find.byKey(const ValueKey('upcoming-now')), findsOneWidget);
-        expect(find.text('Giao ban đầu tuần'), findsOneWidget);
+        // Banner = sự kiện gần nhất (đang diễn ra) + cùng sự kiện trong lịch hôm nay.
+        expect(find.byKey(const ValueKey('upcoming-hero-countdown')), findsOneWidget);
+        expect(find.text('Giao ban đầu tuần'), findsNWidgets(2));
         expect(find.text('Kiểm tra PCCC – Văn phòng'), findsOneWidget);
         expect(find.text('Gặp khách hàng'), findsOneWidget);
         expect(find.text('Đào tạo an toàn'), findsOneWidget);
-        expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
-        expect(find.text('còn 3 giờ 40 phút'), findsOneWidget);
+        expect(find.textContaining('Đang diễn ra · '), findsOneWidget);
+        expect(find.text('còn 40p'), findsNWidgets(2));
+        expect(find.text('còn 3g 40p'), findsOneWidget);
         expect(find.text('Chưa trả lời'), findsOneWidget);
         expect(t.takeException(), isNull);
         await shot(t, 'd-desktop-$sfx');
@@ -222,8 +226,9 @@ void main() {
         await t.pump(const Duration(seconds: 1));
         expect(find.text('Giao ban đầu tuần'), findsOneWidget);
         expect(find.textContaining('đã xong'), findsNWidgets(2));
-        expect(find.text('còn 2 giờ 40 phút'), findsOneWidget);
-        await t.tap(find.text('Kiểm tra PCCC – Văn phòng'));
+        expect(find.text('Kiểm tra PCCC – Văn phòng'), findsNWidgets(2));
+        expect(find.text('còn 2g 40p'), findsNWidgets(2));
+        await t.tap(find.byKey(const ValueKey('upcoming-pccc')));
         expect(opened, ['pccc']);
         await t.tap(find.byKey(const ValueKey('upcoming-open-calendar')));
         expect(openedCal, 1);
@@ -247,16 +252,16 @@ void main() {
                   const SizedBox(height: 18),
                   tiles(Pal.of(c), demoTiles),
                 ]));
+        // Thu gọn: chỉ banner sự kiện gần nhất (biểu tượng, tên, giờ, nhãn đếm ngược).
         expect(find.text('Giao ban đầu tuần'), findsOneWidget);
-        // Ô nhỏ: chỉ tên + thời gian còn lại.
-        expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
-        expect(find.text('+3 sự kiện'), findsNothing);
+        expect(find.text('còn 40p'), findsOneWidget);
+        expect(find.textContaining('Đang diễn ra · '), findsOneWidget);
         expect(t.takeException(), isNull);
         await shot(t, 'p-phone-live-$sfx');
         clock = _now.add(const Duration(hours: 1));
         await t.pump(const Duration(seconds: 1));
         expect(find.text('Kiểm tra PCCC – Văn phòng'), findsOneWidget);
-        expect(find.text('còn 2 giờ 40 phút'), findsOneWidget);
+        expect(find.text('còn 2g 40p'), findsOneWidget);
         await shot(t, 'p-phone-next-$sfx');
         // Bấm dải: mở rộng thành lịch hôm nay + 7 ngày tới; bấm sự kiện mở sự kiện; ˄ thu lại.
         expect(find.text('HÔM NAY · T3 17/11'), findsNothing);
@@ -292,7 +297,7 @@ void main() {
           ]));
       final banner = find.byKey(const ValueKey('upcoming-events'));
       expect(banner, findsOneWidget);
-      expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
+      expect(find.text('còn 40p'), findsOneWidget);
       // Cuộn thật xa: ListView bỏ khối khỏi cây (State bị huỷ).
       ctl.jumpTo(2400);
       await t.pump();
@@ -301,29 +306,60 @@ void main() {
       ctl.jumpTo(0);
       await t.pump();
       expect(banner, findsOneWidget);
-      expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
+      expect(find.text('còn 40p'), findsOneWidget);
       expect(calls, 2);
       // Đếm ngược tự chạy, không cần tải lại.
       clock = _now.add(const Duration(minutes: 10));
       await t.pump(const Duration(seconds: 1));
-      expect(find.text('Đang diễn ra · còn 30 phút'), findsOneWidget);
+      expect(find.text('còn 30p'), findsOneWidget);
       expect(calls, 2);
       // Dữ liệu mới về thì mới thay.
       slow.complete(UpcomingData(events: [_events.firstWhere((e) => e.id == 'khach')], tz: _tz));
       await t.pump();
       await t.pump();
       expect(banner, findsOneWidget);
-      expect(find.text('Đang diễn ra · còn 30 phút'), findsNothing);
+      expect(find.text('còn 30p'), findsNothing);
       expect(find.text('Gặp khách hàng'), findsOneWidget);
       expect(t.takeException(), isNull);
       await done(t);
     });
 
+    for (final b in Brightness.values) {
+      final sfx = b == Brightness.dark ? 'dark' : 'light';
+      testWidgets('bảng Biểu tượng & màu: xem trước, chọn, Mặc định ($sfx)', (t) async {
+        ({String? icon, String? color})? got;
+        await pumpHost(t, const Size(620, 760), b, (c) => Center(
+              child: TextButton(
+                onPressed: () async => got = await showEventStylePicker(c, title: 'Kiểm tra PCCC – Văn phòng', subtitle: '17/11 14:30–16:00 · Văn phòng', wide: true),
+                child: const Text('mở'),
+              ),
+            ));
+        await t.tap(find.text('mở'));
+        await t.pumpAndSettle();
+        expect(find.byKey(const ValueKey('style-preview')), findsOneWidget);
+        expect(find.textContaining('Tự chọn theo tiêu đề: PCCC · màu Đỏ'), findsOneWidget);
+        expect(t.takeException(), isNull);
+        await shot(t, 'picker-$sfx');
+        await t.tap(find.byKey(const ValueKey('style-icon-elevator')));
+        await t.tap(find.byKey(const ValueKey('style-color-navy')));
+        await t.pump();
+        await t.tap(find.byKey(const ValueKey('style-done')));
+        await t.pumpAndSettle();
+        expect(got, (icon: 'elevator', color: 'navy'));
+        await t.tap(find.text('mở'));
+        await t.pumpAndSettle();
+        await t.tap(find.byKey(const ValueKey('style-default')));
+        await t.pumpAndSettle();
+        expect(got, (icon: null, color: null));
+        await done(t);
+      });
+    }
+
     testWidgets('sự kiện chỉ thông báo: không có nhãn "Chưa trả lời"', (t) async {
       final pccc = _events.firstWhere((e) => e.id == 'pccc').clone()..notice = true;
       upcomingLoader = (_) async => UpcomingData(events: [pccc], tz: _tz);
       await pumpHost(t, const Size(1280, 900), Brightness.light, (c) => ListView(children: [UpcomingEvents(clock: () => clock)]));
-      expect(find.text('Kiểm tra PCCC – Văn phòng'), findsOneWidget);
+      expect(find.text('Kiểm tra PCCC – Văn phòng'), findsNWidgets(2));
       expect(find.text('Chưa trả lời'), findsNothing);
       await done(t);
     });

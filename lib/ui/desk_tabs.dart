@@ -258,3 +258,13 @@ class DeskTabBar extends StatelessWidget {
     );
   }
 }
+
+/// Trang chủ máy tính: bấm ô [key] ở tab [from]. Trả về vị trí tab đã mở từ ô này (chuyển sang tab đó), hoặc -1 =
+/// mở tab mới. [origin]: id tab → tên ô đã mở tab đó.
+int homeTapExisting(List<DeskTab> tabs, DeskTab from, String key, Map<String, String> origin) =>
+    tabs.indexWhere((x) => x != from && origin[x.id] == key);
+
+/// Tab [from] vừa mở từ ô Trang chủ (còn là Trang chủ) giờ thành tab ứng dụng [kind]/[arg]: vị trí tab ứng dụng đó nếu
+/// đã mở sẵn (đóng [from], chuyển sang), -1 = đổi chính [from] thành tab ứng dụng.
+int homeLaunchExisting(List<DeskTab> tabs, DeskTab from, String kind, String? arg) =>
+    kind == 'launcher' ? -1 : tabs.indexWhere((x) => x != from && x.kind == kind && x.arg == arg);

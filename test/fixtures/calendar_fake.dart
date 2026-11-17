@@ -504,6 +504,16 @@ void calendarWidgetTests() {
           await t.tap(find.byKey(const ValueKey('channel-c-tech')));
           await settle(t);
           expect(find.text('Nhóm Kỹ thuật (8)'), findsOneWidget);
+          // Biểu tượng & màu: chọn Đào tạo + Xanh ngọc.
+          await t.ensureVisible(find.byKey(const ValueKey('ed-style')));
+          await t.tap(find.byKey(const ValueKey('ed-style')));
+          await settle(t);
+          expect(find.byKey(const ValueKey('style-preview')), findsOneWidget);
+          await t.tap(find.byKey(const ValueKey('style-icon-school')));
+          await t.tap(find.byKey(const ValueKey('style-color-teal')));
+          await t.pump();
+          await t.tap(find.byKey(const ValueKey('style-done')));
+          await settle(t);
           // Chỉ thông báo.
           await t.ensureVisible(find.byKey(const ValueKey('notice-toggle')));
           await t.tap(find.byKey(const ValueKey('notice-toggle')));
@@ -529,6 +539,8 @@ void calendarWidgetTests() {
           expect(be.bodies[k]!.containsKey('start'), isFalse);
           expect((be.bodies[k]!['attendees'] as List).map((a) => a['principal']), contains('ch:c-tech'));
           expect(be.bodies[k]!['notice'], isTrue);
+          expect(be.bodies[k]!['icon'], 'school');
+          expect(be.bodies[k]!['color'], 'teal');
         }
         s.dispose();
         await done(t);
