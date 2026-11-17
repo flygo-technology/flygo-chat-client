@@ -420,10 +420,10 @@ class _ContractEditPageState extends State<ContractEditPage> {
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Text(_c == null ? 'Soạn hợp đồng' : (_locked ? 'Hợp đồng' : 'Sửa hợp đồng'), style: TextStyle(color: l.sub, fontSize: 13.5)),
+              Flexible(child: Text(_c == null ? 'Soạn hợp đồng' : (_locked ? 'Hợp đồng' : 'Sửa hợp đồng'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 13.5))),
               if (_c != null) ...[
                 Text(' · ', style: TextStyle(color: l.sub)),
-                StatusChip(_c!, now: hdNow(), size: 11),
+                Flexible(child: StatusChip(_c!, now: hdNow(), size: 11)),
               ],
               if (hm != null) Flexible(child: Text(_dirty ? ' · chưa lưu' : ' · đã lưu $hm', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 13.5))),
             ]),
@@ -605,7 +605,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
         Icon(ok ? Icons.verified_rounded : Icons.badge_outlined, size: 18, color: idColor),
         const SizedBox(width: 6),
         if (wide) Text('$kind ', style: TextStyle(color: idColor, fontWeight: FontWeight.w700, fontSize: 15.5)),
-        IntrinsicWidth(
+        Flexible(child: IntrinsicWidth(
           child: ConstrainedBox(
             constraints: const BoxConstraints(minWidth: 96),
             child: TextField(
@@ -618,7 +618,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
               decoration: InputDecoration.collapsed(hintText: p.kind == 'cccd' ? '12 số CCCD' : '10 số MST', hintStyle: TextStyle(color: l.faint, fontSize: 15)),
             ),
           ),
-        ),
+        )),
       ]),
     );
     final hint = ok

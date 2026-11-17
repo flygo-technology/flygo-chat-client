@@ -318,6 +318,8 @@ void main() {
 
   testWidgets('gửi nhắc bên đang chờ', (t) async {
     await pump(t, ContractProgressPage(api: api, contract: fixture('hd000118')), size: phone);
+    await t.ensureVisible(find.text('Nhắc'));
+    await settle(t);
     await t.tap(find.text('Nhắc'));
     await settle(t);
     expect(be.calls.any((c) => c.$1 == 'POST' && c.$2 == '/hd/api/contracts/hd000118/parties/pa118a/remind'), isTrue);
