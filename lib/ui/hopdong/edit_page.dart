@@ -1,12 +1,12 @@
 // Hợp đồng: soạn / sửa hợp đồng — tệp PDF, số / tên / giá trị, "Ai ký?" (thẻ từng bên: nhãn, tên, MST/CCCD, email),
 // lần lượt / cùng lúc, thời hạn (hiệu lực, hạn ký, nhắc gia hạn), ghi chú, tiến độ luồng ký và thanh dưới Lưu nháp / Gửi ký.
 // Sau khi gửi ký máy chủ chỉ cho sửa ghi chú, công khai ghi chú và nhắc gia hạn: các phần khác khoá lại.
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../drive/session.dart' show localCopy;
 import '../drive/pickers.dart' show pickFromDrive;
 import 'api.dart';
 import 'detail_page.dart' show openPdf;
@@ -40,9 +40,21 @@ class _PartyDraft {
   }
 }
 
+/// Tệp PDF đã chọn trong Drive: đường dẫn + tên, cách xin vé Drive và cách tải về máy (dự phòng cho máy chủ cũ).
+class HdDrivePick {
+  HdDrivePick({required this.path, required this.name, required this.ticket, required this.download});
+  final String path, name;
+  final Future<String> Function() ticket;
+  final Future<Uint8List> Function() download;
+}
+
 class ContractEditPage extends StatefulWidget {
   const ContractEditPage({super.key, required this.api, this.initial});
   final HopdongApi api;
+
+  /// Kiểm thử: thay hộp chọn Drive.
+  @visibleForTesting
+  static Future<HdDrivePick?> Function(BuildContext context)? debugDrivePicker;
 
   /// null = hợp đồng mới (tạo khi lưu lần đầu hoặc khi chọn PDF).
   final Contract? initial;
@@ -61,6 +73,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
   int? _signDays; // 3 / 7 / 14
   bool _remind = true, _notePublic = false;
   bool _saving = false, _dirty = false, _uploading = false;
+  String _uploadText = '';
   DateTime? _savedAt;
   String _company = '';
 
@@ -244,45 +257,74 @@ class _ContractEditPageState extends State<ContractEditPage> {
   }
 
   Future<void> _pickPdf({bool drive = false}) async {
-    if (_locked) return;
+    if (_locked || _uploading) return;
+    if (drive) return _pickFromDrive();
     Uint8List? bytes;
     String name = 'hop-dong.pdf';
     try {
-      if (drive) {
-        final r = await pickFromDrive(context);
-        final f = r?.files.firstOrNull;
-        if (f == null) return;
-        if (!f.$2.toLowerCase().endsWith('.pdf')) {
-          if (mounted) hdToast(context, 'Chỉ nhận tệp PDF');
-          return;
-        }
-        bytes = await File(f.$1).readAsBytes();
-        name = f.$2;
-      } else {
-        final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['pdf']);
-        final f = files.firstOrNull;
-        if (f == null) return;
-        bytes = await f.readAsBytes();
-        name = f.name;
-      }
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['pdf']);
+      final f = files.firstOrNull;
+      if (f == null) return;
+      bytes = await f.readAsBytes();
+      name = f.name;
     } catch (e) {
       if (mounted) hdToast(context, 'Không mở được tệp: $e');
       return;
     }
     if (!mounted) return;
-    setState(() => _uploading = true);
+    await _withUpload('Đang tải $name lên…', (id) => widget.api.uploadDoc(id, name, bytes!), name);
+  }
+
+  /// Chọn PDF trong Drive: máy chủ Hợp đồng tự lấy tệp từ Drive (một lượt truyền trong máy chủ), không tải qua máy.
+  /// Máy chủ cũ chưa có /doc-from-drive (404 "không có" / 501) thì tải về máy rồi tải lên như cũ.
+  Future<void> _pickFromDrive() async {
+    final pick = await (ContractEditPage.debugDrivePicker ?? _drivePick)(context);
+    if (pick == null || !mounted) return;
+    await _withUpload('Đang lấy tệp từ Drive…', (id) async {
+      try {
+        return await widget.api.docFromDrive(id, path: pick.path, name: pick.name, ticket: await pick.ticket());
+      } on HopdongException catch (e) {
+        final old = e.status == 501 || (e.status == 404 && !e.message.contains('Drive'));
+        if (!old) rethrow;
+        if (mounted) setState(() => _uploadText = 'Đang tải tệp từ Drive về máy…');
+        final bytes = await pick.download();
+        if (mounted) setState(() => _uploadText = 'Đang tải ${pick.name} lên…');
+        return widget.api.uploadDoc(id, pick.name, bytes);
+      }
+    }, pick.name);
+  }
+
+  static Future<HdDrivePick?> _drivePick(BuildContext context) async {
+    final r = await pickFromDrive(context, remoteOnly: true, extensions: const ['pdf'], single: true);
+    final it = r?.remote.firstOrNull;
+    final s = r?.session;
+    if (it == null || s == null) return null;
+    return HdDrivePick(
+      path: it.path,
+      name: it.name,
+      // Vé Drive dạng chuỗi trần (không "Bearer") để máy chủ Hợp đồng gọi drive-gw thay người dùng.
+      ticket: () async => (await s.api.auth())['Authorization']!.replaceFirst(RegExp(r'^Bearer\s+'), ''),
+      download: () async => (await localCopy(s, it)).readAsBytes(),
+    );
+  }
+
+  /// Gắn tài liệu: lưu nháp trước nếu chưa có trên máy chủ, hiện tiến trình trên thẻ PDF, khoá các nút trong lúc chạy.
+  Future<void> _withUpload(String text, Future<Contract> Function(String id) run, String name) async {
+    setState(() {
+      _uploading = true;
+      _uploadText = text;
+    });
     try {
-      // Chưa có hợp đồng trên máy chủ: lưu nháp trước để có chỗ gắn tệp.
       final c = _c ?? await _save(quiet: true);
       if (c == null) return;
-      final n = await widget.api.uploadDoc(c.id, name, bytes);
+      final n = await run(c.id);
       if (!mounted) return;
       setState(() {
         _c = n;
         if (_no.text.trim().isEmpty && n.no.isNotEmpty) _no.text = n.no;
         _savedAt = hdNow();
       });
-      hdToast(context, 'Đã tải lên $name');
+      hdToast(context, 'Đã gắn tài liệu $name');
     } catch (e) {
       if (mounted) hdToast(context, '$e');
     } finally {
@@ -367,13 +409,17 @@ class _ContractEditPageState extends State<ContractEditPage> {
   }
 
   // ------------------------------------------------------------ giao diện
+  // Máy tính: gọn (chữ 13–14, ô nhập 34px, hàng bên ký ~60px, cột phải 312px, nội dung tối đa 1200px giữa màn hình).
+  // Điện thoại: giữ cỡ to dễ bấm.
   @override
   Widget build(BuildContext context) {
     final l = HdLook.of(context);
     return LayoutBuilder(builder: (context, box) {
       final wide = box.maxWidth >= 900;
-      final left = [_fileCard(l, wide), const SizedBox(height: 18), _partiesCard(l, wide), if (wide) ...[const SizedBox(height: 18), _flowCard(l)]];
-      final right = [_termCard(l, wide), const SizedBox(height: 18), _noteCard(l, wide)];
+      final gap = SizedBox(height: wide ? 12 : 14);
+      final left = [_fileCard(l, wide), gap, _partiesCard(l, wide), if (wide) ...[gap, _flowCard(l)]];
+      final right = [_termCard(l, wide), gap, _noteCard(l, wide)];
+      if (wide) return _desktop(l, left, right);
       return PopScope(
         canPop: false,
         onPopInvokedWithResult: (did, _) async {
@@ -386,17 +432,20 @@ class _ContractEditPageState extends State<ContractEditPage> {
           body: SafeArea(
             bottom: false,
             child: Column(children: [
-              _header(l, wide),
-              if (_locked) _lockedBanner(l, wide),
+              _center(wide, _header(l, wide)),
+              if (_locked) _center(wide, _lockedBanner(l, wide)),
               Expanded(
                 child: wide
                     ? SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: left)),
-                          const SizedBox(width: 20),
-                          SizedBox(width: 420, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: right)),
-                        ]),
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                        child: _center(
+                          true,
+                          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: left)),
+                            const SizedBox(width: 14),
+                            SizedBox(width: 312, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: right)),
+                          ]),
+                        ),
                       )
                     : ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 24), children: [...left, const SizedBox(height: 14), ...right]),
               ),
@@ -408,36 +457,160 @@ class _ContractEditPageState extends State<ContractEditPage> {
     });
   }
 
+  /// Máy tính (bản gọn Sếp duyệt): header có viền dưới; nội dung tối đa 1200px ở giữa; cột phải 310px với thẻ hành động
+  /// (trạng thái + Lưu nháp / Gửi ký) luôn ở đầu, Thời hạn và Ghi chú cuộn bên dưới. Không có thanh dưới.
+  Widget _desktop(HdLook l, List<Widget> left, List<Widget> right) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (did, _) async {
+          if (did) return;
+          if (_dirty) await _save(quiet: true);
+          if (mounted) Navigator.of(context).pop(_c);
+        },
+        child: Scaffold(
+          backgroundColor: l.bg,
+          body: SafeArea(
+            child: Column(children: [
+              Container(
+                decoration: BoxDecoration(color: l.nav, border: Border(bottom: BorderSide(color: l.border))),
+                child: _center(true, _header(l, true)),
+              ),
+              if (_locked) Padding(padding: const EdgeInsets.only(top: 10), child: _center(true, _lockedBanner(l, true))),
+              Expanded(
+                child: _center(
+                  true,
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 14, 0, 20),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: left),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    SizedBox(
+                      width: 310,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 14, right: 20),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          _actionCard(l),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.only(bottom: 20),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: right),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      );
+
+  /// Thẻ hành động (máy tính): dòng trạng thái + Lưu nháp và nút chính ngoài cùng bên phải.
+  Widget _actionCard(HdLook l) {
+    final miss = _missing();
+    final ready = miss.isEmpty;
+    final busy = _saving || _uploading;
+    final summary = [
+      '${_parties.length} bên',
+      _mode == 'par' ? 'cùng lúc' : 'lần lượt',
+      if (_deadline != null) 'hạn ${dm(_deadline!.millisecondsSinceEpoch)}',
+    ].join(' · ');
+    final (IconData icon, Color color, String text) = _locked
+        ? (Icons.lock_outline_rounded, l.sub, 'Đã gửi ký · chỉ sửa ghi chú')
+        : ready
+            ? (Icons.check_circle_rounded, l.ok, 'Sẵn sàng gửi · $summary')
+            : (Icons.error_outline_rounded, l.warn, 'Còn thiếu: ${miss.take(3).join(', ')}${miss.length > 3 ? '…' : ''}');
+    return HdCard(
+      pad: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(padding: const EdgeInsets.only(top: 1), child: Icon(icon, size: 16, color: color)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: ready || _locked ? l.sub : l.warn, fontSize: 12.5, height: 1.35))),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          OutlinedButton(
+            onPressed: busy ? null : () => _save(),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              minimumSize: const Size(0, 34),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              side: BorderSide(color: l.border),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: Text(_locked ? 'Lưu ghi chú' : 'Lưu nháp', style: TextStyle(color: l.text, fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 8),
+          if (!_locked)
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: busy ? null : _send,
+                icon: const Icon(Icons.send_rounded, size: 15),
+                label: Text(_sendText, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ready ? l.accent : l.accent.withValues(alpha: .55),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 34),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+        ]),
+      ]),
+    );
+  }
+
+  /// Máy tính: nội dung rộng tối đa 1200px, ở giữa.
+  Widget _center(bool wide, Widget child) =>
+      wide ? Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1200), child: child)) : child;
+
   Widget _header(HdLook l, bool wide) {
     final saved = _savedAt ?? (_c?.updatedAt == null ? null : DateTime.fromMillisecondsSinceEpoch(_c!.updatedAt!));
     final hm = saved == null ? null : '${saved.hour.toString().padLeft(2, '0')}:${saved.minute.toString().padLeft(2, '0')}';
     final title = _title.text.trim().isEmpty ? (_c == null ? 'Hợp đồng mới' : 'Hợp đồng chưa đặt tên') : _title.text.trim();
+    final small = wide ? 12.0 : 13.5;
     return Padding(
-      padding: EdgeInsets.fromLTRB(wide ? 14 : 4, 8, wide ? 24 : 8, 8),
+      padding: EdgeInsets.fromLTRB(wide ? 10 : 4, wide ? 6 : 8, wide ? 16 : 8, wide ? 6 : 8),
       child: Row(children: [
-        IconButton(onPressed: () => Navigator.maybePop(context), icon: Icon(wide ? Icons.arrow_back_rounded : Icons.close_rounded, color: l.sub)),
+        IconButton(
+          onPressed: () => Navigator.maybePop(context),
+          visualDensity: wide ? VisualDensity.compact : null,
+          icon: Icon(wide ? Icons.arrow_back_rounded : Icons.close_rounded, color: l.sub, size: wide ? 20 : 24),
+        ),
         const SizedBox(width: 4),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Flexible(child: Text(_c == null ? 'Soạn hợp đồng' : (_locked ? 'Hợp đồng' : 'Sửa hợp đồng'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 13.5))),
+              Flexible(
+                child: Text(_c == null ? 'Soạn hợp đồng' : (_locked ? 'Hợp đồng' : 'Sửa hợp đồng'),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: small)),
+              ),
               if (_c != null) ...[
-                Text(' · ', style: TextStyle(color: l.sub)),
-                Flexible(child: StatusChip(_c!, now: hdNow(), size: 11)),
+                Text(' · ', style: TextStyle(color: l.sub, fontSize: small)),
+                Flexible(child: StatusChip(_c!, now: hdNow(), size: wide ? 10.5 : 11)),
               ],
-              if (hm != null) Flexible(child: Text(_dirty ? ' · chưa lưu' : ' · đã lưu $hm', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 13.5))),
+              if (hm != null)
+                Flexible(child: Text(_dirty ? ' · chưa lưu' : ' · đã lưu $hm', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: small))),
             ]),
-            const SizedBox(height: 2),
-            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: wide ? 21 : 19, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 1),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: wide ? 17 : 19, fontWeight: FontWeight.w700)),
           ]),
         ),
         if (_c?.doc != null)
           wide
-              ? HdAction(Icons.visibility_outlined, 'Xem PDF', onTap: () => openPdf(context, widget.api, _c!))
+              ? HdAction(Icons.visibility_outlined, 'Xem PDF', small: true, onTap: () => openPdf(context, widget.api, _c!))
               : IconButton(tooltip: 'Xem PDF', onPressed: () => openPdf(context, widget.api, _c!), icon: Icon(Icons.visibility_outlined, color: l.sub)),
         if (!_locked)
           PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert_rounded, color: l.sub),
+            icon: Icon(Icons.more_vert_rounded, color: l.sub, size: wide ? 20 : 24),
             onSelected: (v) => v == 'delete' ? _deleteDraft() : null,
             itemBuilder: (_) => [PopupMenuItem(value: 'delete', child: Text(_c == null ? 'Bỏ hợp đồng này' : 'Xoá nháp'))],
           ),
@@ -446,102 +619,148 @@ class _ContractEditPageState extends State<ContractEditPage> {
   }
 
   Widget _lockedBanner(HdLook l, bool wide) => Container(
-        margin: EdgeInsets.fromLTRB(wide ? 24 : 14, 0, wide ? 24 : 14, 10),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(color: l.warnSoft, borderRadius: BorderRadius.circular(12)),
+        margin: EdgeInsets.fromLTRB(wide ? 20 : 14, 0, wide ? 20 : 14, wide ? 0 : 10),
+        padding: EdgeInsets.symmetric(horizontal: wide ? 12 : 14, vertical: wide ? 8 : 10),
+        decoration: BoxDecoration(color: l.warnSoft, borderRadius: BorderRadius.circular(10)),
         child: Row(children: [
-          Icon(Icons.lock_outline_rounded, size: 18, color: l.warn),
+          Icon(Icons.lock_outline_rounded, size: wide ? 16 : 18, color: l.warn),
           const SizedBox(width: 10),
-          Expanded(child: Text('Hợp đồng đã gửi ký: tài liệu, các bên và thời hạn đã khoá. Chỉ sửa được ghi chú và nhắc gia hạn.', style: TextStyle(color: l.warn, fontSize: 13.5))),
+          Expanded(
+            child: Text('Hợp đồng đã gửi ký: tài liệu, các bên và thời hạn đã khoá. Chỉ sửa được ghi chú và nhắc gia hạn.',
+                style: TextStyle(color: l.warn, fontSize: wide ? 12.5 : 13.5)),
+          ),
         ]),
       );
 
-  InputDecoration _fieldDeco(HdLook l, String label, {String? hint}) => InputDecoration(
-        isDense: true,
-        border: InputBorder.none,
-        labelText: label,
-        hintText: hint,
-        hintStyle: TextStyle(color: l.faint),
-        floatingLabelBehavior: FloatingLabelBehavior.always,
-        labelStyle: TextStyle(color: l.sub, fontSize: 15),
-        contentPadding: const EdgeInsets.only(top: 4, bottom: 2),
-      );
-
-  Widget _field(HdLook l, String label, TextEditingController c, {String? hint, TextInputType? kb, List<TextInputFormatter>? fmt, String? suffix}) => Container(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-        decoration: BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: l.border.withValues(alpha: .6))),
-        child: TextField(
-          controller: c,
-          enabled: !_locked,
-          keyboardType: kb,
-          inputFormatters: fmt,
-          style: TextStyle(color: l.text, fontSize: 16.5, fontWeight: FontWeight.w500),
-          decoration: _fieldDeco(l, label, hint: hint).copyWith(suffixText: suffix, suffixStyle: TextStyle(color: l.text, fontSize: 16.5)),
+  /// Ô nhập có nhãn. Máy tính: nhãn nhỏ phía trên + ô cao 34px; điện thoại: nhãn nổi trong ô.
+  Widget _field(HdLook l, bool wide, String label, TextEditingController c, {String? hint, TextInputType? kb, List<TextInputFormatter>? fmt, String? suffix}) {
+    if (wide) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: TextStyle(color: l.sub, fontSize: 12)),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 34,
+          child: TextField(
+            controller: c,
+            enabled: !_locked,
+            keyboardType: kb,
+            inputFormatters: fmt,
+            style: TextStyle(color: l.text, fontSize: 13, fontWeight: FontWeight.w400),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: l.field,
+              hintText: hint,
+              hintStyle: TextStyle(color: l.faint, fontSize: 13.5),
+              suffixText: suffix,
+              suffixStyle: TextStyle(color: l.sub, fontSize: 13.5),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: l.border)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: l.border)),
+              disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: l.border.withValues(alpha: .5))),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: l.accent)),
+            ),
+          ),
         ),
-      );
+      ]);
+    }
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      decoration: BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: l.border.withValues(alpha: .6))),
+      child: TextField(
+        controller: c,
+        enabled: !_locked,
+        keyboardType: kb,
+        inputFormatters: fmt,
+        style: TextStyle(color: l.text, fontSize: 16.5, fontWeight: FontWeight.w500),
+        decoration: InputDecoration(
+          isDense: true,
+          border: InputBorder.none,
+          labelText: label,
+          hintText: hint,
+          hintStyle: TextStyle(color: l.faint),
+          floatingLabelBehavior: FloatingLabelBehavior.always,
+          labelStyle: TextStyle(color: l.sub, fontSize: 15),
+          contentPadding: const EdgeInsets.only(top: 4, bottom: 2),
+          suffixText: suffix,
+          suffixStyle: TextStyle(color: l.text, fontSize: 16.5),
+        ),
+      ),
+    );
+  }
 
   Widget _fileCard(HdLook l, bool wide) {
     final d = _c?.doc;
+    final box = wide ? 40.0 : 56.0;
     final icon = Container(
-      width: wide ? 64 : 56,
-      height: wide ? 64 : 56,
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: l.border)),
+      width: box,
+      height: box,
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(wide ? 8 : 12), border: Border.all(color: l.border)),
       child: _uploading
-          ? const Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator(strokeWidth: 2.4))
-          : const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFE5484D), size: 32),
+          ? Padding(padding: EdgeInsets.all(wide ? 11 : 18), child: const CircularProgressIndicator(strokeWidth: 2.2))
+          : Icon(Icons.picture_as_pdf_rounded, color: const Color(0xFFE5484D), size: wide ? 22 : 32),
     );
-    final info = d == null
-        ? (_c == null ? 'Chọn tệp PDF hợp đồng (bản chưa ký)' : 'Chưa có tài liệu — chọn tệp PDF (bản chưa ký)')
-        : [if (d.pages != null) '${d.pages} trang', 'bản ${d.rev}', if (wide && _c!.updatedAt != null) 'cập nhật ${dm(_c!.updatedAt)}'].join(' · ');
+    final info = _uploading
+        ? _uploadText
+        : d == null
+            ? (_c == null ? 'Chọn tệp PDF hợp đồng (bản chưa ký)' : 'Chưa có tài liệu — chọn tệp PDF (bản chưa ký)')
+            : [if (d.pages != null) '${d.pages} trang', 'bản ${d.rev}', if (wide && _c!.updatedAt != null) 'cập nhật ${dm(_c!.updatedAt)}'].join(' · ');
     final value = parseMoney(_value.text);
     final fields = wide
-        ? Row(children: [
-            SizedBox(width: 240, child: _field(l, 'Số hợp đồng', _no, hint: 'HĐDV-2026/087')),
-            const SizedBox(width: 14),
-            Expanded(child: _field(l, 'Tên hợp đồng', _title, hint: 'Bảo trì hệ thống 12 tháng')),
-            const SizedBox(width: 14),
-            SizedBox(width: 240, child: _valueField(l)),
+        ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(width: 190, child: _field(l, true, 'Số hợp đồng', _no, hint: 'VD: HĐDV-2026/087')),
+            const SizedBox(width: 10),
+            Expanded(child: _field(l, true, 'Tên hợp đồng', _title, hint: 'VD: Bảo trì hệ thống 12 tháng')),
+            const SizedBox(width: 10),
+            SizedBox(width: 190, child: _valueField(l, true)),
           ])
         : Column(children: [
-            _field(l, 'Số hợp đồng', _no, hint: 'HĐDV-2026/087'),
+            _field(l, false, 'Số hợp đồng', _no, hint: 'VD: HĐDV-2026/087'),
             const SizedBox(height: 10),
-            _field(l, 'Tên hợp đồng', _title, hint: 'Bảo trì hệ thống 12 tháng'),
+            _field(l, false, 'Tên hợp đồng', _title, hint: 'VD: Bảo trì hệ thống 12 tháng'),
             const SizedBox(height: 10),
-            _valueField(l),
+            _valueField(l, false),
           ]);
     return HdCard(
-      pad: EdgeInsets.all(wide ? 24 : 16),
+      pad: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
           icon,
-          const SizedBox(width: 16),
+          SizedBox(width: wide ? 12 : 16),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(
                 d?.name ?? (wide ? 'Chưa có tệp PDF' : [if (_no.text.trim().isNotEmpty) _no.text.trim(), 'Chưa có PDF'].join(' · ')),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: l.text, fontSize: 17, fontWeight: FontWeight.w700),
+                style: TextStyle(color: l.text, fontSize: wide ? 14 : 17, fontWeight: wide ? FontWeight.w600 : FontWeight.w700),
               ),
-              const SizedBox(height: 3),
-              Text(!wide && d != null && value != null ? '$info · ${money(value)}' : info,
-                  maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 14)),
+              SizedBox(height: wide ? 1 : 3),
+              Text(!_uploading && !wide && d != null && value != null ? '$info · ${money(value)}' : info,
+                  maxLines: wide ? 1 : 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: _uploading ? l.accentText : l.sub, fontSize: wide ? 12.5 : 14)),
             ]),
           ),
-          if (!_locked)
+          if (!_locked && wide) ...[
+            HdAction(Icons.add_to_drive_outlined, 'Từ Drive', small: true, onTap: _uploading ? null : () => _pickPdf(drive: true)),
+            const SizedBox(width: 6),
+            HdAction(Icons.upload_file_rounded, 'Từ máy', small: true, onTap: _uploading ? null : () => _pickPdf()),
+          ],
+          if (!_locked && !wide)
             Builder(
-              builder: (b) => wide
-                  ? HdAction(d == null ? Icons.upload_file_rounded : Icons.swap_horiz_rounded, d == null ? 'Chọn PDF' : 'Đổi file', onTap: _uploading ? null : () => _choosePdf(b))
-                  : IconButton(onPressed: _uploading ? null : () => _choosePdf(b), icon: Icon(d == null ? Icons.upload_file_rounded : Icons.swap_horiz_rounded, color: l.accentText)),
+              builder: (b) => IconButton(
+                      onPressed: _uploading ? null : () => _choosePdf(b),
+                      icon: Icon(d == null ? Icons.upload_file_rounded : Icons.swap_horiz_rounded, color: l.accentText)),
             ),
         ]),
-        SizedBox(height: wide ? 20 : 14),
+        SizedBox(height: wide ? 12 : 14),
         fields,
       ]),
     );
   }
 
-  Widget _valueField(HdLook l) => _field(l, 'Giá trị', _value, hint: '0', kb: TextInputType.number, suffix: '₫', fmt: [
+  Widget _valueField(HdLook l, bool wide) => _field(l, wide, 'Giá trị', _value, hint: '0', kb: TextInputType.number, suffix: '₫', fmt: [
         FilteringTextInputFormatter.digitsOnly,
         TextInputFormatter.withFunction((o, n) {
           final v = parseMoney(n.text);
@@ -551,185 +770,264 @@ class _ContractEditPageState extends State<ContractEditPage> {
       ]);
 
   Widget _modeSwitch(HdLook l, bool wide) {
-    Widget seg(String v, String t) {
-      final sel = _mode == v;
-      return Padding(
-        padding: const EdgeInsets.only(left: 6),
-        child: HdChip(t, selected: sel, dense: true, onTap: _locked ? () {} : () => setState(() {
-              _mode = v;
-              _dirty = true;
-            })),
-      );
-    }
-
-    final n = _parties.length;
+    Widget seg(String v, String t) => Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: HdChip(t, selected: _mode == v, dense: true, small: wide, onTap: _locked ? () {} : () => setState(() {
+                _mode = v;
+                _dirty = true;
+              })),
+        );
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      seg('seq', wide && n > 1 ? '1 → $n Lần lượt' : 'Lần lượt'),
+      seg('seq', 'Lần lượt'),
       seg('par', 'Cùng lúc'),
     ]);
   }
 
   Widget _partiesCard(HdLook l, bool wide) {
     return HdCard(
-      pad: EdgeInsets.all(wide ? 24 : 16),
+      pad: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        HdCardTitle(Icons.groups_2_outlined, 'Ai ký?', trailing: _modeSwitch(l, wide)),
-        const SizedBox(height: 16),
+        HdCardTitle(Icons.groups_2_outlined, 'Ai ký?', size: wide ? 14 : 17, trailing: _modeSwitch(l, wide)),
+        SizedBox(height: wide ? 12 : 16),
         for (var i = 0; i < _parties.length; i++) ...[
           if (i > 0)
             Padding(
-              padding: EdgeInsets.only(left: wide ? 50 : 26),
-              child: Align(alignment: Alignment.centerLeft, child: Container(width: 2, height: wide ? 26 : 14, color: _mode == 'seq' ? l.border : Colors.transparent)),
+              padding: EdgeInsets.only(left: wide ? 23 : 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(width: 2, height: wide ? 8 : 14, color: _mode == 'seq' ? l.border : Colors.transparent),
+              ),
             ),
-          _partyCard(l, i, wide),
+          wide ? _partyRowDesk(l, i) : _partyCard(l, i),
         ],
         if (!_locked && _parties.length < 10) ...[
-          const SizedBox(height: 14),
+          SizedBox(height: wide ? 10 : 14),
           _addRow(l, wide),
         ],
       ]),
     );
   }
 
-  Widget _partyCard(HdLook l, int i, bool wide) {
-    final p = _parties[i];
-    final ringColor = i == 0 ? l.warn : l.accent;
+  /// Mã số + gợi ý của một bên.
+  (bool ok, String kind, Color color, String hint) _idState(HdLook l, _PartyDraft p) {
     final no = p.idNo.text.replaceAll(RegExp(r'\s+'), '');
     final ok = p.valid;
     final kind = p.kind == 'cccd' ? 'CCCD' : 'MST';
-    final idColor = ok ? l.ok : (no.isEmpty ? l.sub : l.warn);
-    final idPill = Container(
-      padding: const EdgeInsets.fromLTRB(10, 4, 12, 4),
-      decoration: BoxDecoration(color: ok ? l.okSoft : l.card2, borderRadius: BorderRadius.circular(10)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(ok ? Icons.verified_rounded : Icons.badge_outlined, size: 18, color: idColor),
-        const SizedBox(width: 6),
-        if (wide) Text('$kind ', style: TextStyle(color: idColor, fontWeight: FontWeight.w700, fontSize: 15.5)),
-        Flexible(child: IntrinsicWidth(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 96),
-            child: TextField(
-              controller: p.idNo,
-              enabled: !_locked,
-              onChanged: (_) => setState(() => _dirty = true),
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')), LengthLimitingTextInputFormatter(14)],
-              style: TextStyle(color: idColor, fontWeight: FontWeight.w700, fontSize: 15.5, fontFeatures: const [FontFeature.tabularFigures()]),
-              decoration: InputDecoration.collapsed(hintText: p.kind == 'cccd' ? '12 số CCCD' : '10 số MST', hintStyle: TextStyle(color: l.faint, fontSize: 15)),
-            ),
-          ),
-        )),
-      ]),
-    );
+    final color = ok ? l.ok : (no.isEmpty ? l.sub : l.warn);
     final hint = ok
-        ? (p.internal ? 'Ký bằng token công ty' : 'Chỉ chứng thư đúng $kind này mới ký được')
+        ? (p.internal ? 'ký bằng token công ty' : 'chỉ token đúng $kind này ký được')
         : no.isEmpty
             ? 'Nhập $kind của bên ký'
             : (p.kind == 'cccd' ? 'CCCD phải đủ 12 số' : 'MST phải 10 số hoặc 10 số-3 số');
-    final label = p.label.text.trim().isEmpty ? defaultLabel(i) : p.label.text.trim();
-    final labelChip = InkWell(
-      onTap: _locked ? null : () => _renameLabel(i),
-      child: Pill('${label.toUpperCase()}${p.internal ? ' · MÌNH' : ''}', fg: p.internal ? l.accentText : l.warn, bg: p.internal ? l.accentSoft : l.warnSoft, size: 11.5),
-    );
-    final name = TextField(
-      controller: p.name,
-      enabled: !_locked,
-      onChanged: (_) => _touch(),
-      textCapitalization: TextCapitalization.characters,
-      minLines: 1,
-      maxLines: wide ? 1 : 2,
-      style: TextStyle(color: l.text, fontSize: wide ? 17.5 : 16.5, fontWeight: FontWeight.w700),
-      decoration: InputDecoration.collapsed(hintText: p.internal ? 'Tên công ty mình' : 'Tên công ty / người ký', hintStyle: TextStyle(color: l.faint, fontWeight: FontWeight.w500)),
-    );
-    final menu = _locked
-        ? const SizedBox(width: 8)
-        : PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert_rounded, color: l.sub),
-            onSelected: (v) => v == 'label' ? _renameLabel(i) : _partyMenu(i, v),
-            itemBuilder: (_) => [
-              if (i > 0) const PopupMenuItem(value: 'up', child: Text('Lên trên')),
-              if (i < _parties.length - 1) const PopupMenuItem(value: 'down', child: Text('Xuống dưới')),
-              const PopupMenuItem(value: 'label', child: Text('Đổi nhãn')),
-              PopupMenuItem(value: 'internal', child: Text(p.internal ? 'Không phải bên mình' : 'Đây là bên mình')),
-              PopupMenuItem(value: 'kind', child: Text(p.kind == 'cccd' ? 'Dùng MST (tổ chức)' : 'Dùng CCCD (cá nhân)')),
-              const PopupMenuItem(value: 'remove', child: Text('Bỏ bên này')),
-            ],
-          );
-    final ring = Container(
-      width: wide ? 44 : 34,
-      height: wide ? 44 : 34,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: ringColor, width: 2)),
-      child: Text('${i + 1}', style: TextStyle(color: ringColor, fontWeight: FontWeight.w700, fontSize: wide ? 17 : 15)),
-    );
-    final email = SizedBox(
-      width: 230,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text('Gửi link tới', style: TextStyle(color: l.sub, fontSize: 13.5)),
-        TextField(
-          controller: p.email,
-          enabled: !_locked,
-          onChanged: (_) => _touch(),
-          textAlign: TextAlign.end,
-          keyboardType: TextInputType.emailAddress,
-          style: TextStyle(color: l.text, fontSize: 15.5),
-          decoration: InputDecoration.collapsed(hintText: 'email (không bắt buộc)', hintStyle: TextStyle(color: l.faint, fontSize: 14)),
+    return (ok, kind, color, hint);
+  }
+
+  Widget _idInput(HdLook l, _PartyDraft p, Color color, double size) => IntrinsicWidth(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: size * 6.2),
+          child: TextField(
+            controller: p.idNo,
+            enabled: !_locked,
+            onChanged: (_) => setState(() => _dirty = true),
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')), LengthLimitingTextInputFormatter(14)],
+            style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: size, fontFeatures: const [FontFeature.tabularFigures()]),
+            decoration: InputDecoration.collapsed(hintText: p.kind == 'cccd' ? '12 số CCCD' : '10 số MST', hintStyle: TextStyle(color: l.faint, fontSize: size)),
+          ),
         ),
-      ]),
+      );
+
+  Widget _partyMenuButton(HdLook l, int i, {double size = 24}) {
+    final p = _parties[i];
+    if (_locked) return const SizedBox(width: 8);
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert_rounded, color: l.sub, size: size),
+      padding: EdgeInsets.zero,
+      onSelected: (v) => v == 'label' ? _renameLabel(i) : _partyMenu(i, v),
+      itemBuilder: (_) => [
+        if (i > 0) const PopupMenuItem(value: 'up', child: Text('Lên trên')),
+        if (i < _parties.length - 1) const PopupMenuItem(value: 'down', child: Text('Xuống dưới')),
+        const PopupMenuItem(value: 'label', child: Text('Đổi nhãn')),
+        PopupMenuItem(value: 'internal', child: Text(p.internal ? 'Không phải bên mình' : 'Đây là bên mình')),
+        PopupMenuItem(value: 'kind', child: Text(p.kind == 'cccd' ? 'Dùng MST (tổ chức)' : 'Dùng CCCD (cá nhân)')),
+        const PopupMenuItem(value: 'remove', child: Text('Bỏ bên này')),
+      ],
     );
+  }
+
+  Widget _labelChip(HdLook l, int i, double size) {
+    final p = _parties[i];
+    final label = p.label.text.trim().isEmpty ? defaultLabel(i) : p.label.text.trim();
+    return InkWell(
+      onTap: _locked ? null : () => _renameLabel(i),
+      child: Pill('${label.toUpperCase()}${p.internal ? ' · MÌNH' : ''}', fg: p.internal ? l.accentText : l.warn, bg: p.internal ? l.accentSoft : l.warnSoft, size: size),
+    );
+  }
+
+  /// Hàng bên ký trên máy tính (~60px): vòng số 24, avatar 38, tên + nhãn, MST + gợi ý một dòng, email bên phải.
+  Widget _partyRowDesk(HdLook l, int i) {
+    final p = _parties[i];
+    final (ok, kind, color, hint) = _idState(l, p);
+    final ring = i == 0 ? l.warn : l.accent;
+    final label = p.label.text.trim().isEmpty ? defaultLabel(i) : p.label.text.trim();
     return Container(
       key: p.key,
-      padding: EdgeInsets.fromLTRB(wide ? 18 : 0, wide ? 18 : 4, wide ? 6 : 0, wide ? 18 : 4),
-      decoration: wide ? BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(16), border: Border.all(color: l.border)) : null,
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(10), border: Border.all(color: l.border)),
       child: Row(children: [
-        ring,
-        SizedBox(width: wide ? 18 : 12),
-        PartyAvatar(p.name.text.isEmpty ? label : p.name.text, index: p.internal ? 1 : 0, size: wide ? 62 : 52),
-        SizedBox(width: wide ? 18 : 12),
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: ring, width: 1.5)),
+          child: Text('${i + 1}', style: TextStyle(color: ring, fontWeight: FontWeight.w700, fontSize: 11.5)),
+        ),
+        const SizedBox(width: 12),
+        PartyAvatar(p.name.text.isEmpty ? label : p.name.text, index: p.internal ? 1 : 0, size: 34),
+        const SizedBox(width: 12),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
             Row(children: [
-              Flexible(child: wide ? IntrinsicWidth(child: name) : name),
-              if (wide) ...[const SizedBox(width: 10), labelChip],
+              Flexible(
+                child: IntrinsicWidth(
+                  child: TextField(
+                    controller: p.name,
+                    enabled: !_locked,
+                    onChanged: (_) => _touch(),
+                    textCapitalization: TextCapitalization.characters,
+                    style: TextStyle(color: l.text, fontSize: 13.5, fontWeight: FontWeight.w600),
+                    decoration: InputDecoration.collapsed(
+                        hintText: p.internal ? 'Tên công ty mình' : 'Tên công ty / người ký', hintStyle: TextStyle(color: l.faint, fontWeight: FontWeight.w500, fontSize: 13.5)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _labelChip(l, i, 10),
             ]),
-            const SizedBox(height: 8),
-            Wrap(spacing: 12, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              idPill,
-              if (wide) Text(hint, style: TextStyle(color: ok ? l.sub : idColor, fontSize: 14.5)),
-              if (!wide && !ok) Text(hint, style: TextStyle(color: idColor, fontSize: 13)),
+            const SizedBox(height: 4),
+            Row(children: [
+              Container(
+                height: 20,
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                decoration: BoxDecoration(color: ok ? l.okSoft : l.card2, borderRadius: BorderRadius.circular(6)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(ok ? Icons.verified_rounded : Icons.badge_outlined, size: 13, color: color),
+                  const SizedBox(width: 4),
+                  Text('$kind ', style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
+                  _idInput(l, p, color, 12),
+                ]),
+              ),
+              const SizedBox(width: 10),
+              Flexible(child: Text(hint, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: ok ? l.sub : color, fontSize: 12))),
             ]),
           ]),
         ),
-        if (wide) email,
-        menu,
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 190,
+          child: Tooltip(
+            message: 'Gửi link ký tới email này',
+            child: TextField(
+              controller: p.email,
+              enabled: !_locked,
+              onChanged: (_) => _touch(),
+              textAlign: TextAlign.end,
+              keyboardType: TextInputType.emailAddress,
+              style: TextStyle(color: l.sub, fontSize: 12.5),
+              decoration: InputDecoration.collapsed(hintText: 'email (không bắt buộc)', hintStyle: TextStyle(color: l.faint, fontSize: 12.5)),
+            ),
+          ),
+        ),
+        _partyMenuButton(l, i, size: 18),
+      ]),
+    );
+  }
+
+  /// Thẻ bên ký trên điện thoại.
+  Widget _partyCard(HdLook l, int i) {
+    final p = _parties[i];
+    final (ok, _, color, hint) = _idState(l, p);
+    final ringColor = i == 0 ? l.warn : l.accent;
+    final label = p.label.text.trim().isEmpty ? defaultLabel(i) : p.label.text.trim();
+    return Container(
+      key: p.key,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: ringColor, width: 2)),
+          child: Text('${i + 1}', style: TextStyle(color: ringColor, fontWeight: FontWeight.w700, fontSize: 15)),
+        ),
+        const SizedBox(width: 12),
+        PartyAvatar(p.name.text.isEmpty ? label : p.name.text, index: p.internal ? 1 : 0, size: 52),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            TextField(
+              controller: p.name,
+              enabled: !_locked,
+              onChanged: (_) => _touch(),
+              textCapitalization: TextCapitalization.characters,
+              minLines: 1,
+              maxLines: 2,
+              style: TextStyle(color: l.text, fontSize: 16.5, fontWeight: FontWeight.w700),
+              decoration: InputDecoration.collapsed(
+                  hintText: p.internal ? 'Tên công ty mình' : 'Tên công ty / người ký', hintStyle: TextStyle(color: l.faint, fontWeight: FontWeight.w500)),
+            ),
+            const SizedBox(height: 8),
+            Wrap(spacing: 12, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 4, 12, 4),
+                decoration: BoxDecoration(color: ok ? l.okSoft : l.card2, borderRadius: BorderRadius.circular(10)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(ok ? Icons.verified_rounded : Icons.badge_outlined, size: 18, color: color),
+                  const SizedBox(width: 6),
+                  Flexible(child: _idInput(l, p, color, 15.5)),
+                ]),
+              ),
+              if (!ok) Text(hint, style: TextStyle(color: color, fontSize: 13)),
+            ]),
+          ]),
+        ),
+        _partyMenuButton(l, i),
       ]),
     );
   }
 
   Widget _addRow(HdLook l, bool wide) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: l.border, width: 1.4, strokeAlign: BorderSide.strokeAlignInside),
-        ),
+        height: wide ? 38 : null,
+        padding: EdgeInsets.symmetric(horizontal: wide ? 12 : 18, vertical: wide ? 0 : 6),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(wide ? 10 : 16), border: Border.all(color: l.border, width: 1.2)),
         child: Row(children: [
-          Icon(Icons.add_circle_outline_rounded, color: l.accentText, size: 24),
-          const SizedBox(width: 12),
+          Icon(Icons.add_circle_outline_rounded, color: l.accentText, size: wide ? 18 : 24),
+          SizedBox(width: wide ? 10 : 12),
           Expanded(
             child: TextField(
               controller: _add,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9-]'))],
               onSubmitted: _addParty,
-              style: TextStyle(color: l.text, fontSize: 16),
-              decoration: InputDecoration(border: InputBorder.none, hintText: 'Nhập MST để thêm bên ký', hintStyle: TextStyle(color: l.sub, fontSize: 16)),
+              style: TextStyle(color: l.text, fontSize: wide ? 13.5 : 16),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                isDense: wide,
+                hintText: 'Nhập MST để thêm bên ký',
+                hintStyle: TextStyle(color: l.sub, fontSize: wide ? 13.5 : 16),
+              ),
             ),
           ),
-          TextButton(onPressed: () => _addParty(_add.text), child: Text(wide ? 'hoặc thêm bên trống' : 'Thêm', style: TextStyle(color: l.sub))),
+          TextButton(
+            onPressed: () => _addParty(_add.text),
+            style: wide ? TextButton.styleFrom(visualDensity: VisualDensity.compact) : null,
+            child: Text(wide ? 'Thêm' : 'Thêm', style: TextStyle(color: l.sub, fontSize: wide ? 12.5 : null)),
+          ),
         ]),
       );
 
-  Widget _label2(HdLook l, String t) => Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(t, style: TextStyle(color: l.sub, fontSize: 15)));
+  Widget _sectionLabel(HdLook l, bool wide, String t) =>
+      Padding(padding: EdgeInsets.only(bottom: wide ? 6 : 10), child: Text(t, style: TextStyle(color: l.sub, fontSize: wide ? 12.5 : 15)));
 
   Widget _termCard(HdLook l, bool wide) {
     void eff(int m) {
@@ -757,46 +1055,48 @@ class _ContractEditPageState extends State<ContractEditPage> {
 
     final range = _effFrom == null && _effTo == null ? 'Chưa đặt thời hạn hiệu lực' : '${_d(_effFrom)} → ${_d(_effTo)}';
     return HdCard(
-      pad: EdgeInsets.all(wide ? 24 : 16),
+      pad: EdgeInsets.all(wide ? 14 : 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const HdCardTitle(Icons.schedule_rounded, 'Thời hạn'),
-        const SizedBox(height: 14),
-        _label2(l, wide ? 'Hiệu lực hợp đồng' : 'Hiệu lực'),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final m in [6, 12, 24]) HdChip(wide || m == 12 ? '$m tháng' : '$m th', selected: _effMonths == m, dense: true, onTap: () => eff(m)),
-          HdChip(wide ? 'Tuỳ chọn' : 'Khác', selected: _effMonths == 0, dense: true, onTap: () => eff(0)),
+        HdCardTitle(Icons.schedule_rounded, 'Thời hạn', size: wide ? 14 : 17),
+        SizedBox(height: wide ? 10 : 14),
+        _sectionLabel(l, wide, 'Hiệu lực'),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final m in [6, 12, 24]) HdChip(m == 12 || _effMonths == m ? '$m tháng' : '$m th', selected: _effMonths == m, dense: true, small: wide, onTap: () => eff(m)),
+          HdChip(wide ? 'Tuỳ chọn' : 'Khác', selected: _effMonths == 0, dense: true, small: wide, onTap: () => eff(0)),
         ]),
-        const SizedBox(height: 12),
+        SizedBox(height: wide ? 8 : 12),
         InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           onTap: _locked ? null : _pickRange,
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: wide ? 16 : 0, vertical: 12),
-            decoration: wide ? BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(12)) : null,
+            height: wide ? 34 : null,
+            padding: EdgeInsets.symmetric(horizontal: wide ? 10 : 0, vertical: wide ? 0 : 12),
+            decoration: wide ? BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(8), border: Border.all(color: l.border)) : null,
             child: Row(children: [
-              if (wide) ...[Icon(Icons.calendar_month_outlined, color: l.sub, size: 20), const SizedBox(width: 12)],
-              Expanded(child: Text(range, style: TextStyle(color: l.text, fontSize: 17, fontWeight: FontWeight.w500))),
+              if (wide) ...[Icon(Icons.calendar_month_outlined, color: l.sub, size: 16), const SizedBox(width: 8)],
+              Expanded(child: Text(range, style: TextStyle(color: l.text, fontSize: wide ? 13.5 : 17, fontWeight: FontWeight.w500))),
             ]),
           ),
         ),
-        const SizedBox(height: 16),
-        _label2(l, wide ? 'Hạn để các bên ký xong' : 'Hạn ký'),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final d in [3, 7, 14]) HdChip('$d ngày', selected: _signDays == d, dense: true, onTap: () => sign(d)),
+        SizedBox(height: wide ? 12 : 16),
+        _sectionLabel(l, wide, 'Hạn ký'),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final d in [3, 7, 14]) HdChip('$d ngày', selected: _signDays == d, dense: true, small: wide, onTap: () => sign(d)),
         ]),
         if (_deadline != null) ...[
-          const SizedBox(height: 10),
-          Text('→ link hết hạn ${dmyHm(_deadline!.millisecondsSinceEpoch)}', style: TextStyle(color: l.sub, fontSize: 14.5)),
+          SizedBox(height: wide ? 6 : 10),
+          Text('${wide ? '' : '→ '}link hết hạn ${dmyHm(_deadline!.millisecondsSinceEpoch)}', style: TextStyle(color: l.sub, fontSize: wide ? 12 : 14.5)),
         ],
-        const SizedBox(height: 14),
-        Row(children: [
-          Switch(value: _remind, onChanged: (v) => setState(() {
-                _remind = v;
-                _dirty = true;
-              })),
-          const SizedBox(width: 10),
-          Expanded(child: Text('Nhắc gia hạn trước 30 ngày', style: TextStyle(color: l.text, fontSize: 15.5))),
-        ]),
+        SizedBox(height: wide ? 8 : 14),
+        HdSwitchRow(
+          small: wide,
+          value: _remind,
+          text: 'Nhắc gia hạn trước 30 ngày',
+          onChanged: (v) => setState(() {
+            _remind = v;
+            _dirty = true;
+          }),
+        ),
       ]),
     );
   }
@@ -823,39 +1123,40 @@ class _ContractEditPageState extends State<ContractEditPage> {
   }
 
   Widget _noteCard(HdLook l, bool wide) => HdCard(
-        pad: EdgeInsets.all(wide ? 24 : 16),
+        pad: EdgeInsets.all(wide ? 14 : 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const HdCardTitle(Icons.sticky_note_2_outlined, 'Ghi chú'),
-          const SizedBox(height: 12),
+          HdCardTitle(Icons.sticky_note_2_outlined, 'Ghi chú', size: wide ? 14 : 17),
+          SizedBox(height: wide ? 10 : 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(12)),
+            padding: EdgeInsets.symmetric(horizontal: wide ? 10 : 16, vertical: wide ? 8 : 12),
+            decoration: BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(wide ? 8 : 12), border: wide ? Border.all(color: l.border) : null),
             child: TextField(
               controller: _note,
-              minLines: wide ? 4 : 2,
+              minLines: wide ? 3 : 2,
               maxLines: 10,
-              style: TextStyle(color: l.text, fontSize: 15.5, height: 1.4),
-              decoration: InputDecoration.collapsed(hintText: 'Ghi chú nội bộ cho hợp đồng này…', hintStyle: TextStyle(color: l.faint)),
+              style: TextStyle(color: l.text, fontSize: wide ? 13.5 : 15.5, height: 1.4),
+              decoration: InputDecoration.collapsed(hintText: 'Ghi chú nội bộ cho hợp đồng này…', hintStyle: TextStyle(color: l.faint, fontSize: wide ? 13.5 : null)),
             ),
           ),
-          const SizedBox(height: 12),
-          Row(children: [
-            Switch(value: _notePublic, onChanged: (v) => setState(() {
-                  _notePublic = v;
-                  _dirty = true;
-                })),
-            const SizedBox(width: 10),
-            Expanded(child: Text('Đối tác cũng thấy ghi chú này', style: TextStyle(color: l.text, fontSize: 15.5))),
-          ]),
+          SizedBox(height: wide ? 8 : 12),
+          HdSwitchRow(
+            small: wide,
+            value: _notePublic,
+            text: 'Đối tác cũng thấy ghi chú này',
+            onChanged: (v) => setState(() {
+              _notePublic = v;
+              _dirty = true;
+            }),
+          ),
         ]),
       );
 
-  /// Tiến độ luồng ký (ngang): Tạo & chốt → từng bên → Hoàn tất.
+  /// Tiến độ luồng ký (ngang, mảnh): Tạo & chốt → từng bên → Hoàn tất.
   Widget _flowCard(HdLook l) {
     final c = _c;
     final steps = <(HdStep, String, String, String)>[];
     final created = c?.doc != null;
-    steps.add((created ? HdStep.done : HdStep.current, '', 'Tạo & chốt${c?.doc != null ? ' bản ${c!.doc!.rev}' : ''}',
+    steps.add((created ? HdStep.done : HdStep.current, '', 'Tạo & chốt${c?.doc != null ? ' v${c!.doc!.rev}' : ''}',
         created ? '${dm(c!.updatedAt)}${c.ownerName.isNotEmpty ? ' · ${c.ownerName}' : ''}' : 'cần tệp PDF'));
     for (var i = 0; i < _parties.length; i++) {
       final p = c != null && i < c.parties.length && c.parties[i].id == _parties[i].id ? c.parties[i] : null;
@@ -879,28 +1180,34 @@ class _ContractEditPageState extends State<ContractEditPage> {
     }
     steps.add((c?.status == 'signed' ? HdStep.done : HdStep.todo, '✓', 'Hoàn tất', 'gửi PDF cho ${_parties.length} bên'));
     return HdCard(
-      pad: const EdgeInsets.all(24),
+      pad: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         HdCardTitle(Icons.route_outlined, 'Tiến độ luồng ký',
-            trailing: Text(c == null || c.isDraft ? 'Chưa gửi' : (kStatusLabels[c.status] ?? ''), style: TextStyle(color: l.sub, fontSize: 14.5))),
-        const SizedBox(height: 20),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            size: 14, trailing: Text(c == null || c.isDraft ? 'Chưa gửi' : (kStatusLabels[c.status] ?? ''), style: TextStyle(color: l.sub, fontSize: 12.5))),
+        const SizedBox(height: 10),
+        // Một dòng: chấm 20px + tên bước, nối bằng vạch; chú thích của bước nằm trong tooltip.
+        Row(children: [
           for (var i = 0; i < steps.length; i++) ...[
             if (i > 0)
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 20),
-                  child: Container(height: 3, decoration: BoxDecoration(color: steps[i - 1].$1 == HdStep.done ? l.ok : l.border, borderRadius: BorderRadius.circular(2))),
+                child: Container(
+                  height: 2,
+                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(color: steps[i - 1].$1 == HdStep.done ? l.ok : l.border, borderRadius: BorderRadius.circular(1)),
                 ),
               ),
-            SizedBox(
-              width: 150,
-              child: Column(children: [
-                StepDot(steps[i].$1, label: steps[i].$2, size: 42),
-                const SizedBox(height: 10),
-                Text(steps[i].$3, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 15.5, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(steps[i].$4, textAlign: TextAlign.center, maxLines: 2, style: TextStyle(color: steps[i].$1 == HdStep.current ? l.accentText : l.sub, fontSize: 13.5)),
+            Tooltip(
+              message: steps[i].$4,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                StepDot(steps[i].$1, label: steps[i].$2, size: 20),
+                const SizedBox(width: 7),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(steps[i].$3,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: steps[i].$1 == HdStep.todo ? l.sub : l.text, fontSize: 13, fontWeight: steps[i].$1 == HdStep.current ? FontWeight.w600 : FontWeight.w500)),
+                ),
               ]),
             ),
           ],
@@ -919,50 +1226,55 @@ class _ContractEditPageState extends State<ContractEditPage> {
   Widget _bottomBar(HdLook l, bool wide) {
     final miss = _missing();
     final ready = miss.isEmpty;
+    final busy = _saving || _uploading;
     final summary = [
       '${_parties.length} bên',
       _mode == 'par' ? 'cùng lúc' : 'lần lượt',
       if (_deadline != null) 'hạn ${dm(_deadline!.millisecondsSinceEpoch)}',
     ].join(' · ');
+    final fs = wide ? 13.0 : 15.0;
     final status = _locked
-        ? Text('Đã gửi ký · chỉ sửa ghi chú', style: TextStyle(color: l.sub, fontSize: 15))
+        ? Text('Đã gửi ký · chỉ sửa ghi chú', style: TextStyle(color: l.sub, fontSize: fs))
         : Row(mainAxisAlignment: wide ? MainAxisAlignment.start : MainAxisAlignment.center, children: [
-            if (wide) ...[Icon(ready ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: ready ? l.ok : l.warn, size: 22), const SizedBox(width: 10)],
+            if (wide) ...[Icon(ready ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: ready ? l.ok : l.warn, size: 18), const SizedBox(width: 8)],
             Flexible(
               child: Text(
                 ready ? (wide ? 'Sẵn sàng gửi · $summary' : summary) : 'Còn thiếu: ${miss.take(3).join(', ')}${miss.length > 3 ? '…' : ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: ready ? l.sub : l.warn, fontSize: 15),
+                style: TextStyle(color: ready ? l.sub : l.warn, fontSize: fs),
               ),
             ),
           ]);
+    final pad = wide ? const EdgeInsets.symmetric(horizontal: 16, vertical: 0) : const EdgeInsets.symmetric(horizontal: 24, vertical: 18);
     final saveBtn = OutlinedButton(
-      onPressed: _saving ? null : () => _save(),
+      onPressed: busy ? null : () => _save(),
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+        padding: pad,
+        minimumSize: wide ? const Size(0, 36) : null,
         side: BorderSide(color: l.border),
         backgroundColor: l.card,
         shape: const StadiumBorder(),
       ),
-      child: Text(_locked ? 'Lưu ghi chú' : 'Lưu nháp', style: TextStyle(color: l.text, fontSize: 16, fontWeight: FontWeight.w600)),
+      child: Text(_locked ? 'Lưu ghi chú' : 'Lưu nháp', style: TextStyle(color: l.text, fontSize: wide ? 13.5 : 16, fontWeight: FontWeight.w600)),
     );
     final sendBtn = FilledButton.icon(
-      onPressed: _saving || _locked ? null : _send,
-      icon: const Icon(Icons.send_rounded, size: 20),
-      label: Text(_sendText, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+      onPressed: busy || _locked ? null : _send,
+      icon: Icon(Icons.send_rounded, size: wide ? 16 : 20),
+      label: Text(_sendText, style: TextStyle(fontSize: wide ? 13.5 : 16, fontWeight: FontWeight.w700)),
       style: FilledButton.styleFrom(
         backgroundColor: ready ? l.accent : l.accent.withValues(alpha: .55),
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+        padding: wide ? const EdgeInsets.symmetric(horizontal: 18) : const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+        minimumSize: wide ? const Size(0, 36) : null,
         shape: const StadiumBorder(),
       ),
     );
     return Container(
-      padding: EdgeInsets.fromLTRB(wide ? 28 : 14, 12, wide ? 24 : 14, 12 + MediaQuery.paddingOf(context).bottom),
+      padding: EdgeInsets.fromLTRB(wide ? 20 : 14, wide ? 8 : 12, wide ? 20 : 14, (wide ? 8 : 12) + MediaQuery.paddingOf(context).bottom),
       decoration: BoxDecoration(color: l.nav, border: Border(top: BorderSide(color: l.border))),
       child: wide
-          ? Row(children: [Expanded(child: status), saveBtn, if (!_locked) ...[const SizedBox(width: 12), sendBtn]])
+          ? _center(true, Row(children: [Expanded(child: status), saveBtn, if (!_locked) ...[const SizedBox(width: 10), sendBtn]]))
           : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               status,
               const SizedBox(height: 10),

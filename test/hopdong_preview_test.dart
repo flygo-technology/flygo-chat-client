@@ -1,6 +1,7 @@
 // App Hợp đồng (vn.flygo.hopdong): kiểm màn hình native với máy chủ giả (danh sách, soạn / gửi ký, tiến độ ký, chi tiết)
 // và chụp ảnh xem trước. Chạy tay để lấy ảnh: HD_OUT=<thư mục> flutter test test/hopdong_preview_test.dart
 // (máy tính 1440x900 + điện thoại 390x844, sáng + tối).
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -72,6 +73,12 @@ Map<String, dynamic> _e(int seq, int at, String actor, String action, [Map<Strin
 
 class FakeBackend {
   final calls = <(String, String, Object?)>[];
+
+  /// /doc-from-drive: 'ok' (máy chủ tự lấy từ Drive) | 'old' (máy chủ cũ: 404 "không có").
+  String driveMode = 'ok';
+
+  /// Giữ phản hồi /doc-from-drive tới khi kiểm thử cho chạy tiếp (để thấy trạng thái đang lấy tệp).
+  Completer<void>? driveGate;
   late final List<Map<String, dynamic>> contracts = [
     _c('hd000118', 'HĐMB-2026/118', 'Mua bán cáp thang máy', 'sending', value: 1240000000, deadline: _ms(11, 20, 17), from: _ms(12, 1), to: _ms(11, 30, 0, 0, 2027), parties: [
       _p('pa118b', 0, 'Bên B', 'CÔNG TY TNHH THANG MÁY HÀ NỘI', '0105123456', status: 'signed', signedAt: _ms(11, 16, 15, 42), via: 'plugin:cthub', issuer: 'Viettel-CA'),
@@ -162,6 +169,13 @@ class FakeBackend {
               c.addAll(b..remove('parties'));
             }
             if (act == 'send') c['status'] = 'sending';
+            if (act == 'doc-from-drive') {
+              if (driveMode == 'old') return http.Response('{"error":"không có"}', 404, headers: {'content-type': 'application/json'});
+              await driveGate?.future;
+              final b = body as Map;
+              c['doc'] = {'name': b['name'], 'rev': ((c['doc'] as Map?)?['rev'] as int? ?? 0) + 1, 'sha256': 'ef', 'pages': 6};
+            }
+            if (act == 'doc' && req.method == 'PUT') c['doc'] = {'name': 'tai-len.pdf', 'rev': ((c['doc'] as Map?)?['rev'] as int? ?? 0) + 1, 'sha256': 'ef', 'pages': 6};
             out = {'contract': c};
           }
         }
@@ -272,6 +286,12 @@ void main() {
       await shot(t, 'real-6b-sua-hop-dong-desktop-cuon-$sfx');
     });
 
+    testWidgets('máy tính: hợp đồng mới ($sfx)', (t) async {
+      await pump(t, ContractEditPage(api: api), theme: th);
+      expect(find.text('Từ máy'), findsOneWidget);
+      await shot(t, 'real-6d-hop-dong-moi-desktop-$sfx');
+    });
+
     testWidgets('máy tính: chi tiết ký ($sfx)', (t) async {
       await pump(t, ContractDetailPage(api: api, contract: fixture('hd000118')), theme: th);
       expect(find.textContaining('Đang ký 2/3'), findsOneWidget);
@@ -306,6 +326,54 @@ void main() {
     await settle(t);
     expect(be.calls.any((c) => c.$1 == 'PUT' && c.$2 == '/hd/api/contracts/hd000087'), isTrue);
     expect(be.calls.any((c) => c.$1 == 'POST' && c.$2 == '/hd/api/contracts/hd000087/send'), isTrue);
+  });
+
+  group('chọn PDF từ Drive', () {
+    var downloads = 0;
+    setUp(() {
+      downloads = 0;
+      ContractEditPage.debugDrivePicker = (_) async => HdDrivePick(
+            path: '/Hợp đồng/HDDV-2026-087-v4.pdf',
+            name: 'HDDV-2026-087-v4.pdf',
+            ticket: () async => 'drive-ticket',
+            download: () async {
+              downloads++;
+              return Uint8List.fromList(utf8.encode('%PDF-1.7 giả'));
+            },
+          );
+    });
+    tearDown(() => ContractEditPage.debugDrivePicker = null);
+
+    Future<void> pickDrive(WidgetTester t) async {
+      await t.tap(find.text('Từ Drive'));
+      await settle(t, 2);
+    }
+
+    testWidgets('máy chủ tự lấy tệp, hiện "Đang lấy tệp từ Drive…"', (t) async {
+      be.driveGate = Completer<void>();
+      await pump(t, ContractEditPage(api: api, initial: fixture('hd000087')));
+      await pickDrive(t);
+      expect(find.text('Đang lấy tệp từ Drive…'), findsOneWidget);
+      // Đang lấy thì khoá nút gửi / lưu.
+      expect(t.widget<FilledButton>(find.ancestor(of: find.text('Gửi ký cho Bên A'), matching: find.byWidgetPredicate((w) => w is FilledButton))).onPressed, isNull);
+      await shot(t, 'compact-6c-lay-tu-drive-desktop');
+      be.driveGate!.complete();
+      await settle(t);
+      final call = be.calls.firstWhere((c) => c.$2 == '/hd/api/contracts/hd000087/doc-from-drive');
+      expect(call.$1, 'PUT');
+      expect(call.$3, {'path': '/Hợp đồng/HDDV-2026-087-v4.pdf', 'name': 'HDDV-2026-087-v4.pdf', 'ticket': 'drive-ticket'});
+      expect(downloads, 0);
+      expect(find.text('HDDV-2026-087-v4.pdf'), findsOneWidget);
+    });
+
+    testWidgets('máy chủ cũ (404) thì tải về rồi tải lên', (t) async {
+      be.driveMode = 'old';
+      await pump(t, ContractEditPage(api: api, initial: fixture('hd000087')));
+      await pickDrive(t);
+      await settle(t);
+      expect(downloads, 1);
+      expect(be.calls.any((c) => c.$1 == 'PUT' && c.$2 == '/hd/api/contracts/hd000087/doc'), isTrue);
+    });
   });
 
   testWidgets('MST sai thì chưa sẵn sàng gửi', (t) async {

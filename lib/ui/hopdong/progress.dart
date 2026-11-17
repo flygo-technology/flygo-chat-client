@@ -104,25 +104,25 @@ class _ProgressPaneState extends State<ProgressPane> {
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Luồng ký · ${c.mode == 'par' ? 'cùng lúc' : 'lần lượt'}', style: TextStyle(color: l.sub, fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(c.heading.isEmpty ? 'Hợp đồng chưa đặt tên' : c.heading, style: TextStyle(color: l.text, fontSize: 19, fontWeight: FontWeight.w700)),
+              Text('Luồng ký · ${c.mode == 'par' ? 'cùng lúc' : 'lần lượt'}', style: TextStyle(color: l.sub, fontSize: 12)),
+              const SizedBox(height: 1),
+              Text(c.heading.isEmpty ? 'Hợp đồng chưa đặt tên' : c.heading, style: TextStyle(color: l.text, fontSize: 15.5, fontWeight: FontWeight.w700)),
             ]),
           ),
           const SizedBox(width: 12),
           if (c.doc != null) ...[
-            HdAction(Icons.picture_as_pdf_outlined, 'Xem PDF', onTap: () => openPdf(context, widget.api, c)),
-            const SizedBox(width: 8),
+            HdAction(Icons.picture_as_pdf_outlined, 'Xem PDF', small: true, onTap: () => openPdf(context, widget.api, c)),
+            const SizedBox(width: 6),
           ],
-          if (c.canEdit) HdAction(Icons.edit_outlined, c.isDraft ? 'Sửa hợp đồng' : 'Ghi chú', onTap: _edit),
+          if (c.canEdit) HdAction(Icons.edit_outlined, c.isDraft ? 'Sửa hợp đồng' : 'Ghi chú', small: true, onTap: _edit),
         ]),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
       ],
       for (var i = 0; i < c.parties.length; i++) _step(context, l, c.parties[i], i, now, cp),
       _finalStep(l, total, cp),
-      const SizedBox(height: 22),
-      Text(cp ? 'NHẬT KÝ GẦN ĐÂY' : 'NHẬT KÝ', style: TextStyle(color: l.sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: .6)),
-      const SizedBox(height: 10),
+      SizedBox(height: cp ? 22 : 14),
+      Text(cp ? 'NHẬT KÝ GẦN ĐÂY' : 'NHẬT KÝ', style: TextStyle(color: l.sub, fontSize: cp ? 13 : 11.5, fontWeight: FontWeight.w700, letterSpacing: .6)),
+      SizedBox(height: cp ? 10 : 6),
       ..._log(l, cp),
     ]);
   }
@@ -136,8 +136,8 @@ class _ProgressPaneState extends State<ProgressPane> {
               if (line) Expanded(child: Center(child: Container(width: 2, color: l.border))),
             ]),
           ),
-          const SizedBox(width: 14),
-          Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 18), child: child)),
+          SizedBox(width: size < 36 ? 10 : 14),
+          Expanded(child: Padding(padding: EdgeInsets.only(bottom: size < 36 ? 12 : 18), child: child)),
         ]),
       );
 
@@ -145,7 +145,8 @@ class _ProgressPaneState extends State<ProgressPane> {
     final st = _state(p);
     final expired = st == HdStep.current && p.linkExpired(now);
     final over = st == HdStep.current && (c.overdue(now) || expired);
-    final dotSize = cp ? 40.0 : 40.0;
+    final dotSize = cp ? 40.0 : 26.0;
+    final fT = cp ? 16.0 : 13.5, fS = cp ? 14.0 : 12.0;
     // Phần phải: trạng thái của bên.
     final (String right, Color rc) = switch (st) {
       HdStep.done => ('Đã ký ${dmHm(p.signedAt)}', l.ok),
@@ -186,7 +187,7 @@ class _ProgressPaneState extends State<ProgressPane> {
             if (p.label.isNotEmpty) TextSpan(text: '${p.label} · '),
             TextSpan(text: p.name.isEmpty ? 'Chưa đặt tên' : p.name),
             if (p.internal) TextSpan(text: ' (mình)', style: TextStyle(color: l.sub, fontWeight: FontWeight.w500)),
-          ]), style: TextStyle(color: l.text, fontSize: 15.5, fontWeight: FontWeight.w700));
+          ]), style: TextStyle(color: l.text, fontSize: fT, fontWeight: FontWeight.w600));
 
     final canAct = st == HdStep.current && c.canEdit && c.status == 'sending';
     return _rail(
@@ -198,10 +199,10 @@ class _ProgressPaneState extends State<ProgressPane> {
         if (cp) title else Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(child: title),
           const SizedBox(width: 10),
-          Text(right, style: TextStyle(color: rc, fontSize: 13.5, fontWeight: FontWeight.w500)),
+          Text(right, style: TextStyle(color: rc, fontSize: 12, fontWeight: FontWeight.w500)),
         ]),
-        const SizedBox(height: 3),
-        Text(sub, style: TextStyle(color: l.sub, fontSize: cp ? 14 : 13.5, height: 1.35)),
+        const SizedBox(height: 2),
+        Text(sub, style: TextStyle(color: l.sub, fontSize: fS, height: 1.35)),
         if (cp) ...[
           const SizedBox(height: 2),
           Text(st == HdStep.current && p.linkExpires != null ? '$right · hạn link ${dmHm(p.linkExpires)}' : right,
@@ -209,32 +210,32 @@ class _ProgressPaneState extends State<ProgressPane> {
         ],
         if (st == HdStep.rejected && (p.rejectReason ?? '').isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text('"${p.rejectReason}"', style: TextStyle(color: l.warn, fontSize: 14, fontStyle: FontStyle.italic)),
+          Text('"${p.rejectReason}"', style: TextStyle(color: l.warn, fontSize: fS, fontStyle: FontStyle.italic)),
         ],
         if (canAct && p.internal) ...[
-          const SizedBox(height: 10),
+          SizedBox(height: cp ? 10 : 6),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(color: l.accentSoft.withValues(alpha: .6), borderRadius: BorderRadius.circular(12)),
+            padding: EdgeInsets.symmetric(horizontal: cp ? 12 : 10, vertical: cp ? 10 : 6),
+            decoration: BoxDecoration(color: l.accentSoft.withValues(alpha: .6), borderRadius: BorderRadius.circular(cp ? 12 : 8)),
             child: Row(children: [
-              Icon(Icons.usb_rounded, size: 18, color: l.accentText),
+              Icon(Icons.usb_rounded, size: cp ? 18 : 15, color: l.accentText),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(cp ? 'Mở trang ký trên máy tính có cắm USB token' : 'Bên mình ký trên trình duyệt có plugin ký số và USB token',
-                    style: TextStyle(color: l.accentText, fontSize: 13.5)),
+                    style: TextStyle(color: l.accentText, fontSize: cp ? 13.5 : 12)),
               ),
             ]),
           ),
         ],
         if (canAct) ...[
-          const SizedBox(height: 10),
-          Wrap(spacing: 8, runSpacing: 8, children: [
+          SizedBox(height: cp ? 10 : 8),
+          Wrap(spacing: cp ? 8 : 6, runSpacing: cp ? 8 : 6, children: [
             if (p.internal && !cp && p.link != null)
-              HdAction(Icons.open_in_new_rounded, 'Mở trang ký', onTap: _busy ? null : () => launchUrl(Uri.parse(p.link!), mode: LaunchMode.externalApplication)),
-            HdAction(Icons.link_rounded, cp ? 'Link' : 'Sao chép link ký', onTap: _busy ? null : () => _copy(p)),
-            HdAction(Icons.notifications_none_rounded, cp ? 'Nhắc' : 'Gửi nhắc', onTap: _busy ? null : () => _act(p, 'remind')),
-            HdAction(Icons.schedule_rounded, cp ? 'Gia hạn' : 'Gia hạn link', onTap: _busy ? null : () => _act(p, 'extend')),
-            HdAction(Icons.link_off_rounded, 'Thu hồi', danger: true, onTap: _busy ? null : () => _act(p, 'revoke')),
+              HdAction(Icons.open_in_new_rounded, 'Mở trang ký', small: !cp, onTap: _busy ? null : () => launchUrl(Uri.parse(p.link!), mode: LaunchMode.externalApplication)),
+            HdAction(Icons.link_rounded, cp ? 'Link' : 'Sao chép link ký', small: !cp, onTap: _busy ? null : () => _copy(p)),
+            HdAction(Icons.notifications_none_rounded, cp ? 'Nhắc' : 'Gửi nhắc', small: !cp, onTap: _busy ? null : () => _act(p, 'remind')),
+            HdAction(Icons.schedule_rounded, cp ? 'Gia hạn' : 'Gia hạn link', small: !cp, onTap: _busy ? null : () => _act(p, 'extend')),
+            HdAction(Icons.link_off_rounded, 'Thu hồi', danger: true, small: !cp, onTap: _busy ? null : () => _act(p, 'revoke')),
           ]),
         ],
       ]),
@@ -244,12 +245,13 @@ class _ProgressPaneState extends State<ProgressPane> {
   Widget _finalStep(HdLook l, int total, bool cp) {
     final done = c.status == 'signed';
     final cancelled = c.status == 'cancelled';
+    final ds = cp ? 40.0 : 26.0;
     final dot = done
-        ? const StepDot(HdStep.done, size: 40)
+        ? StepDot(HdStep.done, size: ds)
         : Container(
-            width: 40, height: 40,
+            width: ds, height: ds,
             decoration: BoxDecoration(shape: BoxShape.circle, color: l.card2, border: Border.all(color: l.border, width: 1.5)),
-            child: Icon(cancelled ? Icons.block_rounded : Icons.check_rounded, size: 18, color: cancelled ? l.red : l.sub),
+            child: Icon(cancelled ? Icons.block_rounded : Icons.check_rounded, size: cp ? 18 : 14, color: cancelled ? l.red : l.sub),
           );
     final sub = done
         ? 'Đủ chữ ký ${dmHm(c.doneAt)} · PDF đã ký gồm $total chữ ký'
@@ -261,11 +263,12 @@ class _ProgressPaneState extends State<ProgressPane> {
     return _rail(
       l,
       line: false,
+      size: ds,
       dot: dot,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(cancelled ? 'Đã huỷ' : 'Hoàn tất', style: TextStyle(color: cancelled ? l.red : l.text, fontSize: 15.5, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 3),
-        Text(sub, style: TextStyle(color: l.sub, fontSize: 13.5)),
+        Text(cancelled ? 'Đã huỷ' : 'Hoàn tất', style: TextStyle(color: cancelled ? l.red : l.text, fontSize: cp ? 15.5 : 13.5, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 2),
+        Text(sub, style: TextStyle(color: l.sub, fontSize: cp ? 13.5 : 12)),
       ]),
     );
   }
@@ -279,10 +282,10 @@ class _ProgressPaneState extends State<ProgressPane> {
         Builder(builder: (_) {
           final (t, warn) = eventText(e, c);
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 7),
+            padding: EdgeInsets.symmetric(vertical: cp ? 7 : 4),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(width: cp ? 98 : 120, child: Text(dmHm(e.at), style: TextStyle(color: l.sub, fontSize: 14, fontFeatures: const [FontFeature.tabularFigures()]))),
-              Expanded(child: Text(t, style: TextStyle(color: warn ? l.warn : l.text, fontSize: 14, height: 1.35))),
+              SizedBox(width: cp ? 98 : 84, child: Text(dmHm(e.at), style: TextStyle(color: l.sub, fontSize: cp ? 14 : 12, fontFeatures: const [FontFeature.tabularFigures()]))),
+              Expanded(child: Text(t, style: TextStyle(color: warn ? l.warn : l.text, fontSize: cp ? 14 : 12.5, height: 1.35))),
             ]),
           );
         }),
