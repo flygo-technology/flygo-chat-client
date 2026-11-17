@@ -149,7 +149,7 @@ export async function flygoAiEnv(cfg: Pick<Config, "flygoAi" | "serverUrl">, ema
     ANTHROPIC_AUTH_TOKEN: key,
     ANTHROPIC_API_KEY: "",
     // App = "bot:<username>" để Cổng AI tách chi phí theo từng trợ lý (app hiện ở chi tiết trợ lý); cfg.flygoAi.app ghi đè.
-    ANTHROPIC_CUSTOM_HEADERS: `X-Flygo-User: ${email}\nX-Flygo-App: ${g.app ?? (botName ? `bot:${botName.toLowerCase()}` : "vn.flygo.agent")}`,
+    ANTHROPIC_CUSTOM_HEADERS: `X-Flygo-User: ${email}\nX-Flygo-App: ${g.app && g.app !== "vn.flygo.agent" ? g.app : botName ? `bot:${botName.toLowerCase()}` : "vn.flygo.agent"}`,
     // Model Claude Code chưa biết (vd. bản mới hơn CLI): không tự chặn ngữ cảnh 200k.
     CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1",
     // Claude Code tắt tool search khi ANTHROPIC_BASE_URL không phải của Anthropic: bật lại để tool MCP (~90 tool flygo_chat,
