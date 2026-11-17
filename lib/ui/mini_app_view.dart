@@ -20,6 +20,8 @@ import 'todo/todo_page.dart' show openTodo;
 import 'mail/mail_page.dart' show openMail;
 import 'wiki/wiki_page.dart' show openWiki;
 import 'forms/home_page.dart' show openForms;
+import 'hopdong/api.dart' show kHopdongScreen;
+import 'hopdong/hopdong_page.dart' show openHopdong;
 import 'drive/api.dart' show kDriveScreen;
 import 'drive/drive_page.dart' show openDrive;
 import 'reports/reports_page.dart' show openReports;
@@ -94,6 +96,11 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == 'forms') {
     tab?.onTitle?.call(app.name);
     await openForms(context, app, path: path);
+    return;
+  }
+  if (app.nativeScreen == kHopdongScreen) {
+    tab?.onTitle?.call(app.name);
+    await openHopdong(context, app, path: path);
     return;
   }
   if (app.nativeScreen == 'reports') {
@@ -208,6 +215,7 @@ const _tileIcons = <String, IconData>{
   'wiki': Icons.menu_book_rounded,
   'assignment': Icons.assignment_rounded,
   'teamwork': Icons.view_kanban_rounded,
+  'contract': Icons.history_edu_rounded,
   'palette': Icons.palette_rounded,
 };
 
