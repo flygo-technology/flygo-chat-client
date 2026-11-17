@@ -66,6 +66,12 @@ describe("TeamWork: quyết định chế độ", () => {
   test("công tắc teamworkBypass tắt → chế độ thường", () => {
     expect(twDecide({ claims, header: null, posterIsOwner: true, killSwitch: false })!.bypass).toBe(false);
   });
+  test("lượt kiểu project (khung AI dự án, không gắn việc) dùng như lượt khác", async () => {
+    const v = verifier();
+    const c = await v.verify(sign({ bot_id: "bot-1", run: "rp1", kind: "project", task: null, bypass: true }));
+    expect(c?.kind).toBe("project");
+    expect(twDecide({ claims: c, header: parseTwHeader("[teamwork project=RA run=rp1]"), posterIsOwner: true, killSwitch: true })).toMatchObject({ run: "rp1", push: true, bypass: true });
+  });
   test("token không cho bypass → chế độ thường", () => {
     expect(twDecide({ claims: { ...claims, bypass: false }, header: null, posterIsOwner: true, killSwitch: true })!.bypass).toBe(false);
   });

@@ -224,10 +224,12 @@ class TwApi {
   Future<List<TwRun>> runs({bool mine = true, String? state}) async => [for (final r in _list(await get('/api/runs${q({'mine': mine ? '1' : null, 'state': state})}'), 'runs')) TwRun.fromJson(r)];
   /// Nhận lượt chạy cho máy [device]: (lượt chạy, bản giao việc máy chủ soạn, run_token); null nếu máy khác đã nhận.
   /// [attestOwner]: người dùng hiện tại là chủ bot (máy chủ chỉ cho chạy không cần duyệt khi có xác nhận này).
-  Future<(TwRun, String?, String?)?> claim(String runId, String device, {bool attestOwner = false}) async {
+  Future<(TwRun, String?, String?, String?)?> claim(String runId, String device, {bool attestOwner = false}) async {
     try {
       final j = await post('/api/runs/$runId/claim', {'device': device, if (attestOwner) 'attest_owner': true});
-      return (TwRun.fromJson(_one(j, 'run')), j['brief'] as String?, j['run_token'] as String?);
+      // Lượt "project": máy chủ gửi kèm project {id, key, name} (để đặt tên phiên "AI · <dự án>").
+      final proj = j['project'] is Map ? '${(j['project'] as Map)['name'] ?? ''}' : null;
+      return (TwRun.fromJson(_one(j, 'run')), j['brief'] as String?, j['run_token'] as String?, proj == null || proj.isEmpty ? null : proj);
     } on TwException catch (e) {
       if (e.code == 'claimed' || e.code == 'not_queued') return null;
       rethrow;
@@ -238,6 +240,49 @@ class TwApi {
   Future<TwRun> run(String runId) async => TwRun.fromJson(_one(await get('/api/runs/$runId'), 'run'));
   Future<void> reportRun(String runId, String state, {String? sessionChannel, String? error}) => post('/api/runs/$runId', {'state': state, 'session_channel': ?sessionChannel, 'error': ?error});
   Future<void> cancelRun(String runId) => post('/api/runs/$runId/cancel');
+
+  // ------------------------------------------------------------ AI của dự án
+  /// Hỏi AI về dự án: tạo lượt chạy kiểu "project" (máy này nhận lượt chạy và mở phiên như @nhắc agent).
+  Future<(TwRun, String?)> projectAi(String pid, {required String botId, required String prompt, String? action, String? threadId}) async {
+    final j = await post('/api/projects/$pid/ai', {'bot_id': botId, 'prompt': prompt, 'action': ?action, 'thread_id': ?threadId});
+    final run = TwRun.fromJson(_one(j, 'run'));
+    return (run, (j['thread'] is Map ? (j['thread'] as Map)['id'] : j['thread_id']) as String? ?? run.threadId);
+  }
+
+  Future<List<TwAiThread>> aiThreads(String pid) async => [for (final t in _list(await get('/api/projects/$pid/ai/threads'), 'threads')) TwAiThread.fromJson(t)];
+  /// Một cuộc trò chuyện: mỗi lượt chạy là một lượt hỏi (lời hỏi + câu trả lời).
+  Future<(TwAiThread, List<TwAiTurn>)> aiThread(String id) async {
+    final j = await get('/api/ai/threads/$id');
+    final t = (j['thread'] is Map ? j['thread'] : j) as Map;
+    final runs = [for (final x in j['runs'] as List? ?? const []) if (x is Map) TwRun.fromJson(x)]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return (TwAiThread.fromJson(t), [for (final r in runs) TwAiTurn(prompt: r.prompt ?? '', action: r.action, at: r.createdAt, user: r.startedBy, run: r)]);
+  }
+
+  Future<void> deleteThread(String id) => delete('/api/ai/threads/$id');
+
+  Future<List<TwAiAction>> runActions(String runId) async => [for (final a in _list(await get('/api/runs/$runId/actions'), 'actions')) TwAiAction.fromJson(a)];
+  /// Hoàn tác một thao tác; xung đột (đã bị sửa sau đó) / không hoàn tác được trả về thao tác kèm conflict.
+  Future<TwAiAction> undoAction(String runId, String id) async {
+    try {
+      final j = await post('/api/runs/$runId/actions/$id/undo');
+      return TwAiAction.fromJson(_one(j, 'action'));
+    } on TwException catch (e) {
+      if (e.status == 409) return TwAiAction(id: id, kind: '', conflict: e.code == 'conflict' ? 'Đã bị sửa sau đó, không hoàn tác tự động được' : e.message);
+      if (e.status == 422) return TwAiAction(id: id, kind: '', conflict: e.message);
+      rethrow;
+    }
+  }
+
+  Future<void> undoRun(String runId) => post('/api/runs/$runId/undo');
+  Future<List<TwUserOp>> userOps() async => [for (final o in _list(await get('/api/user-ops?state=pending'), 'ops')) TwUserOp.fromJson(o)];
+  Future<void> reportUserOp(String id, String state, {Map<String, dynamic>? result, String? error}) => post('/api/user-ops/$id', {'state': state, 'result': ?result, 'error': ?error});
+
+  /// Gắn / gỡ nhóm chat của dự án (quản trị), đăng cập nhật vào nhóm bằng bot.
+  Future<void> setChatChannel(String pid, Map<String, dynamic> channel) => put('/api/projects/$pid/chat-channel', channel);
+  Future<void> removeChatChannel(String pid) => delete('/api/projects/$pid/chat-channel');
+  Future<void> postToChat(String pid, String markdown) => post('/api/projects/$pid/chat-channel/post', {'markdown': markdown});
+  Future<List<TwProject>> deletedProjects() async => [for (final p in _list(await get('/api/projects?deleted=1'), 'projects')) TwProject.fromJson(p)];
+  Future<void> restoreProject(String pid) => post('/api/projects/$pid/restore');
 
   // ------------------------------------------------------------ bộ lọc, thông báo, tìm kiếm
   Future<List<TwView>> views(String pid) async => [for (final v in _list(await get('/api/projects/$pid/views'), 'views')) TwView.fromJson(v)];

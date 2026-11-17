@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/teamwork/gantt_view.dart';
 import 'package:flygo_chat/ui/teamwork/model.dart';
+import 'package:flygo_chat/ui/teamwork/project_ai.dart' show promptText;
 import 'package:flygo_chat/ui/teamwork/projects_view.dart';
 import 'package:flygo_chat/ui/teamwork/store.dart';
 import 'package:flygo_chat/ui/teamwork/task_page.dart';
@@ -197,6 +198,60 @@ void main() {
   });
 
   group('kho', () {
+    test('lệnh nhóm chat: làm bằng token của chính mình (tạo kênh riêng tư, thêm thành viên + bot, báo kết quả); bỏ qua lệnh của người khác', () async {
+      final be = FakeTw();
+      final chat = FakeChatOps();
+      final s = newTwStore(be, chat: chat);
+      be.userOps.addAll([
+        {'id': 'op1', 'type': 'channel_create', 'user': 'u-lan', 'project_id': 'p-ra', 'run_id': 'r-pdone', 'state': 'pending', 'payload': {
+          'name': 'ra-mat-app', 'display_name': 'Ra mắt app bán hàng', 'private': true, 'purpose': 'Nhóm chat của dự án: https://chat.example.com/__apps/teamwork/p/RA', 'header': '[Mở dự án RA](https://chat.example.com/__apps/teamwork/p/RA)',
+          'members': ['u-lan', 'u-minh', 'u-hung'], 'bot_user_id': 'bot-tw2', 'project_url': 'https://chat.example.com/__apps/teamwork/p/RA',
+        }},
+        {'id': 'op2', 'type': 'channel_create', 'user': 'u-minh', 'payload': {'display_name': 'Không phải của Lan', 'members': [], 'bot_user_id': 'bot-tw2'}},
+        {'id': 'op3', 'type': 'channel_link', 'user': 'u-lan', 'payload': {'channel': '~old', 'bot_user_id': 'bot-tw2'}},
+        {'id': 'op4', 'type': 'channel_link', 'user': 'u-lan', 'payload': {'channel': 'ch-not-member', 'bot_user_id': 'bot-tw2'}},
+      ]);
+      final toasts = <String>[];
+      s.onToast = toasts.add;
+      await s.refresh(); // khởi động: tự làm lệnh đang chờ
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(chat.created, hasLength(1));
+      expect(chat.created.single, containsPair('private', true));
+      expect(chat.created.single['team'], 'team-1');
+      expect(chat.created.single['purpose'], contains('/p/RA'));
+      expect(chat.created.single['name'], 'ra-mat-app');
+      expect(chat.added, containsAll([('ch-new1', 'u-minh'), ('ch-new1', 'u-hung'), ('ch-new1', 'bot-tw2'), ('ch-old', 'bot-tw2')]));
+      expect(chat.added.where((a) => a.$2 == 'u-lan'), isEmpty);
+      expect(be.userOpReports['op1'], {'state': 'done', 'result': {'channel_id': 'ch-new1', 'team_id': 'team-1', 'name': 'ra-mat-app', 'display_name': 'Ra mắt app bán hàng', 'url': 'https://chat.example.com/flygo/channels/ra-mat-app'}});
+      expect(be.userOpReports.containsKey('op2'), isFalse); // lệnh của Minh: không làm
+      expect(be.userOpReports['op3']!['state'], 'done');
+      expect((be.userOpReports['op3']!['result'] as Map)['channel_id'], 'ch-old');
+      expect(be.userOpReports['op4']!['state'], 'failed');
+      expect(toasts.first, 'Đã tạo nhóm chat "Ra mắt app bán hàng"');
+      s.dispose();
+    });
+
+    test('lời hỏi trống (nút nhanh) → tên nút', () {
+      expect(promptText('', 'summary'), 'Tóm tắt tiến độ');
+      expect(promptText('  ', 'chat_group'), 'Tạo nhóm chat');
+      expect(promptText('Ai đang quá tải?', 'summary'), 'Ai đang quá tải?');
+    });
+
+    test('lượt chạy kiểu project: không đọc việc, phiên mới "AI · <dự án>"', () async {
+      final be = FakeTw();
+      final l = FakeLauncher();
+      final s = newTwStore(be, launcher: l);
+      await s.refresh();
+      final (run, thread) = await s.api.projectAi('p-ra', botId: 'b-claude', prompt: 'Tóm tắt tiến độ', action: 'summary');
+      expect(thread, 'th-new');
+      expect(run.kind, 'project');
+      await s.checkRuns();
+      expect(l.launched.single.$2, 'AI · Ra mắt app bán hàng');
+      expect(l.props.single['flygo_teamwork'], {'run_token': 'TOKEN-${run.id}', 'run_id': run.id});
+      expect(be.calls.where((c) => c.startsWith('GET /tw/api/tasks/')), isEmpty);
+      s.dispose();
+    });
+
     test('lượt chạy @nhắc: gửi vào phiên sẵn có (session_hint) nếu còn dùng được, không thì mở phiên mới', () async {
       final be = FakeTw();
       final l = FakeLauncher()..usable = {'ch-1'};
@@ -664,6 +719,121 @@ void main() {
       }
     });
 
+    Future<void> openAiThread(WidgetTester t) async {
+      await t.tap(find.byKey(const ValueKey('ai-history')));
+      await settle(t, 4);
+      await t.tap(find.byKey(const ValueKey('ai-thread-th0')));
+      await settle(t, 8);
+    }
+
+    for (final dark in [false, true]) {
+      testWidgets('AI của dự án: mở khung, chọn agent, nút nhanh → lượt chạy + nhận phiên; lịch sử: câu trả lời + "Đã làm" + hoàn tác (${dark ? 'dark' : 'light'})', (t) async {
+        final s = await pump(t, project: 'RA', dark: dark);
+        await t.tap(find.byKey(const ValueKey('project-ai')));
+        await settle(t, 4);
+        expect(find.byKey(const ValueKey('ai-panel')), findsOneWidget);
+        expect(find.byKey(const ValueKey('ai-act-chat_group')), findsOneWidget);
+        expect(find.byKey(const ValueKey('ai-bypass')), findsOneWidget); // Lan là chủ Claude
+        if (!dark) {
+          await t.tap(find.byKey(const ValueKey('ai-act-summary')));
+          await settle(t, 8);
+          expect(be.bodies['POST /tw/api/projects/p-ra/ai'], {'bot_id': 'b-claude', 'prompt': 'Tóm tắt tiến độ', 'action': 'summary'});
+          expect(launcher.launched.single.$2, 'AI · Ra mắt app bán hàng');
+          expect(find.text('Đọc 19 việc của dự án'), findsOneWidget); // tiến độ trực tiếp
+          // Hỏi tiếp trong cùng cuộc trò chuyện.
+          await t.enterText(find.byKey(const ValueKey('ai-input')), 'Ai đang quá tải?');
+          await t.tap(find.byKey(const ValueKey('ai-send')));
+          await settle(t, 6);
+          expect(be.bodies.entries.where((e) => e.key == 'POST /tw/api/projects/p-ra/ai').last.value['thread_id'], 'th-new');
+        }
+        await openAiThread(t);
+        // Bong bóng lời hỏi hiện đúng chữ (lượt nút nhanh không có lời hỏi: hiện tên nút).
+        expect(find.descendant(of: find.byKey(const ValueKey('ai-prompt-0')), matching: find.text('Lập kế hoạch giai đoạn 3 – Ra mắt: đào tạo đại lý miền Bắc + miền Nam, xong trước 15/01.')), findsOneWidget);
+        expect(find.byKey(const ValueKey('run-answer-r-pdone')), findsOneWidget);
+        await t.scrollUntilVisible(find.byKey(const ValueKey('ai-prompt-1')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
+        expect(find.descendant(of: find.byKey(const ValueKey('ai-prompt-1')), matching: find.text('Soạn cập nhật cho nhóm')), findsOneWidget);
+        await t.scrollUntilVisible(find.byKey(const ValueKey('ai-prompt-0')), -200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
+        expect(find.text('Đã làm · 4'), findsOneWidget);
+        final high = t.widget<Text>(find.descendant(of: find.byKey(const ValueKey('action-a4')), matching: find.byType(Text)).first);
+        expect((high.textSpan as TextSpan).children!.first.style!.color, const Color(0xFFE5484D));
+        await shot(t, dark ? 'd13-project-ai-dark' : 'd13-project-ai');
+        if (!dark) {
+          await t.ensureVisible(find.byKey(const ValueKey('action-undo-a1')));
+          await t.tap(find.byKey(const ValueKey('action-undo-a1')));
+          await settle(t, 3);
+          expect(be.calls, contains('POST /tw/api/runs/r-pdone/actions/a1/undo'));
+          expect(find.text('đã hoàn tác'), findsOneWidget);
+          await t.tap(find.byKey(const ValueKey('action-undo-a3')));
+          await settle(t, 3);
+          expect(find.byKey(const ValueKey('action-conflict-a3')), findsOneWidget);
+          await t.tap(find.byKey(const ValueKey('run-undo-all-r-pdone')));
+          await settle(t, 4);
+          expect(be.calls, contains('POST /tw/api/runs/r-pdone/undo'));
+          // run_action → tải lại danh sách.
+          be.actions['r-pdone']!.add({'id': 'a5', 'kind': 'chat_post', 'summary': 'Đăng cập nhật vào nhóm chat', 'at': twNow.millisecondsSinceEpoch});
+          s.debugEvent({'type': 'run_action', 'id': 'r-pdone', 'project_id': 'p-ra'});
+          await settle(t, 4);
+          expect(find.text('Đã làm · 5'), findsOneWidget);
+        }
+        await done(t, s);
+      });
+    }
+
+    testWidgets('nhóm chat: "Gắn nhóm chat" tạo nhóm bằng token mình + gắn; có rồi thì "Mở nhóm chat"', (t) async {
+      final chat = FakeChatOps();
+      final s = await pump(t, project: 'RA');
+      s.chatOps = chat;
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('link-chat')));
+      await settle(t, 4);
+      await t.tap(find.byKey(const ValueKey('chat-create')));
+      await settle(t, 6);
+      expect(chat.created.single['display_name'], 'Ra mắt app bán hàng');
+      expect(chat.added, contains(('ch-new1', 'bot-tw')));
+      expect(be.bodies['PUT /tw/api/projects/p-ra/chat-channel'], {'id': 'ch-new1', 'team_id': 'team-1', 'name': chat.created.single['name'], 'display_name': 'Ra mắt app bán hàng', 'url': 'https://chat.example.com/flygo/channels/${chat.created.single['name']}'});
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('open-chat')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('open-chat')));
+      expect(chat.opened, ['ch-new1']);
+      await done(t, s);
+    });
+
+    testWidgets('"Soạn cập nhật" → nút Đăng cập nhật vào nhóm chat của dự án', (t) async {
+      be.projects.first['chat_channel'] = {'id': 'ch-proj', 'team_id': 'team-1', 'name': 'ra-mat', 'display_name': 'Nhóm Ra mắt', 'url': 'https://chat.example.com/flygo/channels/ra-mat'};
+      be.progress['r-pupd'] = {'id': 'r-pupd', 'kind': 'project', 'project_id': 'p-ra', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'state': 'review', 'action': 'update', 'text': '**Cập nhật tuần 47**: 23/54 việc xong.'};
+      final s = await pump(t, project: 'RA');
+      expect(find.byKey(const ValueKey('open-chat')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('project-ai')));
+      await settle(t, 4);
+      await openAiThread(t);
+      await t.scrollUntilVisible(find.byKey(const ValueKey('ai-post-r-pupd')), 200, scrollable: find.descendant(of: find.byKey(const ValueKey('ai-panel')), matching: find.byType(Scrollable)).first);
+      expect(find.text('Đăng cập nhật vào Nhóm Ra mắt'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('ai-post-r-pupd')));
+      await settle(t, 4);
+      expect(be.bodies['POST /tw/api/projects/p-ra/chat-channel/post'], {'markdown': '**Cập nhật tuần 47**: 23/54 việc xong.'});
+      await done(t, s);
+    });
+
+    testWidgets('dự án đã xoá: danh sách + Khôi phục (chủ dự án)', (t) async {
+      final s = await pump(t);
+      await t.tap(find.byKey(const ValueKey('pstatus-deleted')));
+      await settle(t, 4);
+      expect(find.byKey(const ValueKey('deleted-WS')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('restore-WS')));
+      await settle(t, 6);
+      expect(be.calls, contains('POST /tw/api/projects/p-old/restore'));
+      expect(find.byKey(const ValueKey('deleted-WS')), findsNothing);
+      await done(t, s);
+    });
+
+    testWidgets('ô dự án: chip AI mở dự án kèm khung AI', (t) async {
+      final s = await pump(t);
+      await t.tap(find.byKey(const ValueKey('card-ai-RA')));
+      await settle(t, 8);
+      expect(find.byKey(const ValueKey('ai-panel')), findsOneWidget);
+      await done(t, s);
+    });
+
     testWidgets('cột bình luận thu gọn thành dải 40px (nhớ trên máy); khung việc con vẫn mở bên phải', (t) async {
       final s = await pump(t, project: 'RA');
       final saved = <bool>[];
@@ -1028,6 +1198,21 @@ void main() {
       await t.drag(tw, const Offset(-200, 0));
       await settle(t, 2);
       await shot(t, 'p10-table-scroll');
+      await done(t, s);
+    });
+
+    testWidgets('điện thoại: AI của dự án là bảng kéo lên', (t) async {
+      final s = await pump(t, size: _phone);
+      await t.tap(find.byKey(const ValueKey('project-RA')));
+      await settle(t, 8);
+      await t.tap(find.byKey(const ValueKey('project-ai')));
+      await settle(t, 6);
+      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      expect(find.byKey(const ValueKey('ai-act-summary')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('ai-act-summary')));
+      await settle(t, 8);
+      expect(find.text('Đọc 19 việc của dự án'), findsOneWidget);
+      await shot(t, 'p11-project-ai');
       await done(t, s);
     });
 

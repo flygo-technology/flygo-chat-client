@@ -9,9 +9,11 @@ import 'pickers.dart';
 import 'store.dart';
 
 class TwProjectsView extends StatefulWidget {
-  const TwProjectsView({super.key, required this.store, required this.onOpen});
+  const TwProjectsView({super.key, required this.store, required this.onOpen, this.onAskAi});
   final TwStore store;
   final void Function(TwProject) onOpen;
+  /// "Hỏi AI về dự án" (chip AI / menu ⋯ trên ô dự án).
+  final void Function(TwProject)? onAskAi;
   @override
   State<TwProjectsView> createState() => _TwProjectsViewState();
 }
@@ -19,6 +21,50 @@ class TwProjectsView extends StatefulWidget {
 class _TwProjectsViewState extends State<TwProjectsView> {
   String _status = 'active';
   String _q = '';
+  List<TwProject>? _deleted;
+
+  Future<void> _openDeleted() async {
+    setState(() => _status = 'deleted');
+    try {
+      final l = await widget.store.api.deletedProjects();
+      if (mounted) setState(() => _deleted = l);
+    } catch (e) {
+      if (mounted) setState(() => _deleted = []);
+    }
+  }
+
+  Widget _deletedList(TwLook look) {
+    final l = _deleted;
+    if (l == null) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    if (l.isEmpty) return Center(child: Text('Không có dự án nào đã xoá', style: TextStyle(color: look.sub)));
+    return ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+      for (final p in l)
+        ListTile(
+          key: ValueKey('deleted-${p.key}'),
+          leading: ProjectBadge(p, size: 30),
+          title: Text(p.name),
+          subtitle: Text([p.key, if (p.deletedAt != null) 'xoá ${timeAgo(p.deletedAt!, widget.store.now)}'].join(' · ')),
+          trailing: p.myRole == 'owner'
+              ? TextButton.icon(
+                  key: ValueKey('restore-${p.key}'),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await widget.store.api.restoreProject(p.id);
+                      await widget.store.refresh();
+                      messenger.showSnackBar(SnackBar(content: Text('Đã khôi phục ${p.name}')));
+                      await _openDeleted();
+                    } catch (e) {
+                      messenger.showSnackBar(SnackBar(content: Text('$e')));
+                    }
+                  },
+                  icon: const Icon(Icons.restore, size: 18),
+                  label: const Text('Khôi phục'),
+                )
+              : Text(kRoleNames[p.myRole] ?? '', style: TextStyle(fontSize: 12, color: look.sub)),
+        ),
+    ]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +88,10 @@ class _TwProjectsViewState extends State<TwProjectsView> {
                 child: Text('${kProjectStatusNames[s]} · ${counts[s]}'),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TwPill(key: const ValueKey('pstatus-deleted'), set: _status == 'deleted', onTap: _openDeleted, child: const Text('Đã xoá')),
+          ),
           if (wide) ...[
             const SizedBox(width: 16),
             SizedBox(
@@ -65,7 +115,9 @@ class _TwProjectsViewState extends State<TwProjectsView> {
         ]),
       ),
       Expanded(
-        child: list.isEmpty
+        child: _status == 'deleted'
+            ? _deletedList(look)
+            : list.isEmpty
             ? Center(child: Text(widget.store.loaded ? 'Chưa có dự án nào ở mục này' : 'Đang tải…', style: TextStyle(color: look.sub)))
             : Builder(builder: (context) {
                 // 4 cột từ ~1400px cửa sổ, 3 cột ~1050px, 2 cột máy tính bảng, 1 cột điện thoại.
@@ -75,7 +127,7 @@ class _TwProjectsViewState extends State<TwProjectsView> {
                   padding: EdgeInsets.fromLTRB(wide ? 24 : 14, 6, wide ? 24 : 14, 90),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: cols, mainAxisSpacing: 12, crossAxisSpacing: 12, mainAxisExtent: ProjectCard.height),
                   itemCount: list.length,
-                  itemBuilder: (_, i) => ProjectCard(project: list[i], store: widget.store, compact: cols == 1, onTap: () => widget.onOpen(list[i])),
+                  itemBuilder: (_, i) => ProjectCard(project: list[i], store: widget.store, compact: cols == 1, onTap: () => widget.onOpen(list[i]), onAskAi: widget.onAskAi == null ? null : () => widget.onAskAi!(list[i])),
                 );
               }),
       ),
@@ -86,7 +138,8 @@ class _TwProjectsViewState extends State<TwProjectsView> {
 /// Thẻ dự án gọn: dải hình nền 56px, ô dự án đè lên mép dưới trái, sao ở góc phải; tên + phòng ban; thanh tiến độ mảnh chia
 /// theo nhóm trạng thái; một dòng: trạng thái, "x/y xong", hạn, thành viên. Vai trò của mình: chú thích khi rê chuột vào ô dự án.
 class ProjectCard extends StatefulWidget {
-  const ProjectCard({super.key, required this.project, required this.store, required this.onTap, this.compact = false, this.preview = false});
+  const ProjectCard({super.key, required this.project, required this.store, required this.onTap, this.compact = false, this.preview = false, this.onAskAi});
+  final VoidCallback? onAskAi;
   final TwProject project;
   final TwStore store;
   final VoidCallback onTap;
@@ -151,6 +204,37 @@ class _ProjectCardState extends State<ProjectCard> {
                   ),
                 ),
               ),
+              if (!widget.preview && widget.onAskAi != null)
+                Positioned(
+                  right: 40,
+                  top: 6,
+                  child: Row(children: [
+                    Material(
+                      color: Colors.black.withValues(alpha: .18),
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        key: ValueKey('card-ai-${widget.project.key}'),
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: widget.onAskAi,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.auto_awesome, size: 14, color: Colors.white), SizedBox(width: 4), Text('AI', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700))]),
+                        ),
+                      ),
+                    ),
+                    PopupMenuButton<String>(
+                      key: ValueKey('card-menu-${widget.project.key}'),
+                      tooltip: 'Thêm',
+                      icon: const Icon(Icons.more_vert, size: 18, color: Colors.white),
+                      padding: EdgeInsets.zero,
+                      onSelected: (v) => v == 'ai' ? widget.onAskAi!() : widget.onTap(),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'ai', child: Text('Hỏi AI về dự án')),
+                        PopupMenuItem(value: 'open', child: Text('Mở dự án')),
+                      ],
+                    ),
+                  ]),
+                ),
               if (!widget.preview)
                 Positioned(
                   right: 6,
