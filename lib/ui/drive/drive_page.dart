@@ -1334,7 +1334,7 @@ class UploadsPage extends StatelessWidget {
         Widget job(UploadJob j) {
           final it = DriveItem(path: joinPath(j.dir, j.name), name: j.name, dir: false);
           final (sub, color) = switch (j.state) {
-            UploadState.running => ('${fmtSize(j.sent)} / ${fmtSize(j.size)}', l.muted),
+            UploadState.running => (j.finishing ? tr('Đang hoàn tất…') : '${fmtSize(j.sent)} / ${fmtSize(j.size)}', l.muted),
             UploadState.queued => (tr('Đang chờ'), l.muted),
             UploadState.waiting => (j.error ?? tr('Chờ mạng'), l.warn),
             UploadState.paused => (tr('Tạm dừng'), l.muted),

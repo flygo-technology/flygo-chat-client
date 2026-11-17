@@ -318,7 +318,8 @@ class DriveApi {
         onSent?.call(sent);
       }
       await req.sink.close();
-      final res = await done.timeout(const Duration(minutes: 10));
+      // Chờ trả lời theo cỡ request (1 phút + ~32 KB/s): kết nối bị cắt mà không báo thì không treo 10 phút ở "100%".
+      final res = await done.timeout(Duration(seconds: 60 + length ~/ (32 * 1024)));
       if (res.statusCode == 401 && attempt == 0) continue;
       return res;
     }

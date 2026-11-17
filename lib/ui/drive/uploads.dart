@@ -30,6 +30,8 @@ class UploadJob {
   UploadState state = UploadState.queued;
   int sent = 0;
   String? session, target, error;
+  /// Đã gửi hết, đang chờ máy chủ ghép / ghi tệp (không lưu).
+  bool finishing = false;
   int doneAt = 0, retries = 0;
   DriveItem? result;
 
@@ -271,18 +273,28 @@ class DriveUploads extends ChangeNotifier {
     }
   }
 
+  /// Mỗi request tải lên tối đa 2 MB: đường mạng chập chờn (mất gói tới Cloudflare) làm request 10 MB hay bị cắt giữa
+  /// chừng; khúc nhỏ hỏng thì chỉ gửi lại khúc đó.
+  static const maxRequest = 2 * 1024 * 1024;
+
+  /// Tiến độ một request: phần đang gửi chỉ tính 90% (byte vào bộ đệm chưa chắc tới máy chủ), đủ khi máy chủ trả lời.
+  static int inflight(int base, int s) => base + (s * 9) ~/ 10;
+
   Future<void> _run(UploadJob j) async {
     j.state = UploadState.running;
+    j.finishing = false;
     j.error = null;
     notifyListeners();
     final f = File(j.src);
     try {
       if (!await f.exists()) throw DriveException(410, tr('Không còn tệp trên máy'));
       final path = joinPath(j.dir, j.name);
-      if (j.size <= _chunk && j.session == null) {
+      final chunk = _chunk < maxRequest ? _chunk : maxRequest;
+      if (j.size <= chunk && j.session == null) {
         j.sent = 0;
         j.result = await api.putSmall(path, f, mtime: j.mtime, onSent: (s) {
-          j.sent = s;
+          j.sent = inflight(0, s);
+          j.finishing = s >= j.size;
           _tick(j);
         });
       } else {
@@ -296,28 +308,36 @@ class DriveUploads extends ChangeNotifier {
           have = {};
           await _save();
         }
-        final plan = chunkPlan(j.size, _chunk, have);
+        // Phiên dở từ bản cũ (khúc 10 MB): giữ đúng cỡ khúc cũ để đánh số khúc khớp.
+        final size = have[1] != null && have[1]! > chunk && have[1]! < j.size ? have[1]! : chunk;
+        final plan = chunkPlan(j.size, size, have);
         var base = have.values.fold<int>(0, (a, b) => a + b);
         j.sent = base;
         for (final (n, off, len) in plan) {
           if (paused || j.state == UploadState.cancelled) return;
           await api.uploadChunk(j.session!, n, j.target!, j.size, f, off, len, onSent: (s) {
-            j.sent = base + s;
+            j.sent = inflight(base, s);
             _tick(j);
           });
           base += len;
+          j.sent = base;
+          _tick(j);
           await _save();
         }
+        j.finishing = true;
+        notifyListeners();
         j.result = await api.uploadDone(j.session!, j.target!, j.size, mtime: j.mtime);
       }
       if (j.state == UploadState.cancelled) return;
       j.state = UploadState.done;
+      j.finishing = false;
       j.sent = j.size;
       j.doneAt = DateTime.now().millisecondsSinceEpoch;
       j.retries = 0;
       await _cleanup(j);
       onDone?.call(j);
     } catch (e) {
+      j.finishing = false;
       if (j.state == UploadState.cancelled) return;
       if (paused) {
         j.state = UploadState.queued;

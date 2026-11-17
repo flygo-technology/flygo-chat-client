@@ -269,6 +269,7 @@ class _TransfersPanelState extends State<TransfersPanel> {
       UploadState.failed => (Icon(Icons.error_outline_rounded, color: l.danger), tr('Lỗi: {0}', [j.error ?? ''])),
       UploadState.paused => (Icon(Icons.pause_circle_outline_rounded, color: l.muted), tr('Tạm dừng')),
       UploadState.queued || UploadState.waiting => (Icon(Icons.schedule_rounded, color: l.muted), tr('Đang chờ · {0}', [fmtSize(j.size)])),
+      _ when j.finishing => (Icon(Icons.cloud_upload_outlined, color: l.accent), tr('Đang hoàn tất…')),
       _ => (Icon(Icons.cloud_upload_outlined, color: l.accent), '${(j.progress * 100).round()}% · ${fmtSize(j.sent)} / ${fmtSize(j.size)}'),
     };
     return _row(l,
