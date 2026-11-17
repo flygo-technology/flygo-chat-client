@@ -3734,11 +3734,15 @@ class AppsUserCard extends StatelessWidget {
           PopupMenuItem(
               value: 'clear', child: Row(children: [Icon(Icons.close_rounded, size: 18, color: pal.sub), const SizedBox(width: 10), Text(tr('Xóa trạng thái'))])),
       ],
-      // Chữ thường, không khung (Sếp, 2026-11-17: "bỏ box bao quanh"); chỉ sáng nhẹ khi rê chuột.
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(2, 3, 4, 3),
+      // Trên dải bìa, bên trái ⚙️ (Sếp, 2026-11-17): chữ trắng trên viên mờ để đọc được trên ảnh bìa.
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 5, 6, 5),
+        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .24), borderRadius: BorderRadius.circular(999)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          statusDot(st, pal, size: 9),
+          Container(
+            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.2)),
+            child: statusDot(st, pal, size: 9),
+          ),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
@@ -3746,10 +3750,10 @@ class AppsUserCard extends StatelessWidget {
               key: const ValueKey('apps-current-status'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: pal.text),
+              style: const TextStyle(fontSize: 12.5, color: Colors.white, fontWeight: FontWeight.w500),
             ),
           ),
-          Icon(Icons.expand_more_rounded, size: 16, color: pal.sub),
+          const Icon(Icons.expand_more_rounded, size: 16, color: Colors.white),
         ]),
       ),
     );
@@ -3773,18 +3777,16 @@ class AppsUserCard extends StatelessWidget {
               height: cover,
               child: RepaintBoundary(child: CustomPaint(painter: XmasCoverPainter(dark: dark))),
             ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(left + size + ring * 2 + 12, 8, 14, dense ? 12 : 14),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                // Tên nằm trên dải bìa (Sếp, 2026-11-17); dưới dải bìa: email rồi trạng thái.
-                InkWell(
-                  borderRadius: BorderRadius.circular(6),
-                  onTap: onProfile,
-                  child: Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
-                ),
-                const SizedBox(height: 2),
-                chip,
-              ]),
+            // Tên và trạng thái nằm trên dải bìa (Sếp, 2026-11-17); dưới dải bìa chỉ còn email. Cao đủ chứa phần ảnh lòi xuống.
+            Container(
+              constraints: BoxConstraints(minHeight: size / 2 + ring + 12),
+              padding: EdgeInsets.fromLTRB(left + size + ring * 2 + 12, 8, 14, 10),
+              alignment: Alignment.topLeft,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: onProfile,
+                child: Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
+              ),
             ),
           ]),
           // Tên trên dải bìa: chữ trắng đậm, đổ bóng nhẹ cho dễ đọc trên nền ảnh.
@@ -3856,6 +3858,12 @@ class AppsUserCard extends StatelessWidget {
                 ),
               ),
             ]),
+          ),
+          // Trạng thái: góc trên phải, ngay bên trái ⚙️.
+          Positioned(
+            top: 14,
+            right: onSettings != null ? 56 : 10,
+            child: ConstrainedBox(constraints: BoxConstraints(maxWidth: dense ? 170 : 210), child: chip),
           ),
           if (onSettings != null)
             Positioned(
