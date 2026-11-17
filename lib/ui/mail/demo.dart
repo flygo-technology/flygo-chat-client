@@ -172,10 +172,20 @@ class DemoMailApi extends MailApi {
   @override
   Future<MailDigest> aiDigest() async {
     final ts = _threads.where((t) => t.box == 'inbox' && t.category == 'primary' && t.unread && !t.draft).toList();
+    // Như máy chủ: số hội thoại chưa đọc + mỗi thư một dòng ý nghĩa (câu đầu của thư).
     return MailDigest(
-      summary: ts.isEmpty ? 'Không có thư chưa đọc nào trong hộp Chính.' : 'Có ${ts.length} cuộc hội thoại chưa đọc cần xem.',
+      summary: ts.isEmpty ? 'Không có thư chưa đọc nào trong hộp Chính.' : 'Bạn có ${ts.length} cuộc hội thoại chưa đọc trong hộp Chính.',
       threads: ts.length,
-      tasks: [for (final t in ts) MailDigestTask(text: 'Đọc và trả lời "${t.subject}"', from: t.messages.last.from.short, urgent: t.important, threadId: t.id, subject: t.subject)],
+      unread: ts.length,
+      tasks: [
+        for (final t in ts)
+          MailDigestTask(
+            text: _strip(t.messages.last.html).split(RegExp(r'(?<=[.!?])\s')).firstWhere((x) => x.length > 25, orElse: () => t.subject),
+            from: t.messages.last.from.short,
+            threadId: t.id,
+            subject: t.subject,
+          ),
+      ],
     );
   }
 

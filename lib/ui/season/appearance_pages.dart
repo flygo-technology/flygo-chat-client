@@ -40,8 +40,6 @@ class AppearancePage extends StatelessWidget {
       builder: (context, _) {
         final pal = Pal.of(context);
         final custom = s.custom;
-        final active = s.activeSeason();
-        final seasonName = {for (final x in seasons) x.id: x.name}[active] ?? active;
         Widget sw(String title, String? sub, bool v, ValueChanged<bool> on) => SwitchListTile(
               value: v,
               onChanged: on,
@@ -67,21 +65,8 @@ class AppearancePage extends StatelessWidget {
                   await mine('home_bg_desktop', v);
                 }),
           ]),
-          SectionCard(
-              title: tr('Mùa lễ hội'),
-              icon: Icons.celebration_outlined,
-              subtitle: active == null ? tr('Hiện không có mùa lễ nào') : tr('Đang có: {0}', [seasonName!]),
-              children: [
-                sw(tr('Dùng giao diện mùa lễ'), tr('Tắt để giữ giao diện thường'), s.own['off'] != true, (v) => mine('off', !v)),
-                sw(tr('Dải cây thông trên khung chat'), null, s.own['lights'] != false, (v) => mine('lights', v)),
-                sw(tr('Hiện mũ Noel của mọi người'), null, s.own['hats'] != false, (v) => mine('hats', v)),
-                sw(tr('Đội mũ cho ảnh của mình'), tr('Tắt thì mọi người thấy ảnh mình không mũ'), s.myHat, (v) => s.setMyHat(v)),
-                sw(tr('Hiệu ứng khi có lời chúc'), null, s.own['effect'] != false, (v) => mine('effect', v)),
-                sw(tr('Banner ở Trang chủ'), null, s.own['banner'] != false, (v) => mine('banner', v)),
-                sw(tr('Hiệu ứng động'), tr('Tự tắt khi máy bật giảm chuyển động'), s.motion, (v) => mine('motion', v)),
-              ]),
-          SectionCard(title: tr('Chat'), icon: Icons.chat_bubble_outline_rounded, children: [
-            subHead(context, tr('Hình nền chat mặc định')),
+          SectionCard(title: tr('Chat của tôi'), icon: Icons.chat_bubble_outline_rounded, children: [
+            subHead(context, tr('Hình nền chat')),
             BackgroundPicker(
               value: s.wallpaperDefault ?? 'season',
               arts: [for (final w in wallpapers) w.id],
@@ -90,7 +75,7 @@ class AppearancePage extends StatelessWidget {
                 await s.setWallpaper(SeasonState.kDefaultKey, v == 'season' ? null : v);
               },
             ),
-            subHead(context, tr('Bong bóng mặc định')),
+            subHead(context, tr('Bong bóng tin của tôi')),
             ListTile(
               dense: true,
               title: Text(def == null ? tr('Theo công ty / mùa lễ') : def.def?.name ?? tr('Bong bóng thường'),
@@ -105,24 +90,15 @@ class AppearancePage extends StatelessWidget {
                 await app.setBubble(kBubbleDefaultKey, c);
               },
             ),
-            if (s.allowChatCustom)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    await Future.wait([app.clearChatBubbles(), s.clearChatWallpapers()]);
-                    messenger.showSnackBar(toast(Text(tr('Mọi chat đã dùng giao diện mặc định'))));
-                  },
-                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                  label: Text(tr('Áp dụng cho mọi chat')),
-                ),
-              ),
+          ]),
+          SectionCard(title: tr('Của tôi'), icon: Icons.person_outline_rounded, children: [
+            sw(tr('Đội mũ cho ảnh của mình'), tr('Tắt thì mọi người thấy ảnh mình không mũ'), s.myHat, (v) => s.setMyHat(v)),
+            sw(tr('Hiệu ứng động'), tr('Tự tắt khi máy bật giảm chuyển động'), s.motion, (v) => mine('motion', v)),
           ]),
         ];
         return Scaffold(
           backgroundColor: pal.bg,
-          appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Giao diện'))),
+          appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Giao diện của tôi'))),
           body: ListView(padding: const EdgeInsets.only(bottom: 30), children: [
             Center(
               child: ConstrainedBox(
