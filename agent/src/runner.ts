@@ -3799,7 +3799,10 @@ async function runScheduled(s: Schedule, trigger: Post, resume: boolean) {
   const key = threadRootOf(post) || mainKey(post.channel_id);
   const { rule } = schedDescribe(s);
   const by = await mm.displayName(s.created_by).catch(() => s.created_by);
-  const text = `(Lịch hẹn "${s.title}" của ${by} — ${rule}; tự chạy, ${by} không ngồi chờ: làm xong rồi báo kết quả ở đây.)\n${s.prompt}`;
+  // Lượt tự chạy không có biên nhận của người gửi: vé Gateway chỉ của agent, thường không có tool vn_flygo_*. Claude Code báo
+  // "các tool đó bị gỡ" và model hay hiểu nhầm thành mất hết tool Flygo Chat (17/11 lịch hẹn 24Social không gửi): nói rõ trước.
+  const gwNote = gateway.enabled ? " Lượt tự chạy nên có thể không có tool Gateway (vn_flygo_*); tool flygo_chat (chat_send, chat_report_out…) vẫn dùng được, cứ gọi; chỉ báo lỗi khi gọi thử mà lỗi thật." : "";
+  const text = `(Lịch hẹn "${s.title}" của ${by} — ${rule}; tự chạy, ${by} không ngồi chờ: làm xong rồi báo kết quả ở đây.${gwNote})\n${s.prompt}`;
   const out: { text?: string; error?: string } = {};
   enqueuedPosts.add(post.id);
   enqueue(key, async () => {
