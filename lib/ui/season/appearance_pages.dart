@@ -154,7 +154,9 @@ class AppearancePage extends StatelessWidget {
                 if (c != null) await app.setBubble(kBubbleDefaultKey, c);
               }),
               _div(context),
-              nav(Icons.wallpaper_rounded, tr('Hình nền mặc định'), wpLabel, () => Navigator.of(context).push(AppPageRoute(
+              nav(Icons.space_dashboard_outlined, tr('Nền trang chủ'), _homeBgName(s), () => Navigator.of(context).push(AppPageRoute(builder: (_) => const HomeBackgroundPage()))),
+              _div(context),
+              nav(Icons.wallpaper_rounded, tr('Hình nền chat mặc định'), wpLabel, () => Navigator.of(context).push(AppPageRoute(
                     builder: (ctx) => Scaffold(
                       backgroundColor: Pal.of(ctx).bg,
                       appBar: AppBar(backgroundColor: Pal.of(ctx).bg, surfaceTintColor: Colors.transparent, title: Text(tr('Hình nền mặc định'))),
@@ -642,7 +644,80 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
             onChanged: admin ? (v) => _edit(() => defaults['wallpaper'] = v == 'season' ? null : v) : null,
           ),
         ),
+        _div(context, 16),
+        ListTile(
+          title: Text(tr('Nền trang chủ (mùa Giáng sinh)'), style: TextStyle(fontSize: 15, color: pal.text)),
+          trailing: DropdownButton<String>(
+            value: homeBackgroundIds.contains(defaults['home_bg']) || defaults['home_bg'] == 'none' ? defaults['home_bg'] as String : homeBackgroundIds.first,
+            underline: const SizedBox.shrink(),
+            items: [
+              for (final id in [...homeBackgroundIds, 'none']) DropdownMenuItem(value: id, child: Text(_wallpaperName(id))),
+            ],
+            onChanged: admin ? (v) => _edit(() => defaults['home_bg'] = v == homeBackgroundIds.first ? null : v) : null,
+          ),
+        ),
       ]),
     ]);
+  }
+}
+
+String _homeBgName(SeasonState s) {
+  final id = (s.mine['home_bg'] as String?) ?? ((s.cfg['defaults'] as Map?)?['home_bg'] as String?) ?? homeBackgroundIds.first;
+  return s.mine['home_bg'] == null ? tr('Mặc định ({0})', [_wallpaperName(id)]) : _wallpaperName(id);
+}
+
+/// Chọn nền Trang chủ mùa Giáng sinh (lưu ở lựa chọn riêng `flygo_season/me.home_bg`).
+class HomeBackgroundPage extends StatelessWidget {
+  const HomeBackgroundPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final s = SeasonState.instance;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final pal = Pal.of(context);
+        final cur = s.mine['home_bg'] as String?;
+        Widget tile(String? id, Widget art, String name) {
+          final on = cur == id;
+          return SizedBox(
+            width: 104,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => s.setMine('home_bg', id),
+              child: Column(children: [
+                Container(
+                  width: 92,
+                  height: 150,
+                  padding: EdgeInsets.all(on ? 3 : 1),
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? pal.accent : pal.divider, width: on ? 3 : 1)),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: art),
+                ),
+                const SizedBox(height: 6),
+                Text(name, maxLines: 2, textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, height: 1.2, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: pal.text)),
+              ]),
+            ),
+          );
+        }
+
+        final def = ((s.cfg['defaults'] as Map?)?['home_bg'] as String?) ?? homeBackgroundIds.first;
+        return Scaffold(
+          backgroundColor: pal.bg,
+          appBar: AppBar(backgroundColor: pal.bg, surfaceTintColor: Colors.transparent, title: Text(tr('Nền trang chủ'))),
+          body: ListView(padding: const EdgeInsets.fromLTRB(10, 4, 10, 30), children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 0, 6, 14),
+              child: Text(tr('Nền danh sách ứng dụng trong mùa Giáng sinh. Mỗi nền tự đổi theo chế độ sáng / tối của máy.'),
+                  style: TextStyle(fontSize: 13, color: pal.sub)),
+            ),
+            Wrap(spacing: 4, runSpacing: 14, children: [
+              tile(null, def == 'none' ? Container(color: pal.bg) : WallpaperView(wallpaper: wallpaperById(def)!, frozenT: 2), tr('Mặc định của công ty')),
+              for (final id in homeBackgroundIds) tile(id, WallpaperView(wallpaper: wallpaperById(id)!, frozenT: 2), _wallpaperName(id)),
+              tile('none', Container(color: pal.bg, child: Center(child: Icon(Icons.block_rounded, color: pal.sub))), tr('Không')),
+            ]),
+          ]),
+        );
+      },
+    );
   }
 }

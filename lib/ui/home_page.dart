@@ -42,6 +42,7 @@ import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
 import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin;
+import 'season/season.dart' show WallpaperView, FrostedSection;
 import 'season/season_state.dart';
 import 'password_page.dart';
 import 'call_history.dart';
@@ -1101,6 +1102,8 @@ class _HomePageState extends State<HomePage> {
     // [color] null = ô nền trắng có viền (mini app: biểu tượng riêng của app là ảnh / emoji).
     // Có hình nền (Trang chủ máy tính): chữ đặt trên nền mờ bo tròn để không chìm vào ảnh.
     final wall = onLaunch != null && Wallpaper.state.value.isSet;
+    // Mùa Giáng sinh: nền Trang chủ (tranh êm, tự đổi sáng / tối) + mỗi nhóm ô trên tấm kính mờ. Ảnh nền tự chọn (máy tính) được ưu tiên.
+    final seasonBg = onLaunch != null && !wall ? SeasonState.instance.homeBackground() : null;
     Widget onWall(Widget text) => !wall
         ? text
         : Container(
@@ -1149,7 +1152,7 @@ class _HomePageState extends State<HomePage> {
       final tiles = [for (final t in all) if (t is! _HiddenTile) t];
       // Mục không có ô nào (vd Quản trị của người thường, hoặc đang tìm) thì ẩn luôn tiêu đề.
       if (tiles.isEmpty) return const SizedBox.shrink();
-      return Column(
+      final col = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
@@ -1173,6 +1176,7 @@ class _HomePageState extends State<HomePage> {
             }),
           ],
         );
+      return seasonBg == null ? col : FrostedSection(child: col);
     }
 
     Widget section(String title, List<(IconData, Color, String, int, VoidCallback)> items) => grid(title, [for (final it in items) tile(it)]);
@@ -1360,7 +1364,7 @@ class _HomePageState extends State<HomePage> {
           ),
       ]);
       // Máy tính / màn rộng: thẻ người dùng ở cột trái 1/3, ứng dụng bên phải 2/3.
-      return LayoutBuilder(builder: (_, c) {
+      final page = LayoutBuilder(builder: (_, c) {
         if (c.maxWidth < 900) return appsList(phone: true);
         return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Cột trái: thẻ người dùng, máy chủ ghim ở dưới cùng.
@@ -1388,6 +1392,11 @@ class _HomePageState extends State<HomePage> {
           Expanded(child: appsList(phone: false)),
         ]);
       });
+      if (seasonBg == null) return page;
+      return Stack(children: [
+        Positioned.fill(child: WallpaperView(wallpaper: seasonBg, motion: false)),
+        page,
+      ]);
     }
 
     return ListView(padding: EdgeInsets.only(bottom: bottom + 16), children: [

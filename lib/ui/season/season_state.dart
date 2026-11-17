@@ -277,6 +277,14 @@ class SeasonState extends ChangeNotifier {
     return w == null ? null : WallpaperChoice(w);
   }
 
+  /// Nền Trang chủ (danh sách ứng dụng) trong mùa Giáng sinh: lựa chọn của mình → mặc định của công ty → Giáng sinh.
+  /// null = không có (ngoài mùa, mình tắt mùa lễ / chọn "Không", công ty tắt hình nền mùa).
+  Wallpaper? homeBackground() {
+    if (!available || activeSeason() != 'giangsinh' || !on('wallpaper')) return null;
+    final id = (mine['home_bg'] as String?) ?? ((cfg['defaults'] as Map?)?['home_bg'] as String?) ?? homeBackgroundIds.first;
+    return id == 'none' ? null : wallpaperById(id);
+  }
+
   /// Bong bóng mùa lễ của [userId] (lớp "mùa lễ" trong AppState.resolveBubble): null nếu không có mùa / mình tắt mùa lễ /
   /// quản trị tắt bong bóng mùa.
   BubbleChoice? seasonBubble(String userId) {

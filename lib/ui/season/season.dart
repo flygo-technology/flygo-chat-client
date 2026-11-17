@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -29,15 +31,17 @@ List<(String, String)> get wallpaperGroups => [
     ];
 
 List<Wallpaper> get wallpapers => [
-      // Tối: trời đêm xanh, rặng thông, tuyết rơi. Sáng: nền kem, cùng rặng thông + tuyết.
-      Wallpaper('giangsinh', tr('Giáng sinh'), 'giangsinh', painter: (t, dark) => dark ? NoelNightPainter(t) : WhiteSnowPainter(t)),
-      // Bộ hình nền Giáng sinh "êm" (đang chờ Sếp chọn).
+      // Giáng sinh (bản giản lược, Sếp 2026-11-17): nền êm, rặng thông trong sương, tuyết thưa và nhoè.
+      Wallpaper('giangsinh', tr('Giáng sinh'), 'giangsinh', painter: (t, dark) => XmasSimplePainter(dark), animated: false),
+      // Các hình nền Giáng sinh "êm" khác.
       for (final (id, name, p) in calmXmasWallpapers) Wallpaper(id, tr(name), 'giangsinh', painter: (t, dark) => p(dark), animated: false),
-      Wallpaper('giangsinh2', tr('Giáng sinh (giản lược)'), 'giangsinh', painter: (t, dark) => XmasSimplePainter(dark), animated: false),
     ];
 
 /// Mã cũ (bản 486–487 tách sáng / tối) → mã mới.
-const _wallpaperAlias = {'demnoel': 'giangsinh', 'tuyettrang': 'giangsinh', 'auto': 'giangsinh'};
+const _wallpaperAlias = {'demnoel': 'giangsinh', 'tuyettrang': 'giangsinh', 'auto': 'giangsinh', 'giangsinh2': 'giangsinh'};
+
+/// Nền Trang chủ mùa Giáng sinh: các lựa chọn (mã hình nền), theo thứ tự trong màn chọn.
+const homeBackgroundIds = ['giangsinh', 'tuyetem', 'anhden', 'rungthong', 'cucquang', 'doituyet', 'cuaso', 'kinhsuong'];
 
 Wallpaper? wallpaperById(String? id) {
   if (id == null) return null;
@@ -299,4 +303,33 @@ class Garland extends StatelessWidget {
               size: const Size(double.infinity, height), painter: GarlandPainter(dark: Theme.of(context).brightness == Brightness.dark, backing: backing)),
         ),
       );
+}
+
+/// Tấm kính mờ cho một nhóm ô ở Trang chủ khi có nền mùa lễ: ô và chữ luôn rõ dù nền phía sau là gì.
+class FrostedSection extends StatelessWidget {
+  final Widget child;
+  const FrostedSection({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final surface = dark ? const Color(0xFF1C1C1E) : Colors.white;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Container(
+            padding: const EdgeInsets.only(bottom: 4),
+            decoration: BoxDecoration(
+              color: surface.withValues(alpha: dark ? .58 : .66),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: dark ? .07 : .5)),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 }
