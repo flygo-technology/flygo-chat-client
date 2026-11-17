@@ -47,7 +47,7 @@ class AiQuota {
   double? get customDay => (custom['day_usd'] as num?)?.toDouble();
   double? get customMonth => (custom['month_usd'] as num?)?.toDouble();
   String? get customTier => custom['tier'] as String?;
-  /// Từng mức AI (Nhanh / Kỹ hơn / Agent). Trang của nhân viên chỉ nhận %, không có tiền.
+  /// Từng mức AI (Cơ bản / Nâng cao / Chuyên gia; mã flygo-fast / smart / agent không đổi). Trang của nhân viên chỉ nhận %, không có tiền.
   List<AiModel> get models => [for (final m in (j['models'] as List? ?? const [])) if (m is Map) AiModel(m.cast<String, dynamic>())];
   /// Chỉnh riêng từng model của người này (trang quản trị): alias -> {enabled, month_usd, day_usd}.
   Map<String, Map<String, dynamic>> get modelOverrides => {
@@ -71,7 +71,7 @@ class AiModel {
 }
 
 /// Tên hiển thị của mức AI.
-String aiModelName(String alias) => switch (alias) { 'flygo-fast' => 'Nhanh', 'flygo-smart' => 'Kỹ hơn', 'flygo-agent' => 'Agent', _ => alias };
+String aiModelName(String alias) => switch (alias) { 'flygo-fast' => 'Cơ bản', 'flygo-smart' => 'Nâng cao', 'flygo-agent' => 'Chuyên gia', _ => alias };
 
 class AiGateApi {
   AiGateApi({required this.base, required this.ticket, http.Client? client}) : _http = client ?? http.Client();

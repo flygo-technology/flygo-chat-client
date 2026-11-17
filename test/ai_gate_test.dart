@@ -34,7 +34,7 @@ Future<void> _fonts() async {
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
 }
 
-/// Từng model theo hạng (mẫu Sếp duyệt) + chỉnh riêng (cSmart = trần Kỹ hơn riêng).
+/// Từng model theo hạng (mẫu Sếp duyệt) + chỉnh riêng (cSmart = trần Nâng cao riêng).
 List<Map<String, dynamic>> _models(String tier, int pct, {double? cSmart}) {
   final caps = switch (tier) { 'chuyen-sau' => [10.0, 15.0, 10.0], 'nang-cao' => [5.0, 5.0, null], _ => [3.0, null, null] };
   final ids = ['flygo-fast', 'flygo-smart', 'flygo-agent'];
@@ -200,9 +200,9 @@ void main() {
     expect(g.calls, contains('PUT /__apps/ai/admin/api/providers/gemini/key'));
     expect(g.bodies.last, containsPair('key', 'AIzaSy-test-key-1234'));
     expect(find.textContaining('AIzaSy'), findsNothing); // khoá không hiện lại ở đâu
-    await t.ensureVisible(find.text('Nhanh · flygo-fast'));
+    await t.ensureVisible(find.text('Cơ bản · flygo-fast'));
     await settle(t);
-    await t.tap(find.text('Nhanh · flygo-fast'));
+    await t.tap(find.text('Cơ bản · flygo-fast'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await settle(t);
     expect(find.text('Dự phòng 1'), findsOneWidget);
@@ -217,8 +217,8 @@ void main() {
   testWidgets('hạn mức từng model: cột trong bảng, chỉnh riêng một người, sửa hàng loạt', (t) async {
     final g = FakeGate();
     await app(t, const Size(1440, 1180), Brightness.dark, AiAdminPage(api: g.api));
-    expect(find.descendant(of: find.byKey(const ValueKey('ai-users')), matching: find.text('Kỹ hơn')), findsWidgets);
-    expect(find.textContaining('20\$'), findsWidgets); expect(find.byKey(const ValueKey('custom-flygo-smart')), findsOneWidget); // lan: Kỹ hơn riêng 20$
+    expect(find.descendant(of: find.byKey(const ValueKey('ai-users')), matching: find.text('Nâng cao')), findsWidgets);
+    expect(find.textContaining('20\$'), findsWidgets); expect(find.byKey(const ValueKey('custom-flygo-smart')), findsOneWidget); // lan: Nâng cao riêng 20$
     await t.ensureVisible(find.text('lan@flygo.vn'));
     await settle(t);
     await t.tap(find.text('lan@flygo.vn'));
@@ -239,7 +239,7 @@ void main() {
     expect((body['models'] as Map)['flygo-agent'], {'enabled': true, 'month_usd': 4.0, 'day_usd': null});
     expect((body['models'] as Map)['flygo-smart'], {'enabled': true, 'month_usd': 20.0, 'day_usd': null}); // giữ chỉnh riêng cũ
     expect((body['models'] as Map)['flygo-fast'], isNull); // theo hạng
-    // sửa hàng loạt: phòng Kế toán → Nâng cao, Kỹ hơn 20$
+    // sửa hàng loạt: phòng Kế toán → Nâng cao, Nâng cao 20$
     await t.ensureVisible(find.text('Sửa hàng loạt'));
     await settle(t);
     await t.tap(find.text('Sửa hàng loạt'));
@@ -268,11 +268,11 @@ void main() {
       await settle(t);
       expect(find.descendant(of: card, matching: find.byType(TextField)), findsNothing);
       expect(find.descendant(of: card, matching: find.textContaining('Ngân sách công ty')), findsOneWidget);
-      expect(find.descendant(of: card, matching: find.text('10 \$/th')), findsWidgets); // Chuyên sâu: Nhanh 10, Agent 10
-      expect(find.descendant(of: card, matching: find.text('—')), findsWidgets);          // Cơ bản: không Kỹ hơn/Agent
+      expect(find.descendant(of: card, matching: find.text('10 \$/th')), findsWidgets); // tier Chuyên sâu: Cơ bản 10, Chuyên gia 10
+      expect(find.descendant(of: card, matching: find.text('—')), findsWidgets);          // tier Cơ bản: no Nâng cao/Chuyên gia
       await save(t, 'ai-tiers-$name');
       if (name != 'desktop-dark') return;
-      // sửa hạng Cơ bản: bật Kỹ hơn 2$/tháng
+      // sửa hạng Cơ bản: bật Nâng cao 2$/tháng
       await t.tap(find.byKey(const ValueKey('tier-co-ban')));
       await settle(t);
       await t.tap(find.descendant(of: find.byKey(const ValueKey('tier-model-flygo-smart')), matching: find.byType(Switch)));
@@ -318,7 +318,7 @@ void main() {
       expect(find.text('62%'), findsWidgets);
       expect(find.textContaining('Hạng Cơ bản'), findsOneWidget);
       expect(find.textContaining('USD'), findsNothing); // nhân viên không thấy tiền
-      expect(find.textContaining('còn'), findsWidgets);   // "Nhanh: 62% · còn 38%"
+      expect(find.textContaining('còn'), findsWidgets);   // "Cơ bản: 62% · còn 38%"
       await save(t, 'ai-quota-phone-${b.name}');
     }
   });

@@ -1028,7 +1028,7 @@ class _AiAdminPageState extends State<AiAdminPage> {
   }
 
   // ---------------------------------------------------------------- mức AI & model
-  String _aliasName(String a) => switch (a) { 'flygo-fast' => tr('Nhanh'), 'flygo-smart' => tr('Kỹ hơn'), 'flygo-agent' => tr('Agent nhiều bước'), _ => a };
+  String _aliasName(String a) => switch (a) { 'flygo-fast' => tr('Cơ bản'), 'flygo-smart' => tr('Nâng cao'), 'flygo-agent' => tr('Chuyên gia'), _ => a };
   IconData _aliasIcon(String a) => switch (a) { 'flygo-fast' => Icons.bolt_rounded, 'flygo-smart' => Icons.auto_awesome_rounded, _ => Icons.smart_toy_rounded };
 
   Widget _aliasesCard(Pal pal) => _card(pal, key: const ValueKey('ai-aliases'), icon: Icons.alt_route_rounded, title: tr('Mức AI & model'), children: [
