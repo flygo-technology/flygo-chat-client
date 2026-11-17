@@ -108,7 +108,7 @@ class _PasskeyPageState extends State<PasskeyPage> {
                       if (d is Map) _device(pal, d),
                     const SizedBox(height: 12),
                     Text(
-                      tr('Passkey là khoá nằm trong chip bảo mật của điện thoại, mỗi lần dùng phải qua Face ID / vân tay / mã mở máy, không sao chép sang máy khác được. Máy mới phải được duyệt trên một điện thoại đã có passkey hoặc bởi quản trị viên.'),
+                      tr('Passkey là khoá nằm trong chip bảo mật của máy (điện thoại, Mac), mỗi lần dùng phải qua Face ID / Touch ID / vân tay / mật khẩu máy, không sao chép sang máy khác được. Máy đầu tiên tự đăng ký; khi công ty bắt buộc passkey, máy mới phải được duyệt trên một máy đã có passkey.'),
                       style: TextStyle(fontSize: 12.5, color: pal.sub),
                     ),
                   ]),
@@ -137,7 +137,7 @@ class _PasskeyPageState extends State<PasskeyPage> {
                 st.required ? tr('Xác thực để xác nhận phiên đăng nhập này.') : tr('Passkey đã sẵn sàng.'), tr('Xác thực'))
             : hasKey
                 ? (Icons.hourglass_top_rounded, const Color(0xFFF5B544), tr('Passkey chờ duyệt'),
-                    tr('Duyệt máy này trên một điện thoại khác đã có passkey, hoặc nhờ quản trị viên.'), tr('Xin duyệt'))
+                    tr('Duyệt máy này trên một máy khác đã có passkey của bạn (bấm đúng số).'), tr('Xin duyệt'))
                 : (Icons.fingerprint_rounded, pal.accent, tr('Máy này chưa có passkey'),
                     st.required ? tr('Công ty yêu cầu passkey. Đăng ký ngay để lần đăng nhập sau không bị chặn.') : tr('Đăng ký để sẵn sàng khi công ty bật passkey.'),
                     tr('Đăng ký passkey'));

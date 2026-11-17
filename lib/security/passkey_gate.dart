@@ -270,10 +270,10 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
     final needs = _mode;
     final (IconData icon, Color color, String title, String body) = _help
         ? (Icons.phonelink_erase_rounded, const Color(0xFFF5B544), tr('Không xác thực được passkey'),
-            tr('Đổi máy, cài lại app, thêm vân tay mới hoặc mất máy? Vì an toàn, chỉ quản trị viên mới duyệt lại được.'))
+            tr('Đổi máy, cài lại app hoặc thêm vân tay mới: xin duyệt lại trên một máy khác đã có passkey. Mất hết máy: nhờ quản trị viên duyệt.'))
         : _needAdmin
             ? (Icons.admin_panel_settings_rounded, const Color(0xFFF5B544), tr('Cần quản trị viên duyệt'),
-                tr('Bạn chưa có điện thoại nào đã duyệt để xác nhận máy này. Nhờ quản trị viên vào Quản trị › Người dùng › Thiết bị & passkey và bấm "Duyệt".'))
+                tr('Không còn máy nào đã duyệt để xác nhận (mất máy?). Nhờ quản trị viên vào Quản trị › Người dùng › Thiết bị & passkey và bấm "Duyệt passkey".'))
             : switch (needs) {
                 'enroll' => (Icons.fingerprint_rounded, const Color(0xFF14B8A6), tr('Đăng ký passkey cho máy này'),
                     tr('Công ty yêu cầu mỗi điện thoại có passkey. Chỉ cần xác nhận bằng Face ID, vân tay hoặc mã mở máy.')),
@@ -281,8 +281,8 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
                     tr('Passkey dùng trên điện thoại (iPhone / Android) và máy Mac có Secure Enclave. Máy này dùng bình thường, không phải đăng ký.')),
                 'approve' => (Icons.verified_user_outlined, pal.accent, tr('Máy này cần được duyệt'),
                     _keyOk
-                        ? tr('Passkey đã tạo. Để chắc chắn là bạn, hãy duyệt máy này trên một điện thoại khác đã dùng passkey (bấm đúng số + vân tay).')
-                        : tr('Xác nhận lần đăng nhập này trên điện thoại đã dùng passkey của bạn (bấm đúng số + vân tay).')),
+                        ? tr('Bạn đã có máy khác dùng passkey. Để chắc chắn là bạn, hãy duyệt máy này trên máy đó (bấm đúng số + xác thực).')
+                        : tr('Xác nhận lần đăng nhập này trên máy đã dùng passkey của bạn (bấm đúng số + xác thực).')),
                 _ => (Icons.lock_person_rounded, pal.accent, tr('Xác thực để mở Flygo Chat'), tr('Dùng passkey của máy này (Face ID / Touch ID / vân tay / mật khẩu máy) để tiếp tục.')),
               };
     final code = _approval?['code'];
@@ -316,7 +316,7 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(14)),
                       child: Column(children: [
-                        Text(tr('Trên điện thoại kia, chọn số'), style: TextStyle(color: pal.sub)),
+                        Text(tr('Trên máy kia, chọn số'), style: TextStyle(color: pal.sub)),
                         Text('$code', style: TextStyle(fontSize: 44, fontWeight: FontWeight.w800, color: pal.accent)),
                         Text(tr('Đang chờ duyệt…'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
                       ]),
@@ -357,7 +357,7 @@ class _PasskeyScreenState extends State<PasskeyScreen> {
                           : Icon(needs == 'approve' ? Icons.send_to_mobile_rounded : Icons.fingerprint_rounded),
                       label: Text(switch (needs) {
                         'enroll' => tr('Tạo passkey'),
-                        'approve' => tr('Xin duyệt trên điện thoại khác'),
+                        'approve' => tr('Xin duyệt trên máy đã có passkey'),
                         _ => tr('Xác thực'),
                       }),
                     ),
