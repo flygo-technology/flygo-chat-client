@@ -111,6 +111,20 @@ List<BubbleStyle> get bubbleStyles => [
 
 BubbleStyle? bubbleStyleById(String? id) => id == null ? null : bubbleStyles.where((s) => s.id == id).firstOrNull;
 
+/// Kiểu theo mùa lễ hội cho một người: kiểu admin chọn ([style], nếu hợp lệ), không thì một kiểu cố định theo người
+/// trong nhóm [group] (băm [userId], cùng người luôn ra cùng kiểu trên mọi máy). null nếu nhóm không có kiểu nào.
+BubbleChoice? bubbleSeasonPick(String group, String userId, {String? style}) {
+  if (style != null && bubbleStyleById(style) != null) return BubbleChoice(style);
+  final list = bubbleStyles.where((s) => s.group == group).toList();
+  if (list.isEmpty) return null;
+  // FNV-1a 32 bit: ổn định giữa các nền tảng (không dùng String.hashCode).
+  var h = 0x811C9DC5;
+  for (final c in userId.codeUnits) {
+    h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF;
+  }
+  return BubbleChoice(list[h % list.length].id);
+}
+
 /// Màu gợi ý cho bảng chọn màu.
 const bubbleSwatches = [
   Color(0xFF1E88E5), Color(0xFF3949AB), Color(0xFF5E35B1), Color(0xFF8E24AA), Color(0xFFD81B60), Color(0xFFC8102E),
