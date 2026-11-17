@@ -75,6 +75,9 @@ import 'desk_tabs.dart';
 import 'devices_page.dart';
 import 'my_browsers_page.dart';
 import 'mail/mail_page.dart' show openMailAdmin;
+import 'ai_gate/ai_admin_page.dart' show openAiAdmin;
+import 'ai_gate/ai_gate_api.dart';
+import 'ai_gate/ai_quota_page.dart';
 import 'users_admin_page.dart';
 import '../browser/runtime.dart' show kKysoExtensionId;
 import '../kyso/kyso_api.dart';
@@ -120,6 +123,8 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'privacy',
         'terms',
         'ai',
+        // Hạn mức AI công ty của chính mình (Cổng AI); chỉ hiện khi máy chủ có Cổng AI và mình được dùng.
+        'aiquota',
         // Hình nền Trang chủ (máy tính, lưu trên máy này).
         // Màu nền Trang chủ (màu trơn / nền Giáng sinh / theo mùa lễ), thay ứng dụng Hình nền cũ.
         'homebg',
@@ -321,15 +326,25 @@ class _HomePageState extends State<HomePage> {
   /// Quản trị viên Flygo ID: thêm ô "Người dùng" ở mục Quản trị.
   bool _usersAdmin = false;
 
+  /// Cổng AI: hạn mức của chính mình (ô "Hạn mức AI" ở Cá nhân). null = máy chủ chưa có hoặc mình chưa được dùng.
+  AiGateApi? _aiGate;
+  AiQuota? _aiQuota;
+
   void _askAdmin() {
     final id = KysoApi.flygoId;
     if (id == null || _adminAskedFor == kServerUrl) return;
     _adminAskedFor = kServerUrl;
+    final gate = AiGateApi(base: aiGateBase(), ticket: () => id.ticket(kAiGateApp));
+    gate.myQuota().then((q) {
+      if (mounted) setState(() { _aiGate = gate; _aiQuota = q; });
+    }).catchError((_) {
+      if (mounted && _aiQuota != null) setState(() { _aiGate = null; _aiQuota = null; });
+    });
     UsersAdminPage.allowed(id).then((ok) {
       if (mounted && ok != _usersAdmin) setState(() => _usersAdmin = ok);
     });
     id.myAdmin().then((apps) {
-      if (mounted) setState(() => _adminApps = [for (final a in apps) if ((a['url'] is String && a['native'] == null) || a['native'] == 'mail-admin' || a['native'] == 'appearance-admin') a]);
+      if (mounted) setState(() => _adminApps = [for (final a in apps) if ((a['url'] is String && a['native'] == null) || a['native'] == 'mail-admin' || a['native'] == 'appearance-admin' || a['native'] == 'ai-admin') a]);
     }).catchError((_) {
       _adminAskedFor = null;
     });
@@ -346,6 +361,7 @@ class _HomePageState extends State<HomePage> {
     if (a['app'] == kKysoExtensionId) return KysoApi.openAdmin(context);
     if (a['native'] == 'mail-admin') return openMailAdmin(context);
     if (a['native'] == 'appearance-admin') return openAppearanceAdmin(context);
+    if (a['native'] == 'ai-admin') return openAiAdmin(context);
     final u = Uri.tryParse('${a['url']}');
     if (u != null) await launchUrl(u, mode: LaunchMode.externalApplication);
   }
@@ -1118,6 +1134,9 @@ class _HomePageState extends State<HomePage> {
       'terms': (Icons.gavel_rounded, const Color(0xFF8D6E63), tr('Điều khoản'), 0, () => openServerLegal(context, terms: true)),
       // Đồng ý gửi dữ liệu cho AI: xem lại, rút lại.
       'ai': (Icons.auto_awesome_outlined, const Color(0xFFD97757), tr('AI'), 0, () => showAiConsentSettings(context)),
+      if (_aiQuota != null && _aiGate != null)
+        'aiquota': (Icons.data_usage_rounded, const Color(0xFF4F7BFF), tr('Hạn mức AI'), 0,
+            () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => AiQuotaPage(api: _aiGate!, initial: _aiQuota)))),
     };
   }
 
@@ -1386,11 +1405,11 @@ class _HomePageState extends State<HomePage> {
                     () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => UsersAdminPage(id: KysoApi.flygoId!)))),
               for (final a in _adminApps)
                 appTile(
-                    Icon(switch (a['native']) { 'mail-admin' => Icons.mark_email_read_rounded, 'appearance-admin' => Icons.palette_rounded, _ => Icons.admin_panel_settings_rounded },
+                    Icon(switch (a['native']) { 'mail-admin' => Icons.mark_email_read_rounded, 'appearance-admin' => Icons.palette_rounded, 'ai-admin' => Icons.smart_toy_rounded, _ => Icons.admin_panel_settings_rounded },
                         color: Colors.white, size: 32),
                     a['app'] == kKysoExtensionId
                         ? const Color(0xFF7C3AED)
-                        : switch (a['native']) { 'mail-admin' => const Color(0xFF1E7BFF), 'appearance-admin' => const Color(0xFFC62828), _ => const Color(0xFF475569) },
+                        : switch (a['native']) { 'mail-admin' => const Color(0xFF1E7BFF), 'appearance-admin' => const Color(0xFFC62828), 'ai-admin' => const Color(0xFF4F7BFF), _ => const Color(0xFF475569) },
                     _adminLabel(a), 0, () => _openAdmin(a)),
             ]),
           ],
