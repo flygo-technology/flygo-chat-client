@@ -35,6 +35,9 @@ void drawSnowflake(Canvas c, Offset o, double r, Paint p, {double rot = 0}) {
   }
 }
 
+/// Rặng thông (dùng chung cho các hình nền).
+void drawPineRidge(Canvas c, Size s, double baseY, double h, Color body, Color snow, int seed) => _pines(c, s, baseY, h, body, snow, seed);
+
 /// Rặng thông xa: một dãy cây ba tầng, đỉnh phủ tuyết nhẹ.
 void _pines(Canvas c, Size s, double baseY, double h, Color body, Color snow, int seed) {
   final rnd = math.Random(seed);

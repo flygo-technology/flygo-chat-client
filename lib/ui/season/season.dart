@@ -5,6 +5,7 @@ import 'package:flutter/scheduler.dart';
 
 import '../../i18n/i18n.dart';
 import 'season_art.dart';
+import 'xmas_wallpapers.dart';
 
 /// Hình nền chat (mỗi người chọn riêng cho từng chat, preferences `flygo_wallpaper/<id kênh>`; chỉ người chọn thấy).
 /// Hình nền đè lên nền của "Màu chat" (giao diện chung của kênh) nhưng không đổi màu bong bóng / chữ.
@@ -30,6 +31,9 @@ List<(String, String)> get wallpaperGroups => [
 List<Wallpaper> get wallpapers => [
       // Tối: trời đêm xanh, rặng thông, tuyết rơi. Sáng: nền kem, cùng rặng thông + tuyết.
       Wallpaper('giangsinh', tr('Giáng sinh'), 'giangsinh', painter: (t, dark) => dark ? NoelNightPainter(t) : WhiteSnowPainter(t)),
+      // Bộ hình nền Giáng sinh "êm" (đang chờ Sếp chọn).
+      for (final (id, name, p) in calmXmasWallpapers) Wallpaper(id, tr(name), 'giangsinh', painter: (t, dark) => p(dark), animated: false),
+      Wallpaper('giangsinh2', tr('Giáng sinh (giản lược)'), 'giangsinh', painter: (t, dark) => XmasSimplePainter(dark), animated: false),
     ];
 
 /// Mã cũ (bản 486–487 tách sáng / tối) → mã mới.
