@@ -243,13 +243,18 @@ class TwApi {
 
   // ------------------------------------------------------------ AI của dự án
   /// Hỏi AI về dự án: tạo lượt chạy kiểu "project" (máy này nhận lượt chạy và mở phiên như @nhắc agent).
-  Future<(TwRun, String?)> projectAi(String pid, {required String botId, required String prompt, String? action, String? threadId}) async {
-    final j = await post('/api/projects/$pid/ai', {'bot_id': botId, 'prompt': prompt, 'action': ?action, 'thread_id': ?threadId});
+  /// Lượt AI dự án. [sessionChannel]: phiên AI gửi vào (gắn với cuộc trò chuyện); [continuation]: lượt tiếp trong cùng phiên → brief ngắn.
+  Future<(TwRun, String?)> projectAi(String pid, {required String botId, required String prompt, String? action, String? threadId, String? sessionChannel, bool continuation = false}) async {
+    final j = await post('/api/projects/$pid/ai', {'bot_id': botId, 'prompt': prompt, 'action': ?action, 'thread_id': ?threadId, 'session_channel': ?sessionChannel, if (continuation) 'continuation': true});
     final run = TwRun.fromJson(_one(j, 'run'));
     return (run, (j['thread'] is Map ? (j['thread'] as Map)['id'] : j['thread_id']) as String? ?? run.threadId);
   }
 
-  Future<List<TwAiThread>> aiThreads(String pid) async => [for (final t in _list(await get('/api/projects/$pid/ai/threads'), 'threads')) TwAiThread.fromJson(t)];
+  Future<List<TwAiThread>> aiThreads(String pid, {String? session}) async =>
+      [for (final t in _list(await get('/api/projects/$pid/ai/threads${session == null ? '' : '?session=${Uri.encodeQueryComponent(session)}'}'), 'threads')) TwAiThread.fromJson(t)];
+  Future<void> patchThread(String id, {String? sessionChannel, String? title}) => patch('/api/ai/threads/$id', {'session_channel': ?sessionChannel, 'title': ?title});
+  /// Gắn dự án AI với dự án ({channel_id, team_id, name, display_name}).
+  Future<TwProject> setAiProject(String pid, Map<String, dynamic> link) async => TwProject.fromJson(_one(await put('/api/projects/$pid/ai-project', link), 'project'));
   /// Một cuộc trò chuyện: mỗi lượt chạy là một lượt hỏi (lời hỏi + câu trả lời).
   Future<(TwAiThread, List<TwAiTurn>)> aiThread(String id) async {
     final j = await get('/api/ai/threads/$id');

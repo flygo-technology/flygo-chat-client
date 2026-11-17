@@ -1,15 +1,13 @@
-// TeamWork: "AI của dự án". Máy tính: khung bên phải kéo dãn được; điện thoại: bảng kéo lên từ dưới. Chọn agent của mình
-// (nhớ theo máy), nút nhanh, cuộc trò chuyện (lời mình + lượt chạy của agent với tiến độ trực tiếp và câu trả lời), ô hỏi có #việc,
-// lịch sử cuộc trò chuyện. Agent làm thẳng dưới tên người hỏi; mỗi thao tác hiện trong "Đã làm" kèm nút Hoàn tác.
-import 'dart:async';
-
+// TeamWork: "AI của dự án". Máy tính: khung bên phải kéo dãn được; điện thoại: bảng kéo lên từ dưới. Mỗi dự án gắn với một
+// dự án AI cùng tên (tab Agents › Dự án AI; chưa có thì tự tạo); khung là phiên AI thật của dự án AI đó (mở phiên gần nhất, nút
+// chuyển phiên ở đầu, "Phiên mới" chọn agent), chat stream trực tiếp. Mỗi tin gửi từ đây là một lượt TeamWork (vé ký, chạy
+// không cần duyệt cho chủ bot); thao tác của agent hiện trong "Đã làm" dưới câu trả lời, kèm nút Hoàn tác.
 import 'package:flutter/material.dart';
 
 import 'api.dart' show TwException;
 import 'look.dart';
 import 'model.dart';
 import 'pickers.dart';
-import 'run_progress.dart';
 import 'store.dart';
 import 'task_page.dart';
 
@@ -54,37 +52,78 @@ class TwProjectAiPanel extends StatefulWidget {
   final TwProjectFull project;
   final VoidCallback? onClose;
   final bool sheet;
+  /// Mở đúng phiên của cuộc trò chuyện này (nếu đã gắn phiên).
   final String? initialThread;
   @override
   State<TwProjectAiPanel> createState() => _TwProjectAiPanelState();
 }
 
+/// Khung AI của dự án = phiên AI thật của dự án AI cùng tên (tab Agents). Mở: phiên gần nhất; đầu khung là nút chuyển phiên
+/// (các phiên của dự án AI + "Phiên mới"). Nội dung là khung chat thật của phiên (thẻ tiến trình, chữ stream trực tiếp);
+/// mọi tin gửi từ đây (ô nhắn, nút nhanh) đi kèm ngữ cảnh lượt TeamWork (chạy không cần duyệt cho chủ bot, ghi "Đã làm" để hoàn tác).
 class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
   final _q = TextEditingController();
-  final _scroll = ScrollController();
-  String? _threadId;
-  List<TwAiTurn> _turns = [];
-  bool _history = false, _sending = false, _owner = false;
-  List<TwAiThread>? _threads;
+  TwAiProjectInfo? _ai;
+  String? _error;
+  /// Phiên đang mở; null = đang soạn tin đầu tiên của phiên mới.
+  String? _sessionId;
+  bool _sending = false, _owner = false;
   List<TwAgent> _agents = [];
   String? _agentId;
+  TwAiSessions? _listening;
 
   TwStore get store => widget.store;
   TwProject get project => widget.project.project;
-  TwAgent? get _agent => _agents.where((a) => a.id == _agentId).firstOrNull;
+  TwAiSessions? get _sessions => store.aiSessions;
+  List<TwAiSession> get _list => _ai == null || _sessions == null ? const [] : _sessions!.sessions(_ai!.channelId);
+  TwAiSession? get _current => _list.where((s) => s.id == _sessionId).firstOrNull;
+  /// Trợ lý của lượt tới: trợ lý của phiên đang mở, hoặc trợ lý đang chọn cho phiên mới.
+  String? get _botId => _sessionId == null ? _agentId : ((_current?.botId ?? '').isNotEmpty ? _current!.botId : _agentId);
+  TwAgent? _agentOf(String? id) => store.agents.where((a) => a.id == id).firstOrNull ?? _agents.where((a) => a.id == id).firstOrNull;
 
   @override
   void initState() {
     super.initState();
+    _listening = _sessions?..addListener(_onSessions);
     _loadAgents();
-    if (widget.initialThread != null) _openThread(widget.initialThread!);
+    _bind();
   }
 
   @override
   void dispose() {
+    _listening?.removeListener(_onSessions);
     _q.dispose();
-    _scroll.dispose();
     super.dispose();
+  }
+
+  void _onSessions() {
+    if (!mounted) return;
+    setState(() {});
+    _checkOwner();
+  }
+
+  Future<void> _bind() async {
+    setState(() => _error = null);
+    try {
+      final ai = await store.ensureAiProject(project.id);
+      if (!mounted) return;
+      var sid = _sessions!.sessions(ai.channelId).firstOrNull?.id;
+      final th = widget.initialThread;
+      if (th != null) {
+        try {
+          final (t, _) = await store.api.aiThread(th);
+          if (t.sessionChannel != null && _sessions!.sessions(ai.channelId).any((s) => s.id == t.sessionChannel)) sid = t.sessionChannel;
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        _ai = ai;
+        _sessionId = sid;
+      });
+      _checkOwner();
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
   }
 
   Future<void> _loadAgents() async {
@@ -102,9 +141,9 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
   }
 
   Future<void> _checkOwner() async {
-    final id = _agentId, l = store.launcher;
+    final id = _botId, l = store.launcher;
     final o = id != null && l != null && await l.isOwnerOf(id);
-    if (mounted) setState(() => _owner = o);
+    if (mounted && o != _owner) setState(() => _owner = o);
   }
 
   void _pickAgent(String id) {
@@ -114,85 +153,37 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
     _checkOwner();
   }
 
-  Future<void> _openThread(String id) async {
-    try {
-      final (t, turns) = await store.api.aiThread(id);
-      if (!mounted) return;
-      setState(() {
-        _threadId = t.id;
-        _turns = turns;
-        _history = false;
-        if (t.botId.isNotEmpty && _agents.any((a) => a.id == t.botId)) _agentId = t.botId;
-      });
-      _toBottom();
-    } catch (e) {
-      _toast('$e');
-    }
+  void _pickSession(String id) {
+    setState(() => _sessionId = id == '+' ? null : id);
+    _checkOwner();
   }
-
-  Future<void> _loadThreads() async {
-    setState(() => _history = true);
-    try {
-      final l = await store.api.aiThreads(project.id);
-      if (mounted) setState(() => _threads = l);
-    } catch (e) {
-      if (mounted) setState(() => _threads = []);
-    }
-  }
-
-  void _newThread() => setState(() {
-        _threadId = null;
-        _turns = [];
-        _history = false;
-      });
 
   void _toast(String s) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
   }
 
-  void _toBottom() => WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-      });
-
+  /// Gửi một lượt vào phiên đang mở (phiên mới thì tạo phiên trước, trong dự án AI, với trợ lý đang chọn).
   Future<void> _send(String prompt, {String? action}) async {
-    final id = _agentId;
-    if (id == null) return _toast('Chưa có agent nào bạn dùng được');
-    if (prompt.trim().isEmpty) return;
-    final turn = TwAiTurn(prompt: prompt.trim(), action: action, at: DateTime.now().millisecondsSinceEpoch, user: store.meId);
-    setState(() {
-      _turns = [..._turns, turn];
-      _sending = true;
-      _q.clear();
-    });
-    _toBottom();
+    final ai = _ai, sessions = _sessions;
+    if (ai == null || sessions == null) return _toast(_error ?? 'Đang mở dự án AI…');
+    final bot = _botId;
+    if (bot == null) return _toast('Chưa có agent nào bạn dùng được');
+    if (prompt.trim().isEmpty || _sending) return;
+    setState(() => _sending = true);
     try {
-      final (run, thread) = await store.api.projectAi(project.id, botId: id, prompt: prompt.trim(), action: action, threadId: _threadId);
-      if (!mounted) return;
-      setState(() {
-        turn.run = run;
-        _threadId = thread ?? _threadId;
-      });
-      unawaited(store.checkRuns()); // máy này nhận lượt chạy và gửi vào phiên của agent
+      var sid = _sessionId;
+      if (sid == null) {
+        var title = promptText(prompt, action).replaceAll('\n', ' ');
+        if (title.length > 40) title = '${title.substring(0, 40)}…';
+        sid = await sessions.createSession(ai.channelId, bot, title);
+        _q.clear();
+        if (mounted) setState(() => _sessionId = sid);
+      }
+      await store.askAi(project.id, sessionId: sid, botId: bot, prompt: prompt.trim(), action: action);
     } catch (e) {
-      setState(() => _turns = _turns.where((t) => t != turn).toList());
       _toast('$e');
     } finally {
       if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  /// Đăng câu trả lời "Soạn cập nhật" vào nhóm chat của dự án (bằng bot Làm việc nhóm).
-  Future<void> _postUpdate(String runId) async {
-    try {
-      final r = await store.api.run(runId);
-      final text = (r.text ?? r.summary ?? '').trim();
-      if (text.isEmpty) return _toast('Agent chưa viết xong bản cập nhật');
-      await store.api.postToChat(project.id, text);
-      _toast('Đã đăng cập nhật vào nhóm chat');
-    } on TwException catch (e) {
-      _toast(e.code == 'bot_not_member' ? 'Bot Làm việc nhóm chưa ở trong nhóm chat' : (e.code == 'no_channel' ? 'Dự án chưa gắn nhóm chat' : e.message));
-    } catch (e) {
-      _toast('$e');
     }
   }
 
@@ -214,68 +205,144 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
   @override
   Widget build(BuildContext context) {
     final look = TwLook.of(context);
-    final taskCount = store.tasksOf(project.id).where((t) => t.deletedAt == null).length;
+    final sessions = _sessions;
+    final Widget body;
+    if (sessions == null) {
+      body = _notice(look, 'App này chưa có Dự án AI.');
+    } else if (_error != null) {
+      body = _notice(look, 'Không mở được dự án AI: $_error', retry: true);
+    } else if (_ai == null) {
+      body = const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    } else if (_sessionId != null) {
+      body = KeyedSubtree(
+        key: ValueKey('ai-session-view-$_sessionId'),
+        child: sessions.sessionView(context, _sessionId!,
+            onSend: (t) => _send(t), aboveComposer: _chips(look, bar: true), runFooter: (runId) => TwRunFooter(store: store, project: widget.project, runId: runId)),
+      );
+    } else {
+      body = _newSession(look);
+    }
     return Material(
       color: look.bg,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         if (widget.sheet) Center(child: Container(width: 36, height: 4, margin: const EdgeInsets.only(top: 8, bottom: 2), decoration: BoxDecoration(color: look.divider, borderRadius: BorderRadius.circular(2)))),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 4, 6),
-          child: Row(children: [
-            Icon(Icons.auto_awesome, color: look.ai, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('AI của dự án', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5)),
-                Text('${project.name} · $taskCount việc', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: look.sub)),
-              ]),
-            ),
-            IconButton(key: const ValueKey('ai-history'), tooltip: 'Lịch sử', visualDensity: VisualDensity.compact, icon: const Icon(Icons.history, size: 20), onPressed: _history ? () => setState(() => _history = false) : _loadThreads),
-            IconButton(key: const ValueKey('ai-new'), tooltip: 'Cuộc trò chuyện mới', visualDensity: VisualDensity.compact, icon: const Icon(Icons.add_comment_outlined, size: 20), onPressed: _newThread),
-            if (widget.onClose != null) IconButton(key: const ValueKey('ai-close'), tooltip: 'Đóng', visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 20), onPressed: widget.onClose),
-          ]),
-        ),
-        _agentRow(look),
+        _header(look),
         Divider(height: 1, color: look.divider),
-        Expanded(child: _history ? _historyList(look) : _thread(look)),
-        _composer(look),
+        Expanded(child: body),
       ]),
     );
   }
 
-  Widget _agentRow(TwLook look) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-        child: Row(children: [
-          PopupMenuButton<String>(
-            key: const ValueKey('ai-agent'),
-            tooltip: 'Chọn agent · agent làm bằng quyền của bạn',
-            onSelected: _pickAgent,
-            itemBuilder: (_) => [for (final a in _agents) PopupMenuItem(value: a.id, child: Row(children: [TwAvatar(name: a.name, id: a.id, agent: true, size: 22, border: false), const SizedBox(width: 8), Text(a.label)]))],
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(8)),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (_agent != null) TwAvatar(name: _agent!.name, id: _agent!.id, agent: true, size: 18, border: false),
-                const SizedBox(width: 6),
-                Text(_agent?.label ?? 'Chưa có agent', style: const TextStyle(fontSize: 13)),
-                const Icon(Icons.expand_more, size: 16),
-              ]),
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (_owner)
-            Container(
-              key: const ValueKey('ai-bypass'),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: look.ok.withValues(alpha: .14), borderRadius: BorderRadius.circular(6)),
-              child: Text('🔓 không cần duyệt', style: TextStyle(fontSize: 11.5, color: look.ok, fontWeight: FontWeight.w600)),
-            ),
-        ]),
+  Widget _notice(TwLook look, String text, {bool retry = false}) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(text, textAlign: TextAlign.center, style: TextStyle(color: look.sub)),
+            if (retry) TextButton(onPressed: _bind, child: const Text('Thử lại')),
+          ]),
+        ),
       );
 
-  Widget _chips(TwLook look) => Wrap(spacing: 6, runSpacing: 6, children: [
-        for (final (k, icon, label) in kAiActions)
-          ActionChip(
+  Widget _header(TwLook look) {
+    final list = _list, cur = _current;
+    final bot = _agentOf(_botId);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      child: Row(children: [
+        Icon(Icons.auto_awesome, color: look.ai, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            PopupMenuButton<String>(
+              key: const ValueKey('ai-session-switch'),
+              tooltip: 'Chuyển phiên',
+              enabled: _ai != null,
+              position: PopupMenuPosition.under,
+              constraints: const BoxConstraints(minWidth: 280, maxWidth: 360),
+              onSelected: _pickSession,
+              itemBuilder: (_) => [
+                for (final s in list)
+                  PopupMenuItem<String>(
+                    key: ValueKey('ai-session-${s.id}'),
+                    value: s.id,
+                    child: Row(children: [
+                      SizedBox(width: 22, child: s.id == _sessionId ? Icon(Icons.check, size: 18, color: look.ai) : null),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(s.title.isEmpty ? 'Phiên chưa đặt tên' : s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5)),
+                          Text([if (_agentOf(s.botId) != null) _agentOf(s.botId)!.label, if (s.at > 0) timeAgo(s.at, store.now)].join(' · '),
+                              style: TextStyle(fontSize: 11.5, color: look.sub)),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                if (list.isNotEmpty) const PopupMenuDivider(),
+                PopupMenuItem<String>(
+                  key: const ValueKey('ai-session-new'),
+                  value: '+',
+                  child: Row(children: [
+                    Icon(Icons.add_comment_outlined, size: 18, color: look.ai),
+                    const SizedBox(width: 12),
+                    Text('Phiên mới', style: TextStyle(fontWeight: FontWeight.w600, color: look.ai)),
+                  ]),
+                ),
+              ],
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Flexible(
+                  child: Text(
+                    _sessionId == null ? 'Phiên mới' : (cur?.title.isNotEmpty ?? false) ? cur!.title : 'AI của dự án',
+                    key: const ValueKey('ai-session-title'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+                  ),
+                ),
+                const Icon(Icons.expand_more, size: 18),
+                if (list.length > 1)
+                  Container(
+                    key: const ValueKey('ai-session-count'),
+                    margin: const EdgeInsets.only(left: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(color: look.aiSoft, borderRadius: BorderRadius.circular(8)),
+                    child: Text('${list.length} phiên', style: TextStyle(fontSize: 11, color: look.ai, fontWeight: FontWeight.w600)),
+                  ),
+              ]),
+            ),
+            Row(children: [
+              Flexible(
+                child: Text(
+                  ['Dự án AI: ${_ai?.displayName ?? project.name}', if (_sessionId != null && bot != null) bot.label, if (cur != null && cur.at > 0) timeAgo(cur.at, store.now)].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: look.sub),
+                ),
+              ),
+              if (_owner) ...[
+                const SizedBox(width: 6),
+                Container(
+                  key: const ValueKey('ai-bypass'),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(color: look.ok.withValues(alpha: .14), borderRadius: BorderRadius.circular(6)),
+                  child: Text('🔓 không cần duyệt', style: TextStyle(fontSize: 11, color: look.ok, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ]),
+          ]),
+        ),
+        IconButton(key: const ValueKey('ai-new'), tooltip: 'Phiên mới', visualDensity: VisualDensity.compact, icon: const Icon(Icons.add_comment_outlined, size: 20), onPressed: _ai == null ? null : () => _pickSession('+')),
+        if (widget.onClose != null) IconButton(key: const ValueKey('ai-close'), tooltip: 'Đóng', visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 20), onPressed: widget.onClose),
+      ]),
+    );
+  }
+
+  /// Nút nhanh: gửi lời hỏi vào phiên đang mở. [bar]: một hàng cuộn ngang ngay trên ô nhắn của khung chat.
+  Widget _chips(TwLook look, {bool bar = false}) {
+    final chips = [
+      for (final (k, icon, label) in kAiActions)
+        Padding(
+          padding: EdgeInsets.only(right: bar ? 6 : 0),
+          child: ActionChip(
             key: ValueKey('ai-act-$k'),
             avatar: Icon(icon, size: 16, color: look.ai),
             label: Text(label, style: TextStyle(fontSize: 12.5, color: look.ai, fontWeight: FontWeight.w600)),
@@ -284,92 +351,145 @@ class _TwProjectAiPanelState extends State<TwProjectAiPanel> {
             visualDensity: VisualDensity.compact,
             onPressed: _sending ? null : () => _send(label, action: k),
           ),
-      ]);
-
-  Widget _thread(TwLook look) => ListView(controller: _scroll, padding: const EdgeInsets.fromLTRB(14, 10, 14, 14), children: [
-        _chips(look),
-        if (_turns.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 18),
-            child: Text('Hỏi AI về dự án này: tiến độ, kế hoạch, rủi ro… Gõ # để nhắc tới một việc. AI làm bằng quyền của bạn; mọi thao tác hiện ở mục "Đã làm" và hoàn tác được.',
-                style: TextStyle(fontSize: 12.5, color: look.sub, height: 1.45)),
-          ),
-        for (final t in _turns) ...[
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Container(
-              key: ValueKey('ai-prompt-${_turns.indexOf(t)}'),
-              constraints: const BoxConstraints(maxWidth: 340),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(color: look.accentSoft, borderRadius: BorderRadius.circular(12)),
-              child: Text(promptText(t.prompt.isNotEmpty ? t.prompt : (t.run?.prompt ?? ''), t.action ?? t.run?.action), style: TextStyle(fontSize: 13, color: look.text)),
-            ),
-          ),
-          if (t.run == null)
-            Padding(padding: const EdgeInsets.only(top: 8), child: Row(children: [SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: look.ai)), const SizedBox(width: 8), Text('Đang gửi…', style: TextStyle(fontSize: 12.5, color: look.sub))]))
-          else ...[
-            TwRunProgress(key: ValueKey('ai-run-${t.run!.id}'), store: store, runId: t.run!.id, botId: t.run!.botId, botName: t.run!.botName, state: t.run!.state, session: t.run!.sessionChannel, showFinalText: true),
-            TwRunActions(key: ValueKey('ai-actions-${t.run!.id}'), store: store, runId: t.run!.id),
-            if ((t.action ?? t.run!.action) == 'update' && project.chatChannel != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  key: ValueKey('ai-post-${t.run!.id}'),
-                  onPressed: () => _postUpdate(t.run!.id),
-                  icon: const Icon(Icons.campaign_outlined, size: 18),
-                  label: Text('Đăng cập nhật vào ${project.chatChannelName ?? 'nhóm chat'}'),
-                ),
-              ),
-          ],
-        ],
-      ]);
-
-  Widget _historyList(TwLook look) {
-    final l = _threads;
-    if (l == null) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-    if (l.isEmpty) return Center(child: Text('Chưa có cuộc trò chuyện nào', style: TextStyle(color: look.sub)));
-    return ListView(children: [
-      for (final t in l)
-        ListTile(
-          key: ValueKey('ai-thread-${t.id}'),
-          dense: true,
-          leading: Icon(Icons.chat_bubble_outline, size: 18, color: look.ai),
-          title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text([if (t.botName.isNotEmpty) t.botName, if (t.turnCount > 0) '${t.turnCount} lượt', timeAgo(t.updatedAt, store.now)].join(' · '), style: TextStyle(fontSize: 12, color: look.sub)),
-          selected: t.id == _threadId,
-          onTap: () => _openThread(t.id),
         ),
-    ]);
+    ];
+    if (!bar) return Wrap(spacing: 6, runSpacing: 6, children: chips);
+    return Container(
+      key: const ValueKey('ai-chips'),
+      height: 44,
+      padding: const EdgeInsets.only(top: 6),
+      child: SingleChildScrollView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 10), child: Row(children: chips)),
+    );
   }
 
-  Widget _composer(TwLook look) => Container(
-        padding: EdgeInsets.fromLTRB(12, 8, 8, widget.sheet ? 14 : 10),
-        decoration: BoxDecoration(border: Border(top: BorderSide(color: look.divider))),
-        child: Row(children: [
-          Expanded(
-            child: TextField(
-              key: const ValueKey('ai-input'),
-              controller: _q,
-              minLines: 1,
-              maxLines: 5,
-              style: const TextStyle(fontSize: 13.5),
-              decoration: InputDecoration(
-                hintText: _turns.isEmpty ? 'Hỏi AI về dự án này… (# để nhắc một việc)' : 'Hỏi tiếp…',
-                isDense: true,
-                filled: true,
-                fillColor: look.surface,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+  Widget _newSession(TwLook look) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Expanded(
+          child: ListView(padding: const EdgeInsets.fromLTRB(14, 14, 14, 14), children: [
+            Row(children: [
+              Text('Agent', style: TextStyle(fontSize: 12.5, color: look.sub)),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                key: const ValueKey('ai-agent'),
+                tooltip: 'Chọn agent · agent làm bằng quyền của bạn',
+                onSelected: _pickAgent,
+                itemBuilder: (_) => [for (final a in _agents) PopupMenuItem(value: a.id, child: Row(children: [TwAvatar(name: a.name, id: a.id, agent: true, size: 22, border: false), const SizedBox(width: 8), Text(a.label)]))],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(border: Border.all(color: look.divider), borderRadius: BorderRadius.circular(8)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (_agentOf(_agentId) case final a?) TwAvatar(name: a.name, id: a.id, agent: true, size: 18, border: false),
+                    const SizedBox(width: 6),
+                    Text(_agentOf(_agentId)?.label ?? 'Chưa có agent', style: const TextStyle(fontSize: 13)),
+                    const Icon(Icons.expand_more, size: 16),
+                  ]),
+                ),
               ),
-              onChanged: (v) {
-                final i = _q.selection.start;
-                if (i > 0 && i <= v.length && v[i - 1] == '#' && (i == 1 || v[i - 2] == ' ')) _mentionTask();
-              },
-              onSubmitted: (v) => _send(v),
+            ]),
+            const SizedBox(height: 14),
+            _chips(look),
+            const SizedBox(height: 16),
+            Text(
+                _list.isEmpty
+                    ? 'Phiên đầu tiên của dự án AI "${_ai?.displayName ?? project.name}". Hỏi về tiến độ, kế hoạch, rủi ro… Gõ # để nhắc tới một việc. '
+                        'AI làm bằng quyền của bạn; mọi thao tác hiện ở mục "Đã làm" và hoàn tác được. Phiên cũng có ở tab Agents › Dự án AI.'
+                    : 'Phiên mới trong dự án AI "${_ai?.displayName ?? project.name}". Tin đầu tiên gửi kèm bức tranh đầy đủ của dự án.',
+                style: TextStyle(fontSize: 12.5, color: look.sub, height: 1.45)),
+          ]),
+        ),
+        Container(
+          padding: EdgeInsets.fromLTRB(12, 8, 8, widget.sheet ? 14 : 10),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: look.divider))),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                key: const ValueKey('ai-input'),
+                controller: _q,
+                minLines: 1,
+                maxLines: 5,
+                style: const TextStyle(fontSize: 13.5),
+                decoration: InputDecoration(
+                  hintText: 'Hỏi AI về dự án này… (# để nhắc một việc)',
+                  isDense: true,
+                  filled: true,
+                  fillColor: look.surface,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
+                onChanged: (v) {
+                  final i = _q.selection.start;
+                  if (i > 0 && i <= v.length && v[i - 1] == '#' && (i == 1 || v[i - 2] == ' ')) _mentionTask();
+                },
+                onSubmitted: (v) => _send(v),
+              ),
             ),
-          ),
-          IconButton(key: const ValueKey('ai-send'), tooltip: 'Gửi', icon: Icon(Icons.send, color: look.ai), onPressed: _sending ? null : () => _send(_q.text)),
+            IconButton(
+              key: const ValueKey('ai-send'),
+              tooltip: 'Gửi',
+              icon: _sending ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: look.ai)) : Icon(Icons.send, color: look.ai),
+              onPressed: _sending ? null : () => _send(_q.text),
+            ),
+          ]),
+        ),
+      ]);
+}
+
+/// Dưới câu trả lời của agent cho một lượt TeamWork: "Đã làm" (+ Hoàn tác) và, với lượt "Soạn cập nhật", nút đăng vào nhóm chat.
+class TwRunFooter extends StatefulWidget {
+  const TwRunFooter({super.key, required this.store, required this.project, required this.runId});
+  final TwStore store;
+  final TwProjectFull project;
+  final String runId;
+  @override
+  State<TwRunFooter> createState() => _TwRunFooterState();
+}
+
+class _TwRunFooterState extends State<TwRunFooter> {
+  String? _action;
+  TwStore get store => widget.store;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.project.project.chatChannel != null) {
+      store.api.run(widget.runId).then((r) {
+        if (mounted) setState(() => _action = r.action);
+      }, onError: (_) {});
+    }
+  }
+
+  void _toast(String s) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
+  }
+
+  /// Đăng câu trả lời "Soạn cập nhật" vào nhóm chat của dự án (bằng bot Làm việc nhóm).
+  Future<void> _postUpdate() async {
+    final pid = widget.project.project.id;
+    try {
+      final r = await store.api.run(widget.runId);
+      final text = (r.text ?? r.summary ?? '').trim();
+      if (text.isEmpty) return _toast('Agent chưa viết xong bản cập nhật');
+      await store.api.postToChat(pid, text);
+      _toast('Đã đăng cập nhật vào nhóm chat');
+    } on TwException catch (e) {
+      _toast(e.code == 'bot_not_member' ? 'Bot Làm việc nhóm chưa ở trong nhóm chat' : (e.code == 'no_channel' ? 'Dự án chưa gắn nhóm chat' : e.message));
+    } catch (e) {
+      _toast('$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        key: ValueKey('run-footer-${widget.runId}'),
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          TwRunActions(key: ValueKey('ai-actions-${widget.runId}'), store: store, runId: widget.runId),
+          if (_action == 'update' && widget.project.project.chatChannel != null)
+            TextButton.icon(
+              key: ValueKey('ai-post-${widget.runId}'),
+              onPressed: _postUpdate,
+              icon: const Icon(Icons.campaign_outlined, size: 18),
+              label: Text('Đăng cập nhật vào ${widget.project.project.chatChannelName ?? 'nhóm chat'}'),
+            ),
         ]),
       );
 }

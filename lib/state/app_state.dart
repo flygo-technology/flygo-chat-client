@@ -885,6 +885,9 @@ class AppState extends ChangeNotifier {
   /// Kênh vừa tạo đang thêm thành viên (trợ lý) chạy nền.
   final _pendingMembers = <String, Future<void>>{};
 
+  /// Chờ bước thêm trợ lý vào kênh vừa tạo xong (không có thì xong ngay).
+  Future<void> membersReady(String channelId) => _pendingMembers[channelId] ?? Future<void>.value();
+
   /// Nhóm gốc ngoài cùng của một luồng bí mật (luồng con nhiều tầng); null nếu nhóm gốc không có ở máy.
   String? topParentOf(String channelId) {
     var id = channelId;

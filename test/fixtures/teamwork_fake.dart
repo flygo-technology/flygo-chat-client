@@ -3,8 +3,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flygo_chat/browser/flygo_id.dart';
+import 'package:flygo_chat/ui/agent_view.dart' show AgentRunCard;
 import 'package:flygo_chat/ui/teamwork/api.dart';
 import 'package:flygo_chat/ui/teamwork/store.dart';
 import 'package:http/http.dart' as http;
@@ -115,6 +117,10 @@ Map<String, dynamic> _p(String id, String key, String name, String color, String
     };
 
 class FakeTw {
+  /// Cuộc trò chuyện AI dự án (server: ai_threads), có session_channel.
+  final threads = <Map<String, dynamic>>[
+    {'id': 'th0', 'project_id': 'p-ra', 'user': 'u-lan', 'title': 'Kế hoạch giai đoạn 3', 'created_at': twNow.millisecondsSinceEpoch - 7200000, 'updated_at': twNow.millisecondsSinceEpoch - 3600000, 'run_count': 1, 'last_run': {'id': 'r-pdone', 'state': 'review', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'action': 'plan'}},
+  ];
   final calls = <String>[];
   final bodies = <String, Map<String, dynamic>>{};
   bool down = false;
@@ -539,7 +545,7 @@ class FakeTw {
           r['attest_owner'] = body['attest_owner'] == true;
           return _ok({
             'run': r,
-            'brief': r['task_id'] == null ? 'BRIEF PROJECT ${r['project_id']}' : 'BRIEF ${task(r['task_id'] as String)['key']}',
+            'brief': r['task_id'] == null ? (r['brief_mode'] == 'continue' ? 'SHORT BRIEF ${r['id']}' : 'BRIEF PROJECT ${r['project_id']}') : 'BRIEF ${task(r['task_id'] as String)['key']}',
             'run_token': 'TOKEN-${r['id']}',
             'task': r['task_id'] == null ? null : {'id': r['task_id']},
             if (r['task_id'] == null) 'project': {'id': r['project_id'], 'key': 'RA', 'name': 'Ra mắt app bán hàng'},
@@ -648,20 +654,39 @@ class FakeTw {
           return _ok({'results': [for (final t in tasks) if ('${t['title']}'.toLowerCase().contains(s)) {'id': t['id'], 'key': t['key'], 'title': t['title'], 'status_id': t['status_id'], 'project_id': 'p-ra'}]});
         }
         // ---- AI của dự án
+        if ((x = m(r'/projects/([\w-]+)/ai-project')) != null) {
+          final pr = projects.firstWhere((pr) => pr['id'] == x![1]);
+          pr['ai_project'] = req.method == 'DELETE' ? null : {...body, 'bound_by': 'u-lan', 'bound_at': twNow.millisecondsSinceEpoch};
+          return _ok({'project': pr});
+        }
         if ((x = m(r'/projects/([\w-]+)/ai')) != null && req.method == 'POST') {
           final id = 'r-p${_seq++}';
-          final r = {'id': id, 'kind': 'project', 'task_id': null, 'project_id': x![1], 'thread_id': body['thread_id'] ?? 'th-new', 'prompt': body['prompt'], 'action': body['action'], 'bot_id': body['bot_id'], 'bot_name': body['bot_id'] == 'b-claude' ? 'Claude' : 'Codex', 'started_by': 'u-lan', 'state': 'queued', 'created_at': twNow.millisecondsSinceEpoch};
+          var tid = body['thread_id'] as String?;
+          if (tid == null) {
+            tid = threads.any((t) => t['id'] == 'th-new') ? 'th-new${_seq++}' : 'th-new';
+            threads.add({'id': tid, 'project_id': x![1], 'user': 'u-lan', 'title': body['prompt'], 'run_count': 0, 'updated_at': twNow.millisecondsSinceEpoch});
+          }
+          final th = threads.where((t) => t['id'] == tid).firstOrNull;
+          if (th != null) {
+            if (body['session_channel'] != null) th['session_channel'] = body['session_channel'];
+            th['run_count'] = ((th['run_count'] as int?) ?? 0) + 1;
+          }
+          final r = {'id': id, 'kind': 'project', 'task_id': null, 'project_id': x![1], 'thread_id': tid, 'prompt': body['prompt'], 'action': body['action'], 'bot_id': body['bot_id'], 'bot_name': body['bot_id'] == 'b-claude' ? 'Claude' : 'Codex', 'started_by': 'u-lan', 'state': 'queued', 'created_at': twNow.millisecondsSinceEpoch,
+            'session_hint': th?['session_channel'], if (body['continuation'] == true) 'brief_mode': 'continue'};
           runs.add(r);
           progress[id] = {...r, 'state': 'running', 'progress': {'seq': 2, 'steps': [
             {'id': 'tw-mode', 'kind': 'approval', 'title': '🔓 Chạy không cần duyệt (chủ bot)', 'status': 'done', 'at': 1},
             {'id': 's1', 'kind': 'tool', 'title': 'Đọc 19 việc của dự án', 'status': 'running', 'at': 2},
           ]}, 'text': '## Tiến độ tuần 47\n- **23/54** việc xong…'};
-          return _ok({'run': r, 'thread': {'id': body['thread_id'] ?? 'th-new', 'project_id': x[1]}}, 201);
+          return _ok({'run': r, 'thread': {...?th, 'id': tid, 'project_id': x[1]}}, 201);
         }
         if ((x = m(r'/projects/([\w-]+)/ai/threads')) != null) {
-          return _ok({'threads': [
-            {'id': 'th0', 'project_id': 'p-ra', 'user': 'u-lan', 'title': 'Kế hoạch giai đoạn 3', 'created_at': twNow.millisecondsSinceEpoch - 7200000, 'updated_at': twNow.millisecondsSinceEpoch - 3600000, 'run_count': 1, 'last_run': {'id': 'r-pdone', 'state': 'review', 'bot_id': 'b-claude', 'bot_name': 'Claude', 'action': 'plan'}},
-          ]});
+          return _ok({'threads': [for (final t in threads) if (q['session'] == null || t['session_channel'] == q['session']) t]});
+        }
+        if ((x = m(r'/ai/threads/([\w-]+)')) != null && req.method == 'PATCH') {
+          final th = threads.firstWhere((t) => t['id'] == x![1]);
+          th.addAll(body);
+          return _ok({'thread': th});
         }
         if ((x = m(r'/ai/threads/([\w-]+)')) != null) {
           return _ok({
@@ -715,10 +740,13 @@ class FakeLauncher implements TwAgentLauncher {
   Set<String> allowed = {'b-claude', 'b-codex'};
   Set<String> usable = {};
   Set<String> owned = {'b-claude'};
+  /// Phiên của dự án AI giả cũng dùng được.
+  FakeAiSessions? ai;
   @override
   Future<bool> isOwnerOf(String botId) async => owned.contains(botId);
   @override
-  Future<bool> sessionUsable(String channelId, String botId) async => usable.contains(channelId);
+  Future<bool> sessionUsable(String channelId, String botId) async =>
+      usable.contains(channelId) || (ai?.sessionsOf.values.any((l) => l.any((x) => x.id == channelId)) ?? false);
   @override
   Future<void> post(String channelId, String text, {Map<String, dynamic> props = const {}}) async {
     posted.add((channelId, text));
@@ -772,9 +800,139 @@ class FakeChatOps implements TwChatOps {
   void openChannel(String channelId) => opened.add(channelId);
 }
 
-TwStore newTwStore(FakeTw be, {FakeLauncher? launcher, FakeChatOps? chat}) {
+/// Một mục trong khung chat phiên giả: lời người dùng, hoặc lượt của agent (thẻ tiến trình + chữ, [runId] = lượt TeamWork).
+typedef FakeFeed = ({bool user, String text, Map<String, dynamic>? card, String? runId});
+
+/// "Dự án AI" + phiên AI giả: dự án AI theo id kênh, phiên theo dự án AI, khung chat phiên vẽ từ [feed].
+class FakeAiSessions extends ChangeNotifier implements TwAiSessions {
+  final projects = <String, TwAiProjectInfo>{};
+  final sessionsOf = <String, List<TwAiSession>>{};
+  final feed = <String, List<FakeFeed>>{};
+  final createdProjects = <String>[];
+  final createdSessions = <(String, String, String)>[];
+  final viewed = <String>[];
+
+  static String chId(String seed) => (seed.replaceAll(RegExp(r'[^a-z0-9]'), '') * 26).substring(0, 26);
+
+  @override
+  TwAiProjectInfo? project(String channelId) => projects[channelId];
+  @override
+  TwAiProjectInfo? projectByName(String name) => projects.values.where((p) => p.displayName == name).firstOrNull;
+  @override
+  Future<TwAiProjectInfo> createProject(String name) async {
+    createdProjects.add(name);
+    final id = chId('aiproj${createdProjects.length}');
+    final info = (channelId: id, teamId: chId('team'), name: 'p-lan-${createdProjects.length}', displayName: name);
+    projects[id] = info;
+    notifyListeners();
+    return info;
+  }
+
+  @override
+  List<TwAiSession> sessions(String projectChannelId) => [...?sessionsOf[projectChannelId]]..sort((a, b) => b.at.compareTo(a.at));
+  @override
+  Future<String> createSession(String projectChannelId, String botId, String title) async {
+    createdSessions.add((projectChannelId, botId, title));
+    final id = chId('sesnew${createdSessions.length}');
+    sessionsOf.putIfAbsent(projectChannelId, () => []).add((id: id, title: title, botId: botId, at: twNow.millisecondsSinceEpoch + createdSessions.length));
+    notifyListeners();
+    return id;
+  }
+
+  @override
+  Widget sessionView(BuildContext context, String sessionId,
+      {required Future<void> Function(String text) onSend, Widget? aboveComposer, Widget? Function(String runId)? runFooter}) {
+    viewed.add(sessionId);
+    return _FakeSessionView(items: feed[sessionId] ?? const [], onSend: onSend, aboveComposer: aboveComposer, runFooter: runFooter);
+  }
+}
+
+class _FakeSessionView extends StatefulWidget {
+  const _FakeSessionView({required this.items, required this.onSend, this.aboveComposer, this.runFooter});
+  final List<FakeFeed> items;
+  final Future<void> Function(String text) onSend;
+  final Widget? aboveComposer;
+  final Widget? Function(String runId)? runFooter;
+  @override
+  State<_FakeSessionView> createState() => _FakeSessionViewState();
+}
+
+class _FakeSessionViewState extends State<_FakeSessionView> {
+  final _c = TextEditingController();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Expanded(
+        // Như khung chat thật: neo ở tin mới nhất (dưới cùng).
+        child: ListView(key: const ValueKey('session-list'), reverse: true, padding: const EdgeInsets.symmetric(vertical: 10), children: [
+          for (final f in widget.items.reversed)
+            if (f.user)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  margin: const EdgeInsets.fromLTRB(60, 6, 12, 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(color: cs.primary.withValues(alpha: .14), borderRadius: BorderRadius.circular(14)),
+                  child: Text(f.text, style: const TextStyle(fontSize: 13.5)),
+                ),
+              )
+            else ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  if (f.card != null) AgentRunCard(run: f.card!, openKey: 'fake-${f.runId}'),
+                  if (f.text.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(f.text, style: const TextStyle(fontSize: 13.5, height: 1.4))),
+                  if (f.runId != null) ?widget.runFooter?.call(f.runId!),
+                ]),
+              ),
+            ],
+        ]),
+      ),
+      ?widget.aboveComposer,
+      Padding(
+        padding: const EdgeInsets.fromLTRB(10, 6, 6, 10),
+        child: Row(children: [
+          Expanded(
+            child: TextField(
+              key: const ValueKey('session-input'),
+              controller: _c,
+              decoration: InputDecoration(
+                hintText: 'Nhắn cho trợ lý…',
+                isDense: true,
+                filled: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              ),
+            ),
+          ),
+          IconButton.filled(
+            key: const ValueKey('session-send'),
+            onPressed: () {
+              final t = _c.text.trim();
+              _c.clear();
+              if (t.isNotEmpty) widget.onSend(t);
+            },
+            icon: const Icon(Icons.send_rounded, size: 18),
+          ),
+        ]),
+      ),
+    ]);
+  }
+}
+
+TwStore newTwStore(FakeTw be, {FakeLauncher? launcher, FakeChatOps? chat, FakeAiSessions? ai}) {
   final c = be.client();
+  final a = ai ?? FakeAiSessions(), l = launcher ?? FakeLauncher();
+  l.ai ??= a;
   return TwStore(TwApi(base: 'https://chat.test/tw', id: FlygoId(base: 'https://id.test', chatToken: 'mm', client: c), client: c), clock: () => twNow, live: false)
-    ..launcher = launcher ?? FakeLauncher()
-    ..chatOps = chat ?? FakeChatOps();
+    ..launcher = l
+    ..chatOps = chat ?? FakeChatOps()
+    ..aiSessions = a;
 }
