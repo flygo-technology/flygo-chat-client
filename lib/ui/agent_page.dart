@@ -13,6 +13,7 @@ import 'agent_detail_page.dart';
 import 'ai_consent.dart' show showAiConsentSettings;
 import 'ai_gate/ai_gate_api.dart';
 import 'ai_gate/ai_quota_page.dart' show AiUsageCard;
+import 'agent_usage.dart' show BotRemaining, BotRemainingChips, botRemaining;
 import 'common.dart';
 import 'theme.dart';
 import 'package:flygo_chat/ui/app_route.dart';
@@ -41,6 +42,8 @@ class _AgentPageState extends State<AgentPage> {
   /// Dung lượng AI công ty (Cổng AI) của mình; null = máy chủ chưa có hoặc mình chưa được dùng (không hiện gì).
   AiGateApi? _gate;
   AiQuota? _quota;
+  /// Mức dùng Cổng AI của mình theo ứng dụng / trợ lý (null = máy chủ chưa có).
+  Map<String, dynamic>? _usage;
 
   @override
   void initState() {
@@ -70,6 +73,8 @@ class _AgentPageState extends State<AgentPage> {
       if (gate == null) return;
       final q = await gate.myQuota();
       if (mounted) setState(() { _gate = gate; _quota = q; });
+      final u = await gate.myUsage().catchError((_) => null);
+      if (mounted) setState(() => _usage = u);
     } catch (_) {
       if (mounted && _quota != null) setState(() => _quota = null);
     }
@@ -84,7 +89,7 @@ class _AgentPageState extends State<AgentPage> {
       setState(() {
         _bots = bots;
       });
-      _loadRemote(app, bots);
+      _loadRemote(app, [...bots, ..._shared(app, bots)]);
       if (isDesktop) {
         svc.loadDoctor();
         // Luôn chạy nền: trợ lý gắn với máy này mà chưa cài chạy nền thì cài luôn;
@@ -365,6 +370,39 @@ class _AgentPageState extends State<AgentPage> {
     );
   }
 
+  /// Trợ lý người khác chia sẻ cho mình (có mình trong danh sách được gọi): cùng nguồn với danh sách trợ lý của
+  /// Dự án AI (bot trợ lý đã biết trong app mà mình gọi được), trừ trợ lý của mình.
+  List<AgentBot> _shared(AppState app, List<AgentBot> mine) {
+    final ids = {for (final b in mine) b.id};
+    return [
+      for (final u in app.users.values)
+        if (u.isBot && u.deleteAt == 0 && !ids.contains(u.id) && app.isAssistant(u.id) && app.canCallBot(u, ids)) AgentService.fromUser(u),
+    ]..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+  }
+
+  Widget _list(Pal pal, List<AgentBot> bots, {bool owner = true}) {
+    final app = context.read<AppState>();
+    return Container(
+      decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(18)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: [
+        for (final (i, b) in bots.indexed) ...[
+          if (i > 0) Divider(height: 1, indent: 74, color: pal.divider),
+          _BotRow(
+            bot: b,
+            remote: _remote[b.id],
+            state: owner ? svc.runners[b.id] : null,
+            remaining: botRemaining(app, b, quota: _quota, usage: _usage),
+            onTap: () async {
+              await openAgentDetail(context, b, remote: _remote[b.id], owner: owner);
+              if (owner) _load();
+            },
+          ),
+        ],
+      ]),
+    );
+  }
+
   List<Widget> _content(BuildContext context, Pal pal, List<AgentBot> bots) => [
                     if (isDesktop) ...[
                       _section(pal, tr('Máy này')),
@@ -404,25 +442,7 @@ class _AgentPageState extends State<AgentPage> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         child: Text(tr('Bạn chưa có trợ lý AI nào.'), style: TextStyle(color: pal.sub)),
                       ),
-                    if (bots.isNotEmpty)
-                      Container(
-                        decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(18)),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(children: [
-                          for (final (i, b) in bots.indexed) ...[
-                            if (i > 0) Divider(height: 1, indent: 74, color: pal.divider),
-                            _BotRow(
-                              bot: b,
-                              remote: _remote[b.id],
-                              state: svc.runners[b.id],
-                              onTap: () async {
-                                await openAgentDetail(context, b, remote: _remote[b.id]);
-                                _load();
-                              },
-                            ),
-                          ],
-                        ]),
-                      ),
+                    if (bots.isNotEmpty) _list(pal, bots),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
@@ -435,6 +455,12 @@ class _AgentPageState extends State<AgentPage> {
                       icon: const Icon(Icons.add),
                       label: Text(tr('Tạo trợ lý AI mới')),
                     ),
+                    // Trợ lý người khác chia sẻ cho mình (Sếp, 2026-11-17: nhân viên thấy mọi trợ lý dùng được).
+                    if (_shared(context.read<AppState>(), bots) case final shared when shared.isNotEmpty) ...[
+                      const SizedBox(height: 22),
+                      _section(pal, tr('Được chia sẻ với tôi')),
+                      _list(pal, shared, owner: false),
+                    ],
                     const SizedBox(height: 14),
                     Text(
                       tr('Gọi trợ lý trong chat bằng @tên-trợ-lý kèm việc cần làm. Trợ lý chạy trên máy đang bật công tắc, dùng tài khoản Codex / Claude / Antigravity đã đăng nhập trên máy đó.'),
@@ -515,7 +541,9 @@ class _BotRow extends StatelessWidget {
   final ({String status, String text})? remote;
   final RunnerState? state;
   final VoidCallback onTap;
-  const _BotRow({required this.bot, required this.remote, required this.state, required this.onTap});
+  /// % còn lại + lúc làm mới của trợ lý (hiện ngay dưới tên).
+  final List<BotRemaining> remaining;
+  const _BotRow({required this.bot, required this.remote, required this.state, required this.onTap, this.remaining = const []});
 
   @override
   Widget build(BuildContext context) {
@@ -574,6 +602,8 @@ class _BotRow extends StatelessWidget {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: bot.paused ? pal.sub : pal.text)),
               const SizedBox(height: 2),
               Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.sub, fontSize: 13)),
+              const SizedBox(height: 6),
+              BotRemainingChips(items: remaining),
             ]),
           ),
           const SizedBox(width: 8),

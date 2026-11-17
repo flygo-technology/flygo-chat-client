@@ -11,6 +11,7 @@ import '../data/models.dart';
 import '../state/app_state.dart';
 import 'agent_page.dart' show BotAccessPage;
 import 'agent_usage.dart';
+import '../push/push_service.dart' show PushService;
 import 'ai_gate/ai_gate_api.dart' show AiQuota;
 import 'common.dart';
 import 'theme.dart';
@@ -22,10 +23,10 @@ typedef AgentRemote = ({String status, String text});
 /// Mở chi tiết trợ lý [bot] (Sếp, 2026-11-17): máy tính / màn rộng là hộp thoại lớn giữa cửa sổ, điện thoại là trang mới.
 /// [previewQuota] / [previewUsage]: chỉ cho xem trước / kiểm thử mục Mức sử dụng (không gọi Cổng AI).
 Future<void> openAgentDetail(BuildContext context, AgentBot bot,
-    {AgentRemote? remote, AiQuota? previewQuota, Map<String, dynamic>? previewUsage}) {
+    {AgentRemote? remote, bool owner = true, AiQuota? previewQuota, Map<String, dynamic>? previewUsage}) {
   if (MediaQuery.sizeOf(context).width < 720) {
     return Navigator.of(context).push(AppPageRoute(
-        builder: (_) => AgentDetailPage(bot: bot, remote: remote, previewQuota: previewQuota, previewUsage: previewUsage)));
+        builder: (_) => AgentDetailPage(bot: bot, remote: remote, owner: owner, previewQuota: previewQuota, previewUsage: previewUsage)));
   }
   return showDialog<void>(
     context: context,
@@ -37,7 +38,7 @@ Future<void> openAgentDetail(BuildContext context, AgentBot bot,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 820, maxHeight: (size.height * .9).clamp(0, 1000)),
-          child: AgentDetailPage(bot: bot, remote: remote, dialog: true, previewQuota: previewQuota, previewUsage: previewUsage),
+          child: AgentDetailPage(bot: bot, remote: remote, dialog: true, owner: owner, previewQuota: previewQuota, previewUsage: previewUsage),
         ),
       );
     },
@@ -50,9 +51,11 @@ class AgentDetailPage extends StatefulWidget {
   final AgentBot bot;
   final AgentRemote? remote;
   final bool dialog;
+  /// Trợ lý của mình. false = trợ lý người khác chia sẻ: chỉ xem (mức sử dụng, mô hình, kỹ năng) và nhắn, không sửa / xoá.
+  final bool owner;
   final AiQuota? previewQuota;
   final Map<String, dynamic>? previewUsage;
-  const AgentDetailPage({super.key, required this.bot, this.remote, this.dialog = false, this.previewQuota, this.previewUsage});
+  const AgentDetailPage({super.key, required this.bot, this.remote, this.dialog = false, this.owner = true, this.previewQuota, this.previewUsage});
   @override
   State<AgentDetailPage> createState() => _AgentDetailPageState();
 }
@@ -127,6 +130,21 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
       agentOptionsOf(MmUser({'id': _bot.id, 'is_bot': true, 'bot_description': '[flygo-agent engine=${_bot.engine}]'}))!;
 
   // ---------------------------------------------------------------- thao tác
+  /// Nhắn riêng với trợ lý: mở chat 1-1 (đóng chi tiết, chat mở ở màn hình chính).
+  Future<void> _message() async {
+    final app = context.read<AppState>();
+    final nav = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final id = await app.openDirect(_bot.id);
+      nav.maybePop();
+      PushService.openChannel.value = null;
+      PushService.openChannel.value = id;
+    } catch (_) {
+      messenger.showSnackBar(toast(Text(tr('Không mở được chat với trợ lý. Kiểm tra kết nối mạng.'))));
+    }
+  }
+
   Future<void> _rename() async {
     final app = context.read<AppState>();
     final messenger = ScaffoldMessenger.of(context);
@@ -265,29 +283,41 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
             child: Column(children: [
-              EditableAvatar(
-                size: 84,
-                avatar: Avatar(userId: b.id, name: b.displayName, size: 84, icon: Icons.smart_toy_outlined, status: false),
-                onPicked: (n, bytes) => app.setUserImage(b.id, n, bytes),
-              ),
+              if (widget.owner)
+                EditableAvatar(
+                  size: 84,
+                  avatar: Avatar(userId: b.id, name: b.displayName, size: 84, icon: Icons.smart_toy_outlined, status: false),
+                  onPicked: (n, bytes) => app.setUserImage(b.id, n, bytes),
+                )
+              else
+                Avatar(userId: b.id, name: b.displayName, size: 84, icon: Icons.smart_toy_outlined, status: false),
               const SizedBox(height: 12),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Flexible(
                   child: nameText(b.displayName,
                       bot: true, engine: b.engine, style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: pal.text)),
                 ),
-                IconButton(
-                  tooltip: tr('Đổi tên trợ lý'),
-                  icon: Icon(Icons.edit_outlined, size: 20, color: pal.sub),
-                  onPressed: _rename,
-                ),
+                if (widget.owner)
+                  IconButton(
+                    tooltip: tr('Đổi tên trợ lý'),
+                    icon: Icon(Icons.edit_outlined, size: 20, color: pal.sub),
+                    onPressed: _rename,
+                  ),
               ]),
               Text('@${b.username} · $engineLabel', style: TextStyle(color: pal.sub, fontSize: 14)),
+              if (!widget.owner) ...[
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _message,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                  label: Text(tr('Nhắn')),
+                ),
+              ],
             ]),
           ),
 
-          // Bật / tắt.
-          card([
+          // Bật / tắt (chỉ chủ trợ lý).
+          if (widget.owner) card([
             SwitchListTile(
               value: !b.paused,
               onChanged: _busy
@@ -322,9 +352,13 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
                 onTap: _pickModel),
           ]),
 
-          // Vai trò.
-          label(tr('Vai trò / chuyên môn')),
-          card([
+          // Vai trò (người được chia sẻ chỉ xem).
+          if (!widget.owner && b.role.isNotEmpty) ...[
+            label(tr('Vai trò / chuyên môn')),
+            card([row(Icons.work_outline_rounded, b.role)]),
+          ],
+          if (widget.owner) label(tr('Vai trò / chuyên môn')),
+          if (widget.owner) card([
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
               child: Row(children: [
@@ -380,7 +414,8 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
             ),
           ]),
 
-          // Quyền và máy chạy.
+          // Quyền, máy chạy, xoá: chỉ chủ trợ lý.
+          if (widget.owner) ...[
           label(tr('Cài đặt khác')),
           card([
             row(Icons.group_outlined,
@@ -413,6 +448,7 @@ class _AgentDetailPageState extends State<AgentDetailPage> {
             icon: const Icon(Icons.delete_outline),
             label: Text(tr('Xóa trợ lý')),
           ),
+          ],
         ]),
       ),
     );

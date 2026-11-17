@@ -864,7 +864,8 @@ async function publishMeta(inv = true) {
   const pref = [defModel, ...((ENGINE === "codex" ? cfg.codex.models : ENGINE === "agy" ? cfg.agy.models : cfg.claude.models) ?? [])];
   const rank = (id: string) => { const i = pref.indexOf(id); return i < 0 ? pref.length : i; };
   const invModels = [...(inventory?.models ?? [])].sort((a, b) => rank(a.id) - rank(b.id));
-  const models = { engine: ENGINE, models: invModels, efforts: o.efforts, default: { model: defModel, effort: o.default.effort }, modes: permModes(), default_mode: defaultMode(), ...(limits ? { limits } : {}) };
+  // via: bot chạy qua Cổng AI (không có hạn mức gói): app hiện % còn lại theo hạn mức AI công ty của người dùng.
+  const models = { engine: ENGINE, models: invModels, efforts: o.efforts, default: { model: defModel, effort: o.default.effort }, modes: permModes(), default_mode: defaultMode(), ...(limits ? { limits } : {}), ...(cfg.flygoAi && ENGINE === "claude" ? { via: "flygo-ai" } : {}) };
   const marker = invModels.length ? { models: invModels.map((m) => m.id).join(","), efforts: o.efforts.join(","), default: `${defModel}:${o.default.effort}` } : undefined;
   const team = teamDescriptor({
     engine: ENGINE, runner: pkg.version, host: MY_HOST, model: defModel, effort: o.default.effort, a2a: true, team: cfg.a2a.team !== false,

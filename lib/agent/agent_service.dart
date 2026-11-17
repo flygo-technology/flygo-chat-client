@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../config.dart';
+import '../data/models.dart' show MmUser;
 import '../i18n/i18n.dart';
 import '../state/app_state.dart';
 import 'agent_config.dart' show engineName;
@@ -238,6 +239,15 @@ class AgentService extends ChangeNotifier {
     }
     app.setMyAgents(out.map((b) => b.id));
     return out;
+  }
+
+  /// Trợ lý từ tài khoản bot đã biết trong app (bot người khác chia sẻ cho mình): đọc mốc [flygo-agent …] trong mô tả.
+  static AgentBot fromUser(MmUser u) {
+    final desc = u.raw['bot_description'] as String? ?? '';
+    final attrs = _marker.firstMatch(desc)?.group(1) ?? '';
+    return AgentBot(u.id, u.username, u.displayName, _attr(attrs, 'engine') ?? 'codex',
+        (_attr(attrs, 'allow') ?? '').split(',').where((s) => s.isNotEmpty).toList(), _attr(attrs, 'host'), _roleOf(desc),
+        _attr(attrs, 'paused') == '1', desc);
   }
 
   static String _roleOf(String desc) {
