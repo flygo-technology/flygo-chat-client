@@ -8,8 +8,8 @@ import '../../browser/flygo_id.dart';
 import '../../config.dart' show isDesktop;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
 import '../theme.dart';
 import 'api.dart';
 import 'editor_page.dart';
@@ -19,8 +19,7 @@ import 'widgets.dart';
 
 Future<void> openForms(BuildContext context, MiniApp app, {String? path}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final id = await FlygoId.current(state.token);
@@ -29,13 +28,12 @@ Future<void> openForms(BuildContext context, MiniApp app, {String? path}) async 
     final fill = path == null ? null : RegExp(r'/f/([A-Za-z0-9_-]{6,16})').firstMatch(path)?.group(1);
     final edit = path == null ? null : RegExp(r'^/e/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1);
     if (fill != null) {
-      await nav.push(AppPageRoute(builder: (_) => FormFillPage(api: api, token: fill)));
+      await host.open(key: app.id, title: app.name, deep: true, builder: (_) => FormFillPage(api: api, token: fill));
     } else if (edit != null) {
-      await nav.push(AppPageRoute(builder: (_) => FormEditorPage(api: api, formId: edit)));
+      await host.open(key: app.id, title: app.name, deep: true, builder: (_) => FormEditorPage(api: api, formId: edit));
     } else {
-      await nav.push(AppPageRoute(builder: (_) => FormsHome(api: api, title: app.name)));
+      await host.open(key: app.id, title: app.name, builder: (_) => FormsHome(api: api, title: app.name));
     }
-    tab?.onTitle?.call(null);
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -133,7 +131,7 @@ class _FormsHomeState extends State<FormsHome> {
   Widget build(BuildContext context) {
     final p = Pal.of(context);
     final wide = MediaQuery.sizeOf(context).width > 760;
-    final canPop = Navigator.of(context).canPop();
+    final canPop = showsBack(context);
     return Scaffold(
       backgroundColor: p.bg,
       appBar: AppBar(

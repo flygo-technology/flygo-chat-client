@@ -17,6 +17,7 @@ import '../ui/flows/magic_sign_hooks.dart';
 import '../ui/theme.dart' show toast;
 import 'kyso_admin.dart';
 import 'kyso_windows.dart';
+import '../ui/app_shell.dart';
 
 class KysoApi {
   KysoApi._();
@@ -74,7 +75,7 @@ class KysoApi {
   /// phiên chỉ nằm sau dấu # (không gửi lên máy chủ, không vào nhật ký).
   static Future<void> openAdmin(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final nav = Navigator.of(context);
+    final host = AppHost.of(context);
     var id = _id;
     if (id == null) {
       final token = _checkedToken;
@@ -100,7 +101,8 @@ class KysoApi {
         await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         return;
       }
-      await nav.push(AppPageRoute(builder: (_) => KysoAdminPage(url: url, title: '${admin['name'] ?? 'Quản trị Ký số'}')));
+      final title = '${admin['name'] ?? 'Quản trị Ký số'}';
+      await host.open(key: 'admin:kyso', title: title, builder: (_) => KysoAdminPage(url: url, title: title));
     } catch (e) {
       messenger.showSnackBar(toast(Text('Không mở được trang quản trị Ký số: $e')));
     }

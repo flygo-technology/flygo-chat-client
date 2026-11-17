@@ -36,7 +36,8 @@ import '../push/push_service.dart' show PushService;
 import 'show_page.dart';
 import 'season/appearance_pages.dart' show openAppearance;
 import 'theme.dart';
-import 'desk_tabs.dart' show DeskTabScope;
+import 'app_shell.dart';
+import 'desk_tabs.dart' show DeskTab, DeskTabScope, openTabHook;
 import 'mini_app_windows.dart';
 import 'package:flygo_chat/ui/app_route.dart';
 
@@ -45,12 +46,16 @@ import 'package:flygo_chat/ui/app_route.dart';
 Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) async {
   final token = context.read<AppState>().token;
   final messenger = ScaffoldMessenger.of(context);
-  // Trong một tab máy tính: mở ngay trong tab, tab mang tên app.
+  // Máy tính: ứng dụng mở ở tab riêng (hoặc ngay trong tab Trang chủ vừa bấm), xem [AppHost].
   final tab = DeskTabScope.of(context);
-  final nav = tab != null ? Navigator.of(context) : Navigator.of(context, rootNavigator: true);
+  final host = AppHost.of(context, rootNavigator: true);
   // App có màn hình native trong Flygo (vd Trình chiếu): mở màn hình đó, tự xin phiên bằng launch token.
   if (app.nativeScreen == 'flows' && tab?.onLaunch != null) {
     tab!.onLaunch!('flows');
+    return;
+  }
+  if (app.nativeScreen == 'flows' && isDesktop && openTabHook != null) {
+    openTabHook!(DeskTab('flows'));
     return;
   }
   if (app.nativeScreen == 'flows') {
@@ -59,70 +64,62 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   }
   // Giao diện: mặc định của mình (bong bóng, hình nền, mùa lễ).
   if (app.nativeScreen == 'appearance') {
-    tab?.onTitle?.call(app.name);
     await openAppearance(context);
     return;
   }
-    // Bảng tin trên máy tính: tab riêng (không mở trang có nút quay lại); mở thẳng một bài thì vẫn mở trang.
+  // Bảng tin trên máy tính: tab riêng (không mở trang có nút quay lại); mở thẳng một bài thì vẫn mở trang.
   if (app.nativeScreen == 'bang_tin' && path == null && tab?.onLaunch != null) {
     tab!.onLaunch!(kBangTinTab);
     return;
   }
+  if (app.nativeScreen == 'bang_tin' && path == null && isDesktop && openTabHook != null) {
+    openTabHook!(DeskTab('app', arg: kBangTinTab));
+    return;
+  }
   if (app.nativeScreen == 'bang_tin') {
-    tab?.onTitle?.call(app.name);
     await openBangTin(context, app, postId: path == null ? null : RegExp(r'^/p/([A-Za-z0-9_-]{6,32})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == kDriveScreen) {
-    tab?.onTitle?.call(app.name);
     await openDrive(context, app, path: path != null && path.startsWith('/my/') ? Uri.decodeComponent(path.substring(3)) : null);
     return;
   }
   if (app.nativeScreen == 'todo') {
-    tab?.onTitle?.call(app.name);
     await openTodo(context, app, noteId: path == null ? null : RegExp(r'^/n/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == 'mail') {
-    tab?.onTitle?.call(app.name);
     await openMail(context, app, threadId: path == null ? null : RegExp(r'^/t/([A-Za-z0-9_.@-]{6,200})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == 'wiki') {
-    tab?.onTitle?.call(app.name);
     await openWiki(context, app, pageId: path == null ? null : RegExp(r'^/p/([A-Za-z0-9_-]{4,40})').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == 'forms') {
-    tab?.onTitle?.call(app.name);
     await openForms(context, app, path: path);
     return;
   }
   if (app.nativeScreen == kHopdongScreen) {
-    tab?.onTitle?.call(app.name);
     await openHopdong(context, app, path: path);
     return;
   }
   if (app.nativeScreen == 'reports') {
-    tab?.onTitle?.call(app.name);
     await openReports(context, app, path: path);
     return;
   }
   if (app.nativeScreen == 'calendar') {
-    tab?.onTitle?.call(app.name);
     final m = path == null ? null : RegExp(r'^/e/([A-Za-z0-9_-]{6,40})(?:\?rid=([0-9T:-]{10,16}))?').firstMatch(path);
     await openCalendar(context, app, eventId: m?.group(1), rid: m?.group(2) == null ? null : Uri.decodeComponent(m!.group(2)!));
     return;
   }
   if (app.nativeScreen == kTwScreen) {
-    tab?.onTitle?.call(app.name);
     await openTeamwork(context, app,
         taskKey: path == null ? null : RegExp(r'^/t/([A-Z][A-Z0-9]{1,5}-\d{1,7})').firstMatch(path)?.group(1),
         projectKey: path == null ? null : RegExp(r'^/p/([A-Z][A-Z0-9]{1,5})(?:[/?#]|$)').firstMatch(path)?.group(1));
     return;
   }
   if (app.nativeScreen == kDichScreen) {
-    tab?.onTitle?.call(app.name);
     await openDich(context, app);
     return;
   }
@@ -130,32 +127,30 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   if (app.nativeScreen == kContactsScreen) {
     final id = path == null ? null : RegExp(r'^/c/([A-Za-z0-9_-]{6,40})').firstMatch(path)?.group(1);
     if (id != null) return openContact(context, id);
-    tab?.onTitle?.call(tr('Danh bạ'));
-    await nav.push(AppPageRoute(
+    await host.open(
+        key: app.id,
+        title: tr('Danh bạ'),
         builder: (ctx) => Scaffold(
               backgroundColor: Pal.of(ctx).bg,
               appBar: AppBar(title: Text(tr('Danh bạ'))),
               body: DirectoryView(guests: true, onOpen: (ch) {
-                Navigator.of(ctx).pop();
+                // Điện thoại: đóng Danh bạ rồi mở chat; tab máy tính thì giữ tab, chat mở ở tab Chat.
+                if (DeskTabScope.of(ctx) == null) Navigator.of(ctx).maybePop();
                 PushService.openChannel.value = null;
                 PushService.openChannel.value = ch;
               }),
-            )));
+            ));
     return;
   }
   if (app.nativeScreen == 'show') {
     final code = path == null ? null : RegExp(r'^/pair/([A-Za-z0-9]{8})').firstMatch(path)?.group(1)?.toUpperCase();
-    tab?.onTitle?.call(app.name);
-    await nav.push(AppPageRoute(builder: (_) => ShowHome(app: app, mmToken: token, pairCode: code)));
+    await host.open(key: app.id, title: app.name, deep: code != null, builder: (_) => ShowHome(app: app, mmToken: token, pairCode: code));
     return;
   }
   // App "window" trên máy tính (Sếp, 2026-11-14): mở cửa sổ riêng; app "tv_code" thì tab này hiện mã liên kết TV để
   // điều khiển / thêm bài từ điện thoại.
   if (app.feature('window') && MiniAppWindows.supported && await MiniAppWindows.open(app.id)) {
-    if (app.feature('tv_code')) {
-      tab?.onTitle?.call(app.name);
-      await nav.push(AppPageRoute(builder: (_) => TvRemotePage(app: app)));
-    }
+    if (app.feature('tv_code')) await host.open(key: app.id, title: app.name, builder: (_) => TvRemotePage(app: app));
     return;
   }
   // Máy tính (Sếp): luôn mở trong tab của app, không ra trình duyệt ngoài. "open_in": "browser" chỉ áp cho điện thoại.
@@ -169,8 +164,7 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
   }
   // Mở trang ngay, xin URL mở app (vé, SSO) trong trang: trong lúc chờ hiện biểu tượng + "Đang mở ứng dụng …"
   // thay vì màn trắng (Sếp, 2026-11-10).
-  tab?.onTitle?.call(app.name);
-  await nav.push(AppPageRoute(builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(token, app, path: path))));
+  await host.open(key: app.id, title: app.name, deep: path != null, builder: (_) => MiniAppPage(app: app, url: MiniApps.launch(token, app, path: path)));
 }
 
 /// Nội dung QR [raw] khớp scan_prefixes của một mini app: hỏi xác nhận rồi mở app đó. Trả về true nếu đã xử lý
@@ -611,8 +605,9 @@ class _MiniAppPageState extends State<MiniAppPage> {
                 preferredSize: const Size.fromHeight(2),
                 child: _progress < 100 ? LinearProgressIndicator(value: _progress / 100, minHeight: 2) : const SizedBox(height: 2))
             : AppBar(
-          leading: IconButton(icon: const Icon(Icons.close_rounded), tooltip: tr('Đóng'), onPressed: () => Navigator.of(context).pop()),
-          titleSpacing: 0,
+          // Trang gốc của app (Sếp, 2026-11-17): không nút đóng, quay lại bằng nút / cử chỉ của máy.
+          leading: showsBack(context) ? IconButton(icon: const Icon(Icons.close_rounded), tooltip: tr('Đóng'), onPressed: () => Navigator.of(context).pop()) : null,
+          titleSpacing: showsBack(context) ? 0 : 16,
           title: Row(children: [
             MiniAppIcon(_app, size: 26),
             const SizedBox(width: 10),

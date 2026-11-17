@@ -11,8 +11,8 @@ import '../../browser/flygo_id.dart';
 import '../../config.dart' show isDesktop, serverKey;
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
+import '../app_shell.dart';
 import '../app_route.dart';
-import '../desk_tabs.dart' show DeskTabScope;
 import '../open_file.dart' show openLocalFile;
 import '../theme.dart';
 import 'acl.dart';
@@ -27,8 +27,7 @@ const _red = Color(0xFFE5484D);
 
 Future<void> openWiki(BuildContext context, MiniApp app, {String? pageId}) async {
   final state = context.read<AppState>();
-  final nav = Navigator.of(context);
-  final tab = DeskTabScope.of(context);
+  final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
   try {
     final id = await FlygoId.current(state.token);
@@ -37,12 +36,7 @@ Future<void> openWiki(BuildContext context, MiniApp app, {String? pageId}) async
       WikiApi(base: app.baseUrl, id: id),
       cacheKey: '${serverKey}_${state.me?.id ?? 'me'}'.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_'),
     );
-    await nav.push(
-      AppPageRoute(
-        builder: (_) => WikiHome(store: store, title: app.name, openPageId: pageId),
-      ),
-    );
-    tab?.onTitle?.call(null);
+    await host.open(key: app.id, title: app.name, deep: pageId != null, builder: (_) => WikiHome(store: store, title: app.name, openPageId: pageId));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
@@ -698,7 +692,7 @@ class WikiHomeState extends State<WikiHome> {
                   icon: Icon(Icons.add_rounded, color: pal.sub),
                   onPressed: () => newPage(),
                 ),
-                if (Navigator.of(context).canPop())
+                if (showsBack(context))
                   IconButton(
                     tooltip: tr('Đóng'),
                     icon: Icon(Icons.close_rounded, color: pal.sub),
@@ -835,7 +829,7 @@ class WikiHomeState extends State<WikiHome> {
       appBar: AppBar(
         backgroundColor: pal.bg,
         surfaceTintColor: Colors.transparent,
-        titleSpacing: Navigator.of(context).canPop() ? 0 : 20,
+        titleSpacing: showsBack(context) ? 0 : 20,
         title: Text(widget.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
@@ -856,7 +850,7 @@ class WikiHomeState extends State<WikiHome> {
               PopupMenuItem(value: 'trash', child: Text(tr('Thùng rác'))),
               if (store.admin) PopupMenuItem(value: 'sync', child: Text(tr('Đồng bộ nhân viên'))),
               if (store.canIn(WikiStore.root, 'manage')) PopupMenuItem(value: 'root', child: Text(tr('Quản lý “{0}”…', [store.rootName]))),
-              if (Navigator.of(context).canPop()) PopupMenuItem(value: 'close', child: Text(tr('Quay về app Flygo Chat'))),
+              if (showsBack(context)) PopupMenuItem(value: 'close', child: Text(tr('Quay về app Flygo Chat'))),
             ],
           ),
         ],

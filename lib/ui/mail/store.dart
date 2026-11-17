@@ -36,9 +36,19 @@ class MailView {
 /// Thao tác trên cuộc hội thoại.
 enum MailAction { archive, trash, spam, notSpam, restore, read, unread, star, unstar, important, unimportant, forever }
 
+/// Bộ nhớ đệm hộp thư đến lần trước (một tệp mỗi máy chủ / người / hộp): mở Thư hiện ngay danh sách cũ rồi làm mới.
+abstract class MailCache {
+  Future<Map?> read();
+  Future<void> write(Map j);
+}
+
 class MailStore extends ChangeNotifier {
-  MailStore(this.api);
+  MailStore(this.api, {this.cache});
   final MailApi api;
+  final MailCache? cache;
+
+  /// Đang hiện danh sách từ bộ nhớ đệm và tải bản mới (vạch tải mảnh trên cùng, không khung chờ).
+  bool syncing = false;
 
   MailMe? me;
   List<MailLabel> labels = [];
@@ -185,6 +195,9 @@ class MailStore extends ChangeNotifier {
   }
 
   Future<void> start() async {
+    if (me == null) await _restore();
+    syncing = me != null && items.isNotEmpty;
+    if (syncing) _notify();
     try {
       final r = await Future.wait([api.me(), api.labels(), api.counts()]);
       me = r[0] as MailMe;
@@ -193,10 +206,56 @@ class MailStore extends ChangeNotifier {
       error = null;
     } catch (e) {
       error = e;
+      syncing = false;
       _notify();
       return;
     }
-    await load();
+    // Đang hiện danh sách cũ: tải lặng lẽ, thay khi có bản mới.
+    await load(quiet: items.isNotEmpty);
+    if (syncing) {
+      syncing = false;
+      _notify();
+    }
+  }
+
+  /// Mục mặc định (hộp thư đến, trang đầu): mục được lưu vào bộ nhớ đệm.
+  bool get _cacheable => view == const MailView.box('inbox') && page == 1 && (!categories || category == 'primary');
+
+  /// Hộp thư đang xem trong bộ nhớ đệm ("" = hộp mặc định của người dùng).
+  String get _cacheBox => (api.mailbox ?? '').toLowerCase();
+
+  Future<void> _restore() async {
+    final c = cache;
+    if (c == null || !_cacheable) return;
+    try {
+      final j = await c.read();
+      if (j == null || j['box'] != _cacheBox || me != null || _disposed) return;
+      me = MailMe.fromJson(j['me'] as Map);
+      labels = [for (final l in j['labels'] as List? ?? const []) MailLabel.fromJson(l as Map)];
+      counts = MailCounts.fromJson(j['counts'] as Map? ?? const {});
+      items = [for (final t in j['items'] as List? ?? const []) MailThreadSummary.fromJson(t as Map)];
+      total = (j['total'] as num?)?.toInt() ?? items.length;
+    } catch (_) {
+      // Bộ nhớ đệm hỏng: bỏ qua, tải như lần đầu.
+      me = null;
+      labels = [];
+      counts = const MailCounts();
+      items = [];
+      total = 0;
+    }
+  }
+
+  void _persist() {
+    final c = cache, m = me;
+    if (c == null || m == null || !_cacheable) return;
+    c.write({
+      'box': _cacheBox,
+      'me': m.toCache(),
+      'labels': [for (final l in labels) l.toCache()],
+      'counts': counts.toCache(),
+      'items': [for (final t in items.take(size)) t.toCache()],
+      'total': total,
+    }).catchError((_) {});
   }
 
   /// Đổi sang hộp thư khác (bộ chọn hộp thư): máy chủ đổi theo X-Mailbox, mọi trạng thái màn hình làm lại từ đầu.
@@ -253,6 +312,7 @@ class MailStore extends ChangeNotifier {
       if (r.counts != null) counts = r.counts!;
       selected.removeWhere((id) => !items.any((t) => t.id == id));
       error = null;
+      _persist();
     } catch (e) {
       error = e;
     }

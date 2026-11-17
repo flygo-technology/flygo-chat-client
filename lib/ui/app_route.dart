@@ -73,3 +73,17 @@ class AppPageRoute<T> extends MaterialPageRoute<T> {
     );
   }
 }
+
+/// Trang gốc của một ứng dụng (Drive, Thư, Wiki, Báo cáo…): không có nút quay lại / đóng trên thanh trên cùng (Sếp,
+/// 2026-11-17). Điện thoại quay lại bằng nút / cử chỉ của máy, máy tính đóng tab. Trang con mở từ đây (chi tiết →
+/// danh sách) vẫn có nút quay lại như thường.
+class AppHomeRoute<T> extends AppPageRoute<T> {
+  AppHomeRoute({required super.builder, super.settings});
+
+  @override
+  bool get impliesAppBarDismissal => false;
+}
+
+/// Thanh trên cùng tự vẽ của một trang có nên hiện nút quay lại / đóng không: false ở trang gốc ứng dụng ([AppHomeRoute])
+/// và trang đầu của một tab. Dùng thay cho `Navigator.canPop()`.
+bool showsBack(BuildContext context) => ModalRoute.of(context)?.impliesAppBarDismissal ?? false;

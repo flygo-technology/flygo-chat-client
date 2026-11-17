@@ -40,6 +40,7 @@ Production chat servers may run **Team Edition**. Licensed Mattermost features (
 - **UI strings:** always `tr('Tiếng Việt có dấu')`. Vietnamese is the key; translations live in `lib/i18n/*.dart`. Use placeholders: `tr('Ảnh: {0}', [x])`.
 - **Theme:** colours come from `Pal.of(context)` (`bg`, `surface`, `text`, `sub`, `accent`, `divider`…). Never hard-code light/dark colours. Brand colours for app tiles are fine.
 - **Navigation:** push pages with `AppPageRoute` (modal on desktop, a normal page on phones). In a desktop tab, use `DeskTabScope.of(context)` to set the tab title or launch another app.
+  Open an app's root page (Drive, Thư, an admin page…) with `AppHost.of(context)` then `host.open(key:, title:, builder:)`: on desktop it always opens in its own tab (or focuses it), on phones it is an `AppHomeRoute` with no back/close button. In hand-drawn headers use `showsBack(context)` instead of `Navigator.canPop()`.
 - **Platforms:** branch with `isDesktop` / `Platform.isX`. Every feature must at least degrade gracefully on all 5 platforms (Linux has no Ký số yet; Windows Ký số is behind `KYSO_POC` until signing is verified).
 - **State:** go through `AppState` (`context.read/watch<AppState>()`). Do not call the REST API directly from widgets when AppState already has a method.
 - **Server files:** images and other large assets live on the chat server's static dir (`staticBase('<plugin>')` → `/static/plugins/<dir>/`), not in the app bundle. Example: wallpapers, app icons.
@@ -56,7 +57,7 @@ Production chat servers may run **Team Edition**. Licensed Mattermost features (
   5. other mini apps and groups.
 
   Tiles are `appTile(icon, color, label, badge, onTap)`. Use a coloured gradient tile with a white Material icon, or a full-tile PNG for web apps.
-- **Desktop tabs:** `DeskTab` kinds are `launcher`, `chat`, `conv`, `thread`, `agents`, `flows`, `app`, `flow`. Apps listed in `kDeskTabApps` open as a tab. The app always starts with a Chat tab and a Dự án AI tab.
+- **Desktop tabs:** `DeskTab` kinds are `launcher`, `chat`, `conv`, `thread`, `agents`, `flows`, `app`, `flow`, `mini` (an app opened through `AppHost`). Apps listed in `kDeskTabApps` open as a tab. The app always starts with a Chat tab and a Dự án AI tab.
 - **Mobile:** the bottom bar has Chat, Trợ lý and Apps. Apps is the launcher, and `_mobileLaunch` maps tab launches to pages. Respect safe areas (notch, home indicator).
 - **Mini apps** come from the Flygo ID registry (`/v1/apps`). Manifest fields used by the client:
   - `icon`: https URL or emoji;
