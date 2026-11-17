@@ -179,7 +179,12 @@ void main() {
                           UpcomingEvents(clock: () => clock, max: 5, onOpen: (e) => opened.add(e.instanceId), onOpenCalendar: () => openedCal++),
                         ]),
                       ),
-                      const Padding(padding: EdgeInsets.only(bottom: 8), child: AppsServerRow(align: TextAlign.left, version: true)),
+                      Padding(
+                          padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
+                          child: Row(children: [
+                            const Expanded(child: AppsServerRow(align: TextAlign.left, version: true)),
+                            AppsLogoutButton(onLogout: () {}),
+                          ])),
                     ]),
                   ),
                   Expanded(child: ListView(padding: const EdgeInsets.only(top: 24), children: [tiles(Pal.of(c), demoTiles)])),
@@ -232,18 +237,20 @@ void main() {
             const Size(390, 844),
             b,
             (c) => ListView(padding: EdgeInsets.zero, children: [
+                  // Thẻ người dùng gọn ở đầu trang điện thoại (như app thật), rồi tên công ty, rồi dải Lịch thu gọn.
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 56, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 52, 20, 12),
                     child: Center(child: Text('Công ty Mẫu', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Pal.of(c).text))),
                   ),
+                  AppsUserCard(compact: true, dense: true, onProfile: () {}, onSettings: () {}),
                   UpcomingEvents(compact: true, clock: () => clock, onOpen: (e) => opened.add(e.instanceId)),
                   const SizedBox(height: 18),
                   tiles(Pal.of(c), demoTiles),
                 ]));
         expect(find.text('Giao ban đầu tuần'), findsOneWidget);
-        expect(find.text('Đang diễn ra · Hôm nay 09:00–11:30'), findsOneWidget);
-        expect(find.text('còn 40 phút'), findsOneWidget);
-        expect(find.text('+3 sự kiện'), findsOneWidget);
+        // Ô nhỏ: chỉ tên + thời gian còn lại.
+        expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
+        expect(find.text('+3 sự kiện'), findsNothing);
         expect(t.takeException(), isNull);
         await shot(t, 'p-phone-live-$sfx');
         clock = _now.add(const Duration(hours: 1));
@@ -251,8 +258,21 @@ void main() {
         expect(find.text('Kiểm tra PCCC – Văn phòng'), findsOneWidget);
         expect(find.text('còn 2 giờ 40 phút'), findsOneWidget);
         await shot(t, 'p-phone-next-$sfx');
+        // Bấm dải: mở rộng thành lịch hôm nay + 7 ngày tới; bấm sự kiện mở sự kiện; ˄ thu lại.
+        expect(find.text('HÔM NAY · T3 17/11'), findsNothing);
+        await t.tap(find.byKey(const ValueKey('upcoming-banner')));
+        await t.pump();
+        expect(find.text('HÔM NAY · T3 17/11'), findsOneWidget);
+        expect(find.text('7 NGÀY TỚI'), findsOneWidget);
+        expect(find.text('Gặp khách hàng'), findsOneWidget);
+        expect(t.takeException(), isNull);
+        await shot(t, 'p-phone-expanded-$sfx');
         await t.tap(find.byKey(const ValueKey('upcoming-pccc')));
         expect(opened, ['pccc']);
+        await t.tap(find.byKey(const ValueKey('upcoming-collapse')));
+        await t.pump();
+        expect(find.text('HÔM NAY · T3 17/11'), findsNothing);
+        expect(find.byKey(const ValueKey('upcoming-banner')), findsOneWidget);
         await done(t);
       });
     }
@@ -272,7 +292,7 @@ void main() {
           ]));
       final banner = find.byKey(const ValueKey('upcoming-events'));
       expect(banner, findsOneWidget);
-      expect(find.text('còn 40 phút'), findsOneWidget);
+      expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
       // Cuộn thật xa: ListView bỏ khối khỏi cây (State bị huỷ).
       ctl.jumpTo(2400);
       await t.pump();
@@ -281,19 +301,19 @@ void main() {
       ctl.jumpTo(0);
       await t.pump();
       expect(banner, findsOneWidget);
-      expect(find.text('còn 40 phút'), findsOneWidget);
+      expect(find.text('Đang diễn ra · còn 40 phút'), findsOneWidget);
       expect(calls, 2);
       // Đếm ngược tự chạy, không cần tải lại.
       clock = _now.add(const Duration(minutes: 10));
       await t.pump(const Duration(seconds: 1));
-      expect(find.text('còn 30 phút'), findsOneWidget);
+      expect(find.text('Đang diễn ra · còn 30 phút'), findsOneWidget);
       expect(calls, 2);
       // Dữ liệu mới về thì mới thay.
       slow.complete(UpcomingData(events: [_events.firstWhere((e) => e.id == 'khach')], tz: _tz));
       await t.pump();
       await t.pump();
       expect(banner, findsOneWidget);
-      expect(find.text('còn 30 phút'), findsNothing);
+      expect(find.text('Đang diễn ra · còn 30 phút'), findsNothing);
       expect(find.text('Gặp khách hàng'), findsOneWidget);
       expect(t.takeException(), isNull);
       await done(t);

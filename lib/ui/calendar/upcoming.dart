@@ -54,6 +54,7 @@ bool upcomingDiskCache = true;
 /// Kiểm thử: xoá bộ nhớ đệm trong bộ nhớ.
 @visibleForTesting
 void upcomingResetCache() {
+  _UpcomingEventsState._expanded = false;
   _mem.clear();
   _inflight.clear();
 }
@@ -192,6 +193,10 @@ class UpcomingEvents extends StatefulWidget {
 }
 
 class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObserver {
+  // Điện thoại: đang mở rộng hay thu gọn. Tĩnh để giữ nguyên khi khối bị dựng lại (cuộn ra rồi vào).
+  static bool _expanded = false;
+
+  void _toggle() => setState(() => _expanded = !_expanded);
   UpcomingData? _data;
   Timer? _tick, _refresh;
   late final String _key;
@@ -289,11 +294,15 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
     if (d == null) return const SizedBox.shrink();
     final now = _now;
     final list = upcomingFrom(d.events, now);
-    if (widget.compact) return list.isEmpty ? const SizedBox.shrink() : _banner(context, list, now, d.tz);
-    // Máy tính: lịch hôm nay (kể cả đã xong) + các sự kiện những ngày tới.
+    // Lịch hôm nay (kể cả đã xong) + các sự kiện những ngày tới.
     final today = todayFrom(d.events, now, d.tz);
     final todayIds = {for (final e in today) e.instanceId};
     final later = [for (final e in list) if (!todayIds.contains(e.instanceId)) e];
+    // Điện thoại: dải một dòng (thu gọn); bấm để mở rộng thành lịch hôm nay + 7 ngày tới, bấm ˄ để thu lại.
+    if (widget.compact) {
+      if (list.isEmpty) return const SizedBox.shrink();
+      if (!_expanded) return _banner(context, list, now, d.tz);
+    }
     if (today.isEmpty && later.isEmpty) return const SizedBox.shrink();
     return _card(context, today, later, now, d.tz);
   }
@@ -375,7 +384,7 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
     final hasTimed = today.any((e) => !e.allDay);
     return Padding(
       key: const ValueKey('upcoming-events'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: EdgeInsets.fromLTRB(16, widget.compact ? 10 : 8, 16, 4),
       child: Container(
         decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: pal.divider)),
         clipBehavior: Clip.antiAlias,
@@ -395,6 +404,14 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     child: Text(tr('Mở Lịch'), style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: calAccent(context))),
                   ),
+                ),
+              if (widget.compact)
+                IconButton(
+                  key: const ValueKey('upcoming-collapse'),
+                  tooltip: tr('Thu gọn'),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _toggle,
+                  icon: Icon(Icons.expand_less_rounded, color: pal.sub),
                 ),
             ]),
           ),
@@ -454,12 +471,10 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
   }
 
   Widget _banner(BuildContext context, List<CEvent> list, DateTime now, String tz) {
+    // Một ô nhỏ: tên sự kiện gần nhất, dòng dưới là thời gian còn lại (Sếp, 2026-11-17). Bấm: mở rộng lịch.
     final pal = Pal.of(context);
     final e = list.first;
-    final live = e.startMs! <= now.millisecondsSinceEpoch;
-    // Dải hẹp: "Đang diễn ra" đi cùng dòng giờ, bên phải chỉ còn số đếm ngược.
-    final text = live && e.allDay ? tr('Cả ngày') : countdownText(DateTime.fromMillisecondsSinceEpoch(live ? e.endMs! : e.startMs!).difference(now));
-    final when = live ? '${tr('Đang diễn ra')} · ${whenText(e, now, tz)}' : whenText(e, now, tz);
+    final (text, live) = _status(e, now);
     final dark = calDark(context);
     final accent = live ? (dark ? const Color(0xFF6FDC8C) : const Color(0xFF137333)) : calAccent(context);
     return Padding(
@@ -467,43 +482,27 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Material(
         color: live ? (dark ? const Color(0xFF173A22) : const Color(0xFFE6F4EA)) : calAccentSoft(context),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          key: ValueKey('upcoming-${e.instanceId}'),
-          onTap: () => _open(e),
+          key: const ValueKey('upcoming-banner'),
+          onTap: _toggle,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
-            child: Row(children: [
-              Icon(live ? Icons.play_circle_fill_rounded : Icons.event_rounded, size: 22, color: accent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.text)),
-                  Text(when, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.sub)),
-                ]),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                flex: 0,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 140),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
-                    Text(text,
-                        key: ValueKey('upcoming-countdown-${e.instanceId}'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: accent, fontFeatures: const [FontFeature.tabularFigures()])),
-                    if (list.length > 1)
-                      Text(tr('+{0} sự kiện', [list.length - 1]), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: pal.sub)),
-                  ]),
-                ),
-              ),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.text)),
+              const SizedBox(height: 1),
+              Text(text,
+                  key: ValueKey('upcoming-countdown-${e.instanceId}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: accent, fontFeatures: const [FontFeature.tabularFigures()])),
             ]),
           ),
         ),
       ),
     );
   }
+
 }

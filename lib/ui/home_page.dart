@@ -1085,8 +1085,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Thẻ người dùng ([AppsUserCard]): điện thoại ở trên cùng, máy tính ở cột trái 1/3.
-  Widget _userCard(AppState app, NavigatorState? Function() nav) => AppsUserCard(
+  Widget _userCard(AppState app, NavigatorState? Function() nav, {bool dense = false}) => AppsUserCard(
         compact: true,
+        dense: dense,
         onProfile: () => showEditProfile(context),
         onSettings: () => _openProfile(nav()),
       );
@@ -1188,15 +1189,30 @@ class _HomePageState extends State<HomePage> {
       loadCurrentBuild();
       final card = _userCard(app, nav);
       Widget appsList({required bool phone}) => ListView(padding: EdgeInsets.only(bottom: bottom + 16), children: [
+        // Điện thoại: tên công ty trên cùng, ngay dưới là thẻ người dùng gọn (dải bìa, ảnh, tên, email, trạng thái)
+        // (Sếp, 2026-11-17: "tên công ty trên profile").
+        if (phone && me != null && ServerList.items.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 8 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), 20, 12),
+            child: Center(child: onWall(const AppsServerTitle())),
+          ),
+        if (phone && me != null)
+          Padding(
+            padding: EdgeInsets.only(top: ServerList.items.isNotEmpty ? 0 : 8 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top)),
+            child: _userCard(app, nav, dense: true),
+          ),
         Padding(
           // Điện thoại: chừa vùng tai thỏ / thanh trạng thái (tab Apps không có thanh trên).
           // Điện thoại có tên công ty ở đầu: chỉ chừa vùng thanh trạng thái + 8 (không cộng thêm 24).
-          padding: EdgeInsets.fromLTRB(20, (phone && ServerList.items.isNotEmpty ? 8 : 24) + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), 20, 0),
+          padding: EdgeInsets.fromLTRB(
+              20, phone && me != null ? 12 : (phone && ServerList.items.isNotEmpty ? 8 : 24) + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), 20, 0),
           // Điện thoại: tên công ty một dòng, ô tìm ở dòng dưới (rộng hết trang) để tên không bị cắt.
           child: Flex(direction: phone ? Axis.vertical : Axis.horizontal, crossAxisAlignment: CrossAxisAlignment.start, children: [
             // Điện thoại: tên công ty (máy chủ) ở đầu trang, bấm để đổi / thêm máy chủ (Sếp, 2026-11-13).
             // Căn giữa, lề trên / dưới rộng (Sếp, 2026-11-13).
-            if (phone && ServerList.items.isNotEmpty)
+            if (phone && me != null)
+              const SizedBox.shrink()
+            else if (phone && ServerList.items.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 14),
                 child: Center(child: onWall(const AppsServerTitle())),
@@ -3416,7 +3432,10 @@ class AppsUserCard extends StatelessWidget {
   /// ảnh), tên / "@tên · email" / chip trạng thái (bấm: menu hoạt động + trạng thái), ⚙️ góc trên phải. Bấm ảnh hoặc tên:
   /// Chỉnh sửa hồ sơ. Không có nút, không có dòng phiên bản (nằm dưới tên công ty, [AppsServerRow]).
   final bool compact;
-  const AppsUserCard({super.key, required this.onProfile, this.onSettings, this.onLogout, this.compact = false});
+
+  /// Thẻ gọn cỡ điện thoại (dải bìa thấp hơn, ảnh nhỏ hơn).
+  final bool dense;
+  const AppsUserCard({super.key, required this.onProfile, this.onSettings, this.onLogout, this.compact = false, this.dense = false});
 
   static const _cover = 150.0, _avatar = 120.0, _ring = 4.0;
 
@@ -3619,7 +3638,7 @@ class AppsUserCard extends StatelessWidget {
     final st = app.statusOf(me.id);
     // Chỉ email (Sếp, 2026-11-17: "bỏ username, giữ lại email"); không có email thì @tên.
     final line = me.email.isNotEmpty ? me.email : '@${me.username}';
-    const size = 80.0;
+    final size = dense ? 68.0 : 80.0;
     Future<void> pickPhoto() async {
       final messenger = ScaffoldMessenger.of(context);
       final r = await pickAvatarImage(context);
@@ -3688,7 +3707,8 @@ class AppsUserCard extends StatelessWidget {
     );
     // Kiểu Facebook (Sếp, 2026-11-17: "bổ sung cover cho đỡ trống trải"): dải bìa thấp, ảnh đè mép dưới bên trái,
     // tên / email / trạng thái bên phải ảnh, ⚙️ trên dải bìa.
-    const cover = 92.0, ring = 4.0, left = 14.0;
+    final cover = dense ? 76.0 : 92.0;
+    const ring = 4.0, left = 14.0;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final avatarTop = cover - size / 2 - ring;
     return Padding(
@@ -3706,7 +3726,7 @@ class AppsUserCard extends StatelessWidget {
               child: RepaintBoundary(child: CustomPaint(painter: XmasCoverPainter(dark: dark))),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(left + size + ring * 2 + 12, 8, 14, 14),
+              padding: EdgeInsets.fromLTRB(left + size + ring * 2 + 12, 8, 14, dense ? 12 : 14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 // Tên nằm trên dải bìa (Sếp, 2026-11-17); dưới dải bìa: email rồi trạng thái.
                 InkWell(
@@ -3733,11 +3753,11 @@ class AppsUserCard extends StatelessWidget {
                 child: Text(me.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 19,
+                    style: TextStyle(
+                      fontSize: dense ? 18 : 19,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
-                      shadows: [Shadow(color: Color(0x99000000), blurRadius: 6, offset: Offset(0, 1))],
+                      shadows: const [Shadow(color: Color(0x99000000), blurRadius: 6, offset: Offset(0, 1))],
                     )),
               ),
             ),
