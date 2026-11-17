@@ -103,6 +103,12 @@ void main() {
     });
   }
 
+  // Chuyển tab bằng TabController: khung điện thoại hẹp (nhất là font test Ahem khi không nạp font) đẩy tab ra ngoài màn hình.
+  Future<void> tab(WidgetTester t, int i) async {
+    DefaultTabController.of(t.element(find.byType(TabBarView))).animateTo(i);
+    await settle(t);
+  }
+
   Future<void> app(WidgetTester t, Size size, Brightness b, Widget home, {double ratio = 1}) async {
     if (out != null) await t.runAsync(_fonts);
     t.view.physicalSize = size * ratio;
@@ -119,8 +125,7 @@ void main() {
     expect(find.text('Cổng AI'), findsOneWidget);
     expect(find.text('21.40 USD'), findsOneWidget);
     await save(t, 'ai-admin-desktop-1-overview');
-    await t.tap(find.widgetWithText(Tab, 'Người dùng'));
-    await settle(t);
+    await tab(t, 1); // Người dùng
     expect(find.text('hung@flygo.vn'), findsOneWidget);
     expect(find.text('Sắp hết'), findsOneWidget);
     await save(t, 'ai-admin-desktop-2-users');
@@ -140,19 +145,15 @@ void main() {
     final g = FakeGate();
     await app(t, const Size(390, 844), Brightness.dark, AiAdminPage(api: g.api), ratio: 2);
     await save(t, 'ai-admin-phone-1-overview');
-    await t.tap(find.widgetWithText(Tab, 'Người dùng'));
-    await settle(t);
+    await tab(t, 1); // Người dùng
     await save(t, 'ai-admin-phone-2-users');
-    await t.tap(find.widgetWithText(Tab, 'Hạng & ngân sách'));
-    await settle(t);
+    await tab(t, 2); // Hạng & ngân sách
     expect(find.text('Chuyên sâu'), findsOneWidget);
     await save(t, 'ai-admin-phone-3-tiers');
-    await t.tap(find.widgetWithText(Tab, 'Cộng thêm'));
-    await settle(t);
+    await tab(t, 3); // Cộng thêm
     expect(find.text('hung@flygo.vn'), findsOneWidget);
     await save(t, 'ai-admin-phone-4-extras');
-    await t.tap(find.widgetWithText(Tab, 'Nhật ký'));
-    await settle(t);
+    await tab(t, 4); // Nhật ký
     expect(find.text('Đổi hạn mức người dùng'), findsOneWidget);
     await save(t, 'ai-admin-phone-5-log');
   });
