@@ -8,6 +8,7 @@ import 'package:flygo_chat/ui/mail/attachments.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/thread_view.dart' show MailHooks;
 import 'package:flygo_chat/ui/mail/html_view.dart';
+import 'package:flygo_chat/ui/mail/image_trust.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
@@ -253,5 +254,20 @@ void main() {
     await t.fling(find.byType(PageView), const Offset(-600, 0), 1200);
     await t.pumpAndSettle();
     expect(find.widgetWithText(AppBar, a1.name), findsOneWidget);
+  });
+
+  testWidgets('chữ ký bảng lồng nhau: không lặp, bỏ ô kẻ 1px, biểu tượng nhỏ bị ẩn không chiếm chỗ', (t) async {
+    const html = '<table><tbody><tr><td><table><tbody><tr><td>0986 00 77 00 (Zalo)</td></tr></tbody></table></td>'
+        '<td width="1" style="width:1px;border-left:1px solid red"><br>\\<br></td>'
+        '<td><img src="https://cdn.example/phone.png" width="13"></td></tr></tbody></table>';
+    await t.pumpWidget(const MaterialApp(home: Scaffold(body: MailHtml(html))));
+    expect(find.textContaining('0986 00 77 00', findRichText: true), findsOneWidget);
+    expect(find.textContaining('\\', findRichText: true), findsNothing);
+    expect(find.text('Ảnh'), findsNothing);
+  });
+
+  test('ảnh từ mạng: nhận ra thư có ảnh ngoài, không tính ảnh dán trong thư', () {
+    expect(MailImageTrust.hasRemoteImages('<img src="https://x/y.png">'), true);
+    expect(MailImageTrust.hasRemoteImages('<img src="/mail/api/attachments/a/b">'), false);
   });
 }

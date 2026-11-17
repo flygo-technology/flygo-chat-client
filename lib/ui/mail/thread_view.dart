@@ -8,6 +8,7 @@ import '../open_file.dart' show openLocalFile;
 import 'attachments.dart';
 import 'compose.dart';
 import 'html_view.dart';
+import 'image_trust.dart';
 import 'model.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -74,6 +75,7 @@ class ThreadViewState extends State<ThreadView> {
   void initState() {
     super.initState();
     _load();
+    MailImageTrust.load().then((_) { if (mounted) setState(() {}); });
     // Thư mới trong cuộc hội thoại / đổi trạng thái từ máy khác: tải lại tại chỗ.
     _remote = store.remoteThreads.listen((ids) {
       if (ids.contains(widget.threadId) && mounted) _load();
@@ -237,6 +239,29 @@ class ThreadViewState extends State<ThreadView> {
   }
 
   late final _files = AttachmentFiles(store.api);
+  final _imagesShown = <String>{};
+
+  bool _imagesOn(MailMessage m) => _imagesShown.contains(m.id) || MailImageTrust.senders.contains(m.from.email.toLowerCase());
+
+  /// Ảnh từ mạng đang ẩn: một dòng thay cho từng ô "Ảnh"; cho hiện thư này hoặc luôn hiện từ người gửi.
+  Widget _imagesBar(MailMessage m, MailColors mc) => Container(
+        key: ValueKey('mail-images-${m.id}'),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+        decoration: BoxDecoration(color: mc.surface2, borderRadius: BorderRadius.circular(10)),
+        child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, runSpacing: 2, children: [
+          Icon(Icons.hide_image_outlined, size: 18, color: mc.muted),
+          Padding(padding: const EdgeInsets.only(left: 4, right: 6), child: Text('Hình ảnh trong thư đang ẩn', style: TextStyle(fontSize: 13, color: mc.muted))),
+          TextButton(key: const ValueKey('mail-images-show'), onPressed: () => setState(() => _imagesShown.add(m.id)), child: const Text('Hiển thị hình ảnh')),
+          TextButton(
+            onPressed: () async {
+              await MailImageTrust.trust(m.from.email);
+              if (mounted) setState(() {});
+            },
+            child: Text('Luôn hiện từ ${m.from.email}', overflow: TextOverflow.ellipsis),
+          ),
+        ]),
+      );
 
   void _view(List<MailAttachment> items, int i) => Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => AttachmentViewer(items: items, index: i, files: _files, onOpenExternal: _openAttachment, saveToDrive: MailHooks.saveToDrive),
@@ -670,7 +695,14 @@ class ThreadViewState extends State<ThreadView> {
                 ),
                 if (open) ...[
                   const SizedBox(height: 10),
-                  MailHtml(m.html, style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text), inlineImage: store.api.inlineImage),
+                  if (MailImageTrust.hasRemoteImages(m.html) && !_imagesOn(m)) _imagesBar(m, mc),
+                  MailHtml(
+                    m.html,
+                    key: ValueKey('${m.id}-${_imagesOn(m)}'),
+                    style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text),
+                    inlineImage: store.api.inlineImage,
+                    loadImages: _imagesOn(m),
+                  ),
                   if (m.attachments.isNotEmpty) ...[
                     Divider(color: mc.line, height: 24),
                     Row(children: [
