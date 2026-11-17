@@ -400,7 +400,7 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
               children: [
                 Expanded(
                   child: PhotoZoomScope(
-                    api: api,
+                    source: BangTinPhotos(api),
                     builder: (context, locked) => NotificationListener<UserScrollNotification>(
                       onNotification: (_) {
                         _userScrolled = true;
@@ -464,7 +464,7 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
         if (images.isNotEmpty && _vertical) ...[
           const SizedBox(height: 10),
           PhotoColumn(
-            api: api,
+            source: BangTinPhotos(api),
             ids: images,
             keys: [
               for (var i = 0; i < images.length; i++)

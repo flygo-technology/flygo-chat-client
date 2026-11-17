@@ -1,9 +1,14 @@
 // Bảng tin (điện thoại): ảnh của bài xếp dọc, tràn chiều ngang, đúng tỉ lệ (Sếp, 17/11). Chụm hai ngón hoặc bấm đúp
 // một ảnh để phóng to xem chi tiết (kéo để di chuyển); thu nhỏ hết cỡ (hoặc bấm đúp lần nữa, nút X, nút quay lại) là
 // về lại danh sách ảnh dọc, đúng chỗ đang cuộn. Bấm giữ ảnh: Lưu ảnh, Sao chép ảnh, Xem toàn màn hình.
+// Dùng chung cho trình xem ảnh của Thư (nguồn ảnh khác qua [PhotoSource]). Máy tính: Ctrl + lăn chuột phóng to ảnh
+// dưới con trỏ (đang phóng to thì lăn chuột là phóng / thu), chuột phải mở menu; [PhotoZoomScope.keyboard]: phím mũi tên
+// sang ảnh trước / sau, Esc thu nhỏ rồi đóng trang.
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/image_disk_cache.dart';
 import '../../i18n/i18n.dart';
@@ -13,12 +18,78 @@ import 'api.dart';
 import 'bang_tin_page.dart';
 import 'gallery.dart';
 
+/// Một thao tác trên ảnh (menu bấm giữ / chuột phải; [bar] = cũng là nút trên ảnh đang phóng to).
+class PhotoAction {
+  const PhotoAction(this.icon, this.label, this.run, {this.bar = false, this.key});
+  final IconData icon;
+  final String label;
+  final Future<void> Function() run;
+  final bool bar;
+  final Key? key;
+}
+
+/// Nguồn ảnh của [PhotoZoomScope] / [PhotoColumn]: ảnh theo mã và các thao tác trên một ảnh.
+abstract class PhotoSource {
+  const PhotoSource();
+
+  /// Ảnh gốc (lớp phóng to giải mã theo cỡ khung).
+  ImageProvider image(String id);
+
+  /// Ảnh trong danh sách (khung [fit]).
+  Widget thumb(BuildContext context, String id, BoxFit fit);
+
+  /// Thao tác trên ảnh thứ [index] của [ids]; [context] là của danh sách ảnh.
+  List<PhotoAction> actions(BuildContext context, List<String> ids, int index);
+}
+
+/// Ảnh của Bảng tin: Lưu ảnh, Sao chép ảnh, Xem toàn màn hình (trình xem ảnh của chat, vuốt giữa các ảnh của bài).
+class BangTinPhotos extends PhotoSource {
+  const BangTinPhotos(this.api);
+  final BangTinApi api;
+
+  @override
+  ImageProvider image(String id) => api.image(id);
+
+  @override
+  Widget thumb(BuildContext context, String id, BoxFit fit) => BangTinImage(api: api, fileId: id, fit: fit);
+
+  @override
+  List<PhotoAction> actions(BuildContext context, List<String> ids, int index) => [
+    PhotoAction(Icons.download_rounded, tr('Lưu ảnh'), () => saveBangTinImages(context, api, [ids[index]]), bar: true),
+    PhotoAction(Icons.copy_rounded, tr('Sao chép ảnh'), () => copyPhoto(context, () => api.bytes(ids[index]))),
+    PhotoAction(Icons.fullscreen_rounded, tr('Xem toàn màn hình'), () => openBangTinGallery(context, api, ids, index)),
+  ];
+
+  @override
+  bool operator ==(Object other) => other is BangTinPhotos && other.api == api;
+
+  @override
+  int get hashCode => api.hashCode;
+}
+
+/// "Sao chép ảnh": đổi sang PNG vào bộ nhớ tạm, báo kết quả.
+Future<void> copyPhoto(BuildContext context, Future<Uint8List> Function() bytes) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final ok = await copyImageToClipboard(await bytes());
+    messenger.showSnackBar(toast(Text(ok ? tr('Đã sao chép ảnh') : tr('Không sao chép được ảnh'))));
+  } catch (e) {
+    messenger.showSnackBar(toast(Text('$e')));
+  }
+}
+
 /// Lớp phủ phóng to ảnh, bọc vùng có [PhotoColumn]. [builder] nhận `locked` = đang chụm / phóng to: danh sách bên
 /// trong phải tắt cuộn (physics NeverScrollableScrollPhysics) để hai ngón không vừa cuộn vừa phóng.
 class PhotoZoomScope extends StatefulWidget {
-  const PhotoZoomScope({super.key, required this.api, required this.builder});
-  final BangTinApi api;
+  const PhotoZoomScope({super.key, required this.source, required this.builder, this.keyboard = false, this.dark = false});
+  final PhotoSource source;
   final Widget Function(BuildContext context, bool locked) builder;
+
+  /// Nhận phím (trang xem ảnh toàn màn hình): ↑ ← ảnh trước, ↓ → ảnh sau, Esc thu nhỏ / đóng trang.
+  final bool keyboard;
+
+  /// Nền đã tối (trang xem ảnh): lớp phóng to không cần phủ đen dần.
+  final bool dark;
 
   @override
   State<PhotoZoomScope> createState() => PhotoZoomScopeState();
@@ -76,6 +147,77 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
 
   void _register(_Entry e) => _entries.add(e);
   void _unregister(_Entry e) => _entries.remove(e);
+
+  /// Ảnh đang xem: ảnh đang phóng to, không thì ảnh chiếm giữa khung (hoặc ảnh hiện nhiều nhất).
+  int? get currentIndex {
+    final z = _zoom;
+    if (z != null) return z.index;
+    final me = _box;
+    if (me == null || _entries.isEmpty) return null;
+    final view = Offset.zero & me.size;
+    _Entry? best;
+    var area = 0.0;
+    for (final e in _entries) {
+      final r = _rectOf(e)?.intersect(view);
+      if (r == null || r.width <= 0 || r.height <= 0) continue;
+      final a = r.contains(view.center) ? double.infinity : r.width * r.height;
+      if (a > area) (best, area) = (e, a);
+    }
+    return best?.index;
+  }
+
+  /// Cuộn tới ảnh thứ [index] (phím mũi tên, mở trang ở ảnh vừa bấm).
+  void showIndex(int index, {Duration duration = const Duration(milliseconds: 200)}) {
+    final e = _entries.where((x) => x.index == index).firstOrNull;
+    final c = e?.key.currentContext;
+    if (c == null) return;
+    if (_zoom != null) _close();
+    _target = index;
+    Scrollable.ensureVisible(c, duration: duration, alignment: .5, curve: Curves.easeOutCubic).whenComplete(() {
+      if (_target == index) _target = null;
+    });
+  }
+
+  /// Ảnh đang cuộn tới (bấm phím liên tiếp khi danh sách chưa cuộn xong).
+  int? _target;
+
+  void _step(int d) {
+    final i = _target ?? currentIndex;
+    final n = _entries.isEmpty ? 0 : _entries.map((e) => e.index).reduce(math.max) + 1;
+    if (i == null || n == 0) return;
+    showIndex((i + d).clamp(0, n - 1));
+  }
+
+  KeyEventResult _key(FocusNode _, KeyEvent ev) {
+    if (ev is! KeyDownEvent && ev is! KeyRepeatEvent) return KeyEventResult.ignored;
+    final k = ev.logicalKey;
+    if (k == LogicalKeyboardKey.escape) {
+      if (_zoom != null) {
+        zoomOut();
+      } else {
+        Navigator.maybePop(context);
+      }
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.pageDown) {
+      _step(1);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.pageUp) {
+      _step(-1);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// Ctrl + lăn chuột trên ảnh trong danh sách: phóng to quanh con trỏ (từ đó lăn chuột trên lớp phủ là phóng / thu).
+  void _wheel(_Entry e, PointerScrollEvent ev) {
+    final me = _box;
+    if (me == null || _zoom != null || ev.scrollDelta.dy >= 0) return;
+    final p = me.globalToLocal(ev.position);
+    _open(e);
+    _tc.value = _about(p, p, math.exp(-ev.scrollDelta.dy / 200).clamp(1.1, maxScale));
+  }
 
   RenderBox? get _box => context.findRenderObject() as RenderBox?;
 
@@ -176,7 +318,7 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
   @override
   Widget build(BuildContext context) {
     final z = _zoom;
-    return PopScope(
+    final scope = PopScope(
       canPop: z == null,
       onPopInvokedWithResult: (did, _) {
         if (!did) zoomOut();
@@ -196,6 +338,7 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
         ),
       ),
     );
+    return widget.keyboard ? Focus(autofocus: true, onKeyEvent: _key, child: scope) : scope;
   }
 
   Widget _layer(BuildContext context, _Entry z) => LayoutBuilder(
@@ -212,12 +355,11 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
         animation: _tc,
         builder: (context, child) {
           final dim = ((_scale - 1) / .4).clamp(0.0, 1.0);
+          final bg = widget.dark ? Theme.of(context).scaffoldBackgroundColor : Colors.black.withValues(alpha: .96 * dim);
           return Stack(
             children: [
               Positioned.fill(
-                child: IgnorePointer(
-                  child: ColoredBox(color: Colors.black.withValues(alpha: .96 * dim)),
-                ),
+                child: IgnorePointer(child: ColoredBox(color: bg)),
               ),
               Positioned.fill(child: child!),
               if (dim > .5)
@@ -229,12 +371,11 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _RoundButton(
-                          icon: Icons.download_rounded,
-                          tooltip: tr('Lưu ảnh'),
-                          onTap: () => saveBangTinImages(context, widget.api, [z.id]),
-                        ),
-                        const SizedBox(width: 8),
+                        for (final a in widget.source.actions(context, z.ids, z.index))
+                          if (a.bar) ...[
+                            _RoundButton(icon: a.icon, tooltip: a.label, onTap: a.run),
+                            const SizedBox(width: 8),
+                          ],
                         _RoundButton(icon: Icons.close_rounded, tooltip: tr('Thu nhỏ'), onTap: zoomOut),
                       ],
                     ),
@@ -246,7 +387,8 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
         child: GestureDetector(
           key: const ValueKey('bt-photo-zoom'),
           onDoubleTap: zoomOut,
-          onLongPress: () => _photoMenu(context, widget.api, z.ids, z.index),
+          onLongPress: () => _photoMenu(context, widget.source, z.ids, z.index),
+          onSecondaryTapUp: (d) => _photoMenu(context, widget.source, z.ids, z.index, at: d.globalPosition),
           child: InteractiveViewer(
             transformationController: _tc,
             minScale: 1,
@@ -266,12 +408,12 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
                     rect: _rect,
                     // Giải mã ảnh to hơn khung để phóng to vẫn nét; chưa xong thì hiện ảnh của danh sách (đã có sẵn).
                     child: Image(
-                      image: sizedImage(context, widget.api.image(z.id), math.min(_rect.width * 3, 3000)),
+                      image: sizedImage(context, widget.source.image(z.id), math.min(_rect.width * 3, 3000)),
                       fit: BoxFit.contain,
                       gaplessPlayback: true,
                       frameBuilder: (_, child, frame, sync) =>
-                          sync || frame != null ? child : BangTinImage(api: widget.api, fileId: z.id, fit: BoxFit.contain),
-                      errorBuilder: (_, _, _) => BangTinImage(api: widget.api, fileId: z.id, fit: BoxFit.contain),
+                          sync || frame != null ? child : widget.source.thumb(context, z.id, BoxFit.contain),
+                      errorBuilder: (_, _, _) => widget.source.thumb(context, z.id, BoxFit.contain),
                     ),
                   ),
                 ],
@@ -309,41 +451,41 @@ class _RoundButton extends StatelessWidget {
   );
 }
 
-/// Bấm giữ ảnh: Lưu ảnh, Sao chép ảnh, Xem toàn màn hình (trình xem ảnh của chat, vuốt giữa các ảnh của bài).
-Future<void> _photoMenu(BuildContext context, BangTinApi api, List<String> ids, int index) async {
-  final messenger = ScaffoldMessenger.of(context);
-  final v = await showModalBottomSheet<String>(
-    context: context,
-    showDragHandle: true,
-    builder: (ctx) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(leading: const Icon(Icons.download_rounded), title: Text(tr('Lưu ảnh')), onTap: () => Navigator.pop(ctx, 'save')),
-          ListTile(leading: const Icon(Icons.copy_rounded), title: Text(tr('Sao chép ảnh')), onTap: () => Navigator.pop(ctx, 'copy')),
-          ListTile(
-            leading: const Icon(Icons.fullscreen_rounded),
-            title: Text(tr('Xem toàn màn hình')),
-            onTap: () => Navigator.pop(ctx, 'view'),
+/// Bấm giữ (bảng dưới) / chuột phải (menu tại con trỏ [at]): các thao tác của [source] trên ảnh.
+Future<void> _photoMenu(BuildContext context, PhotoSource source, List<String> ids, int index, {Offset? at}) async {
+  final acts = source.actions(context, ids, index);
+  if (acts.isEmpty) return;
+  final PhotoAction? v;
+  if (at != null) {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final p = overlay.globalToLocal(at);
+    v = await showMenu<PhotoAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(p.dx, p.dy, overlay.size.width - p.dx, overlay.size.height - p.dy),
+      items: [
+        for (final a in acts)
+          PopupMenuItem(
+            value: a,
+            child: ListTile(dense: true, leading: Icon(a.icon), title: Text(a.label)),
           ),
-        ],
+      ],
+    );
+  } else {
+    v = await showModalBottomSheet<PhotoAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final a in acts)
+              ListTile(leading: Icon(a.icon), title: Text(a.label), onTap: () => Navigator.pop(ctx, a)),
+          ],
+        ),
       ),
-    ),
-  );
-  if (!context.mounted) return;
-  switch (v) {
-    case 'save':
-      await saveBangTinImages(context, api, [ids[index]]);
-    case 'copy':
-      try {
-        final ok = await copyImageToClipboard(await api.bytes(ids[index]));
-        messenger.showSnackBar(toast(Text(ok ? tr('Đã sao chép ảnh') : tr('Không sao chép được ảnh'))));
-      } catch (e) {
-        messenger.showSnackBar(toast(Text('$e')));
-      }
-    case 'view':
-      await openBangTinGallery(context, api, ids, index);
+    );
   }
+  if (context.mounted) await v?.run();
 }
 
 /// Tỉ lệ ảnh đã biết (rộng / cao), giữ qua các lần mở bài để danh sách không nhảy khi ảnh tải xong.
@@ -352,8 +494,8 @@ final _aspects = <String, double>{};
 /// Các ảnh [ids] xếp dọc, tràn chiều ngang, cách nhau [gap]. Phải nằm trong [PhotoZoomScope].
 /// [keys] (tuỳ chọn): khoá cho từng ảnh, để trang bài cuộn tới ảnh vừa bấm trong bảng tin.
 class PhotoColumn extends StatelessWidget {
-  const PhotoColumn({super.key, required this.api, required this.ids, this.gap = 4, this.keys, this.onAspect});
-  final BangTinApi api;
+  const PhotoColumn({super.key, required this.source, required this.ids, this.gap = 4, this.keys, this.onAspect});
+  final PhotoSource source;
   final List<String> ids;
   final double gap;
   final List<GlobalKey>? keys;
@@ -369,15 +511,15 @@ class PhotoColumn extends StatelessWidget {
         Padding(
           key: keys != null && i < keys!.length ? keys![i] : null,
           padding: EdgeInsets.only(top: i == 0 ? 0 : gap),
-          child: _Photo(api: api, ids: ids, index: i, onAspect: onAspect),
+          child: _Photo(source: source, ids: ids, index: i, onAspect: onAspect),
         ),
     ],
   );
 }
 
 class _Photo extends StatefulWidget {
-  const _Photo({required this.api, required this.ids, required this.index, this.onAspect});
-  final BangTinApi api;
+  const _Photo({required this.source, required this.ids, required this.index, this.onAspect});
+  final PhotoSource source;
   final List<String> ids;
   final int index;
   final VoidCallback? onAspect;
@@ -423,7 +565,7 @@ class _PhotoState extends State<_Photo> {
     if (_aspects.containsKey(_id)) return;
     _stopListening();
     final id = _id;
-    _stream = sizedImage(context, widget.api.image(id), 480).resolve(createLocalImageConfiguration(context));
+    _stream = sizedImage(context, widget.source.image(id), 480).resolve(createLocalImageConfiguration(context));
     _listener = ImageStreamListener((info, _) {
       final a = info.image.width / math.max(info.image.height, 1);
       info.dispose();
@@ -448,23 +590,33 @@ class _PhotoState extends State<_Photo> {
 
   @override
   Widget build(BuildContext context) {
-    final pal = Pal.of(context);
+    final fill = Theme.of(context).extension<Pal>()?.surface2 ?? Colors.black12;
     return LayoutBuilder(
       builder: (context, c) {
         // Ảnh quá dọc: cao tối đa gần bằng màn hình, hiện trọn ảnh (không cắt).
         final maxH = MediaQuery.sizeOf(context).height * .85;
         final h = math.min(c.maxWidth / (_aspects[_id] ?? 4 / 3), maxH);
-        return GestureDetector(
-          onDoubleTapDown: (d) => _tapAt = d.globalPosition,
-          onDoubleTap: () => _scope?._doubleTap(_entry, _tapAt),
-          onLongPress: () => _photoMenu(context, widget.api, widget.ids, widget.index),
-          child: ColoredBox(
-            key: _key,
-            color: pal.surface2,
-            child: SizedBox(
-              width: c.maxWidth,
-              height: h,
-              child: BangTinImage(api: widget.api, fileId: _id, fit: BoxFit.contain),
+        return Listener(
+          onPointerSignal: (ev) {
+            final s = _scope;
+            final k = HardwareKeyboard.instance;
+            if (s == null || ev is! PointerScrollEvent || !(k.isControlPressed || k.isMetaPressed)) return;
+            // Đăng ký trước danh sách (ảnh nằm trong danh sách): Ctrl + lăn chuột là phóng to, không cuộn.
+            GestureBinding.instance.pointerSignalResolver.register(ev, (e) => s._wheel(_entry, e as PointerScrollEvent));
+          },
+          child: GestureDetector(
+            onDoubleTapDown: (d) => _tapAt = d.globalPosition,
+            onDoubleTap: () => _scope?._doubleTap(_entry, _tapAt),
+            onLongPress: () => _photoMenu(context, widget.source, widget.ids, widget.index),
+            onSecondaryTapUp: (d) => _photoMenu(context, widget.source, widget.ids, widget.index, at: d.globalPosition),
+            child: ColoredBox(
+              key: _key,
+              color: fill,
+              child: SizedBox(
+                width: c.maxWidth,
+                height: h,
+                child: widget.source.thumb(context, _id, BoxFit.contain),
+              ),
             ),
           ),
         );

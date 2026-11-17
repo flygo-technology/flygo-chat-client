@@ -2,6 +2,7 @@
 // Trả lời / Trả lời tất cả / Chuyển tiếp; thêm vào Lịch, gửi vào chat.
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../open_file.dart' show openLocalFile;
@@ -11,6 +12,7 @@ import 'html_view.dart';
 import 'image_trust.dart';
 import 'skeleton.dart';
 import 'model.dart';
+import 'photos.dart';
 import 'store.dart';
 import 'widgets.dart';
 
@@ -264,9 +266,33 @@ class ThreadViewState extends State<ThreadView> {
         ]),
       );
 
-  void _view(List<MailAttachment> items, int i) => Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => AttachmentViewer(items: items, index: i, files: _files, onOpenExternal: _openAttachment, saveToDrive: MailHooks.saveToDrive),
-      ));
+  /// Ảnh dán trong thư: tải một lần, dùng chung cho thân thư và trình xem ảnh.
+  final _inlineImgs = <String, Future<Uint8List?>>{};
+  Future<Uint8List?> _inlineImage(String path) => _inlineImgs.putIfAbsent(path, () => store.api.inlineImage(path));
+
+  MailPhotos _photos(MailMessage m) =>
+      MailPhotos.of(m, mailBodyImages(m.html, loadImages: _imagesOn(m)), _files, inlineImage: _inlineImage, saveToDrive: MailHooks.saveToDrive);
+
+  /// Bấm ảnh trong thân thư: trình xem ảnh của thư (mọi ảnh của thư xếp dọc) tại ảnh đó.
+  void _viewImage(MailMessage m, String src) {
+    final p = _photos(m);
+    openMailPhotos(context, p, p.indexOfSrc(src));
+  }
+
+  /// Ảnh đính kèm: trình xem ảnh của thư; PDF / tệp khác: trình xem tệp (vuốt giữa các tệp không phải ảnh).
+  void _view(MailMessage m, MailAttachment a) {
+    if (isImageAttachment(a)) {
+      final p = _photos(m);
+      final i = p.indexOfAttachment(a);
+      // Ảnh đính kèm cũng dán trong thư: mở tại ảnh trong thư.
+      openMailPhotos(context, p, i >= 0 ? i : p.photos.indexWhere((x) => x.src?.split('?').first == a.url.split('?').first));
+      return;
+    }
+    final items = m.attachments.where((x) => !isImageAttachment(x)).toList();
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => AttachmentViewer(items: items, index: items.indexOf(a), files: _files, onOpenExternal: _openAttachment, saveToDrive: MailHooks.saveToDrive),
+    ));
+  }
 
   Future<void> _download(MailAttachment a) async {
     try {
@@ -702,8 +728,9 @@ class ThreadViewState extends State<ThreadView> {
                     m.html,
                     key: ValueKey('${m.id}-${_imagesOn(m)}'),
                     style: TextStyle(fontSize: 14.5, height: 1.55, color: mc.text),
-                    inlineImage: store.api.inlineImage,
+                    inlineImage: _inlineImage,
                     loadImages: _imagesOn(m),
+                    onImageTap: (src) => _viewImage(m, src),
                   ),
                   if (m.attachments.isNotEmpty) ...[
                     Divider(color: mc.line, height: 24),
@@ -727,11 +754,11 @@ class ThreadViewState extends State<ThreadView> {
                       spacing: 12,
                       runSpacing: 12,
                       children: [
-                        for (final (i, a) in m.attachments.indexed)
+                        for (final a in m.attachments)
                           _AttachmentCard(
                             a,
                             files: _files,
-                            onOpen: () => _view(m.attachments, i),
+                            onOpen: () => _view(m, a),
                             onDownload: () => _download(a),
                             onDrive: MailHooks.saveToDrive == null ? null : () => _saveToDrive([a]),
                             phone: !widget.wide,

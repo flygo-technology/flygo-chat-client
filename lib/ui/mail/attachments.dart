@@ -33,16 +33,19 @@ class AttachmentFiles {
 typedef SaveToDrive = Future<void> Function(BuildContext context, List<(String path, String name)> files);
 
 /// Tải về: máy tính lưu vào thư mục Tải về (không ghi đè), điện thoại mở bảng chia sẻ (Lưu vào Tệp, gửi app khác).
-Future<String?> downloadAttachment(BuildContext context, AttachmentFiles files, MailAttachment a) async {
-  final f = await files.file(a);
+Future<String?> downloadAttachment(BuildContext context, AttachmentFiles files, MailAttachment a) async =>
+    downloadFile(await files.file(a), a.name, a.type);
+
+/// Tải về một tệp đã có trên máy (tệp đính kèm, ảnh trong thư) như [downloadAttachment].
+Future<String?> downloadFile(File f, String name, String type) async {
   if (Platform.isAndroid || Platform.isIOS) {
-    await SharePlus.instance.share(ShareParams(files: [XFile(f.path, mimeType: a.type.isEmpty ? null : a.type)], title: a.name));
+    await SharePlus.instance.share(ShareParams(files: [XFile(f.path, mimeType: type.isEmpty ? null : type)], title: name));
     return null;
   }
   final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
-  final dot = a.name.lastIndexOf('.');
-  final stem = dot > 0 ? a.name.substring(0, dot) : a.name, ext = dot > 0 ? a.name.substring(dot) : '';
-  var out = File('${dir.path}/${a.name}');
+  final dot = name.lastIndexOf('.');
+  final stem = dot > 0 ? name.substring(0, dot) : name, ext = dot > 0 ? name.substring(dot) : '';
+  var out = File('${dir.path}/$name');
   for (var i = 1; out.existsSync(); i++) {
     out = File('${dir.path}/$stem ($i)$ext');
   }

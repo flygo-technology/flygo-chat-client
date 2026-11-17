@@ -30,12 +30,31 @@ String htmlToText(String html) {
   return b.toString().replaceAll(RegExp(r'[ \t]+\n'), '\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
 
+/// Ảnh trong thân thư mở được bằng trình xem (đúng thứ tự trong thư): ảnh dán trong thư (/mail/api/attachments/...),
+/// ảnh từ mạng khi [loadImages]. Bỏ ảnh theo dõi / biểu tượng nhỏ (rộng hoặc cao ≤ 48px).
+List<String> mailBodyImages(String html, {bool loadImages = false}) {
+  final out = <String>[];
+  for (final e in hp.parse(html).querySelectorAll('img')) {
+    final src = e.attributes['src'] ?? '';
+    if (!_viewable(e) || out.contains(src)) continue;
+    if (src.startsWith('/mail/api/attachments/') || (loadImages && (src.startsWith('https://') || src.startsWith('http://')))) out.add(src);
+  }
+  return out;
+}
+
+bool _viewable(dom.Element e) {
+  final w = double.tryParse(e.attributes['width'] ?? ''), h = double.tryParse(e.attributes['height'] ?? '');
+  return !((w != null && w <= 48) || (h != null && h <= 48));
+}
+
 bool _isQuote(dom.Element e) =>
     e.classes.contains('gq') || e.classes.contains('gmail_quote') || (e.localName == 'blockquote' && e.attributes['type'] == 'cite');
 
 class MailHtml extends StatefulWidget {
-  const MailHtml(this.html, {super.key, this.style, this.loadImages = false, this.onLink, this.inlineImage});
+  const MailHtml(this.html, {super.key, this.style, this.loadImages = false, this.onLink, this.inlineImage, this.onImageTap});
   final String html;
+  /// Bấm một ảnh xem được (xem [mailBodyImages]): mở trình xem ảnh tại ảnh [src].
+  final void Function(String src)? onImageTap;
   /// Tải ảnh dán trong thư (đường dẫn /mail/api/attachments/..., có đăng nhập). Luôn hiện, vì là tệp của chính thư.
   final Future<Uint8List?> Function(String path)? inlineImage;
   final TextStyle? style;
@@ -87,7 +106,7 @@ class _MailHtmlState extends State<MailHtml> {
         q.remove();
       }
     }
-    final blocks = _Builder(context, base, _open, _recognizers, widget.loadImages, widget.inlineImage, _inline).blocks(body.nodes);
+    final blocks = _Builder(context, base, _open, _recognizers, widget.loadImages, widget.inlineImage, _inline, widget.onImageTap).blocks(body.nodes);
     return SelectionArea(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ...blocks,
@@ -114,7 +133,8 @@ class _MailHtmlState extends State<MailHtml> {
 }
 
 class _Builder {
-  _Builder(this.context, this.base, this.open, this.recognizers, this.loadImages, [this.inlineImage, this.inlineCache = const {}]);
+  _Builder(this.context, this.base, this.open, this.recognizers, this.loadImages, [this.inlineImage, this.inlineCache = const {}, this.onImageTap]);
+  final void Function(String src)? onImageTap;
   final Future<Uint8List?> Function(String path)? inlineImage;
   final Map<String, Future<Uint8List?>> inlineCache;
   final BuildContext context;
@@ -301,9 +321,17 @@ class _Builder {
     final alt = e.attributes['alt'] ?? '';
     final w = double.tryParse(e.attributes['width'] ?? '');
     if (w != null && w <= 2) return null; // ảnh theo dõi 1x1
+    final tap = onImageTap;
+    // Ảnh đã hiện, không phải biểu tượng nhỏ: bấm để xem phóng to.
+    Widget tappable(Widget img) => tap == null || !_viewable(e)
+        ? img
+        : MouseRegion(
+            cursor: SystemMouseCursors.zoomIn,
+            child: GestureDetector(key: ValueKey('mail-img-$src'), behavior: HitTestBehavior.opaque, onTap: () => tap(src), child: img),
+          );
     final load = inlineImage;
     if (load != null && src.startsWith('/mail/api/attachments/')) {
-      return Padding(
+      return tappable(Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: w ?? 600),
@@ -316,13 +344,13 @@ class _Builder {
                     : const SizedBox(width: 48, height: 48, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
           ),
         ),
-      );
+      ));
     }
     if (loadImages && (src.startsWith('https://') || src.startsWith('http://'))) {
-      return Padding(
+      return tappable(Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: ConstrainedBox(constraints: BoxConstraints(maxWidth: w ?? 600), child: Image.network(src, errorBuilder: (_, _, _) => _altBox(alt))),
-      );
+      ));
     }
     // Ảnh ngoài chưa cho tải: ảnh nhỏ (biểu tượng chữ ký) không chiếm chỗ; ảnh lớn để một ô thay thế.
     final h = double.tryParse(e.attributes['height'] ?? '');
