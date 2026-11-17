@@ -487,13 +487,16 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
         child: InkWell(
           key: const ValueKey('upcoming-banner'),
           onTap: _toggle,
+          // Căn giữa cho cân với tên công ty và thẻ người dùng phía trên (Sếp, 2026-11-17: "nhìn hơi lệch").
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
               Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
+                  textAlign: TextAlign.center,
                   maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.text)),
-              const SizedBox(height: 1),
+              const SizedBox(height: 2),
               Text(text,
+                  textAlign: TextAlign.center,
                   key: ValueKey('upcoming-countdown-${e.instanceId}'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
