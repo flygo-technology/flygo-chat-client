@@ -42,21 +42,22 @@ class HdLook {
 
 /// Khung thẻ bo góc có viền.
 class HdCard extends StatelessWidget {
-  const HdCard({super.key, required this.child, this.pad = const EdgeInsets.all(18), this.margin, this.color, this.borderColor, this.onTap});
+  const HdCard({super.key, required this.child, this.pad = const EdgeInsets.all(18), this.margin, this.color, this.borderColor, this.onTap, this.radius = 12});
   final Widget child;
   final EdgeInsets pad;
   final EdgeInsets? margin;
   final Color? color, borderColor;
   final VoidCallback? onTap;
+  final double radius;
   @override
   Widget build(BuildContext context) {
     final l = HdLook.of(context);
     return Container(
       margin: margin,
-      decoration: BoxDecoration(color: color ?? l.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: borderColor ?? l.border)),
+      decoration: BoxDecoration(color: color ?? l.card, borderRadius: BorderRadius.circular(radius), border: Border.all(color: borderColor ?? l.border)),
       child: Material(
         type: MaterialType.transparency,
-        child: InkWell(borderRadius: BorderRadius.circular(16), onTap: onTap, child: Padding(padding: pad, child: child)),
+        child: InkWell(borderRadius: BorderRadius.circular(radius), onTap: onTap, child: Padding(padding: pad, child: child)),
       ),
     );
   }
@@ -64,17 +65,18 @@ class HdCard extends StatelessWidget {
 
 /// Tiêu đề trong thẻ: icon + chữ + phần phải.
 class HdCardTitle extends StatelessWidget {
-  const HdCardTitle(this.icon, this.text, {super.key, this.trailing});
+  const HdCardTitle(this.icon, this.text, {super.key, this.trailing, this.size = 17});
   final IconData icon;
   final String text;
   final Widget? trailing;
+  final double size;
   @override
   Widget build(BuildContext context) {
     final l = HdLook.of(context);
     return Row(children: [
-      Icon(icon, size: 22, color: l.accentText),
-      const SizedBox(width: 10),
-      Expanded(child: Text(text, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: l.text))),
+      Icon(icon, size: size + 4, color: l.accentText),
+      SizedBox(width: size * .6),
+      Expanded(child: Text(text, style: TextStyle(fontSize: size, fontWeight: FontWeight.w700, color: l.text))),
       ?trailing,
     ]);
   }
@@ -218,13 +220,13 @@ class StepDot extends StatelessWidget {
         return Container(
           width: size, height: size, alignment: Alignment.center,
           decoration: BoxDecoration(color: c.withValues(alpha: .14), shape: BoxShape.circle, border: Border.all(color: c, width: 2)),
-          child: Text(label, style: TextStyle(color: warn ? l.red : l.accentText, fontWeight: FontWeight.w700, fontSize: size * .4)),
+          child: Text(label, style: TextStyle(color: warn ? l.red : l.accentText, fontWeight: FontWeight.w700, fontSize: size < 30 ? 10.5 : size * .4)),
         );
       case HdStep.todo:
         return Container(
           width: size, height: size, alignment: Alignment.center,
           decoration: BoxDecoration(color: l.card2, shape: BoxShape.circle, border: Border.all(color: l.border, width: 1.5)),
-          child: Text(label, style: TextStyle(color: l.sub, fontWeight: FontWeight.w600, fontSize: size * .38)),
+          child: Text(label, style: TextStyle(color: l.sub, fontWeight: FontWeight.w600, fontSize: size < 30 ? 10.5 : size * .38)),
         );
     }
   }
@@ -232,9 +234,12 @@ class StepDot extends StatelessWidget {
 
 /// Chip lọc / chọn nhanh.
 class HdChip extends StatelessWidget {
-  const HdChip(this.text, {super.key, required this.selected, required this.onTap, this.icon, this.dense = false});
+  const HdChip(this.text, {super.key, required this.selected, required this.onTap, this.icon, this.dense = false, this.small = false});
   final String text;
   final bool selected, dense;
+
+  /// Máy tính gọn: cao ~28px, chữ 12.5.
+  final bool small;
   final VoidCallback onTap;
   final IconData? icon;
   @override
@@ -247,12 +252,12 @@ class HdChip extends StatelessWidget {
         customBorder: const StadiumBorder(),
         onTap: onTap,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: dense ? 16 : 14, vertical: dense ? 9 : 8),
+          padding: small ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5) : EdgeInsets.symmetric(horizontal: dense ? 16 : 14, vertical: dense ? 9 : 8),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[Icon(icon, size: 16, color: selected ? (dense ? Colors.white : l.accentText) : l.sub), const SizedBox(width: 6)],
+            if (icon != null) ...[Icon(icon, size: small ? 14 : 16, color: selected ? (dense ? Colors.white : l.accentText) : l.sub), const SizedBox(width: 6)],
             Text(text,
                 style: TextStyle(
-                  fontSize: 13.5,
+                  fontSize: small ? 12.5 : 13.5,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   color: selected ? (dense ? Colors.white : l.accentText) : l.text.withValues(alpha: .85),
                 )),
@@ -265,24 +270,29 @@ class HdChip extends StatelessWidget {
 
 /// Nút viền nhỏ (hành động trên một bên ký).
 class HdAction extends StatelessWidget {
-  const HdAction(this.icon, this.text, {super.key, required this.onTap, this.danger = false});
+  const HdAction(this.icon, this.text, {super.key, required this.onTap, this.danger = false, this.small = false});
   final IconData icon;
   final String text;
   final VoidCallback? onTap;
   final bool danger;
+
+  /// Máy tính gọn: cao ~30px, chữ 12.5.
+  final bool small;
   @override
   Widget build(BuildContext context) {
     final l = HdLook.of(context);
     final c = danger ? l.red : l.text;
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 17, color: danger ? l.red : l.text),
-      label: Text(text, style: TextStyle(color: c, fontWeight: FontWeight.w600)),
+      icon: Icon(icon, size: small ? 15 : 17, color: danger ? l.red : l.text),
+      label: Text(text, style: TextStyle(color: c, fontWeight: FontWeight.w600, fontSize: small ? 12.5 : null)),
       style: OutlinedButton.styleFrom(
         backgroundColor: danger ? l.redSoft.withValues(alpha: .5) : l.card2,
         side: BorderSide(color: danger ? l.red.withValues(alpha: .35) : l.border),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: small ? const EdgeInsets.symmetric(horizontal: 10, vertical: 6) : const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        minimumSize: small ? const Size(0, 30) : null,
+        tapTargetSize: small ? MaterialTapTargetSize.shrinkWrap : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(small ? 8 : 12)),
         visualDensity: VisualDensity.compact,
       ),
     );
@@ -328,35 +338,56 @@ void hdToast(BuildContext context, String msg) => ScaffoldMessenger.maybeOf(cont
 
 /// Ô tìm kiếm bo tròn.
 class HdSearch extends StatelessWidget {
-  const HdSearch({super.key, required this.controller, required this.onSubmit, this.hint = 'Tìm số HĐ, đối tác, MST…', this.width});
+  const HdSearch({super.key, required this.controller, required this.onSubmit, this.hint = 'Tìm số HĐ, đối tác, MST…', this.width, this.height = 42});
   final TextEditingController controller;
   final ValueChanged<String> onSubmit;
   final String hint;
   final double? width;
+  final double height;
   @override
   Widget build(BuildContext context) {
     final l = HdLook.of(context);
+    final small = height < 40;
     return SizedBox(
       width: width,
-      height: 42,
+      height: height,
       child: TextField(
         controller: controller,
         onSubmitted: onSubmit,
         textInputAction: TextInputAction.search,
-        style: TextStyle(color: l.text, fontSize: 14),
+        style: TextStyle(color: l.text, fontSize: small ? 13 : 14),
         decoration: InputDecoration(
           isDense: true,
           filled: true,
           fillColor: l.card,
           hintText: hint,
-          hintStyle: TextStyle(color: l.faint, fontSize: 14),
-          prefixIcon: Icon(Icons.search_rounded, color: l.sub, size: 20),
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: l.border)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: l.border)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: l.accent)),
+          hintStyle: TextStyle(color: l.faint, fontSize: small ? 13 : 14),
+          prefixIcon: Icon(Icons.search_rounded, color: l.sub, size: small ? 18 : 20),
+          prefixIconConstraints: small ? const BoxConstraints(minWidth: 36) : null,
+          contentPadding: EdgeInsets.symmetric(vertical: small ? 8 : 10),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(small ? 8 : 12), borderSide: BorderSide(color: l.border)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(small ? 8 : 12), borderSide: BorderSide(color: l.border)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(small ? 8 : 12), borderSide: BorderSide(color: l.accent)),
         ),
       ),
     );
+  }
+}
+
+/// Công tắc + chữ; [small] cho máy tính gọn.
+class HdSwitchRow extends StatelessWidget {
+  const HdSwitchRow({super.key, required this.value, required this.onChanged, required this.text, this.small = false});
+  final bool value, small;
+  final ValueChanged<bool>? onChanged;
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    final l = HdLook.of(context);
+    final sw = Switch(value: value, onChanged: onChanged);
+    return Row(children: [
+      if (small) SizedBox(width: 40, height: 26, child: FittedBox(fit: BoxFit.contain, child: sw)) else sw,
+      SizedBox(width: small ? 8 : 10),
+      Expanded(child: Text(text, style: TextStyle(color: l.text, fontSize: small ? 13 : 15.5))),
+    ]);
   }
 }

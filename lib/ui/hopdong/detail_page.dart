@@ -84,33 +84,33 @@ class _ContractDetailPageState extends State<ContractDetailPage> {
         body: SafeArea(
           child: Column(children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 20, 10),
+              padding: const EdgeInsets.fromLTRB(10, 6, 16, 6),
               decoration: BoxDecoration(border: Border(bottom: BorderSide(color: l.border))),
               child: Row(children: [
-                IconButton(onPressed: () => Navigator.maybePop(context), icon: Icon(Icons.arrow_back_rounded, color: l.sub)),
+                IconButton(visualDensity: VisualDensity.compact, onPressed: () => Navigator.maybePop(context), icon: Icon(Icons.arrow_back_rounded, color: l.sub, size: 20)),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Hợp đồng${c.ownerName.isNotEmpty ? ' › ${c.ownerName}' : ''}', style: TextStyle(color: l.sub, fontSize: 12.5)),
+                    Text('Hợp đồng${c.ownerName.isNotEmpty ? ' › ${c.ownerName}' : ''}', style: TextStyle(color: l.sub, fontSize: 12)),
                     Row(children: [
                       Flexible(
-                        child: Text(c.heading, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                        child: Text(c.heading, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 15.5, fontWeight: FontWeight.w700)),
                       ),
                       const SizedBox(width: 10),
-                      StatusChip(c, now: now, withProgress: true, size: 11.5),
+                      StatusChip(c, now: now, withProgress: true, size: 11),
                     ]),
                   ]),
                 ),
                 if (c.doc != null) ...[
-                  HdAction(Icons.history_rounded, 'Bản ${c.doc!.rev}', onTap: () => openPdf(context, widget.api, c)),
+                  HdAction(Icons.history_rounded, 'Bản ${c.doc!.rev}', small: true, onTap: () => openPdf(context, widget.api, c)),
                   const SizedBox(width: 8),
                 ],
                 if (c.status == 'sending' && c.canEdit) ...[
-                  HdAction(Icons.notifications_none_rounded, 'Nhắc ký', onTap: _remindAll),
+                  HdAction(Icons.notifications_none_rounded, 'Nhắc ký', small: true, onTap: _remindAll),
                   const SizedBox(width: 8),
                 ],
                 if (c.canEdit && ['sending', 'rejected'].contains(c.status))
-                  HdAction(Icons.block_rounded, 'Huỷ', danger: true, onTap: () async {
+                  HdAction(Icons.block_rounded, 'Huỷ', danger: true, small: true, onTap: () async {
                     final n = await cancelContract(context, widget.api, c);
                     if (n != null) _set(n);
                   }),
@@ -127,11 +127,11 @@ class _ContractDetailPageState extends State<ContractDetailPage> {
                   ),
                 ),
                 Container(
-                  width: 440,
+                  width: 400,
                   decoration: BoxDecoration(color: l.nav, border: Border(left: BorderSide(color: l.border))),
-                  child: ListView(padding: const EdgeInsets.fromLTRB(20, 18, 20, 28), children: [
-                    Text('THỨ TỰ KÝ · ${c.mode == 'par' ? 'CÙNG LÚC' : 'LẦN LƯỢT'}', style: TextStyle(color: l.sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: .6)),
-                    const SizedBox(height: 14),
+                  child: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 20), children: [
+                    Text('THỨ TỰ KÝ · ${c.mode == 'par' ? 'CÙNG LÚC' : 'LẦN LƯỢT'}', style: TextStyle(color: l.sub, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: .6)),
+                    const SizedBox(height: 10),
                     ProgressPane(api: widget.api, contract: c, onChanged: _set, header: false),
                   ]),
                 ),

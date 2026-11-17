@@ -203,12 +203,15 @@ class _HopdongHomeState extends State<HopdongHome> {
           _sideNav(l),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              _topBar(l),
-              Expanded(child: _error != null && _list == null ? _errorView(l) : (_view == 'progress' ? _progressView(l) : _listView(l))),
+              Container(decoration: BoxDecoration(border: Border(bottom: BorderSide(color: l.border))), child: _wrap(_topBar(l))),
+              Expanded(child: _wrap(_error != null && _list == null ? _errorView(l) : (_view == 'progress' ? _progressView(l) : _listView(l)))),
             ]),
           ),
         ]),
       );
+
+  /// Nội dung máy tính rộng tối đa 1200px, ở giữa.
+  Widget _wrap(Widget child) => Align(alignment: Alignment.topCenter, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1200), child: child));
 
   Widget _sideNav(HdLook l) {
     final canPop = Navigator.of(context).canPop();
@@ -217,20 +220,20 @@ class _HopdongHomeState extends State<HopdongHome> {
       final n = switch (it.$1) { 'overview' => null, 'all' => _counts.all, 'progress' => _counts.sending, _ => _counts.of(it.$4) };
       final nc = it.$1 == 'overdue' && (n ?? 0) > 0 ? l.red : (it.$1 == 'expiring' && (n ?? 0) > 0 ? l.warn : l.sub);
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
         child: Material(
           color: sel ? l.accentSoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           child: InkWell(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(8),
             onTap: () => _go(it.$1),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               child: Row(children: [
-                Icon(it.$2, size: 21, color: sel ? l.accentText : l.sub),
-                const SizedBox(width: 12),
-                Expanded(child: Text(it.$3, style: TextStyle(color: sel ? l.accentText : l.text, fontSize: 14.5, fontWeight: sel ? FontWeight.w700 : FontWeight.w500))),
-                if (n != null && n > 0) Text('$n', style: TextStyle(color: sel ? l.accentText : nc, fontSize: 13, fontWeight: FontWeight.w600)),
+                Icon(it.$2, size: 18, color: sel ? l.accentText : l.sub),
+                const SizedBox(width: 10),
+                Expanded(child: Text(it.$3, style: TextStyle(color: sel ? l.accentText : l.text, fontSize: 13, fontWeight: sel ? FontWeight.w600 : FontWeight.w400))),
+                if (n != null && n > 0) Text('$n', style: TextStyle(color: sel ? l.accentText : nc, fontSize: 12, fontWeight: FontWeight.w600)),
               ]),
             ),
           ),
@@ -239,39 +242,39 @@ class _HopdongHomeState extends State<HopdongHome> {
     }
 
     return Container(
-      width: 244,
+      width: 216,
       decoration: BoxDecoration(color: l.nav, border: Border(right: BorderSide(color: l.border))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
+          padding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
           child: Row(children: [
             if (canPop)
-              IconButton(visualDensity: VisualDensity.compact, onPressed: () => Navigator.maybePop(context), icon: Icon(Icons.arrow_back_rounded, color: l.sub, size: 20)),
+              IconButton(visualDensity: VisualDensity.compact, onPressed: () => Navigator.maybePop(context), icon: Icon(Icons.arrow_back_rounded, color: l.sub, size: 18)),
             Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(color: l.accent, borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.description_rounded, color: Colors.white, size: 21),
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(color: l.accent, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.description_rounded, color: Colors.white, size: 17),
             ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(widget.title, style: TextStyle(color: l.text, fontSize: 18, fontWeight: FontWeight.w700))),
-            if (_me?.admin == true) Pill('Quản trị', fg: l.accentText, bg: l.accentSoft, size: 10.5),
+            const SizedBox(width: 8),
+            Expanded(child: Text(widget.title, style: TextStyle(color: l.text, fontSize: 15, fontWeight: FontWeight.w700))),
+            if (_me?.admin == true) Pill('Quản trị', fg: l.accentText, bg: l.accentSoft, size: 10),
           ]),
         ),
         for (final it in _navItems.take(4)) item(it),
         Padding(
-          padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),
-          child: Text('THEO TRẠNG THÁI', style: TextStyle(color: l.faint, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: .6)),
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+          child: Text('THEO TRẠNG THÁI', style: TextStyle(color: l.faint, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: .6)),
         ),
         for (final it in _navItems.skip(4)) item(it),
         const Spacer(),
         if (_me != null && _me!.company.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 0, 22, 18),
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
             child: Row(children: [
-              Icon(Icons.apartment_rounded, size: 18, color: l.sub),
-              const SizedBox(width: 10),
-              Expanded(child: Text(_me!.company, maxLines: 2, style: TextStyle(color: l.sub, fontSize: 13))),
+              Icon(Icons.apartment_rounded, size: 16, color: l.sub),
+              const SizedBox(width: 8),
+              Expanded(child: Text(_me!.company, maxLines: 2, style: TextStyle(color: l.sub, fontSize: 12))),
             ]),
           ),
       ]),
@@ -281,21 +284,22 @@ class _HopdongHomeState extends State<HopdongHome> {
   Widget _topBar(HdLook l) {
     final title = _navItems.firstWhere((x) => x.$1 == _view).$3;
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: l.border))),
+      padding: const EdgeInsets.fromLTRB(20, 9, 20, 9),
       child: Row(children: [
-        Expanded(child: Text(title, style: TextStyle(color: l.text, fontSize: 20, fontWeight: FontWeight.w700))),
-        HdSearch(controller: _search, width: 340, onSubmit: (_) => _load(), hint: 'Tìm số HĐ, tên, đối tác, MST…'),
-        const SizedBox(width: 12),
+        Expanded(child: Text(title, style: TextStyle(color: l.text, fontSize: 17, fontWeight: FontWeight.w700))),
+        HdSearch(controller: _search, width: 300, height: 34, onSubmit: (_) => _load(), hint: 'Tìm số HĐ, tên, đối tác, MST…'),
+        const SizedBox(width: 10),
         FilledButton.icon(
           onPressed: _create,
-          icon: const Icon(Icons.add_rounded, size: 20),
-          label: const Text('Hợp đồng mới', style: TextStyle(fontWeight: FontWeight.w700)),
+          icon: const Icon(Icons.add_rounded, size: 17),
+          label: const Text('Hợp đồng mới', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
           style: FilledButton.styleFrom(
             backgroundColor: l.accent,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            minimumSize: const Size(0, 34),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
         ),
       ]),
@@ -319,23 +323,23 @@ class _HopdongHomeState extends State<HopdongHome> {
     final waitMe = list.where((c) => c.status == 'sending' && c.current.any((p) => p.internal)).length;
     Widget tile(String label, int n, String sub, {Color? nc, Color? sc}) => Expanded(
           child: HdCard(
-            pad: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            pad: const EdgeInsets.fromLTRB(14, 10, 14, 10),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: TextStyle(color: l.sub, fontSize: 13)),
-              const SizedBox(height: 6),
-              Text('$n', style: TextStyle(color: nc ?? l.text, fontSize: 26, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: sc ?? l.sub, fontSize: 13)),
+              Text(label, style: TextStyle(color: l.sub, fontSize: 12)),
+              const SizedBox(height: 2),
+              Text('$n', style: TextStyle(color: nc ?? l.text, fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 1),
+              Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: sc ?? l.sub, fontSize: 12)),
             ]),
           ),
         );
     return Row(children: [
       tile('Đã ký đủ', _counts.signed, signedValue > 0 ? 'Giá trị ${moneyShort(signedValue)}' : 'chưa có hợp đồng ký xong', sc: signedValue > 0 ? l.ok : null),
-      const SizedBox(width: 14),
+      const SizedBox(width: 12),
       tile('Đang chờ ký', _counts.sending, '$waitMe chờ mình · $waitPartner chờ đối tác'),
-      const SizedBox(width: 14),
+      const SizedBox(width: 12),
       tile('Quá hạn ký', _counts.overdue, _counts.overdue > 0 ? 'cần gia hạn hoặc nhắc' : 'không có', nc: _counts.overdue > 0 ? l.red : null),
-      const SizedBox(width: 14),
+      const SizedBox(width: 12),
       tile('Hết hạn trong 30 ngày', _counts.expiring, _counts.expiring > 0 ? 'nhắc gia hạn tự động' : 'không có', nc: _counts.expiring > 0 ? l.warn : null),
     ]);
   }
@@ -345,14 +349,14 @@ class _HopdongHomeState extends State<HopdongHome> {
     final showChips = _view == 'overview' || _view == 'all';
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView(padding: const EdgeInsets.fromLTRB(24, 18, 24, 32), children: [
-        if (_view == 'overview') ...[_kpis(l), const SizedBox(height: 18)],
+      child: ListView(padding: const EdgeInsets.fromLTRB(20, 14, 20, 24), children: [
+        if (_view == 'overview') ...[_kpis(l), const SizedBox(height: 14)],
         Row(children: [
           if (showChips)
             Expanded(
               child: Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final s in _statusChips)
-                  HdChip(s.$1 == null ? 'Trạng thái: Tất cả' : s.$2, icon: s.$1 == null ? Icons.filter_list_rounded : null, selected: _status == s.$1, onTap: () {
+                  HdChip(s.$1 == null ? 'Trạng thái: Tất cả' : s.$2, small: true, icon: s.$1 == null ? Icons.filter_list_rounded : null, selected: _status == s.$1, onTap: () {
                     setState(() => _status = s.$1);
                     _load();
                   }),
@@ -360,9 +364,9 @@ class _HopdongHomeState extends State<HopdongHome> {
             )
           else
             const Spacer(),
-          Text('${list?.length ?? 0} hợp đồng', style: TextStyle(color: l.sub, fontSize: 13)),
+          Text('${list?.length ?? 0} hợp đồng', style: TextStyle(color: l.sub, fontSize: 12)),
         ]),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         if (list == null)
           const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
         else if (list.isEmpty)
@@ -388,12 +392,12 @@ class _HopdongHomeState extends State<HopdongHome> {
 
   Widget _table(HdLook l, List<Contract> list) {
     final now = hdNow();
-    final head = TextStyle(color: l.sub, fontSize: 12.5, fontWeight: FontWeight.w600);
+    final head = TextStyle(color: l.sub, fontSize: 12, fontWeight: FontWeight.w600);
     Widget cell(int flex, Widget w) => Expanded(flex: flex, child: Padding(padding: const EdgeInsets.only(right: 12), child: w));
     final soon = now.add(const Duration(days: 30)).millisecondsSinceEpoch;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
         child: Row(children: [
           cell(_cols[0], Text('Hợp đồng', style: head)),
           cell(_cols[1], Text('Đối tác', style: head)),
@@ -409,7 +413,7 @@ class _HopdongHomeState extends State<HopdongHome> {
         InkWell(
           onTap: () => _open(c),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             child: Row(children: [
               cell(
                 _cols[0],
@@ -422,33 +426,33 @@ class _HopdongHomeState extends State<HopdongHome> {
                     ]),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: l.text, fontSize: 14.5),
+                    style: TextStyle(color: l.text, fontSize: 13),
                   ),
-                  const SizedBox(height: 2),
-                  Text(_rowSub(c), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 12.5)),
+                  const SizedBox(height: 1),
+                  Text(_rowSub(c), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 11.5)),
                 ]),
               ),
               cell(
                 _cols[1],
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(c.partner?.name ?? '—', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 14)),
-                  const SizedBox(height: 2),
+                  Text(c.partner?.name ?? '—', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 13)),
+                  const SizedBox(height: 1),
                   Text([if (c.partner != null && c.partner!.label.isNotEmpty) c.partner!.label, if (c.parties.length > 2) '+${c.parties.length - 2} bên'].join(' · '),
-                      style: TextStyle(color: l.sub, fontSize: 12.5)),
+                      style: TextStyle(color: l.sub, fontSize: 11.5)),
                 ]),
               ),
-              cell(_cols[2], Text(money(c.value, c.currency), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 14))),
+              cell(_cols[2], Text(money(c.value, c.currency), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 13))),
               cell(
                 _cols[3],
                 c.effFrom == null && c.effTo == null
                     ? Text('—', style: TextStyle(color: l.sub))
                     : c.status == 'signed' && c.effTo != null && c.effTo! <= soon
-                        ? Text('→ ${dmy(c.effTo)}', style: TextStyle(color: l.red, fontSize: 14))
-                        : Text('${dmyShort(c.effFrom)} → ${dmyShort(c.effTo)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 13.5)),
+                        ? Text('→ ${dmy(c.effTo)}', style: TextStyle(color: l.red, fontSize: 13))
+                        : Text('${dmyShort(c.effFrom)} → ${dmyShort(c.effTo)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 12.5)),
               ),
-              cell(_cols[4], Align(alignment: Alignment.centerLeft, child: StatusChip(c, now: now, size: 11.5))),
+              cell(_cols[4], Align(alignment: Alignment.centerLeft, child: StatusChip(c, now: now, size: 11))),
               cell(_cols[5], _progressCell(l, c, now)),
-              SizedBox(width: 70, child: Align(alignment: Alignment.centerLeft, child: OwnerDot(c.ownerName))),
+              SizedBox(width: 70, child: Align(alignment: Alignment.centerLeft, child: OwnerDot(c.ownerName, size: 24))),
             ]),
           ),
         ),
@@ -466,7 +470,7 @@ class _HopdongHomeState extends State<HopdongHome> {
   }
 
   Widget _progressCell(HdLook l, Contract c, DateTime now) {
-    final t = TextStyle(color: l.sub, fontSize: 12.5);
+    final t = TextStyle(color: l.sub, fontSize: 12);
     switch (c.status) {
       case 'draft':
         return Text('Chưa gửi · ${c.parties.length} bên', style: t);
@@ -495,11 +499,11 @@ class _HopdongHomeState extends State<HopdongHome> {
     final list = _list;
     final now = hdNow();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Wrap(spacing: 8, runSpacing: 8, children: [
+        Wrap(spacing: 6, runSpacing: 6, children: [
           for (final k in _progressChips)
-            HdChip('${k.$2} · ${_progressCount(k.$1)}', selected: _progress == k.$1, onTap: () {
+            HdChip('${k.$2} · ${_progressCount(k.$1)}', small: true, selected: _progress == k.$1, onTap: () {
               setState(() {
                 _progress = k.$1;
                 _list = null;
@@ -507,11 +511,11 @@ class _HopdongHomeState extends State<HopdongHome> {
               _load();
             }),
         ]),
-        const SizedBox(height: 14),
+        const SizedBox(height: 10),
         Expanded(
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SizedBox(
-              width: 440,
+              width: 380,
               child: list == null
                   ? const Center(child: CircularProgressIndicator())
                   : list.isEmpty
@@ -520,19 +524,19 @@ class _HopdongHomeState extends State<HopdongHome> {
                           onRefresh: _load,
                           child: ListView.separated(
                             itemCount: list.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 10),
+                            separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (_, i) => _progressCard(l, list[i], now),
                           ),
                         ),
             ),
-            const SizedBox(width: 20),
+            const SizedBox(width: 14),
             Expanded(
               child: HdCard(
                 pad: EdgeInsets.zero,
                 child: _sel == null
                     ? SizedBox(height: 200, child: Center(child: Text('Chọn một hợp đồng để xem tiến độ', style: TextStyle(color: l.sub))))
                     : SingleChildScrollView(
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(18),
                         child: ProgressPane(
                           key: ValueKey(_sel!.id),
                           api: widget.api,
@@ -557,12 +561,12 @@ class _HopdongHomeState extends State<HopdongHome> {
     final rej = c.parties.where((p) => p.status == 'rejected').firstOrNull;
     final over = c.overdue(now);
     final Widget badge = over
-        ? Pill('Quá hạn', fg: l.red, bg: l.redSoft)
+        ? Pill('Quá hạn', fg: l.red, bg: l.redSoft, size: 11)
         : c.status == 'rejected'
-            ? Pill('Từ chối', fg: l.warn, bg: l.warnSoft)
+            ? Pill('Từ chối', fg: l.warn, bg: l.warnSoft, size: 11)
             : c.status == 'signed'
-                ? Pill('Đã ký đủ', fg: l.ok, bg: l.okSoft)
-                : Pill('${c.signedCount}/${c.parties.length}', fg: l.accentText, bg: l.accentSoft);
+                ? Pill('Đã ký đủ', fg: l.ok, bg: l.okSoft, size: 11)
+                : Pill('${c.signedCount}/${c.parties.length}', fg: l.accentText, bg: l.accentSoft, size: 11);
     String left;
     String right = '';
     Color rc = l.sub;
@@ -585,20 +589,20 @@ class _HopdongHomeState extends State<HopdongHome> {
     return HdCard(
       color: sel ? l.accentSoft.withValues(alpha: l.dark ? .55 : .7) : null,
       borderColor: sel ? l.accent : null,
-      pad: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+      pad: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       onTap: () => _select(c),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          Expanded(child: Text(c.heading, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 15.5, fontWeight: FontWeight.w700))),
+          Expanded(child: Text(c.heading, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: 13.5, fontWeight: FontWeight.w600))),
           const SizedBox(width: 8),
           badge,
         ]),
-        const SizedBox(height: 12),
-        SegProgress(c, now: now, height: 6),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
+        SegProgress(c, now: now, height: 4, gap: 4),
+        const SizedBox(height: 7),
         Row(children: [
-          Expanded(child: Text(left, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 13.5))),
-          if (right.isNotEmpty) Text(right, style: TextStyle(color: rc, fontSize: 13.5)),
+          Expanded(child: Text(left, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: 12))),
+          if (right.isNotEmpty) Text(right, style: TextStyle(color: rc, fontSize: 12)),
         ]),
       ]),
     );

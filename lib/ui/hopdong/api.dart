@@ -33,14 +33,14 @@ class HopdongApi {
 
   Uri uri(String path, [Map<String, String>? q]) => Uri.parse('${base.replaceAll(RegExp(r'/+$'), '')}$path').replace(queryParameters: q == null || q.isEmpty ? null : q);
 
-  Future<http.Response> _send(String method, String path, {Object? body, Map<String, String>? query, bool retried = false}) async {
+  Future<http.Response> _send(String method, String path, {Object? body, Map<String, String>? query, bool retried = false, Duration timeout = const Duration(seconds: 40)}) async {
     final req = http.Request(method, uri(path, query))..headers.addAll(await auth(refresh: retried));
     if (body != null) {
       req.headers['Content-Type'] = 'application/json';
       req.body = jsonEncode(body);
     }
-    final res = await _http.send(req).then(http.Response.fromStream).timeout(const Duration(seconds: 40));
-    if (res.statusCode == 401 && !retried) return _send(method, path, body: body, query: query, retried: true);
+    final res = await _http.send(req).then(http.Response.fromStream).timeout(timeout);
+    if (res.statusCode == 401 && !retried) return _send(method, path, body: body, query: query, retried: true, timeout: timeout);
     return res;
   }
 
@@ -94,6 +94,11 @@ class HopdongApi {
     if (res.statusCode == 401) res = await go(true);
     return _c(_json(res));
   }
+
+  /// Máy chủ tự lấy PDF từ Drive ([ticket] = vé Flygo ID của app Drive, chuỗi trần không "Bearer").
+  /// Máy chủ cũ chưa có đường này trả 404 / 501.
+  Future<Contract> docFromDrive(String id, {required String path, required String name, required String ticket}) async =>
+      _c(_json(await _send('PUT', '/api/contracts/$id/doc-from-drive', body: {'path': path, 'name': name, 'ticket': ticket}, timeout: const Duration(minutes: 3))));
 
   /// Bản PDF hiện tại (đã gồm các chữ ký đã có).
   Future<Uint8List> pdf(String id) async {
