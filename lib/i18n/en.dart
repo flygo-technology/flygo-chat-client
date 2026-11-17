@@ -3476,4 +3476,9 @@ const Map<String, String> en = {
   'Cú mèo': 'Owl',
   'Dùng mặc định': 'Use default',
   'Theo mặc định ({0})': 'Default ({0})',
+  // Trang chủ: thẻ gọn + lịch hôm nay.
+  'Mở Lịch': 'Open Calendar',
+  'đã xong': 'done',
+  '{0} ngày tới': 'Next {0} days',
+  'Đổi ảnh đại diện': 'Change profile photo',
 };

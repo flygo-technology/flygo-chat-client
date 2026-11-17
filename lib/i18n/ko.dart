@@ -2528,4 +2528,9 @@ const Map<String, String> ko = {
   'Cú mèo': '부엉이',
   'Dùng mặc định': '기본값 사용',
   'Theo mặc định ({0})': '기본값 ({0})',
+  // Trang chủ: thẻ gọn + lịch hôm nay.
+  'Mở Lịch': '캘린더 열기',
+  'đã xong': '완료',
+  '{0} ngày tới': '앞으로 {0}일',
+  'Đổi ảnh đại diện': '프로필 사진 변경',
 };

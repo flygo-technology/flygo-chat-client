@@ -2528,4 +2528,9 @@ const Map<String, String> zh = {
   'Cú mèo': '猫头鹰',
   'Dùng mặc định': '使用默认',
   'Theo mặc định ({0})': '默认（{0}）',
+  // Trang chủ: thẻ gọn + lịch hôm nay.
+  'Mở Lịch': '打开日历',
+  'đã xong': '已结束',
+  '{0} ngày tới': '未来 {0} 天',
+  'Đổi ảnh đại diện': '更换头像',
 };

@@ -130,6 +130,21 @@ List<CEvent> upcomingFrom(List<CEvent> events, DateTime now, {Duration within = 
   return out;
 }
 
+/// Sự kiện của mình trong hôm nay (theo giờ [tz]), kể cả đã xong: bắt đầu hôm nay hoặc kéo dài qua hôm nay.
+/// Cùng bộ lọc như [upcomingFrom] (bỏ ngày lễ, chỉ xem, bận, huỷ, đã từ chối), xếp theo giờ bắt đầu, cả ngày lên đầu.
+List<CEvent> todayFrom(List<CEvent> events, DateTime now, String tz) {
+  final today = dayOf(wallOf(now.millisecondsSinceEpoch, tz));
+  final from = msOfWall(today, tz), to = msOfWall(addDays(today, 1), tz);
+  final seen = <String>{};
+  final out = [
+    for (final e in events)
+      if (!e.cancelled && !e.busyOnly && e.myRsvp != null && !e.declined && e.startMs != null && e.endMs != null && e.startMs! < to && e.endMs! > from && seen.add(e.instanceId))
+        e,
+  ];
+  out.sort((a, b) => a.allDay != b.allDay ? (a.allDay ? -1 : 1) : a.startMs!.compareTo(b.startMs!));
+  return out;
+}
+
 /// "còn 2 ngày 3 giờ", "còn 2 giờ 15 phút", "còn 15 phút", "còn 40 giây" (phút làm tròn lên).
 String countdownText(Duration d) {
   final s = d.inSeconds;
@@ -161,7 +176,7 @@ String whenText(CEvent e, DateTime now, String tz) {
 }
 
 class UpcomingEvents extends StatefulWidget {
-  const UpcomingEvents({super.key, this.compact = false, this.max = 3, this.clock, this.onOpen});
+  const UpcomingEvents({super.key, this.compact = false, this.max = 3, this.clock, this.onOpen, this.onOpenCalendar});
 
   /// Điện thoại: một dòng gọn ở đầu trang.
   final bool compact;
@@ -170,6 +185,7 @@ class UpcomingEvents extends StatefulWidget {
   /// Kiểm thử: đồng hồ, và việc mở sự kiện thay cho mở Lịch thật.
   final DateTime Function()? clock;
   final void Function(CEvent e)? onOpen;
+  final VoidCallback? onOpenCalendar;
 
   @override
   State<UpcomingEvents> createState() => _UpcomingEventsState();
@@ -273,8 +289,13 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
     if (d == null) return const SizedBox.shrink();
     final now = _now;
     final list = upcomingFrom(d.events, now);
-    if (list.isEmpty) return const SizedBox.shrink();
-    return widget.compact ? _banner(context, list, now, d.tz) : _card(context, list, now, d.tz);
+    if (widget.compact) return list.isEmpty ? const SizedBox.shrink() : _banner(context, list, now, d.tz);
+    // Máy tính: lịch hôm nay (kể cả đã xong) + các sự kiện những ngày tới.
+    final today = todayFrom(d.events, now, d.tz);
+    final todayIds = {for (final e in today) e.instanceId};
+    final later = [for (final e in list) if (!todayIds.contains(e.instanceId)) e];
+    if (today.isEmpty && later.isEmpty) return const SizedBox.shrink();
+    return _card(context, today, later, now, d.tz);
   }
 
   (String, bool) _status(CEvent e, DateTime now) {
@@ -284,10 +305,74 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
     return ('${tr('Đang diễn ra')} · ${countdownText(DateTime.fromMillisecondsSinceEpoch(e.endMs!).difference(now))}', true);
   }
 
-  Widget _card(BuildContext context, List<CEvent> list, DateTime now, String tz) {
+  Widget _card(BuildContext context, List<CEvent> today, List<CEvent> later, DateTime now, String tz) {
     final pal = Pal.of(context);
     final dark = calDark(context);
-    final shown = list.take(widget.max).toList();
+    final shown = later.take(widget.max).toList();
+    final n = now.millisecondsSinceEpoch;
+    final w = wallOf(n, tz);
+    String hhmm(int ms) {
+      final x = wallOf(ms, tz);
+      return '${_two(x.hour)}:${_two(x.minute)}';
+    }
+
+    Widget section(String text, {double top = 10}) => Padding(
+          padding: EdgeInsets.fromLTRB(14, top, 14, 4),
+          child: Text(text.toUpperCase(), style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: .6, color: pal.sub)),
+        );
+    Widget item(CEvent e, {required bool agenda}) {
+      final done = e.endMs! <= n;
+      final c = eventColor(e.color ?? e.calendarColor, dark);
+      final when = agenda ? (e.allDay ? tr('Cả ngày') : '${hhmm(e.startMs!)}–${hhmm(e.endMs!)}') : whenText(e, now, tz);
+      return InkWell(
+        key: ValueKey('upcoming-${e.instanceId}'),
+        onTap: () => _open(e),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 7, 14, 8),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (agenda)
+              SizedBox(
+                width: 46,
+                child: Text(e.allDay ? tr('Cả ngày') : hhmm(e.startMs!),
+                    maxLines: 1,
+                    style: TextStyle(fontSize: 12.5, color: pal.sub, fontFeatures: const [FontFeature.tabularFigures()])),
+              ),
+            Container(
+              width: 4,
+              height: done ? 32 : 40,
+              margin: const EdgeInsets.only(top: 2, right: 10),
+              decoration: BoxDecoration(color: done ? c.withValues(alpha: .4) : c, borderRadius: BorderRadius.circular(2)),
+            ),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 14, fontWeight: done ? FontWeight.w500 : FontWeight.w600, color: done ? pal.sub : pal.text)),
+                const SizedBox(height: 2),
+                Text([when, if (e.location.trim().isNotEmpty) e.location.trim(), if (done) tr('đã xong')].join(' · '),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: pal.sub)),
+                if (!done) ...[const SizedBox(height: 4), _chip(context, e, now)],
+              ]),
+            ),
+          ]),
+        ),
+      );
+    }
+
+    // Vạch "bây giờ" trong lịch hôm nay: trước sự kiện đầu tiên chưa bắt đầu (sau các sự kiện đã xong / đang diễn ra).
+    final red = dark ? const Color(0xFFFF6B6E) : const Color(0xFFE5484D);
+    final nowAt = today.indexWhere((e) => !e.allDay && e.startMs! > n);
+    final nowLine = Padding(
+      key: const ValueKey('upcoming-now'),
+      padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
+      child: Row(children: [
+        Text('${_two(w.hour)}:${_two(w.minute)}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: red)),
+        const SizedBox(width: 6),
+        Expanded(child: Container(height: 1.5, color: red)),
+      ]),
+    );
+    final hasTimed = today.any((e) => !e.allDay);
     return Padding(
       key: const ValueKey('upcoming-events'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -296,46 +381,52 @@ class _UpcomingEventsState extends State<UpcomingEvents> with WidgetsBindingObse
         clipBehavior: Clip.antiAlias,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+            padding: const EdgeInsets.fromLTRB(14, 8, 4, 0),
             child: Row(children: [
               Icon(Icons.event_rounded, size: 18, color: calAccent(context)),
               const SizedBox(width: 8),
-              Expanded(child: Text(tr('Sắp diễn ra'), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: pal.text))),
-              if (list.length > shown.length)
-                Text(tr('+{0} sự kiện', [list.length - shown.length]), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+              Expanded(child: Text(tr('Sắp diễn ra'), style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: pal.text))),
+              if (_data?.app != null || widget.onOpenCalendar != null)
+                InkWell(
+                  key: const ValueKey('upcoming-open-calendar'),
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: _openCalendar,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Text(tr('Mở Lịch'), style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: calAccent(context))),
+                  ),
+                ),
             ]),
           ),
-          for (final e in shown)
-            InkWell(
-              key: ValueKey('upcoming-${e.instanceId}'),
-              onTap: () => _open(e),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(
-                    width: 4,
-                    height: 40,
-                    margin: const EdgeInsets.only(top: 2, right: 10),
-                    decoration: BoxDecoration(color: eventColor(e.color ?? e.calendarColor, dark), borderRadius: BorderRadius.circular(2)),
-                  ),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(e.title.isEmpty ? tr('(Không có tiêu đề)') : e.title,
-                          maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.text)),
-                      const SizedBox(height: 2),
-                      Text([whenText(e, now, tz), if (e.location.trim().isNotEmpty) e.location.trim()].join(' · '),
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: pal.sub)),
-                      const SizedBox(height: 4),
-                      _chip(context, e, now),
-                    ]),
-                  ),
-                ]),
-              ),
+          if (today.isNotEmpty) ...[
+            section('${tr('Hôm nay')} · ${tr(_weekdays[w.weekday - 1])} ${w.day}/${w.month}', top: 2),
+            for (var i = 0; i < today.length; i++) ...[
+              if (i == nowAt) nowLine,
+              item(today[i], agenda: true),
+            ],
+            if (hasTimed && nowAt < 0) nowLine,
+          ],
+          if (shown.isNotEmpty) ...[
+            section(tr('{0} ngày tới', [kUpcomingWindow.inDays]), top: today.isEmpty ? 2 : 10),
+            for (final e in shown) item(e, agenda: false),
+          ],
+          if (later.length > shown.length)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+              child: Text(tr('+{0} sự kiện', [later.length - shown.length]), style: TextStyle(fontSize: 12.5, color: pal.sub)),
             ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
         ]),
       ),
     );
+  }
+
+  Future<void> _openCalendar() async {
+    if (widget.onOpenCalendar != null) return widget.onOpenCalendar!();
+    final app = _data?.app;
+    if (app == null) return;
+    await openCalendar(context, app);
+    unawaited(_reload());
   }
 
   Widget _chip(BuildContext context, CEvent e, DateTime now) {

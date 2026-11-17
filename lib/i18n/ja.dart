@@ -2528,4 +2528,9 @@ const Map<String, String> ja = {
   'Cú mèo': 'フクロウ',
   'Dùng mặc định': '既定を使用',
   'Theo mặc định ({0})': '既定（{0}）',
+  // Trang chủ: thẻ gọn + lịch hôm nay.
+  'Mở Lịch': 'カレンダーを開く',
+  'đã xong': '終了',
+  '{0} ngày tới': '今後 {0} 日',
+  'Đổi ảnh đại diện': 'プロフィール写真を変更',
 };

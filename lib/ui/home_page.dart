@@ -1085,6 +1085,7 @@ class _HomePageState extends State<HomePage> {
 
   /// Thẻ người dùng ([AppsUserCard]): điện thoại ở trên cùng, máy tính ở cột trái 1/3.
   Widget _userCard(AppState app, NavigatorState? Function() nav) => AppsUserCard(
+        compact: true,
         onProfile: () => showEditProfile(context),
         onSettings: () => _openProfile(nav()),
       );
@@ -1372,14 +1373,14 @@ class _HomePageState extends State<HomePage> {
                   card,
                   const SeasonBanner(),
                   // Sự kiện Lịch sắp tới (đếm ngược) dưới thẻ người dùng, ẩn khi không có (Sếp, 2026-11-17).
-                  UpcomingEvents(key: ValueKey('upcoming-$kServerUrl')),
+                  UpcomingEvents(key: ValueKey('upcoming-$kServerUrl'), max: 5),
                 ]),
               ),
               // Dưới cùng cột trái: tên công ty bên trái, Đăng xuất bên phải (đối diện nhau).
               Padding(
                 padding: EdgeInsets.fromLTRB(0, 0, 8, bottom + 8),
                 child: Row(children: [
-                  const Expanded(child: AppsServerRow(align: TextAlign.left)),
+                  const Expanded(child: AppsServerRow(align: TextAlign.left, version: true)),
                   if (!isChildWindow) AppsLogoutButton(onLogout: _confirmLogout),
                 ]),
               ),
@@ -3409,7 +3410,12 @@ class AppsUserCard extends StatelessWidget {
 
   /// null: không có nút Đăng xuất (cửa sổ riêng dùng chung phiên với cửa sổ chính).
   final VoidCallback? onLogout;
-  const AppsUserCard({super.key, required this.onProfile, this.onSettings, this.onLogout});
+
+  /// Máy tính (cột trái Trang chủ): thẻ gọn một khối (Sếp, 2026-11-17): ảnh bên trái (chấm hoạt động, nút máy ảnh đổi
+  /// ảnh), tên / "@tên · email" / chip trạng thái (bấm: menu hoạt động + trạng thái), ⚙️ góc trên phải. Bấm ảnh hoặc tên:
+  /// Chỉnh sửa hồ sơ. Không có nút, không có dòng phiên bản (nằm dưới tên công ty, [AppsServerRow]).
+  final bool compact;
+  const AppsUserCard({super.key, required this.onProfile, this.onSettings, this.onLogout, this.compact = false});
 
   static const _cover = 150.0, _avatar = 120.0, _ring = 4.0;
 
@@ -3419,6 +3425,7 @@ class AppsUserCard extends StatelessWidget {
     final app = context.watch<AppState>();
     final me = app.me;
     if (me == null) return const SizedBox.shrink();
+    if (compact) return _compact(context, pal, app, me);
     final position = '${me.raw['position'] ?? ''}'.trim();
     final bio = '${(me.raw['props'] as Map?)?['bio'] ?? ''}'.trim();
     final custom = app.customStatusOf(me.id);
@@ -3605,6 +3612,158 @@ class AppsUserCard extends StatelessWidget {
       ]),
     );
   }
+
+  Widget _compact(BuildContext context, Pal pal, AppState app, MmUser me) {
+    final custom = app.customStatusOf(me.id);
+    final st = app.statusOf(me.id);
+    // Chỉ email (Sếp, 2026-11-17: "bỏ username, giữ lại email"); không có email thì @tên.
+    final line = me.email.isNotEmpty ? me.email : '@${me.username}';
+    const size = 64.0;
+    Future<void> pickPhoto() async {
+      final messenger = ScaffoldMessenger.of(context);
+      final r = await pickAvatarImage(context);
+      if (r == null) return;
+      try {
+        await app.setUserImage(me.id, r.$1, r.$2);
+        messenger.showSnackBar(toast(Text(tr('Đã đổi ảnh đại diện'))));
+      } catch (_) {
+        messenger.showSnackBar(toast(Text(tr('Không đổi được ảnh. Bạn có thể không có quyền.'))));
+      }
+    }
+
+    // Chip trạng thái: chấm hoạt động + trạng thái riêng (hoặc tên hoạt động); bấm mở menu.
+    final chip = PopupMenuButton<String>(
+      key: const ValueKey('apps-status-chip'),
+      tooltip: tr('Trạng thái'),
+      position: PopupMenuPosition.under,
+      onSelected: (v) {
+        if (v == 'custom') {
+          StatusSection.editCustomStatus(context, app);
+        } else if (v == 'clear') {
+          app.clearCustomStatus().catchError((_) {});
+        } else {
+          app.setMyStatus(v).catchError((_) {
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Không đổi được trạng thái.'))));
+          });
+        }
+      },
+      itemBuilder: (_) => [
+        for (final s in ['online', 'away', 'dnd', 'offline'])
+          PopupMenuItem(
+            value: s,
+            child: Row(children: [
+              statusDot(s, pal, size: 12),
+              const SizedBox(width: 10),
+              Expanded(child: Text(s == 'offline' ? tr('Ẩn (hiện ngoại tuyến)') : availabilityLabel(s))),
+              if (st == s) Icon(Icons.check_rounded, size: 18, color: pal.accent),
+            ]),
+          ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+            value: 'custom',
+            child: Row(children: [Icon(Icons.emoji_emotions_outlined, size: 18, color: pal.sub), const SizedBox(width: 10), Text(tr('Đặt trạng thái'))])),
+        if (custom != null)
+          PopupMenuItem(
+              value: 'clear', child: Row(children: [Icon(Icons.close_rounded, size: 18, color: pal.sub), const SizedBox(width: 10), Text(tr('Xóa trạng thái'))])),
+      ],
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 5, 6, 5),
+        decoration: BoxDecoration(color: pal.surface2, borderRadius: BorderRadius.circular(999)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          statusDot(st, pal, size: 9),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              custom == null ? availabilityLabel(st) : [if (custom.emoji.isNotEmpty) emojiOf(custom.emoji), custom.text].where((x) => x.isNotEmpty).join(' '),
+              key: const ValueKey('apps-current-status'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: pal.text),
+            ),
+          ),
+          Icon(Icons.expand_more_rounded, size: 16, color: pal.sub),
+        ]),
+      ),
+    );
+    return Padding(
+      key: const ValueKey('apps-user-card'),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+        decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: pal.divider)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Ảnh: bấm = Chỉnh sửa hồ sơ; nút máy ảnh = đổi ảnh; chấm hoạt động góc dưới trái.
+          SizedBox(
+            width: size + 4,
+            height: size + 4,
+            child: Stack(clipBehavior: Clip.none, children: [
+              Tooltip(
+                message: tr('Chỉnh sửa hồ sơ'),
+                child: InkWell(
+                  key: const ValueKey('apps-edit-profile'),
+                  customBorder: const CircleBorder(),
+                  onTap: onProfile,
+                  child: Avatar(userId: me.id, name: me.displayName, size: size, status: false),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                bottom: 2,
+                child: Container(
+                  key: const ValueKey('apps-presence-dot'),
+                  padding: const EdgeInsets.all(2.5),
+                  decoration: BoxDecoration(color: pal.surface, shape: BoxShape.circle),
+                  child: statusDot(st, pal, size: 13),
+                ),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Tooltip(
+                  message: tr('Đổi ảnh đại diện'),
+                  child: InkWell(
+                    key: const ValueKey('apps-change-photo'),
+                    customBorder: const CircleBorder(),
+                    onTap: pickPhoto,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(color: pal.accent, shape: BoxShape.circle, border: Border.all(color: pal.surface, width: 2)),
+                      child: const Icon(Icons.photo_camera, size: 12, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: onProfile,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(me.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
+                  const SizedBox(height: 2),
+                  Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
+                ]),
+              ),
+              const SizedBox(height: 8),
+              chip,
+            ]),
+          ),
+          if (onSettings != null)
+            IconButton(
+              key: const ValueKey('apps-settings'),
+              tooltip: tr('Cài đặt'),
+              onPressed: onSettings,
+              visualDensity: VisualDensity.compact,
+              style: IconButton.styleFrom(backgroundColor: pal.surface2),
+              icon: Icon(Icons.settings_rounded, size: 19, color: pal.sub),
+            ),
+        ]),
+      ),
+    );
+  }
 }
 
 /// Đầu trang Ứng dụng trên điện thoại: tên công ty (máy chủ đang dùng), không bấm được. Đổi / thêm máy chủ: vuốt 3 ngón
@@ -3667,20 +3826,43 @@ class AppsProfilePage extends StatelessWidget {
 /// trang (sau mục Cá nhân), máy tính ở dưới cùng cột trái. Đổi / thêm máy chủ: tiêu đề danh sách chat và trang Cài đặt.
 class AppsServerRow extends StatelessWidget {
   final TextAlign align;
-  const AppsServerRow({super.key, this.align = TextAlign.center});
+
+  /// Máy tính: dòng "Phiên bản N · Kiểm tra cập nhật" chữ nhỏ dưới tên công ty (Sếp, 2026-11-17).
+  final bool version;
+  const AppsServerRow({super.key, this.align = TextAlign.center, this.version = false});
 
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    if (ServerList.items.isEmpty) return const SizedBox.shrink();
+    final name = ServerList.items.isEmpty
+        ? const SizedBox.shrink()
+        : Text(ServerList.currentEntry.name,
+            key: const ValueKey('apps-server'),
+            textAlign: align,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: version ? TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: pal.text) : TextStyle(fontSize: 12.5, color: pal.sub));
+    if (!version) return ServerList.items.isEmpty ? name : Padding(padding: const EdgeInsets.fromLTRB(20, 8, 8, 8), child: name);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 8, 8),
-      child: Text(ServerList.currentEntry.name,
-          key: const ValueKey('apps-server'),
-          textAlign: align,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12.5, color: pal.sub)),
+      padding: const EdgeInsets.fromLTRB(20, 6, 8, 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        name,
+        const SizedBox(height: 2),
+        ValueListenableBuilder<String>(
+          valueListenable: currentBuild,
+          builder: (_, b, _) => Row(key: const ValueKey('apps-version'), children: [
+            if (b.isNotEmpty) Text('${tr('Phiên bản {0}', [b])} · ', style: TextStyle(fontSize: 12, color: pal.sub)),
+            Flexible(
+              child: InkWell(
+                key: const ValueKey('apps-check-update'),
+                onTap: () => showUpdateDialog(context),
+                child: Text(tr('Kiểm tra cập nhật'),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: pal.accentText, fontWeight: FontWeight.w500)),
+              ),
+            ),
+          ]),
+        ),
+      ]),
     );
   }
 }
