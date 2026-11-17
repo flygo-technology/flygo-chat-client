@@ -87,14 +87,14 @@ void main() {
 
 
   // Nhóm ô đặt trên tấm kính mờ (nền mùa lễ phía sau vẫn êm, chữ luôn rõ).
-  Widget grid(Pal pal, String title, List<Widget> tiles, {bool glass = false}) {
+  Widget grid(Pal pal, String title, List<Widget> tiles, {bool glass = false, bool panel = false}) {
     final inner = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: EdgeInsets.fromLTRB(glass ? 16 : 20, glass ? 14 : 18, 20, 4),
         child: Text(title.toUpperCase(), style: TextStyle(fontSize: 12.5, letterSpacing: .5, fontWeight: FontWeight.w700, color: pal.sub)),
       ),
       LayoutBuilder(builder: (ctx, c) {
-        final cols = (c.maxWidth / 96).floor().clamp(4, 12);
+        final cols = (c.maxWidth / (panel ? 100 : 96)).floor().clamp(4, 14);
         final w = (c.maxWidth - 16) / cols;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -102,6 +102,14 @@ void main() {
         );
       }),
     ]);
+    if (panel) {
+      return Container(
+        margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+        padding: const EdgeInsets.only(bottom: 6),
+        decoration: BoxDecoration(color: pal.surface.withValues(alpha: .6), borderRadius: BorderRadius.circular(22)),
+        child: inner,
+      );
+    }
     if (!glass) return inner;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -122,7 +130,7 @@ void main() {
     );
   }
 
-  List<Widget> sections(Pal pal, bool glass) => [
+  List<Widget> sections(Pal pal, bool glass, {bool panel = false}) => [
         grid(pal, 'Chính', [
           ...icons(pal, [
             (Icons.chat_bubble_rounded, const Color(0xFF25A244), 'Chat', 3),
@@ -135,13 +143,13 @@ void main() {
             (Icons.contacts_rounded, const Color(0xFF2F80ED), 'Danh bạ', 0),
             (Icons.call_rounded, const Color(0xFFE53935), 'Cuộc gọi', 0),
           ]),
-        ], glass: glass),
-        grid(pal, 'Ứng dụng', minis(pal, [(Icons.insights_rounded, const Color(0xFF2F80ED), 'Báo cáo'), (Icons.mail_rounded, const Color(0xFFEA4335), 'Gmail'), (Icons.receipt_long_rounded, const Color(0xFF16A34A), 'Hoá đơn'), (Icons.account_balance_rounded, const Color(0xFF7C3AED), 'Ngân hàng')]), glass: glass),
+        ], glass: glass, panel: panel),
+        grid(pal, 'Ứng dụng', minis(pal, [(Icons.insights_rounded, const Color(0xFF2F80ED), 'Báo cáo'), (Icons.mail_rounded, const Color(0xFFEA4335), 'Gmail'), (Icons.receipt_long_rounded, const Color(0xFF16A34A), 'Hoá đơn'), (Icons.account_balance_rounded, const Color(0xFF7C3AED), 'Ngân hàng')]), glass: glass, panel: panel),
         grid(pal, 'Quản trị', icons(pal, [
           (Icons.account_tree_outlined, const Color(0xFF0F766E), 'Tổ chức', 0),
           (Icons.manage_accounts_rounded, const Color(0xFF0F766E), 'Người dùng', 0),
           (Icons.palette_rounded, const Color(0xFFC62828), 'Giao diện', 0),
-        ]), glass: glass),
+        ]), glass: glass, panel: panel),
         grid(pal, 'Cá nhân', [
           tile(pal, Avatar(userId: 'me', name: 'Nguyễn Văn An', size: 62, status: false), null, 'Hồ sơ', circle: true),
           ...icons(pal, [
@@ -152,7 +160,7 @@ void main() {
             (Icons.password_rounded, const Color(0xFFF2C94C), 'Mật khẩu', 0),
             (Icons.privacy_tip_outlined, const Color(0xFF5B6CFF), 'Quyền riêng tư', 0),
           ]),
-        ], glass: glass),
+        ], glass: glass, panel: panel),
       ];
 
   Widget background(String id) => id == 'hiennay' ? const SizedBox.shrink() : WallpaperView(wallpaper: wallpaperById(id)!, frozenT: 2);
@@ -213,6 +221,44 @@ void main() {
         ),
       );
 
+  // Trang chủ máy tính sau góp ý của Sếp (17/11): nền thường, tấm nền nhạt cho từng nhóm, cột thẻ <= 400, rộng tới 1680, không thanh cuộn.
+  Widget desktopV2(Brightness b) => ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(b),
+          home: Builder(builder: (c) {
+            final pal = Pal.of(c);
+            return Scaffold(
+              backgroundColor: pal.bg,
+              body: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(c).copyWith(scrollbars: false),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1680),
+                    child: LayoutBuilder(builder: (_, k) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      SizedBox(
+                        width: k.maxWidth / 3 > 400 ? 400 : k.maxWidth / 3,
+                        child: ListView(padding: const EdgeInsets.only(top: 24, bottom: 16), children: [AppsUserCard(onProfile: () {}, onSettings: () {})]),
+                      ),
+                      Expanded(
+                        child: ListView(padding: const EdgeInsets.only(top: 12, bottom: 24, right: 12), children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+                            child: Text('Mở ứng dụng', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: pal.text)),
+                          ),
+                          ...sections(pal, false, panel: true),
+                        ]),
+                      ),
+                    ])),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      );
+
   const ids = ['hiennay', 'giangsinh2', 'tuyetem', 'anhden', 'rungthong', 'cucquang', 'doituyet', 'cuaso', 'kinhsuong'];
   Future<void> png(WidgetTester t, String name, Size size, Widget w) async {
     t.view.physicalSize = size * 2;
@@ -230,6 +276,15 @@ void main() {
       await File('$out/$name.png').writeAsBytes(bytes!.buffer.asUint8List());
     });
   }
+
+  testWidgets('desktop v2', (t) async {
+    if (out == null) return;
+    await t.runAsync(_fonts);
+    await useFakePhotos(t);
+    for (final b in Brightness.values) {
+      await png(t, 'desktop-v2-${b.name}', const Size(1600, 900), desktopV2(b));
+    }
+  });
 
   for (final (i, id) in ids.indexed) {
     testWidgets('home $id', (t) async {

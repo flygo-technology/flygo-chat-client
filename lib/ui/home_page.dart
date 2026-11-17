@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import '../i18n/i18n.dart';
 import '../calls/meet_rooms.dart' show parseMeetCode;
@@ -127,7 +128,7 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
         'aiquota',
         // Hình nền Trang chủ (máy tính, lưu trên máy này).
         // Màu nền Trang chủ (màu trơn / nền Giáng sinh / theo mùa lễ), thay ứng dụng Hình nền cũ.
-        'homebg',
+        if (!desktop) 'homebg',
       ]),
     ].where((g) => g.$2.isNotEmpty).toList();
 
@@ -1160,7 +1161,9 @@ class _HomePageState extends State<HomePage> {
     // [color] null = ô nền trắng có viền (mini app: biểu tượng riêng của app là ảnh / emoji).
     // Có hình nền (Trang chủ máy tính): chữ đặt trên nền mờ bo tròn để không chìm vào ảnh.
     // Có "Màu nền" (HomeBackground vẽ phía sau trang): mỗi nhóm ô đặt trên tấm kính mờ cho chữ luôn rõ.
-    final frosted = onLaunch != null && SeasonState.instance.homeChoice() != null;
+    final frosted = onLaunch != null && !isDesktop && SeasonState.instance.homeChoice() != null;
+    // Máy tính: mỗi nhóm ô trên một tấm nền nhạt (không hình nền phía sau).
+    final panels = onLaunch != null && isDesktop;
     Widget onWall(Widget text) => text;
 
     /// [circle]: ô tròn không viền (ô "Hồ sơ" là ảnh đại diện tròn, khung vuông bo góc sẽ lòi góc ra ngoài ảnh).
@@ -1226,7 +1229,7 @@ class _HomePageState extends State<HomePage> {
             LayoutBuilder(builder: (ctx, c) {
               // Điện thoại: 4 cột; màn rộng hơn thì thêm cột (tối đa 6).
               // Điện thoại: 4 cột; màn rộng (Trang chủ máy tính) thêm cột tới 12 để ít phải cuộn.
-              final cols = (c.maxWidth / 108).floor().clamp(4, 12);
+              final cols = (c.maxWidth / (isDesktop ? 100 : 108)).floor().clamp(4, 14);
               final w = (c.maxWidth - 24) / cols;
               // Ô ứng dụng căn trái (Sếp, 2026-11-13).
               return Padding(
@@ -1236,7 +1239,16 @@ class _HomePageState extends State<HomePage> {
             }),
           ],
         );
-      return frosted ? FrostedSection(child: col) : col;
+      if (frosted) return FrostedSection(child: col);
+      if (panels) {
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          padding: const EdgeInsets.only(bottom: 6),
+          decoration: BoxDecoration(color: pal.surface.withValues(alpha: .6), borderRadius: BorderRadius.circular(22)),
+          child: col,
+        );
+      }
+      return col;
     }
 
     Widget section(String title, List<(IconData, Color, String, int, VoidCallback)> items) => grid(title, [for (final it in items) tile(it)]);
@@ -1444,7 +1456,8 @@ class _HomePageState extends State<HomePage> {
         return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Cột trái: thẻ người dùng, máy chủ ghim ở dưới cùng.
           SizedBox(
-            width: c.maxWidth / 3,
+            // Cột thẻ người dùng không quá 400 để phần ứng dụng rộng hơn (Sếp, 2026-11-17).
+            width: math.min(c.maxWidth / 3, 400),
             child: Column(children: [
               Expanded(
                 child: ListView(padding: EdgeInsets.only(top: 24 + (isDesktop ? 0 : MediaQuery.paddingOf(context).top), bottom: 16), children: [
@@ -2082,13 +2095,16 @@ class _HomePageState extends State<HomePage> {
           observers: [_TabRootObserver(() => setState(() => _tabTitles.remove(t.id)))],
           root: Scaffold(
             backgroundColor: Pal.of(context).bg,
-            // Trang chủ: "Màu nền" (màu trơn / nền Giáng sinh / theo mùa lễ) phủ cả cửa sổ.
-            body: HomeBackground(child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1440),
-                child: _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id), tab: t),
+            // Trang chủ máy tính: nền thường (không "Màu nền", Sếp 2026-11-17), dàn rộng hơn, ẩn thanh cuộn (vẫn cuộn bằng chuột / bàn di).
+            body: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1680),
+                  child: _apps(app, 16, () => _tabNav(t).currentState, onLaunch: (id) => _launchInTab(t, id), tab: t),
+                ),
               ),
-            )),
+            ),
           ),
         ),
     };
