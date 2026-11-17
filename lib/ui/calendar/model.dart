@@ -244,6 +244,7 @@ class CEvent {
     this.canRsvp = false,
     this.busyOnly = false,
     this.notice = false,
+    this.icon,
     this.updated = 0,
     this.seq = 0,
   })  : instanceId = instanceId ?? (rid == null ? id : '$id~$rid'),
@@ -282,6 +283,9 @@ class CEvent {
 
   /// Chỉ thông báo: khách không cần trả lời (không có nút), được nhắc theo người tổ chức.
   bool notice;
+
+  /// Biểu tượng của sự kiện (id trong event_style.dart); null = tự chọn theo tiêu đề.
+  String? icon;
   int updated, seq;
 
   bool get cancelled => status == 'cancelled';
@@ -351,6 +355,7 @@ class CEvent {
       canRsvp: _b(m['can_rsvp']),
       busyOnly: _b(m['busy_only']),
       notice: _b(m['notice']),
+      icon: (m['icon'] as String?)?.isEmpty ?? true ? null : m['icon'] as String,
       updated: _i(m['updated']),
       seq: _i(m['seq']),
     );
@@ -390,6 +395,7 @@ class CEvent {
         'can_rsvp': canRsvp,
         'busy_only': busyOnly,
         'notice': notice,
+        'icon': icon,
         'updated': updated,
         'seq': seq,
       };

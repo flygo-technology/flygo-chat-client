@@ -27,6 +27,8 @@ const kEventColors = <String, (Color, Color)>{
   'amber': (Color(0xFFC99400), Color(0xFFA67B00)),
   'slate': (Color(0xFF64748B), Color(0xFF56657A)),
   'cocoa': (Color(0xFF8D6E63), Color(0xFF795E54)),
+  'navy': (Color(0xFF2B4C86), Color(0xFF263F6E)),
+  'noel': (Color(0xFFA82424), Color(0xFF8E1F1F)),
 };
 
 const kColorNames = {
@@ -40,6 +42,8 @@ const kColorNames = {
   'amber': 'Vàng nghệ',
   'slate': 'Xám đá',
   'cocoa': 'Nâu',
+  'navy': 'Xanh đêm',
+  'noel': 'Giáng sinh',
 };
 
 Color eventColor(String? id, bool dark) {

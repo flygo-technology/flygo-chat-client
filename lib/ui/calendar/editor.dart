@@ -14,6 +14,7 @@ import '../common.dart' show pickFilesOrReport;
 import '../theme.dart';
 import 'event_detail.dart' show askScope;
 import 'hop.dart';
+import 'event_style.dart';
 import 'look.dart';
 import 'model.dart';
 import 'people.dart';
@@ -39,6 +40,7 @@ class EventDraft {
     this.color,
     this.conference,
     this.notice = false,
+    this.icon,
     List<CAttendee>? guests,
     Map<String, bool>? guestPerms,
     List<CFile>? files,
@@ -52,7 +54,7 @@ class EventDraft {
   String calendarId, title, description, location, tz, visibility;
   bool allDay, busy, notice;
   DateTime start, end;
-  String? rrule, color;
+  String? rrule, color, icon;
   CConference? conference;
   List<CAttendee> guests;
   Map<String, bool> guestPerms;
@@ -75,6 +77,7 @@ class EventDraft {
         color: e.color,
         conference: e.conference,
         notice: e.notice,
+        icon: e.icon,
         guests: [for (final a in e.attendees) CAttendee.fromJson(a.toJson())],
         guestPerms: {...e.guestPerms},
         files: [...e.attachments],
@@ -114,6 +117,7 @@ class EventDraft {
         'attendees': [for (final g in guests) if (!g.organizer) {'principal': g.principal, 'optional': g.optional}],
         'guest_perms': guestPerms,
         'notice': notice,
+        'icon': icon,
         'attachments': [for (final f in files) f.id],
         'reminders': [for (final r in reminders) r.toJson()],
       };
@@ -693,13 +697,35 @@ class _EventEditorState extends State<EventEditor> {
             items: [for (final c in cals) (c.id, c.name)],
             onSelected: (v) => setState(() => d.calendarId = v),
           ),
-          ChipMenu<String>(
-            key: const ValueKey('ed-color'),
-            leading: d.color == null ? null : Container(width: 12, height: 12, decoration: BoxDecoration(color: eventColor(d.color, dark), shape: BoxShape.circle)),
-            label: d.color == null ? tr('Màu: Theo lịch') : tr('Màu: {0}', [tr(kColorNames[d.color] ?? d.color!)]),
-            items: [('', tr('Theo lịch')), for (final e in kColorNames.entries) (e.key, tr(e.value))],
-            onSelected: (v) => setState(() => d.color = v.isEmpty ? null : v),
-          ),
+          // Biểu tượng & màu (kiểu banner): bấm mở bảng chọn (Sếp, 2026-11-17).
+          Builder(builder: (_) {
+            final cal = store.calendar(d.calendarId);
+            final iconId = iconIdOf(d.icon, d.title);
+            final colorId = colorIdOf(color: d.color, calendarColor: cal?.shownColor, iconId: iconId);
+            return ActionChip(
+              key: const ValueKey('ed-style'),
+              avatar: EventIconTile(icon: iconId, color: colorId, size: 22),
+              label: Text(d.icon == null && d.color == null ? tr('Biểu tượng & màu: Tự động') : '${iconLabelOf(iconId)} · ${tr('Biểu tượng & màu')}'),
+              onPressed: () async {
+                final r = await showEventStylePicker(context,
+                    title: d.title,
+                    subtitle: [
+                      '${d.start.day}/${d.start.month}${d.allDay ? '' : ' ${hm(d.start)}–${hm(d.end)}'}',
+                      if (d.location.trim().isNotEmpty) d.location.trim(),
+                    ].join(' · '),
+                    icon: d.icon,
+                    color: d.color,
+                    calendarColor: cal?.shownColor,
+                    wide: calWide(context));
+                if (r != null && mounted) {
+                  setState(() {
+                    d.icon = r.icon;
+                    d.color = r.color;
+                  });
+                }
+              },
+            );
+          }),
           ChipMenu<bool>(
             key: const ValueKey('ed-busy'),
             label: d.busy ? tr('Bận') : tr('Rảnh'),
