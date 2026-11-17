@@ -9,6 +9,7 @@ import 'attachments.dart';
 import 'compose.dart';
 import 'html_view.dart';
 import 'image_trust.dart';
+import 'skeleton.dart';
 import 'model.dart';
 import 'store.dart';
 import 'widgets.dart';
@@ -342,7 +343,6 @@ class ThreadViewState extends State<ThreadView> {
         children: [
           const SizedBox(width: 6),
           IconButton(tooltip: 'Quay lại (u)', icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
-          _aiButton(mc),
           if (store.readOnly) ...[
             IconButton(tooltip: 'Thêm vào Lịch', icon: const Icon(Icons.event_outlined), onPressed: _toCalendar),
             IconButton(tooltip: 'Gửi vào chat', icon: const Icon(Icons.forward_to_inbox_outlined), onPressed: _toChat),
@@ -373,6 +373,8 @@ class ThreadViewState extends State<ThreadView> {
               builder: (b) => IconButton(tooltip: 'Thao tác khác', icon: const Icon(Icons.more_vert), onPressed: () => _more(b)),
             ),
           ],
+          // AI ở cuối dãy nút công cụ
+          _aiButton(mc),
           const Spacer(),
           if (idx >= 0 && widget.wide) Text('${(store.page - 1) * store.size + idx + 1} trong tổng số ${store.total}', style: TextStyle(fontSize: 12, color: mc.muted)),
           if (idx >= 0 && widget.onStep != null) ...[
@@ -389,7 +391,7 @@ class ThreadViewState extends State<ThreadView> {
         child: Text('$_err', style: TextStyle(color: mc.muted)),
       );
     } else if (t == null) {
-      body = const Center(child: CircularProgressIndicator());
+      body = ThreadSkeleton(wide: widget.wide);
     } else {
       final pad = widget.wide ? 72.0 : 16.0;
       body = ListView(

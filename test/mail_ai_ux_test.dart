@@ -34,7 +34,7 @@ void main() {
     await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
     await t.pump();
     expect(find.byKey(const ValueKey('mail-loading')), findsOneWidget);
-    expect(find.text('Đang tải hộp thư…'), findsOneWidget);
+    expect(find.byKey(const ValueKey('mail-list-skeleton')), findsOneWidget);
     api.gate.complete();
     for (var i = 0; i < 10; i++) {
       await t.pump(const Duration(milliseconds: 100));
@@ -269,5 +269,43 @@ void main() {
   test('ảnh từ mạng: nhận ra thư có ảnh ngoài, không tính ảnh dán trong thư', () {
     expect(MailImageTrust.hasRemoteImages('<img src="https://x/y.png">'), true);
     expect(MailImageTrust.hasRemoteImages('<img src="/mail/api/attachments/a/b">'), false);
+  });
+
+  testWidgets('khung chờ: đổi tab Quảng cáo, đổi hộp thư (cả địa chỉ), mở thư', (t) async {
+    t.view.physicalSize = const Size(1440, 900);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final api = DemoMailApi(latency: const Duration(milliseconds: 300));
+    final store = MailStore(api);
+    await t.pumpWidget(MaterialApp(home: MailHome(store: store, title: 'Mail', ownsStore: false)));
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    store.setCategory('promo');
+    await t.pump();
+    expect(find.byKey(const ValueKey('mail-list-skeleton')), findsOneWidget);
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    store.setCategory('primary');
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    final other = store.me!.boxes.firstWhere((b) => b.id != store.me!.current.id);
+    store.switchMailbox(other.id);
+    await t.pump();
+    expect(find.byKey(const ValueKey('mail-box-skeleton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('mail-list-skeleton')), findsOneWidget);
+    for (var i = 0; i < 30; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byKey(const ValueKey('mail-box-skeleton')), findsNothing);
+    t.state<MailHomeState>(find.byType(MailHome)).openThread(store.items.first);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.byKey(const ValueKey('mail-thread-skeleton')), findsOneWidget);
+    for (var i = 0; i < 20; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
   });
 }
