@@ -46,9 +46,9 @@ void main() {
     s.org = _org(features: {'banner': false});
     expect(s.on('banner', dec10), isFalse);
     expect(s.on('lights', dec10), isTrue);
-    s.mine = {'lights': false};
+    s.mine = {'mode': 'custom', 'lights': false};
     expect(s.on('lights', dec10), isFalse);
-    s.mine = {'off': true};
+    s.mine = {'mode': 'custom', 'off': true};
     expect(s.on('effect', dec10), isFalse);
   });
 
@@ -61,7 +61,7 @@ void main() {
     expect(s.seasonBubble('u9')?.style, 'munoel');
     (s.org!['cfg']['seasons']['giangsinh'] as Map)['wallpaper'] = 'off';
     expect(s.resolveWallpaper('c1', true), isNull);
-    s.mine = {'off': true};
+    s.mine = {'mode': 'custom', 'off': true};
     expect(s.seasonBubble('u9'), isNull);
     s.clock = DateTime.now;
   });
@@ -72,6 +72,7 @@ void main() {
     expect(s.resolveWallpaper('c1', true), isNull);
     s.wallpapers = {'c1': 'tuyettrang'}; // mã cũ → Giáng sinh (một hình nền, tự đổi sáng / tối)
     expect(s.resolveWallpaper('c1', true)?.art?.id, 'giangsinh');
+    s.mine = {'mode': 'custom'};
     s.wallpapers = {'_default': 'plain:1F2933'};
     expect(s.resolveWallpaper('c2', false)?.color?.toARGB32(), 0xFF1F2933);
     s.wallpapers = {'_default': 'photo', 'c3': 'none'};
@@ -91,7 +92,7 @@ void main() {
     expect(s.effectFor('giang sinh vui ve nhe'), BurstKind.gifts);
     expect(s.effectFor('MERRY CHRISTMAS'), BurstKind.snow);
     expect(s.effectFor('Họp lúc 3 giờ'), isNull);
-    s.mine = {'effect': false};
+    s.mine = {'mode': 'custom', 'effect': false};
     expect(s.effectFor('Merry Christmas'), isNull);
   });
 
@@ -107,19 +108,34 @@ void main() {
     expect(s.activeSeason(nov), isNull);
   });
 
-  test('màu nền Trang chủ: theo mùa lễ / màu trơn / nền Giáng sinh', () {
+  test('nền Trang chủ: theo cài đặt admin (điện thoại / máy tính), cài riêng', () {
     s.clock = () => DateTime.utc(2026, 12, 10, 3);
-    expect(s.homeChoice()?.art?.id, 'giangsinh'); // mặc định: theo mùa lễ, đang trong mùa
-    s.mine = {'home_bg': 'season', 'home_color': '4A78B8'};
-    expect(s.homeChoice()?.art?.id, 'giangsinh');
-    s.clock = () => DateTime.utc(2027, 1, 10, 3); // ngoài mùa: dùng màu
-    expect(s.homeChoice()?.color?.toARGB32(), 0xFF4A78B8);
-    s.mine = {'home_bg': 'anhden'}; // chọn hẳn một nền Giáng sinh: luôn hiện
-    expect(s.homeChoice()?.art?.id, 'anhden');
-    s.mine = {'home_bg': 'none'};
-    expect(s.homeChoice(), isNull);
-    s.mine = {'home_bg': 'plain:0E9F8E'};
-    expect(s.homeChoice()?.color?.toARGB32(), 0xFF0E9F8E);
+    expect(s.homeChoice(desktop: false)?.art?.id, 'giangsinh'); // admin chưa đặt: điện thoại theo mùa lễ
+    expect(s.homeChoice(desktop: true), isNull); // máy tính: không nền
+    (s.org!['cfg'] as Map)['defaults'] = {'home_bg_phone': 'anhden', 'home_bg_desktop': 'plain:0E9F8E'};
+    expect(s.homeChoice(desktop: false)?.art?.id, 'anhden');
+    expect(s.homeChoice(desktop: true)?.color?.toARGB32(), 0xFF0E9F8E);
+    // Lựa chọn riêng chỉ có hiệu lực khi "Cài riêng".
+    s.mine = {'home_bg_phone': 'none'};
+    expect(s.homeChoice(desktop: false)?.art?.id, 'anhden');
+    s.mine = {'mode': 'custom', 'home_bg_phone': 'none'};
+    expect(s.homeChoice(desktop: false), isNull);
+    s.clock = () => DateTime.utc(2027, 1, 10, 3); // ngoài mùa: "theo mùa lễ" = không nền
+    s.mine = {'mode': 'custom', 'home_bg_phone': 'season'};
+    expect(s.homeChoice(desktop: false), isNull);
     s.clock = DateTime.now;
+  });
+
+  test('theo cài đặt admin: bỏ qua tắt mùa lễ riêng; admin tắt tự đổi giao diện chat', () {
+    final dec = DateTime.utc(2026, 12, 10, 3);
+    s.mine = {'off': true};
+    expect(s.on('lights', dec), isTrue);
+    s.mine = {'mode': 'custom', 'off': true};
+    expect(s.on('lights', dec), isFalse);
+    s.mine = {};
+    s.wallpapers = {'c1': 'anhden'};
+    expect(s.wallpaperOf('c1'), 'anhden');
+    (s.org!['cfg'] as Map)['defaults'] = {'allow_chat_custom': false};
+    expect(s.wallpaperOf('c1'), isNull);
   });
 }

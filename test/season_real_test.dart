@@ -142,7 +142,7 @@ void main() {
     expect(find.byType(SantaHat), findsOneWidget);
     await t.pumpWidget(av('u3'));
     expect(find.byType(SantaHat), findsNothing);
-    SeasonState.instance.mine = {'hats': false};
+    SeasonState.instance.mine = {'mode': 'custom', 'hats': false};
     await t.pumpWidget(av('u2'));
     expect(find.byType(SantaHat), findsNothing);
     SeasonState.instance.clock = () => DateTime(2026, 11, 20); // ngoài tháng 12
@@ -200,8 +200,11 @@ void main() {
     testWidgets('ảnh Màu nền $m', (t) async {
       if (out == null) return;
       SeasonState.instance.mine = {'motion': false, 'home_bg': 'season', 'home_color': '4A78B8'};
-      await shot(t, 'home-color-phone', const Size(390, 1000), dark, const HomeBackgroundPage());
-      await shot(t, 'home-color-desktop', const Size(1100, 760), dark, const HomeBackgroundPage());
+      SeasonState.instance.mine = {'motion': false, 'mode': 'custom'};
+      await shot(t, 'appearance-phone', const Size(390, 1500), dark, const AppearancePage());
+      await shot(t, 'appearance-desktop', const Size(1440, 900), dark, const AppearancePage());
+      await shot(t, 'admin-phone', const Size(390, 2600), dark, const AppearanceAdminPage());
+      await shot(t, 'admin-desktop', const Size(1440, 1000), dark, const AppearanceAdminPage());
     });
     testWidgets('ảnh Giao diện chat (tab Hình nền) $m', (t) async {
       if (out == null) return;
