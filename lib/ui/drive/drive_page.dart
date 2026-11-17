@@ -3,6 +3,7 @@
 // Điện thoại: thanh tìm kiếm + chip lọc, nút "Mới", thanh điều hướng dưới. Máy tính: cột trái, danh sách, panel chi tiết,
 // kéo-thả tệp từ máy để tải lên. Office mở OnlyOffice (webview); ảnh / PDF / video xem trong app.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
@@ -20,6 +21,7 @@ import '../theme.dart' show toast;
 import 'actions.dart';
 import 'api.dart';
 import 'look.dart';
+import 'marquee.dart';
 import 'session.dart';
 import 'uploads.dart';
 
@@ -58,6 +60,10 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
   bool _grid = false, _desc = false, _details = false, _dragging = false;
   DriveSort _sort = DriveSort.name;
   final _sel = <String>{};
+  // Kéo quét chọn: khoá của từng dòng / ô đang hiện, và thanh cuộn của danh sách.
+  final _keys = <String, GlobalKey>{};
+  final _scroll = ScrollController();
+  GlobalKey _k(String path) => _keys.putIfAbsent(path, () => GlobalKey());
   String? _focus;
   // Tìm kiếm
   final _q = TextEditingController();
@@ -92,6 +98,7 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
     s.offline.removeListener(_changed);
     s.uploads.onDone = null;
     _q.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -205,6 +212,7 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
 
   // ------------------------------------------------------------------ thao tác
   Future<void> _tap(DriveItem it, {bool wide = false}) async {
+    if (DriveMarquee.justDragged) return;
     if (_sel.isNotEmpty && !wide) {
       _toggle(it);
       return;
@@ -232,6 +240,86 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
         _focus = _sel.isEmpty ? null : it.path;
       });
 
+  /// Bấm chuột trên máy tính: Ctrl / ⌘ thêm bớt, Shift chọn một dải từ mục đang chọn, không thì chọn riêng mục này.
+  void _click(DriveItem it, List<DriveItem> list) {
+    if (DriveMarquee.justDragged) return;
+    final k = HardwareKeyboard.instance;
+    if (k.isControlPressed || k.isMetaPressed) {
+      _toggle(it);
+    } else if (k.isShiftPressed && _focus != null) {
+      final a = list.indexWhere((x) => x.path == _focus), b = list.indexOf(it);
+      if (a >= 0 && b >= 0) setState(() => _sel.addAll([for (var k = a < b ? a : b; k <= (a < b ? b : a); k++) list[k].path]));
+    } else {
+      _tap(it, wide: true);
+    }
+  }
+
+  // ------------------------------------------------------------------ Ctrl+C / Ctrl+X / Ctrl+V
+  bool get _canPaste => s.clip.isNotEmpty && _section == DriveSection.my && !_searchMode;
+
+  void _clipSet({required bool cut}) {
+    final items = _selected;
+    if (items.isEmpty || _section == DriveSection.trash) return;
+    if (cut && !items.every((i) => i.canDelete)) {
+      driveToast(context, tr('Không có quyền di chuyển một số mục đã chọn'));
+      return;
+    }
+    setState(() {
+      s.clip = items;
+      s.clipCut = cut;
+    });
+    driveToast(context, cut ? tr('Đã cắt {0} mục. Mở thư mục đích rồi bấm Ctrl+V để chuyển tới', ['${items.length}']) : tr('Đã sao chép {0} mục. Mở thư mục đích rồi bấm Ctrl+V để dán', ['${items.length}']));
+  }
+
+  Future<void> _paste() async {
+    if (!_canPaste) return;
+    final items = s.clip, cut = s.clipCut, to = _path;
+    // Không dán thư mục vào chính nó / thư mục con của nó.
+    if (items.any((i) => i.dir && (to == i.path || to.startsWith('${i.path}/')))) {
+      driveToast(context, tr('Không thể dán thư mục vào chính nó'));
+      return;
+    }
+    final paths = [for (final i in items) i.path];
+    final ok = await driveRun(context, () => cut ? api.move(paths, to) : api.copy(paths, to),
+        done: cut ? tr('Đã chuyển {0} mục tới đây', ['${items.length}']) : tr('Đã dán {0} mục', ['${items.length}']));
+    if (ok && cut) setState(() => s.clip = const []);
+    await _reload(quiet: true);
+    _changed();
+  }
+
+  /// Tệp và thư mục kéo từ máy vào: thư mục được tạo lại trên Drive (cả thư mục con) rồi tải mọi tệp bên trong.
+  Future<void> _uploadDropped(List<String> paths, String dir) async {
+    const junk = {'.ds_store', 'thumbs.db', 'desktop.ini'};
+    final byDir = <String, List<(String, String)>>{};
+    String last(Uri u) => u.pathSegments.where((x) => x.isNotEmpty).last;
+    final ok = await driveRun(context, () async {
+      Future<void> walk(Directory d, String remote) async {
+        final made = await api.mkdir(remote, last(d.uri));
+        await for (final e in d.list(followLinks: false)) {
+          if (e is Directory) {
+            await walk(e, made.path);
+          } else if (e is File && !junk.contains(last(e.uri).toLowerCase())) {
+            (byDir[made.path] ??= []).add((e.path, last(e.uri)));
+          }
+        }
+      }
+
+      for (final p in paths) {
+        if (await Directory(p).exists()) {
+          await walk(Directory(p), dir);
+        } else if (await File(p).exists()) {
+          (byDir[dir] ??= []).add((p, last(File(p).uri)));
+        }
+      }
+      for (final e in byDir.entries) {
+        await s.uploads.add(e.value, e.key);
+      }
+    });
+    if (!mounted) return;
+    if (ok) driveToast(context, tr('Đang tải {0} tệp lên', ['${byDir.values.fold<int>(0, (n, l) => n + l.length)}']));
+    _reload(quiet: true);
+  }
+
   List<DriveItem> get _selected => [for (final i in _items ?? <DriveItem>[]) if (_sel.contains(i.path)) i];
 
   Future<void> _bulk(ItemAction a) async {
@@ -247,6 +335,7 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
   Future<void> _newMenu(BuildContext ctx, {Offset? at}) async {
     final l = DriveLook.of(ctx);
     final items = <(String, IconData, Color, String)>[
+      if (_canPaste) ('paste', Icons.content_paste_rounded, l.accent, tr('Dán {0} mục', ['${s.clip.length}'])),
       ('folder', Icons.create_new_folder_rounded, l.folder, tr('Thư mục mới')),
       ('upload', Icons.upload_file_rounded, l.accent, tr('Tải tệp lên')),
       if (!driveWide(ctx)) ('media', Icons.photo_library_rounded, const Color(0xFF8E44AD), tr('Tải ảnh hoặc video lên')),
@@ -300,6 +389,8 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
     if (v == null || !mounted) return;
     final dir = _section == DriveSection.my ? _path : '/';
     switch (v) {
+      case 'paste':
+        await _paste();
       case 'folder':
         final name = await askName(context, title: tr('Thư mục mới'), initial: tr('Thư mục không có tiêu đề'), ok: tr('Tạo'), selectStem: false);
         if (name == null || name.isEmpty || !mounted) return;
@@ -339,6 +430,13 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
           const SingleActivator(LogicalKeyboardKey.escape): () => _sel.isNotEmpty ? setState(_sel.clear) : (showsBack(context) ? Navigator.maybePop(context) : null),
           const SingleActivator(LogicalKeyboardKey.delete): () => _sel.isNotEmpty && _section != DriveSection.trash ? _bulk(ItemAction.trash) : null,
           const SingleActivator(LogicalKeyboardKey.keyA, control: true): () => setState(() => _sel.addAll([for (final i in _items ?? <DriveItem>[]) i.path])),
+          const SingleActivator(LogicalKeyboardKey.keyA, meta: true): () => setState(() => _sel.addAll([for (final i in _items ?? <DriveItem>[]) i.path])),
+          const SingleActivator(LogicalKeyboardKey.keyC, control: true): () => _clipSet(cut: false),
+          const SingleActivator(LogicalKeyboardKey.keyC, meta: true): () => _clipSet(cut: false),
+          const SingleActivator(LogicalKeyboardKey.keyX, control: true): () => _clipSet(cut: true),
+          const SingleActivator(LogicalKeyboardKey.keyX, meta: true): () => _clipSet(cut: true),
+          const SingleActivator(LogicalKeyboardKey.keyV, control: true): _paste,
+          const SingleActivator(LogicalKeyboardKey.keyV, meta: true): _paste,
           const SingleActivator(LogicalKeyboardKey.enter): () {
             final it = _items?.where((i) => i.path == _focus).firstOrNull;
             if (it != null) _open(it);
@@ -701,6 +799,20 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
         ),
       );
 
+  /// Nút "Dán" khi đã Ctrl+C / Ctrl+X (dán vào thư mục đang mở).
+  Widget _pasteChip(DriveLook l) => Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: ActionChip(
+          avatar: Icon(Icons.content_paste_rounded, size: 18, color: l.accentText),
+          label: Text(s.clipCut ? tr('Chuyển {0} mục tới đây', ['${s.clip.length}']) : tr('Dán {0} mục', ['${s.clip.length}'])),
+          onPressed: _paste,
+          backgroundColor: l.accentSoft,
+          side: BorderSide.none,
+          labelStyle: TextStyle(color: l.accentText),
+          tooltip: tr('Ctrl+V'),
+        ),
+      );
+
   /// Thanh khi đang chọn nhiều mục.
   Widget _selectionBar(DriveLook l) {
     final items = _selected;
@@ -715,6 +827,10 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
       child: Row(children: [
         IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setState(_sel.clear)),
         Expanded(child: Text(tr('Đã chọn {0}', ['${items.length}']), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w500, color: l.text))),
+        if (driveWide(context) && _section != DriveSection.trash) ...[
+          IconButton(tooltip: tr('Sao chép (Ctrl+C)'), icon: Icon(Icons.content_copy_rounded, color: l.text), onPressed: () => _clipSet(cut: false)),
+          if (items.every((i) => i.canDelete)) IconButton(tooltip: tr('Cắt (Ctrl+X)'), icon: Icon(Icons.content_cut_rounded, color: l.text), onPressed: () => _clipSet(cut: true)),
+        ],
         for (final (id, icon, label) in main) IconButton(tooltip: label, icon: Icon(icon, color: id == ItemAction.trash || id == ItemAction.purge ? l.danger : l.text), onPressed: () => _bulk(id)),
         if (more.isNotEmpty)
           PopupMenuButton<ItemAction>(
@@ -779,15 +895,20 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
               onDragDone: (d) async {
                 setState(() => _dragging = false);
                 final dir = _section == DriveSection.my ? _path : '/';
-                await s.uploads.add([for (final f in d.files) (f.path, f.name)], dir);
-                if (mounted) driveToast(context, tr('Đang tải {0} tệp lên', ['${d.files.length}']));
+                await _uploadDropped([for (final f in d.files) f.path], dir);
               },
               child: Stack(children: [
                 Container(
                   margin: const EdgeInsets.only(right: 16),
                   decoration: BoxDecoration(color: l.surface, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Padding(padding: const EdgeInsets.fromLTRB(14, 12, 16, 4), child: _breadcrumbs(l)),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 16, 4),
+                      child: Row(children: [
+                        Expanded(child: _breadcrumbs(l)),
+                        if (_canPaste) _pasteChip(l),
+                      ]),
+                    ),
                     if (_sel.isNotEmpty) _selectionBar(l) else if (_searching) Padding(padding: const EdgeInsets.only(top: 4), child: _chips(l)),
                     _sortRow(l, wide: true),
                     Expanded(child: _content(l, wide: true)),
@@ -844,8 +965,25 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
         _ => _empty(l, Icons.folder_open_rounded, tr('Thư mục trống'), wide ? tr('Kéo tệp vào đây hoặc bấm "Mới".') : tr('Bấm "Mới" để tải tệp lên.')),
       };
     }
+    final shown = {for (final i in list) i.path};
+    _keys.removeWhere((p, _) => !shown.contains(p));
     final body = _grid ? _gridView(l, list, wide) : (wide ? _table(l, list) : _listView(l, list));
-    return RefreshIndicator(onRefresh: () => _reload(quiet: true), child: body);
+    return DriveMarquee(
+      keys: _keys,
+      controller: _scroll,
+      color: l.accent,
+      selected: () => _sel,
+      onSelect: (sel) => setState(() {
+        _sel
+          ..clear()
+          ..addAll(sel);
+        _focus = sel.isEmpty ? null : sel.last;
+      }),
+      onBlankClick: () {
+        if (_sel.isNotEmpty) setState(_sel.clear);
+      },
+      child: RefreshIndicator(onRefresh: () => _reload(quiet: true), child: body),
+    );
   }
 
   Widget _empty(DriveLook l, IconData icon, String title, String sub, {(String, VoidCallback)? action, (String, VoidCallback)? extra}) => ListView(children: [
@@ -881,12 +1019,14 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
   }
 
   Widget _listView(DriveLook l, List<DriveItem> list) => ListView.builder(
+        controller: _scroll,
         padding: const EdgeInsets.only(bottom: 96),
         itemCount: list.length,
         itemBuilder: (_, i) {
           final it = list[i];
           final sel = _sel.contains(it.path);
           return Material(
+            key: _k(it.path),
             color: sel ? l.sel : Colors.transparent,
             child: InkWell(
               onTap: () => _tap(it),
@@ -949,11 +1089,13 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
       ),
       Expanded(
         child: ListView.builder(
+          controller: _scroll,
           itemCount: list.length,
           itemBuilder: (_, i) {
             final it = list[i];
             final sel = _sel.contains(it.path);
             return GestureDetector(
+              key: _k(it.path),
               onSecondaryTapDown: (d) {
                 if (!sel) {
                   setState(() {
@@ -972,17 +1114,7 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
               child: Material(
                 color: sel ? l.sel : Colors.transparent,
                 child: InkWell(
-                  onTap: () {
-                    final k = HardwareKeyboard.instance;
-                    if (k.isControlPressed || k.isMetaPressed) {
-                      _toggle(it);
-                    } else if (k.isShiftPressed && _focus != null) {
-                      final a = list.indexWhere((x) => x.path == _focus), b = i;
-                      if (a >= 0) setState(() => _sel.addAll([for (var k = a < b ? a : b; k <= (a < b ? b : a); k++) list[k].path]));
-                    } else {
-                      _tap(it, wide: true);
-                    }
-                  },
+                  onTap: () => _click(it, list),
                   onDoubleTap: () => _open(it),
                   child: Container(
                     height: 48,
@@ -1051,11 +1183,12 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
     Widget card(DriveItem it) {
       final sel = _sel.contains(it.path);
       return Material(
+        key: _k(it.path),
         color: sel ? l.sel : l.surface2,
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => _tap(it, wide: wide),
+          onTap: () => wide ? _click(it, [...folders, ...files]) : _tap(it),
           onDoubleTap: wide ? () => _open(it) : null,
           onLongPress: () => _toggle(it),
           onSecondaryTapDown: (d) => showItemActions(context, s, it, at: d.globalPosition, trash: _section == DriveSection.trash, onChanged: () => _reload(quiet: true)),
@@ -1097,7 +1230,7 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
       );
     }
 
-    return CustomScrollView(slivers: [
+    return CustomScrollView(controller: _scroll, slivers: [
       if (folders.isNotEmpty) ...[
         SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(18, 8, 18, 8), child: Text(tr('Thư mục'), style: TextStyle(color: l.muted, fontWeight: FontWeight.w500)))),
         SliverPadding(

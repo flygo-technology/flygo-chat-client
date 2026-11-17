@@ -33,10 +33,11 @@ List<Map<String, Object?>> driveFixture([String dir = '/']) {
 
 http.Response _j(Object o) => http.Response(jsonEncode(o), 200, headers: {'content-type': 'application/json; charset=utf-8'});
 
-DriveApi fakeDriveApi() => DriveApi(
+DriveApi fakeDriveApi({void Function(http.Request req)? onRequest}) => DriveApi(
       base: 'https://chat.example/__apps/drive',
       ticketFn: (_) async => 't',
       client: MockClient((req) async {
+        onRequest?.call(req);
         final p = req.url.path.replaceFirst('/__apps/drive', '');
         switch (p) {
           case '/api/me':
@@ -75,6 +76,9 @@ DriveApi fakeDriveApi() => DriveApi(
               {'type': 'user', 'id': 'lan', 'label': 'Lan (Kế toán)'},
               {'type': 'group', 'id': 'ketoan', 'label': 'Phòng Kế toán'},
             ]});
+          case '/api/copy':
+          case '/api/move':
+            return _j({'items': []});
         }
         return http.Response.bytes(utf8.encode('{"error":"không có"}'), 404);
       }),

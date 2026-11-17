@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/ui/drive/api.dart';
 import 'package:flygo_chat/ui/drive/drive_page.dart';
@@ -128,5 +130,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Hợp đồng 2026'), findsWidgets);
     expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+  });
+
+  testWidgets('Drive máy tính: kéo chuột quét chọn, bấm chỗ trống bỏ chọn, Ctrl+C rồi Ctrl+V dán vào thư mục khác', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reqs = <http.Request>[];
+    final s = DriveSession(api: fakeDriveApi(onRequest: reqs.add), key: 'test-${DateTime.now().microsecondsSinceEpoch}', app: null, chatToken: 't');
+    await tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: DriveHome(session: s)));
+    await tester.pumpAndSettle();
+    final a = tester.getCenter(find.text('Báo cáo doanh thu Q3.xlsx')), b = tester.getCenter(find.text('Biên bản họp 14-11.docx'));
+    final top = a.dy < b.dy ? a : b, bottom = a.dy < b.dy ? b : a;
+    // Kéo chuột từ dòng trên xuống dòng dưới: chọn mọi dòng ở giữa.
+    final g = await tester.startGesture(top.translate(200, 0), kind: PointerDeviceKind.mouse, buttons: kPrimaryMouseButton);
+    await g.moveTo(top.translate(210, 12));
+    await g.moveTo(bottom.translate(220, 0));
+    await tester.pump();
+    await g.up();
+    await tester.pump();
+    final n = int.parse(RegExp(r'Đã chọn (\d+)').firstMatch(tester.widgetList<Text>(find.textContaining('Đã chọn')).first.data!)!.group(1)!);
+    expect(n, greaterThanOrEqualTo(2));
+    // Ctrl+C, mở thư mục, Ctrl+V: gọi copy tới thư mục đó.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(s.clip.length, n);
+    expect(s.clipCut, isFalse);
+    // Bấm chỗ trống (dưới danh sách): bỏ chọn.
+    final empty = Offset(top.dx + 200, 880);
+    final c = await tester.startGesture(empty, kind: PointerDeviceKind.mouse, buttons: kPrimaryMouseButton);
+    await c.up();
+    await tester.pump();
+    expect(find.textContaining('Đã chọn'), findsNothing);
+    // Chọn thư mục rồi Enter để mở.
+    await tester.tap(find.text('Hợp đồng 2026'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Dán $n mục'), findsOneWidget);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    final copy = reqs.where((r) => r.url.path.endsWith('/api/copy')).single;
+    final body = jsonDecode(copy.body) as Map;
+    expect((body['items'] as List).length, n);
+    expect(body['to'], '/Hợp đồng 2026');
   });
 }

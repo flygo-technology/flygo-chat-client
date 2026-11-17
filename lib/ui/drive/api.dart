@@ -258,9 +258,16 @@ class DriveApi {
   }
 
   /// Tải tệp về [dest] (ghi vào tệp tạm rồi đổi tên). [onProgress] (đã nhận, tổng).
-  Future<File> download(String path, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) async {
+  Future<File> download(String path, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) =>
+      _fetchTo('/api/file', {'path': path}, dest, onProgress: onProgress, cancelled: cancelled);
+
+  /// Tải các mục [names] (tệp hoặc thư mục) trong thư mục [dir] thành một tệp zip [dest].
+  Future<File> downloadZip(String dir, List<String> names, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) =>
+      _fetchTo('/api/zip', {'dir': dir, 'files': jsonEncode(names)}, dest, onProgress: onProgress, cancelled: cancelled);
+
+  Future<File> _fetchTo(String endpoint, Map<String, String> q, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) async {
     for (var attempt = 0; ; attempt++) {
-      final req = http.Request('GET', uri('/api/file', {'path': path}))..headers.addAll(await auth(refresh: attempt > 0));
+      final req = http.Request('GET', uri(endpoint, q))..headers.addAll(await auth(refresh: attempt > 0));
       final res = await _http.send(req).timeout(const Duration(seconds: 60));
       if (res.statusCode == 401 && attempt == 0) {
         await res.stream.drain<void>();

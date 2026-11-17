@@ -36,6 +36,9 @@ class DriveSession {
   final DriveUploads uploads;
   final DriveOffline offline;
   DriveMe? me;
+  /// Bộ nhớ tạm Ctrl+C / Ctrl+X của Drive (dán bằng Ctrl+V vào thư mục đang mở).
+  List<DriveItem> clip = const [];
+  bool clipCut = false;
 
   static final _cache = <String, DriveSession>{};
 
