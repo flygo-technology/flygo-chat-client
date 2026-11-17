@@ -194,7 +194,8 @@ class _BannerSnow extends CustomPainter {
 class LightString extends StatefulWidget {
   final bool motion;
   final double? frozenT;
-  const LightString({super.key, this.motion = true, this.frozenT});
+  final double scale;
+  const LightString({super.key, this.motion = true, this.frozenT, this.scale = 1});
   @override
   State<LightString> createState() => _LightStringState();
 }
@@ -222,7 +223,7 @@ class _LightStringState extends State<LightString> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
-        child: RepaintBoundary(child: CustomPaint(size: const Size(double.infinity, 34), painter: LightStringPainter(widget.frozenT ?? _t))),
+        child: RepaintBoundary(child: CustomPaint(size: Size(double.infinity, 34 * widget.scale), painter: LightStringPainter(widget.frozenT ?? _t, scale: widget.scale))),
       );
 }
 

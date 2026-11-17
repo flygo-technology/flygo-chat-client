@@ -80,4 +80,26 @@ void main() {
     s.mine = {'effect': false};
     expect(s.effectFor('Merry Christmas'), isNull);
   });
+
+  test('xem thử: chỉ quản trị viên, bất kể ngày và công ty chưa bật', () {
+    final nov = DateTime.utc(2026, 11, 17, 3);
+    s.org = _org(enabled: false);
+    s.mine = {'preview': 'giangsinh'};
+    expect(s.activeSeason(nov), isNull); // không phải quản trị viên
+    s.org = _org(enabled: false)..['can_admin'] = true;
+    expect(s.activeSeason(nov), 'giangsinh');
+    expect(s.on('lights', nov), isTrue);
+    s.mine = {};
+    expect(s.activeSeason(nov), isNull);
+  });
+
+  test('thanh tab: theo mùa + dây đèn + lựa chọn riêng', () {
+    s.clock = () => DateTime.utc(2026, 12, 10, 3);
+    expect(seasonNavBg(), isTrue);
+    s.mine = {'navbar': false};
+    expect(seasonNavBg(), isFalse);
+    s.mine = {'lights': false};
+    expect(seasonNavBg(), isFalse);
+    s.clock = DateTime.now;
+  });
 }

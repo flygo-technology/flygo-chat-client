@@ -72,7 +72,7 @@ class _ChatMock extends StatelessWidget {
   final BurstKind? burst;
   final double burstP;
   final bool showHeader;
-  const _ChatMock({this.wallpaper, this.lights = true, this.hats = true, this.t = 3.2, this.burst, this.burstP = .45, this.showHeader = true});
+  const _ChatMock({this.wallpaper, this.lights = true, this.burst, this.burstP = .45}) : hats = true, t = 3.2, showHeader = true;
 
   @override
   Widget build(BuildContext context) {

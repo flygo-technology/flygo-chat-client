@@ -143,7 +143,11 @@ class AppearancePage extends StatelessWidget {
             ]),
             _group(context, title: tr('Mùa lễ hội'), [
               _sw(context, Icons.celebration_outlined, tr('Dùng giao diện mùa lễ'),
-                  active == null ? tr('Hiện không có mùa lễ nào công ty bật') : tr('Đang có: {0} ({1} – {2})', [seasonName ?? active, _dm(win!.start), _dm(win.end)]),
+                  active == null
+                      ? tr('Hiện không có mùa lễ nào công ty bật')
+                      : s.preview != null
+                          ? tr('Đang xem thử: {0} (chỉ mình thấy)', [seasonName ?? active])
+                          : tr('Đang có: {0} ({1} – {2})', [seasonName ?? active, _dm(win!.start), _dm(win.end)]),
                   s.mine['off'] != true, (v) => s.setMine('off', !v)),
               _div(context),
               _sw(context, Icons.light_rounded, tr('Dây đèn trên khung chat'), null, s.mine['lights'] != false, (v) => s.setMine('lights', v)),
@@ -158,6 +162,9 @@ class AppearancePage extends StatelessWidget {
                   s.mine['effect'] != false, (v) => s.setMine('effect', v)),
               _div(context),
               _sw(context, Icons.home_outlined, tr('Banner ở Trang chủ'), tr('Đếm ngược đến 24/12'), s.mine['banner'] != false, (v) => s.setMine('banner', v)),
+              _div(context),
+              _sw(context, Icons.space_bar_rounded, tr('Trang trí thanh điều hướng'), tr('Nền Giáng sinh cho thanh dưới'),
+                  s.mine['navbar'] != false, (v) => s.setMine('navbar', v)),
             ]),
             _group(context, title: tr('Chuyển động'), [
               _sw(context, Icons.animation_rounded, tr('Hiệu ứng động'), tr('Tuyết rơi, đèn nhấp nháy. Tự tắt khi máy bật giảm chuyển động.'), s.motion,
@@ -429,6 +436,17 @@ class _AppearanceAdminPageState extends State<AppearanceAdminPage> {
             tr('Bật một lần, áp dụng cho cả công ty: đến ngày tự bật, hết ngày tự tắt, năm sau lặp lại. Mỗi người vẫn tự tắt được trong app Giao diện của mình.'),
             style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
       ),
+      if (admin)
+        _group(context, [
+          SwitchListTile(
+            value: s.preview != null,
+            onChanged: (v) => s.setMine('preview', v ? 'giangsinh' : null),
+            secondary: Icon(Icons.visibility_outlined, color: pal.accent),
+            title: Text(tr('Xem thử Giáng sinh'), style: TextStyle(fontSize: 15, color: pal.text)),
+            subtitle: Text(tr('Chỉ mình thấy, trên mọi máy của mình, bất kể ngày. Nhân viên không thấy gì.'),
+                style: TextStyle(fontSize: 12.5, color: pal.sub)),
+          ),
+        ]),
       for (final def in seasons) seasonCard(def),
       _group(context, title: tr('Hiệu ứng lời chúc'), [
         Padding(

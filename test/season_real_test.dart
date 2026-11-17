@@ -10,7 +10,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
-import 'package:flygo_chat/ui/bubble_styles.dart';
 import 'package:flygo_chat/api/mini_apps.dart';
 import 'package:flygo_chat/ui/chat_page.dart';
 import 'package:flygo_chat/ui/common.dart' show Avatar;

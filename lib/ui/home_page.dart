@@ -42,6 +42,7 @@ import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
 import 'season/appearance_pages.dart' show openAppearanceAdmin;
+import 'season/season_art.dart' show XmasBarPainter;
 import 'season/season_state.dart';
 import 'password_page.dart';
 import 'call_history.dart';
@@ -2588,6 +2589,9 @@ class _TabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
+    // Mùa Giáng sinh: thanh dùng nền riêng (XmasBarPainter), mục đang chọn tô đỏ nhạt.
+    final xmas = seasonNavBg();
+    final dark = Theme.of(context).brightness == Brightness.dark;
     Widget item(int i, IconData icon, String label, int count, {Color? badge, Widget? avatar}) {
       final sel = i == index;
       return Expanded(
@@ -2602,7 +2606,11 @@ class _TabBar extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
             padding: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
-              color: sel ? pal.text.withValues(alpha: .10) : Colors.transparent,
+              color: !sel
+                  ? Colors.transparent
+                  : xmas
+                      ? (dark ? const Color(0x4DE53935) : const Color(0x26C62828))
+                      : pal.text.withValues(alpha: .10),
               borderRadius: BorderRadius.circular(28),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2652,6 +2660,8 @@ class _TabBar extends StatelessWidget {
       ),
       child: Glass(
         radius: BorderRadius.circular(36),
+        child: CustomPaint(
+        painter: xmas ? XmasBarPainter(dark: dark) : null,
         child: Row(children: [
           item(0, Icons.chat_bubble_outline, tr('Chat'), unread),
                     // Thứ tự (Sếp 10/11, đổi lại): Chat, Trợ lý, Bảng tin.
@@ -2660,6 +2670,7 @@ class _TabBar extends StatelessWidget {
           // Điện thoại (Sếp 09/11): chỉ Chat, Trợ lý, Apps; Quy trình nằm trong Apps (Trang chủ như máy tính).
           item(3, Icons.apps_rounded, tr('Apps'), missed, badge: const Color(0xFFE53935)),
         ]),
+        ),
       ),
       ),
     );
