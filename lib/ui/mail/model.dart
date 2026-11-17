@@ -305,12 +305,17 @@ class MailAiResult {
 
 /// AI tóm tắt việc cần làm từ các thư chưa đọc (POST /mail/api/ai/digest).
 class MailDigest {
-  const MailDigest({this.summary = '', this.tasks = const [], this.threads = 0, this.model = ''});
+  const MailDigest({this.summary = '', this.tasks = const [], this.threads = 0, this.model = '', this.unread});
   final String summary, model;
   final List<MailDigestTask> tasks;
   final int threads;
 
+  /// Máy chủ mới: số hội thoại chưa đọc; [tasks] là từng thư chưa đọc, mỗi thư một dòng ý nghĩa (không phải việc cần làm).
+  final int? unread;
+  bool get perMail => unread != null;
+
   factory MailDigest.fromJson(Map m) => MailDigest(
+      unread: (m['unread'] as num?)?.toInt(),
       summary: '${m['summary'] ?? ''}',
       model: '${m['model'] ?? ''}',
       threads: (m['threads'] as num?)?.toInt() ?? 0,

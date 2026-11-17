@@ -534,11 +534,14 @@ class ThreadViewState extends State<ThreadView> {
               customBorder: const StadiumBorder(),
               onTap: _aiOpen ? () => setState(() => _aiOpen = false) : openAi,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                // Điện thoại: chỉ biểu tượng, để thanh nút (đã tách xa nút quay lại) không tràn ở màn 360px.
+                padding: EdgeInsets.symmetric(horizontal: widget.wide ? 12 : 9, vertical: 7),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.auto_awesome, size: 18, color: mc.accentText),
-                  const SizedBox(width: 6),
-                  Text('AI', style: TextStyle(fontSize: 13.5, color: mc.accentText, fontWeight: FontWeight.w600)),
+                  if (widget.wide) ...[
+                    const SizedBox(width: 6),
+                    Text('AI', style: TextStyle(fontSize: 13.5, color: mc.accentText, fontWeight: FontWeight.w600)),
+                  ],
                 ]),
               ),
             ),
