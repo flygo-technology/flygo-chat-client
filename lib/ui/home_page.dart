@@ -42,6 +42,7 @@ import 'qr_login.dart';
 import 'mini_app_view.dart';
 import '../api/mini_apps.dart' show MiniApps;
 import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin;
+import 'season/season_art.dart' show XmasCoverPainter;
 import 'season/season_state.dart';
 import 'password_page.dart';
 import 'call_history.dart';
@@ -3698,38 +3699,49 @@ class AppsUserCard extends StatelessWidget {
         decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: pal.divider)),
         child: Stack(children: [
           Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(
+            // Ảnh bìa Giáng sinh tạm thời (Sếp, 2026-11-17: "thay ảnh bìa giáng sinh tạm vào đã"): hiện luôn, chưa theo mùa.
+            SizedBox(
               key: const ValueKey('apps-cover'),
               height: cover,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.lerp(pal.accent, dark ? Colors.black : Colors.white, dark ? .35 : .15)!,
-                    Color.lerp(pal.accent, const Color(0xFF7C4DFF), .45)!,
-                    Color.lerp(pal.accent, const Color(0xFF00BFA5), .35)!,
-                  ],
-                ),
-              ),
+              child: RepaintBoundary(child: CustomPaint(painter: XmasCoverPainter(dark: dark))),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(left + size + ring * 2 + 12, 8, 14, 14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                // Tên nằm trên dải bìa (Sếp, 2026-11-17); dưới dải bìa: email rồi trạng thái.
                 InkWell(
                   borderRadius: BorderRadius.circular(6),
                   onTap: onProfile,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(me.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: pal.text)),
-                    const SizedBox(height: 2),
-                    Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
-                  ]),
+                  child: Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: pal.sub)),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 chip,
               ]),
             ),
           ]),
+          // Tên trên dải bìa: chữ trắng đậm, đổ bóng nhẹ cho dễ đọc trên nền ảnh.
+          Positioned(
+            left: left + size + ring * 2 + 12,
+            right: 52,
+            top: cover - 32,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                key: const ValueKey('apps-name'),
+                borderRadius: BorderRadius.circular(6),
+                onTap: onProfile,
+                child: Text(me.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      shadows: [Shadow(color: Color(0x99000000), blurRadius: 6, offset: Offset(0, 1))],
+                    )),
+              ),
+            ),
+          ),
           // Ảnh (viền màu thẻ) đè mép dưới dải bìa: bấm = Chỉnh sửa hồ sơ; nút máy ảnh = đổi ảnh; chấm hoạt động góc dưới trái.
           Positioned(
             left: left,

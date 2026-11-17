@@ -495,3 +495,54 @@ class GarlandPainter extends CustomPainter {
   @override
   bool shouldRepaint(GarlandPainter old) => old.dark != dark || old.backing != backing;
 }
+
+/// Ảnh bìa Giáng sinh của thẻ người dùng (Trang chủ máy tính): trời đêm xanh, đèn mờ, dây đèn vắt ngang mép trên,
+/// rặng thông dưới chân, tuyết. [dark] = bản tối (đêm sâu); bản sáng là trời xanh chạng vạng. Vẽ tĩnh ([t] cố định).
+class XmasCoverPainter extends CustomPainter {
+  final bool dark;
+  final double t;
+  XmasCoverPainter({required this.dark, this.t = 0});
+  static final _snow = _particles(36, 21, rMin: .6, rMax: 2.2);
+  static final _bokeh = _particles(10, 9, rMin: 8, rMax: 18);
+  static const _bokehColors = [Color(0xFFFFC857), Color(0xFFFF6B6B), Color(0xFF7BDCB5), Color(0xFFFFE8A3)];
+
+  @override
+  void paint(Canvas c, Size s) {
+    final r = Offset.zero & s;
+    c.drawRect(
+        r,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: dark ? const [Color(0xFF07111F), Color(0xFF0E2242), Color(0xFF173761)] : const [Color(0xFF1F4E99), Color(0xFF3D72C4), Color(0xFF79A6E6)],
+          ).createShader(r));
+    for (var i = 0; i < _bokeh.length; i++) {
+      final b = _bokeh[i];
+      c.drawCircle(
+          Offset(b.x * s.width, (.15 + b.y * .5) * s.height),
+          b.r,
+          Paint()
+            ..color = _bokehColors[i % _bokehColors.length].withValues(alpha: dark ? .16 : .22)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, b.r * .5));
+    }
+    final ground = s.height - 4;
+    final h = s.height * .55;
+    _pines(c, s, ground - 3, h, dark ? const Color(0xFF12294D) : const Color(0xFF2A5794), dark ? const Color(0x332E4A72) : const Color(0x55FFFFFF), 4);
+    _pines(c, s, ground + 2, h * .78, dark ? const Color(0xFF0A1A33) : const Color(0xFF1B3F73), const Color(0x66E8F0FF), 12);
+    c.drawPath(
+        Path()
+          ..moveTo(0, ground)
+          ..quadraticBezierTo(s.width * .3, ground - 5, s.width * .6, ground - 1)
+          ..quadraticBezierTo(s.width * .85, ground + 2, s.width, ground - 3)
+          ..lineTo(s.width, s.height)
+          ..lineTo(0, s.height)
+          ..close(),
+        Paint()..color = dark ? const Color(0xFF223F69) : const Color(0xFFE8F0FB));
+    _snowfall(c, s, _snow, t, Colors.white, flakes: true, alpha: dark ? .75 : .9);
+    LightStringPainter(t + 1.3, scale: .62).paint(c, s);
+  }
+
+  @override
+  bool shouldRepaint(XmasCoverPainter old) => old.dark != dark || old.t != t;
+}
