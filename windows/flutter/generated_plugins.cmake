@@ -16,6 +16,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   livekit_client
   local_auth_windows
   pasteboard
+  printing
   record_windows
   share_plus
   speech_to_text_windows

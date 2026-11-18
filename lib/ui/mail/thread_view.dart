@@ -836,6 +836,7 @@ class _AttachmentCard extends StatelessWidget {
                         ]),
                       ),
                       act(Icons.download_rounded, 'Tải về', onDownload, ValueKey('att-dl-${a.id}')),
+                      if (canPrint(a)) AttachmentPrintButton(a, key: ValueKey('att-pr-${a.id}'), files: files, color: mc.muted),
                       if (onDrive != null) act(Icons.add_to_drive_rounded, 'Lưu vào Drive', onDrive, ValueKey('att-dr-${a.id}')),
                     ],
                   ),
