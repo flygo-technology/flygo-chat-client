@@ -200,6 +200,7 @@ class _ViewerState extends State<_Viewer> {
               margin: mailPdfParams.margin,
               scrollByMouseWheel: mailPdfParams.scrollByMouseWheel,
               sizeDelegateProvider: mailPdfParams.sizeDelegateProvider,
+              onKey: mailPdfParams.onKey,
               onViewerReady: (doc, c) => setState(() => _pageCount = doc.pages.length),
               onPageChanged: (n) => setState(() => _page = n ?? _page),
             ),

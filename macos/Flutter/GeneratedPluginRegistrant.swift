@@ -28,6 +28,7 @@ import package_info_plus
 import pasteboard
 import pdfium_flutter
 import photo_manager
+import printing
 import pro_image_editor
 import record_macos
 import share_plus
@@ -62,6 +63,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   PasteboardPlugin.register(with: registry.registrar(forPlugin: "PasteboardPlugin"))
   PDFiumFlutterPlugin.register(with: registry.registrar(forPlugin: "PDFiumFlutterPlugin"))
   PhotoManagerPlugin.register(with: registry.registrar(forPlugin: "PhotoManagerPlugin"))
+  PrintingPlugin.register(with: registry.registrar(forPlugin: "PrintingPlugin"))
   ProImageEditorPlugin.register(with: registry.registrar(forPlugin: "ProImageEditorPlugin"))
   RecordMacOsPlugin.register(with: registry.registrar(forPlugin: "RecordMacOsPlugin"))
   SharePlusMacosPlugin.register(with: registry.registrar(forPlugin: "SharePlusMacosPlugin"))

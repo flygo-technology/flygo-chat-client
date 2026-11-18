@@ -55,6 +55,9 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# printing (Mail: In tệp PDF) downloads its own pdfium; pdfrx bundles pdfium chromium/8125 under the same file name.
+# Use the same release so the bundled library is identical whichever one is copied last.
+set(PDFIUM_VERSION "8125" CACHE STRING "Version of pdfium used" FORCE)
 include(flutter/generated_plugins.cmake)
 
 # webview_windows (slide HTML trong cuộc họp), flutter_inappwebview_windows và local_auth_windows (Ký số) còn dùng

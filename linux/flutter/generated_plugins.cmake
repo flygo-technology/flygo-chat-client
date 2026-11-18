@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_webrtc
   livekit_client
   pasteboard
+  printing
   record_linux
   url_launcher_linux
   window_to_front

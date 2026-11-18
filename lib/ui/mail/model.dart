@@ -295,13 +295,29 @@ class MailMe {
 
 /// Kết quả AI đọc cuộc hội thoại: tóm tắt, việc cần làm, bản nháp trả lời (chữ thuần, người dùng sửa rồi mới gửi).
 class MailAiResult {
-  const MailAiResult({this.summary = '', this.actions = const [], this.draft = '', this.model = ''});
+  const MailAiResult({this.summary = '', this.actions = const [], this.draft = '', this.model = '', this.automated = false});
   final String summary, draft, model;
   final List<String> actions;
 
+  /// Thư tự động (máy chủ nhận ra qua địa chỉ no-reply / header Auto-Submitted, List-Unsubscribe): không soạn trả lời.
+  final bool automated;
+
   factory MailAiResult.fromJson(Map m) => MailAiResult(
-      summary: '${m['summary'] ?? ''}', draft: '${m['draft'] ?? ''}', model: '${m['model'] ?? ''}', actions: [for (final a in (m['actions'] as List? ?? const [])) '$a']);
+      summary: '${m['summary'] ?? ''}',
+      draft: '${m['draft'] ?? ''}',
+      model: '${m['model'] ?? ''}',
+      automated: m['automated'] == true,
+      actions: [for (final a in (m['actions'] as List? ?? const [])) '$a']);
 }
+
+/// Địa chỉ của máy gửi, không phải người để trả lời (no-reply, cảnh báo, thông báo…). Cùng quy tắc với máy chủ thư.
+final _automatedAddr = RegExp(r'^(no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster|bounces?|notifications?|notify|alerts?|automated|system)([+._-].*)?@|[._-](no-?reply|alerts?|notifications?)@', caseSensitive: false);
+bool isAutomatedSender(String email) => _automatedAddr.hasMatch(email);
+
+/// Địa chỉ không nhận thư trả lời (no-reply, mailer-daemon, cảnh báo Google Workspace…): ẩn Trả lời, chỉ còn Chuyển tiếp.
+/// Hẹp hơn [isAutomatedSender]: thư thông báo từ một địa chỉ thật (bản tin…) vẫn trả lời được, chỉ không có nháp AI.
+final _noReplyAddr = RegExp(r'^(no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster)([+._-].*)?@|[._-]no-?reply@', caseSensitive: false);
+bool isNoReplySender(String email) => _noReplyAddr.hasMatch(email);
 
 /// AI tóm tắt việc cần làm từ các thư chưa đọc (POST /mail/api/ai/digest).
 class MailDigest {

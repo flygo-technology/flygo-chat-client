@@ -167,11 +167,37 @@ class ThreadViewState extends State<ThreadView> {
       ) ??
       false;
 
-  /// Bật khung AI và cho AI đọc cuộc hội thoại (lần đầu: tóm tắt + bản nháp).
+  final _aiKey = GlobalKey();
+
+  /// Cuộn tới khung AI (ở cuối cuộc hội thoại).
+  void _showAi() => WidgetsBinding.instance.addPostFrameCallback((_) {
+        final c = _aiKey.currentContext;
+        if (c != null && c.mounted) Scrollable.ensureVisible(c, duration: const Duration(milliseconds: 250), curve: Curves.easeOut, alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd);
+      });
+
+  /// Thư cuối không phải của mình đến từ địa chỉ không nhận trả lời: ẩn Trả lời / Trả lời tất cả (cả phím r, a), giữ Chuyển tiếp.
+  bool get _noReply {
+    final t = _t;
+    if (t == null || t.messages.isEmpty) return false;
+    final me = store.me?.person.email.toLowerCase();
+    final last = t.messages.lastWhere((m) => m.from.email.toLowerCase() != me, orElse: () => t.messages.last);
+    return isNoReplySender(last.from.email);
+  }
+
+  /// Thư cuối không phải của mình đến từ máy (no-reply, cảnh báo…): AI chỉ tóm tắt, không soạn trả lời.
+  bool get _automated {
+    if (_ai?.automated == true) return true;
+    final me = store.me?.person.email.toLowerCase();
+    final last = _t?.messages.lastWhere((m) => m.from.email.toLowerCase() != me, orElse: () => _t!.messages.last);
+    return last != null && isAutomatedSender(last.from.email);
+  }
+
+  /// Bật khung AI (cuối cuộc hội thoại) và cho AI đọc (lần đầu: tóm tắt + bản nháp, thư tự động thì chỉ tóm tắt).
   Future<void> openAi() async {
     setState(() => _aiOpen = true);
+    _showAi();
     if (_ai == null && !_aiBusy) await _runAi();
-    if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+    _showAi();
   }
 
   /// "AI soạn trả lời": AI viết bản nháp rồi mở ô trả lời với nội dung đó (không tự gửi).
@@ -180,9 +206,14 @@ class ThreadViewState extends State<ThreadView> {
     if (t == null || _aiReplyBusy) return;
     setState(() => _aiReplyBusy = true);
     try {
-      final r = await store.api.ai(t.summary.id, task: 'draft', tone: _aiTone);
+      final r = await store.api.ai(t.summary.id, task: 'draft', instruction: _aiAsk.text.trim(), tone: _aiTone);
       if (!mounted) return;
-      if (r.draft.trim().isEmpty) {
+      if (r.automated) {
+        // Máy chủ nhận ra thư tự động (header List-Unsubscribe / Auto-Submitted…): báo rõ, ẩn nút, mở khung tóm tắt.
+        setState(() => (_ai = r, _aiOpen = true));
+        _showAi();
+        _snack('Thư tự động, không cần trả lời');
+      } else if (r.draft.trim().isEmpty) {
         _snack('AI chưa soạn được thư trả lời, thử lại sau');
       } else {
         reply('all', null, r.draft);
@@ -201,7 +232,7 @@ class ThreadViewState extends State<ThreadView> {
       _aiErr = null;
     });
     try {
-      final r = await store.api.ai(t.summary.id, task: store.readOnly ? 'summary' : 'draft', instruction: _aiAsk.text.trim(), tone: _aiTone);
+      final r = await store.api.ai(t.summary.id, task: store.readOnly || _automated ? 'summary' : 'draft', instruction: _aiAsk.text.trim(), tone: _aiTone);
       if (mounted) setState(() => _ai = r);
     } catch (e) {
       if (mounted) setState(() => _aiErr = e);
@@ -212,6 +243,10 @@ class ThreadViewState extends State<ThreadView> {
   void reply(String kind, [MailMessage? m, String body = '']) {
     final t = _t;
     if (t == null) return;
+    if (kind != 'fwd' && (m != null ? isNoReplySender(m.from.email) : _noReply)) {
+      _snack('Thư tự động từ địa chỉ không nhận trả lời, chỉ chuyển tiếp được');
+      return;
+    }
     var args = replyArgs(kind, t, m ?? t.messages.last, store.me?.person.email ?? '');
     if (body.isNotEmpty) {
       args = args.withBody(body);
@@ -459,8 +494,9 @@ class ThreadViewState extends State<ThreadView> {
               ],
             ),
           ),
-          if (_aiOpen) Padding(padding: EdgeInsets.fromLTRB(pad, 4, 16, 12), child: _aiPanel(mc)),
           for (var i = 0; i < t.messages.length; i++) _message(t, t.messages[i], i, mc),
+          // AI đọc thư: ở cuối, sau thư cuối, ngay trên phần trả lời (Sếp, 18/11).
+          if (_aiOpen) Padding(key: _aiKey, padding: EdgeInsets.fromLTRB(pad, 12, 16, 4), child: _aiPanel(mc)),
           if (store.readOnly)
             const SizedBox.shrink()
           else if (_inline != null && widget.inlineReply != null)
@@ -478,9 +514,9 @@ class ThreadViewState extends State<ThreadView> {
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  _replyBtn(Icons.reply, 'Trả lời', () => reply('all')),
+                  if (!_noReply) _replyBtn(Icons.reply, 'Trả lời', () => reply('all')),
                   _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
-                  if (!store.readOnly)
+                  if (!store.readOnly && !_automated)
                     OutlinedButton.icon(
                       key: const ValueKey('mail-ai-reply'),
                       onPressed: _aiReplyBusy ? null : aiReply,
@@ -491,6 +527,33 @@ class ThreadViewState extends State<ThreadView> {
                       style: OutlinedButton.styleFrom(shape: const StadiumBorder(), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
                     ),
                 ],
+              ),
+            ),
+          // Dặn AI trước khi soạn (Sếp, 18/11): cùng ô với khung AI đọc thư; Enter = AI soạn trả lời.
+          if (!store.readOnly && !_automated && !(_inline != null && widget.inlineReply != null))
+            Padding(
+              padding: EdgeInsets.fromLTRB(pad, 10, 16, 0),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: TextField(
+                  key: const ValueKey('mail-ai-reply-ask'),
+                  controller: _aiAsk,
+                  enabled: !_aiReplyBusy,
+                  onSubmitted: (_) => aiReply(),
+                  minLines: 1,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.send,
+                  style: const TextStyle(fontSize: 13.5),
+                  decoration: InputDecoration(
+                    prefixIcon: Icon(Icons.auto_awesome, size: 16, color: mc.accentText),
+                    hintText: 'Dặn AI trả lời thế nào? (vd: đồng ý, hẹn gửi báo giá thứ Hai)',
+                    isDense: true,
+                    filled: true,
+                    fillColor: mc.surface2,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: mc.line)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: mc.line)),
+                  ),
+                ),
               ),
             ),
         ],
@@ -517,7 +580,7 @@ class ThreadViewState extends State<ThreadView> {
       ],
       MenuEntry(s.important ? 'Đánh dấu là không quan trọng' : 'Đánh dấu là quan trọng', Icons.label_important_outline, () => act(s.important ? MailAction.unimportant : MailAction.important)),
       MenuEntry(s.starred ? 'Bỏ gắn dấu sao' : 'Thêm dấu sao', Icons.star_outline, () => act(s.starred ? MailAction.unstar : MailAction.star)),
-      MenuEntry('Trả lời', Icons.reply, () => reply('all')),
+      if (!_noReply) MenuEntry('Trả lời', Icons.reply, () => reply('all')),
       MenuEntry('Chuyển tiếp', Icons.forward, () => reply('fwd')),
     ]);
   }
@@ -587,7 +650,17 @@ class ThreadViewState extends State<ThreadView> {
                 ]),
               ),
           ],
-          if (!store.readOnly && r.draft.isNotEmpty) ...[
+          if (_automated)
+            Padding(
+              key: const ValueKey('mail-ai-automated'),
+              padding: const EdgeInsets.only(top: 10, right: 8),
+              child: Row(children: [
+                Icon(Icons.smart_toy_outlined, size: 15, color: mc.muted),
+                const SizedBox(width: 6),
+                Expanded(child: Text('Thư tự động, không cần trả lời', style: TextStyle(fontSize: 12.5, color: mc.muted))),
+              ]),
+            ),
+          if (!store.readOnly && !_automated && r.draft.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text('Bản nháp trả lời', style: TextStyle(fontSize: 12.5, color: mc.muted, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
@@ -599,7 +672,7 @@ class ThreadViewState extends State<ThreadView> {
             ),
           ],
         ],
-        if (!store.readOnly) ...[
+        if (!store.readOnly && !_automated) ...[
           const SizedBox(height: 10),
           Wrap(spacing: 6, runSpacing: 6, children: [tone('polite', 'Lịch sự'), tone('casual', 'Thân mật'), tone('short', 'Ngắn gọn')]),
           const SizedBox(height: 8),
@@ -713,15 +786,18 @@ class ThreadViewState extends State<ThreadView> {
                         style: TextStyle(fontSize: 12, color: mc.muted),
                       ),
                       if (open && !store.readOnly) ...[
-                        IconButton(tooltip: 'Trả lời', visualDensity: VisualDensity.compact, iconSize: 18, onPressed: () => reply('reply', m), icon: const Icon(Icons.reply)),
+                        if (!isNoReplySender(m.from.email))
+                          IconButton(tooltip: 'Trả lời', visualDensity: VisualDensity.compact, iconSize: 18, onPressed: () => reply('reply', m), icon: const Icon(Icons.reply)),
                         Builder(
                           builder: (b) => IconButton(
                             tooltip: 'Thêm',
                             visualDensity: VisualDensity.compact,
                             iconSize: 18,
                             onPressed: () => showAnchoredMenu(b, [
-                              MenuEntry('Trả lời', Icons.reply, () => reply('reply', m)),
-                              MenuEntry('Trả lời tất cả', Icons.reply_all, () => reply('all', m)),
+                              if (!isNoReplySender(m.from.email)) ...[
+                                MenuEntry('Trả lời', Icons.reply, () => reply('reply', m)),
+                                MenuEntry('Trả lời tất cả', Icons.reply_all, () => reply('all', m)),
+                              ],
                               MenuEntry('Chuyển tiếp', Icons.forward, () => reply('fwd', m)),
                             ]),
                             icon: const Icon(Icons.more_vert),
@@ -836,6 +912,7 @@ class _AttachmentCard extends StatelessWidget {
                         ]),
                       ),
                       act(Icons.download_rounded, 'Tải về', onDownload, ValueKey('att-dl-${a.id}')),
+                      if (canPrint(a)) AttachmentPrintButton(a, key: ValueKey('att-pr-${a.id}'), files: files, color: mc.muted),
                       if (onDrive != null) act(Icons.add_to_drive_rounded, 'Lưu vào Drive', onDrive, ValueKey('att-dr-${a.id}')),
                     ],
                   ),

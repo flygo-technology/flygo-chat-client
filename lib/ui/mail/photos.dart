@@ -1,6 +1,6 @@
 // Thư: trình xem ảnh của một thư — mọi ảnh của thư (ảnh dán trong thư, ảnh từ mạng khi đã cho hiện, ảnh đính kèm)
-// xếp dọc như Bảng tin (PhotoZoomScope + PhotoColumn): chụm / bấm đúp / Ctrl + lăn chuột để phóng to, thu nhỏ hết cỡ
-// là về danh sách; phím mũi tên sang ảnh trước / sau, Esc đóng. Thao tác: Tải về, Lưu vào Drive, Sao chép ảnh.
+// xếp dọc như Bảng tin (PhotoZoomScope + PhotoColumn): chụm / bấm / lăn chuột để phóng to, thu nhỏ hết cỡ
+// là về danh sách; phím mũi tên sang ảnh trước / sau, Esc đóng. Thao tác: Tải về, Lưu vào Drive, In, Sao chép ảnh.
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -143,6 +143,14 @@ class MailPhotos extends PhotoSource {
             snack('Không lưu được: $e');
           }
         }),
+      PhotoAction(Icons.print_outlined, 'In', key: const ValueKey('photo-print'), () async {
+        try {
+          final b = await bytes(id);
+          await printPdfBytes(_photo(id).name.isEmpty ? 'anh.pdf' : _photo(id).name, await imageToPdf(b));
+        } catch (e) {
+          snack('Không in được: $e');
+        }
+      }),
       PhotoAction(Icons.copy_rounded, 'Sao chép ảnh', key: const ValueKey('photo-copy'), bar: true, () => copyPhoto(context, () => bytes(id))),
     ];
   }
@@ -249,6 +257,7 @@ class _MailPhotoPageState extends State<MailPhotoPage> {
           source: p,
           keyboard: true,
           dark: true,
+          wheelZooms: true,
           builder: (context, locked) => NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n is UserScrollNotification) _userScrolled = true;
