@@ -14,6 +14,8 @@ import '../../state/app_state.dart';
 import '../common.dart';
 import '../theme.dart';
 import 'meet_lobby.dart';
+import 'meet_schedule.dart';
+import 'meet_sync.dart';
 
 // App "Họp" (mục Chính của Trang chủ): bố cục quen thuộc của các app họp video — "Cuộc họp mới", ô nhập mã / link,
 // danh sách đang diễn ra / sắp tới / gần đây. Phòng họp có mã do trạm push giữ (lib/calls/meet_rooms.dart); âm thanh,
@@ -135,7 +137,22 @@ class _MeetHomePageState extends State<MeetHomePage> {
       case 'schedule':
         final s = await showScheduleMeeting(context);
         if (s == null || !mounted) return;
-        final r = await _create(title: s.title, start: s.start, end: s.end, invitees: s.invitees, access: s.access);
+        // Có hẹn giờ: thêm vào Lịch (Lịch tạo phòng). Lịch không làm được thì tạo phòng thẳng.
+        setState(() => _busy = true);
+        MeetRoomInfo? r;
+        try {
+          final code = await scheduleInCalendar(context, s);
+          if (code != null) {
+            r = await _api.get(code);
+            if (s.access != r.access) r = await _api.update(code, access: s.access);
+          }
+        } catch (e) {
+          debugPrint('[meet] lên lịch qua Lịch: $e');
+        } finally {
+          if (mounted) setState(() => _busy = false);
+        }
+        if (!mounted) return;
+        r ??= await _create(title: s.title, start: s.start, end: s.end, invitees: s.invitees, access: s.access);
         if (r != null && mounted) {
           await showMeetLinkDialog(context, r, title: tr('Đã lên lịch cuộc họp'));
           _load(quiet: true);
@@ -152,6 +169,84 @@ class _MeetHomePageState extends State<MeetHomePage> {
           await openMeetLobby(context, null, channelId: ch.id);
         }
         _load(quiet: true);
+    }
+  }
+
+  /// Thao tác trên một cuộc họp trong danh sách: sửa giờ, huỷ, xoá khỏi lịch sử.
+  Future<void> _roomAction(MeetRoomInfo r, String action) async {
+    switch (action) {
+      case 'edit':
+        final s = await showScheduleMeeting(context, edit: r);
+        if (s == null || !mounted) return;
+        setState(() => _busy = true);
+        try {
+          final viaCal = await rescheduleInCalendar(context, r, s);
+          await _api.update(
+            r.code,
+            title: viaCal ? null : s.title,
+            start: viaCal ? null : s.start,
+            end: viaCal ? null : s.end,
+            invitees: s.invitees,
+            access: s.access,
+          );
+          if (mounted) meetToast(context, tr('Đã lưu. Người được mời nhận được thông báo nếu đổi giờ.'));
+        } on MeetSyncException catch (e) {
+          if (mounted) meetToast(context, tr(e.message));
+        } catch (e) {
+          if (mounted) meetToast(context, tr('Không lưu được: {0}', [e]));
+        } finally {
+          if (mounted) setState(() => _busy = false);
+          _load(quiet: true);
+        }
+      case 'cancel':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: Text(tr('Huỷ cuộc họp?')),
+            content: Text([
+              tr('"{0}" sẽ bị huỷ, mã họp không dùng được nữa. Người được mời nhận thông báo huỷ.', [r.title]),
+              if (r.fromCalendar) tr('Sự kiện trong Lịch cũng bị xoá.'),
+            ].join('\n\n')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Không'))),
+              FilledButton(
+                key: const ValueKey('meet-cancel-confirm'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () => Navigator.pop(d, true),
+                child: Text(tr('Huỷ cuộc họp')),
+              ),
+            ],
+          ),
+        );
+        if (ok != true || !mounted) return;
+        setState(() => _busy = true);
+        try {
+          try {
+            await cancelInCalendar(context, r);
+          } catch (e) {
+            debugPrint('[meet] xoá sự kiện Lịch: $e');
+          }
+          // Lịch đã huỷ phòng thì máy chủ trả "đã huỷ": coi như xong.
+          await _api.cancel(r.code).catchError((Object e) {
+            if (e is MeetRoomsException && (e.status == 410 || e.status == 404)) return;
+            throw e;
+          });
+          if (mounted) meetToast(context, tr('Đã huỷ cuộc họp'));
+        } catch (e) {
+          if (mounted) meetToast(context, tr('Không huỷ được: {0}', [e]));
+        } finally {
+          if (mounted) setState(() => _busy = false);
+          _load(quiet: true);
+        }
+      case 'hide':
+        setState(() => _rooms = [for (final x in _rooms ?? const <MeetRoomInfo>[]) if (x.code != r.code) x]);
+        try {
+          await _api.hide(r.code);
+          if (mounted) meetToast(context, tr('Đã xoá khỏi lịch sử'));
+        } catch (e) {
+          if (mounted) meetToast(context, tr('Không xoá được: {0}', [e]));
+          _load(quiet: true);
+        }
     }
   }
 
@@ -335,6 +430,8 @@ class _MeetHomePageState extends State<MeetHomePage> {
       error: _error,
       onOpen: (r) => openMeetLobby(context, r.code, room: r).then((_) => _load(quiet: true)),
       onCopy: (r) => showMeetLinkDialog(context, r),
+      myId: context.read<AppState>().me?.id ?? '',
+      onAction: _roomAction,
     );
     final header = Padding(
       padding: EdgeInsets.fromLTRB(wide ? 24 : 8, 8, wide ? 24 : 16, 8),
@@ -475,7 +572,11 @@ class _RoomLists extends StatelessWidget {
   final String? error;
   final void Function(MeetRoomInfo) onOpen;
   final void Function(MeetRoomInfo) onCopy;
+  final String myId;
+  final void Function(MeetRoomInfo, String)? onAction;
   const _RoomLists({
+    this.myId = '',
+    this.onAction,
     required this.live,
     required this.upcoming,
     required this.recent,
@@ -542,15 +643,15 @@ class _RoomLists extends StatelessWidget {
           ),
         if (live.isNotEmpty) ...[
           head(tr('Đang diễn ra')),
-          card([for (final r in live) _RoomRow(room: r, onOpen: onOpen, onCopy: onCopy)]),
+          card([for (final r in live) _RoomRow(room: r, onOpen: onOpen, onCopy: onCopy, myId: myId, onAction: onAction)]),
         ],
         if (upcoming.isNotEmpty) ...[
           head(tr('Sắp tới')),
-          card([for (final r in upcoming) _RoomRow(room: r, onOpen: onOpen, onCopy: onCopy)]),
+          card([for (final r in upcoming) _RoomRow(room: r, onOpen: onOpen, onCopy: onCopy, myId: myId, onAction: onAction)]),
         ],
         if (recent.isNotEmpty) ...[
           head(tr('Gần đây')),
-          card([for (final r in recent) _RoomRow(room: r, onOpen: onOpen, onCopy: onCopy)]),
+          card([for (final r in recent) _RoomRow(room: r, onOpen: onOpen, onCopy: onCopy, myId: myId, onAction: onAction)]),
         ],
       ],
     );
@@ -561,7 +662,9 @@ class _RoomRow extends StatelessWidget {
   final MeetRoomInfo room;
   final void Function(MeetRoomInfo) onOpen;
   final void Function(MeetRoomInfo) onCopy;
-  const _RoomRow({required this.room, required this.onOpen, required this.onCopy});
+  final String myId;
+  final void Function(MeetRoomInfo, String)? onAction;
+  const _RoomRow({required this.room, required this.onOpen, required this.onCopy, this.myId = '', this.onAction});
 
   @override
   Widget build(BuildContext context) {
@@ -627,9 +730,37 @@ class _RoomRow extends StatelessWidget {
                 onPressed: () => onCopy(room),
                 icon: Icon(Icons.share_outlined, color: pal.sub),
               ),
+            if (onAction != null) _menu(pal),
           ],
         ),
       ),
+    );
+  }
+}
+
+extension on _RoomRow {
+  /// Menu ⋮: người tạo sửa ngày giờ / huỷ (chưa kết thúc); ai cũng xoá được cuộc họp đã qua khỏi lịch sử của mình.
+  Widget _menu(Pal pal) {
+    final mine = myId.isNotEmpty && room.creator == myId;
+    final past = room.finished || (room.end ?? room.start)?.isBefore(DateTime.now()) == true && !room.live;
+    final items = <PopupMenuEntry<String>>[
+      if (mine && !room.finished && !room.live)
+        PopupMenuItem(value: 'edit', child: ListTile(dense: true, leading: const Icon(Icons.edit_calendar_rounded), title: Text(tr('Sửa ngày giờ')))),
+      if (mine && !room.finished)
+        PopupMenuItem(
+          value: 'cancel',
+          child: ListTile(dense: true, leading: const Icon(Icons.event_busy_rounded, color: Colors.redAccent), title: Text(tr('Huỷ cuộc họp'))),
+        ),
+      if (past || !mine)
+        PopupMenuItem(value: 'hide', child: ListTile(dense: true, leading: const Icon(Icons.delete_outline_rounded), title: Text(tr('Xoá khỏi lịch sử')))),
+    ];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return PopupMenuButton<String>(
+      key: ValueKey('meet-menu-${room.code}'),
+      tooltip: tr('Thêm'),
+      icon: Icon(Icons.more_vert_rounded, color: pal.sub),
+      onSelected: (a) => onAction?.call(room, a),
+      itemBuilder: (_) => items,
     );
   }
 }
@@ -737,167 +868,6 @@ class MeetLinkBox extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------- lên lịch
-
-class MeetSchedule {
-  final String title;
-  final DateTime start, end;
-  final List<String> invitees;
-  final String access;
-  const MeetSchedule(this.title, this.start, this.end, this.invitees, this.access);
-}
-
-Future<MeetSchedule?> showScheduleMeeting(BuildContext context) =>
-    Navigator.of(context).push<MeetSchedule>(MaterialPageRoute(fullscreenDialog: true, builder: (_) => const _ScheduleMeeting()));
-
-class _ScheduleMeeting extends StatefulWidget {
-  const _ScheduleMeeting();
-  @override
-  State<_ScheduleMeeting> createState() => _ScheduleMeetingState();
-}
-
-class _ScheduleMeetingState extends State<_ScheduleMeeting> {
-  final _title = TextEditingController();
-  final _q = TextEditingController();
-  late DateTime _start = () {
-    final n = DateTime.now().add(const Duration(hours: 1));
-    return DateTime(n.year, n.month, n.day, n.hour, n.minute < 30 ? 30 : 0).add(Duration(hours: n.minute < 30 ? 0 : 1));
-  }();
-  int _minutes = 60;
-  bool _inviteOnly = true;
-  final _invited = <String>{};
-
-  @override
-  void initState() {
-    super.initState();
-    _title.addListener(() => setState(() {}));
-    _q.addListener(() => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _title.dispose();
-    _q.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pick() async {
-    final now = DateTime.now();
-    final d = await showDatePicker(context: context, initialDate: _start, firstDate: now, lastDate: now.add(const Duration(days: 365)));
-    if (d == null || !mounted) return;
-    final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_start));
-    if (t == null) return;
-    setState(() => _start = DateTime(d.year, d.month, d.day, t.hour, t.minute));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    final app = context.watch<AppState>();
-    final q = _q.text.trim().toLowerCase();
-    final people = [
-      for (final u in app.people)
-        if (q.isEmpty || u.displayName.toLowerCase().contains(q) || u.username.contains(q)) u,
-    ];
-    final ok = _title.text.trim().isNotEmpty && _start.isAfter(DateTime.now());
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(tr('Lên lịch cuộc họp')),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton(
-              onPressed: ok
-                  ? () => Navigator.pop(
-                      context,
-                      MeetSchedule(
-                        _title.text.trim(),
-                        _start,
-                        _start.add(Duration(minutes: _minutes)),
-                        _invited.toList(),
-                        _inviteOnly ? 'invited' : 'company',
-                      ),
-                    )
-                  : null,
-              child: Text(tr('Lưu')),
-            ),
-          ),
-        ],
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              TextField(
-                controller: _title,
-                autofocus: true,
-                decoration: InputDecoration(labelText: tr('Tên cuộc họp'), border: const OutlineInputBorder()),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.schedule_rounded),
-                title: Text('${_weekday(_start)}, ${ddmmyyyy(_start)} · ${hhmm(_start)}'),
-                subtitle: Text(tr('Bấm để đổi ngày giờ')),
-                onTap: _pick,
-              ),
-              Row(
-                children: [
-                  const Icon(Icons.timelapse_rounded),
-                  const SizedBox(width: 16),
-                  Text(tr('Thời lượng')),
-                  const Spacer(),
-                  DropdownButton<int>(
-                    value: _minutes,
-                    items: [
-                      for (final m in const [15, 30, 45, 60, 90, 120]) DropdownMenuItem(value: m, child: Text(tr('{0} phút', [m]))),
-                    ],
-                    onChanged: (v) => setState(() => _minutes = v ?? 60),
-                  ),
-                ],
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _inviteOnly,
-                onChanged: (v) => setState(() => _inviteOnly = v),
-                title: Text(tr('Chỉ người được mời')),
-                subtitle: Text(
-                  _inviteOnly ? tr('Người khác có mã phải xin vào, người tổ chức cho vào.') : tr('Mọi người trong công ty có mã đều vào được.'),
-                ),
-              ),
-              const Divider(height: 24),
-              Text(
-                tr('Mời ({0})', [_invited.length]),
-                style: TextStyle(fontWeight: FontWeight.w700, color: pal.sub),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _q,
-                decoration: InputDecoration(
-                  isDense: true,
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  hintText: tr('Tìm người'),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              for (final u in people.take(80))
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _invited.contains(u.id),
-                  onChanged: (v) => setState(() => v == true ? _invited.add(u.id) : _invited.remove(u.id)),
-                  secondary: Avatar(userId: u.id, name: u.displayName, size: 36, status: false),
-                  title: Text(u.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

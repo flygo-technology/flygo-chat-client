@@ -18,6 +18,7 @@ import 'package:flygo_chat/ui/call_screen.dart';
 import 'package:flygo_chat/ui/desk_tabs.dart';
 import 'package:flygo_chat/ui/meet/meet_home.dart';
 import 'package:flygo_chat/ui/meet/meet_lobby.dart';
+import 'package:flygo_chat/ui/meet/meet_schedule.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -217,6 +218,112 @@ void main() {
     expect(find.text('Tạo cuộc họp để dùng sau'), findsOneWidget);
     expect(find.text('Lên lịch cuộc họp'), findsOneWidget);
     await snap(t, 'd1-home-menu');
+  });
+
+  group('lên lịch / sửa / huỷ', () {
+    // 08:10 giờ Việt Nam ngày 20/11/2026 (01:10 UTC).
+    final clock = DateTime.utc(2026, 11, 20, 1, 10);
+    MeetSchedule? got;
+    Widget opener({MeetRoomInfo? edit}) => Builder(
+          builder: (c) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                key: const ValueKey('open'),
+                onPressed: () async => got = await showScheduleMeeting(c, edit: edit, clock: () => clock),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        );
+    Future<void> pickSlot(WidgetTester t, String key, String label) async {
+      await t.tap(find.byKey(ValueKey(key)));
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(find.textContaining(label), 200, scrollable: find.byType(Scrollable).last);
+      await t.tap(find.textContaining(label).last);
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('giờ Việt Nam: chuyển đổi hai chiều', (t) async {
+      final w = meetWall(DateTime.utc(2026, 12, 1, 2, 0));
+      expect([w.hour, w.minute, w.day], [9, 0, 1]);
+      expect(meetInstant(DateTime.utc(2026, 12, 1, 9, 0)).toUtc(), DateTime.utc(2026, 12, 1, 2, 0));
+      expect(meetDuration(90), '1 giờ 30 phút');
+      expect(meetDuration(45), '45 phút');
+    });
+
+    testWidgets('lên lịch: ngày, giờ bắt đầu, giờ kết thúc (máy tính)', (t) async {
+      debugIsDesktop = true;
+      got = null;
+      await show(t, 'd6-schedule-open', const Size(1280, 860), opener());
+      await t.tap(find.byKey(const ValueKey('open')));
+      await t.pumpAndSettle();
+      // Mặc định: 09:30–10:30 cùng ngày (mốc 30 phút sau một giờ nữa), giờ Việt Nam.
+      expect(find.text('09:30'), findsOneWidget);
+      expect(find.text('10:30'), findsOneWidget);
+      expect(find.textContaining('Thứ 6, 20/11/2026'), findsOneWidget);
+      expect(find.textContaining('Giờ Việt Nam (GMT+7) · 1 giờ'), findsOneWidget);
+      await t.enterText(find.byType(TextField).first, 'Giao ban tuần');
+      await t.pump();
+      await snap(t, 'd6-schedule');
+      // Giờ bắt đầu 14:00 (giữ thời lượng 1 giờ) rồi giờ kết thúc 15:30.
+      await pickSlot(t, 'meet-from', '14:00');
+      expect(find.text('15:00'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('meet-to')));
+      await t.pumpAndSettle();
+      await snap(t, 'd6-schedule-end-picker');
+      await t.scrollUntilVisible(find.textContaining('15:30 (1 giờ 30 phút)'), 200, scrollable: find.byType(Scrollable).last);
+      await t.tap(find.textContaining('15:30 (1 giờ 30 phút)'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('1 giờ 30 phút'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('meet-schedule-save')));
+      await t.pumpAndSettle();
+      expect(got!.title, 'Giao ban tuần');
+      expect(got!.start.toUtc(), DateTime.utc(2026, 11, 20, 7, 0));
+      expect(got!.end.toUtc(), DateTime.utc(2026, 11, 20, 8, 30));
+      expect(got!.access, 'invited');
+    });
+
+    testWidgets('sửa cuộc họp: điền sẵn giờ cũ, giờ đã qua thì báo (điện thoại)', (t) async {
+      debugIsDesktop = false;
+      got = null;
+      final room = MeetRoomInfo(
+        code: 'abc-defg-hij', url: '', channelId: _ch, title: 'Họp khách', creator: _me, access: 'company',
+        start: DateTime.utc(2026, 11, 21, 2, 0), end: DateTime.utc(2026, 11, 21, 3, 15), invitees: [_u('a')],
+      );
+      await show(t, 'p6-edit-open', const Size(390, 844), opener(edit: room));
+      await t.tap(find.byKey(const ValueKey('open')));
+      await t.pumpAndSettle();
+      expect(find.text('Sửa cuộc họp'), findsOneWidget);
+      expect(find.text('09:00'), findsOneWidget);
+      expect(find.text('10:15'), findsOneWidget);
+      expect(find.textContaining('Thứ 7, 21/11/2026'), findsOneWidget);
+      await snap(t, 'p6-edit');
+      // Kết thúc 08:45 < bắt đầu: hiểu là hôm sau (họp qua đêm), vẫn lưu được nhưng dài quá 24 giờ thì không.
+      await pickSlot(t, 'meet-to', '09:30');
+      await t.tap(find.byKey(const ValueKey('meet-schedule-save')));
+      await t.pumpAndSettle();
+      expect(got!.access, 'company');
+      expect(got!.invitees, [_u('a')]);
+      expect(got!.end.difference(got!.start).inMinutes, 30);
+    });
+
+    testWidgets('menu ⋮ trong danh sách: người tạo sửa / huỷ, cuộc họp đã qua thì xoá khỏi lịch sử', (t) async {
+      debugIsDesktop = true;
+      await show(t, 'd7-menu', const Size(1440, 860), MeetHomePage(demoRooms: rooms));
+      final up = rooms.firstWhere((r) => r.creator == _me && !r.live && !r.finished && (r.start?.isAfter(DateTime.now()) ?? false));
+      await t.tap(find.byKey(ValueKey('meet-menu-${up.code}')));
+      await t.pumpAndSettle();
+      expect(find.text('Sửa ngày giờ'), findsOneWidget);
+      expect(find.text('Huỷ cuộc họp'), findsOneWidget);
+      await snap(t, 'd7-menu-upcoming');
+      await t.tapAt(const Offset(5, 5));
+      await t.pumpAndSettle();
+      final past = rooms.firstWhere((r) => r.finished);
+      await t.tap(find.byKey(ValueKey('meet-menu-${past.code}')));
+      await t.pumpAndSettle();
+      expect(find.text('Xoá khỏi lịch sử'), findsOneWidget);
+      expect(find.text('Sửa ngày giờ'), findsNothing);
+    });
   });
 
   testWidgets('trang chủ Họp (điện thoại, tối)', (t) async {
