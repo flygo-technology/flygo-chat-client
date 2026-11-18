@@ -26,6 +26,8 @@ class MeetRoomInfo {
   final int participants;
   final bool? member;
   final List<String> invitees;
+  /// App đã tạo phòng (vd Lịch: `calendar` / `vn.flygo.calendar`) và id sự kiện bên đó (có thể trống).
+  final String sourceApp, sourceEventId;
   const MeetRoomInfo({
     required this.code,
     required this.url,
@@ -41,6 +43,8 @@ class MeetRoomInfo {
     this.participants = 0,
     this.member,
     this.invitees = const [],
+    this.sourceApp = '',
+    this.sourceEventId = '',
   });
 
   factory MeetRoomInfo.fromJson(Map<String, dynamic> j) {
@@ -60,10 +64,14 @@ class MeetRoomInfo {
       participants: (j['participants'] as num?)?.toInt() ?? 0,
       member: j['member'] as bool?,
       invitees: [for (final x in (j['invitees'] as List? ?? const [])) '$x'],
+      sourceApp: '${(j['source'] as Map?)?['app'] ?? ''}',
+      sourceEventId: '${(j['source'] as Map?)?['event_id'] ?? ''}',
     );
   }
 
   bool get live => status == MeetRoomStatus.live;
+  /// Cuộc họp gắn với một sự kiện trong Lịch: đổi giờ / huỷ đi qua Lịch để hai bên khớp nhau.
+  bool get fromCalendar => sourceApp.contains('calendar');
   bool get finished => status == MeetRoomStatus.ended || status == MeetRoomStatus.cancelled;
 
   /// Chưa tới giờ và không cho vào sớm.
@@ -154,5 +162,19 @@ class MeetRoomsApi {
 
   Future<void> admit(String code, String req, bool allow) => _call('POST', '/meet/rooms/$code/admit', {'req': req, 'allow': allow});
 
+  /// Huỷ cuộc họp: máy chủ báo trong nhóm của cuộc họp và ngắt người đang họp.
   Future<void> cancel(String code) => _call('DELETE', '/meet/rooms/$code');
+
+  /// Sửa cuộc họp (người tạo / quản trị). Đổi giờ thì máy chủ báo trong nhóm của cuộc họp.
+  Future<MeetRoomInfo> update(String code, {String? title, DateTime? start, DateTime? end, List<String>? invitees, String? access}) async =>
+      MeetRoomInfo.fromJson(await _call('PATCH', '/meet/rooms/$code', {
+        'title': ?title,
+        if (start != null) 'start': start.millisecondsSinceEpoch,
+        if (end != null) 'end': end.millisecondsSinceEpoch,
+        'invitees': ?invitees,
+        'access': ?access,
+      }));
+
+  /// Xoá khỏi danh sách của mình (lịch sử).
+  Future<void> hide(String code) => _call('POST', '/meet/rooms/$code/hide');
 }
