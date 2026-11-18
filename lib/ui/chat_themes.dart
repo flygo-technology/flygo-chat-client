@@ -290,7 +290,7 @@ Future<({String color, String text})?> editBanner(BuildContext context, ({String
 }
 
 /// Bảng màu kiểu Claude app cho chat 1-1 với trợ lý (đo từ app Claude trên Android: nền #151515, chữ #E0E0DF,
-/// tin người dùng #0D0D0D, ô nhập #20201F, nút #313131; bản sáng theo tông giấy ngà của Claude).
+/// tin người dùng #0D0D0D, ô nhập #20201F, nút #313131; bản sáng nền trắng tinh, Sếp 2026-11-18).
 Pal claudePal(Pal p, bool dark) {
   const orange = Color(0xFFD97757);
   return dark
@@ -319,7 +319,7 @@ Pal claudePal(Pal p, bool dark) {
           threadBg: const Color(0xFF151515),
         )
       : Pal(
-          bg: const Color(0xFFFAF9F5),
+          bg: Colors.white,
           surface: Colors.white,
           surface2: const Color(0xFFF0EEE6),
           text: const Color(0xFF141413),
@@ -330,17 +330,17 @@ Pal claudePal(Pal p, bool dark) {
           chipSelBg: p.chipSelBg,
           chipSelFg: p.chipSelFg,
           outBubble: const Color(0xFFF0EEE6),
-          inBubble: const Color(0xFFFAF9F5),
+          inBubble: Colors.white,
           quoteOut: const Color(0xFFE6E3D9),
           quoteIn: const Color(0xFFF0EEE6),
           quoteBar: orange,
           tick: const Color(0xFF6F6E69),
-          chatBg: const Color(0xFFFAF9F5),
+          chatBg: Colors.white,
           doodle: const Color(0x00000000),
           avatarBg: p.avatarBg,
           avatarFg: p.avatarFg,
-          glass: const Color(0xE6FAF9F5),
-          threadBg: const Color(0xFFFAF9F5),
+          glass: const Color(0xE6FFFFFF),
+          threadBg: Colors.white,
         );
 }
 

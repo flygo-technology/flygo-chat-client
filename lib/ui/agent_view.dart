@@ -1383,7 +1383,10 @@ class AgentTimeline extends StatefulWidget {
   final String? openKey;
   /// Kênh của tin trả lời: bước "files" tìm tin chứa tệp trong kênh này để vẽ ảnh / tệp tại chỗ.
   final String? channelId;
-  const AgentTimeline({super.key, required this.run, required this.textStyle, this.openKey, this.channelId});
+  /// Chat kiểu Claude: lượt đã xong thì mỗi nhóm bước gọn thành một dòng xám "Đã chạy 2 lệnh, Đã nhắn tin cho tác
+  /// nhân ›" (bấm để mở từng bước), như app Claude.
+  final bool summary;
+  const AgentTimeline({super.key, required this.run, required this.textStyle, this.openKey, this.channelId, this.summary = false});
 
   @override
   State<AgentTimeline> createState() => _AgentTimelineState();
@@ -1413,6 +1416,26 @@ class _AgentTimelineState extends State<AgentTimeline> {
       // Giữ chỉ số gốc của bước trong lượt: làm khoá mở chi tiết (bước chỉ được nối thêm vào cuối).
       final idx = [for (var i = 0; i < steps.length; i++) if (inGroup((steps[i]['seg'] as num).toInt())) i];
       if (idx.isEmpty) return;
+      // Kiểu Claude, lượt đã xong: một dòng tóm tắt; bấm để mở (khoá g<k> = đã mở). Bước gửi tệp (ảnh) vẫn hiện.
+      if (widget.summary && !active) {
+        final opened = _open.contains('g$k');
+        final plain = [for (final i in idx) if (steps[i]['kind'] != 'files') steps[i]];
+        if (plain.isNotEmpty) {
+          children.add(AgentStepsSummary(steps: plain, open: opened, onTap: () => _toggle('g$k')));
+          if (!opened) {
+            for (final i in idx) {
+              if (steps[i]['kind'] == 'files' && steps[i]['posts'] is List && widget.channelId != null) {
+                children.add(AgentInlineFiles(
+                    key: ValueKey('files-$i'),
+                    channelId: widget.channelId!,
+                    postIds: [for (final id in steps[i]['posts'] as List) '$id'],
+                    label: stepShortLabel(steps[i])));
+              }
+            }
+            return;
+          }
+        }
+      }
       // Mặc định hiện đủ các bước; người dùng bấm "Thu gọn" thì nhóm gọn lại (khoá f<k> = đã thu gọn).
       final collapsed = !active && idx.length > kStepCollapseOver && _open.contains('f$k');
       // Bước gửi tệp (ảnh) luôn hiện, kể cả khi nhóm bước đã thu gọn.
@@ -1583,6 +1606,68 @@ class AgentStepRow extends StatelessWidget {
 }
 
 /// Dòng cuối nhóm đã thu gọn: "Xem thêm N bước" (hoặc "Thu gọn" khi đã mở hết).
+/// Tóm tắt các bước của một nhóm theo loại, giữ thứ tự xuất hiện: "Đã chạy 2 lệnh, Đã nhắn tin cho tác nhân".
+String agentStepsSummaryText(List<Map<String, dynamic>> steps) {
+  final counts = <String, int>{};
+  for (final s in steps) {
+    final k = switch (s['kind'] as String? ?? '') {
+      'command' || 'file' || 'search' || 'message' || 'thinking' || 'approval' || 'report' => s['kind'] as String,
+      _ => 'tool',
+    };
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  final parts = [
+    for (final e in counts.entries)
+      switch (e.key) {
+        'command' => tr('Đã chạy {0} lệnh', [e.value]),
+        'file' => tr('Đã sửa {0} tệp', [e.value]),
+        'search' => tr('Đã tìm kiếm {0} lần', [e.value]),
+        'message' => e.value == 1 ? tr('Đã nhắn tin cho tác nhân') : tr('Đã nhắn {0} tin cho tác nhân', [e.value]),
+        'thinking' => tr('Đã suy nghĩ'),
+        'approval' => tr('Đã xin duyệt {0} lần', [e.value]),
+        'report' => tr('Đã báo cáo'),
+        _ => tr('Đã dùng {0} công cụ', [e.value]),
+      },
+  ];
+  final errors = steps.where((s) => s['status'] == 'error').length;
+  if (errors > 0) parts.add(tr('{0} lỗi', [errors]));
+  return parts.join(', ');
+}
+
+/// Dòng tóm tắt các bước (kiểu Claude): chữ xám, mũi tên ›; mở thì mũi tên xuống và các bước hiện bên dưới.
+class AgentStepsSummary extends StatelessWidget {
+  final List<Map<String, dynamic>> steps;
+  final bool open;
+  final VoidCallback onTap;
+  const AgentStepsSummary({super.key, required this.steps, required this.open, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final error = steps.any((s) => s['status'] == 'error');
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Flexible(
+              child: Text(agentStepsSummaryText(steps),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 15, height: 1.35, color: error ? Colors.redAccent : pal.sub)),
+            ),
+            const SizedBox(width: 4),
+            Icon(open ? Icons.expand_more : Icons.chevron_right, size: 18, color: pal.sub),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _MoreRow extends StatelessWidget {
   final String label;
   final bool folded;

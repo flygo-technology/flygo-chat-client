@@ -199,20 +199,49 @@ class MarkdownView extends StatelessWidget {
         style: st,
       );
 
+  /// Dấu đầu dòng theo cấp: chấm đặc, tròn rỗng, vuông nhỏ rồi lặp lại (như app Claude / trình duyệt). Tự vẽ, không
+  /// dùng ký tự "◦ ▪": nhiều phông (Roboto) không có, máy sẽ hiện ô vuông.
+  Widget _bullet(int depth, Color color) {
+    final size = (style.fontSize ?? 17) * .34;
+    final kind = depth % 3;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: kind == 1 ? null : color,
+        shape: kind == 2 ? BoxShape.rectangle : BoxShape.circle,
+        border: kind == 1 ? Border.all(color: color, width: 1.2) : null,
+      ),
+    );
+  }
+
+  /// Danh sách: mỗi mục một hàng "dấu | nội dung", dấu thẳng hàng với dòng chữ đầu của mục (căn theo baseline, kể cả
+  /// khi mục mở đầu bằng emoji). Danh sách con nằm trong cột nội dung của mục cha nên tự thụt thêm một cấp.
   Widget _list(BuildContext context, Pal pal, md.Element list, int depth) {
     final ordered = list.tag == 'ol';
     final start = int.tryParse(list.attributes['start'] ?? '') ?? 1;
     final items = (list.children ?? const <md.Node>[]).whereType<md.Element>().toList();
+    // Cột dấu rộng đủ cho số có hai chữ số; cấp ngoài cùng thụt nhẹ so với lề đoạn văn.
+    final lead = _reading ? (depth == 0 ? 10.0 : 12.0) : (depth == 0 ? 2.0 : 4.0);
+    final slot = _reading ? 28.0 : (ordered ? 24.0 : 18.0);
+    final last = '${start + items.length - 1}.';
+    final numSlot = ordered && last.length > 3 ? slot + (last.length - 3) * 9 : slot;
     return Padding(
-      padding: EdgeInsets.only(left: depth * (_reading ? 22.0 : 14.0)),
+      padding: EdgeInsets.only(left: lead),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (var i = 0; i < items.length; i++)
           Padding(
-            padding: EdgeInsets.only(top: _reading ? 7 : 2),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            padding: EdgeInsets.only(top: i == 0 ? (depth > 0 && _reading ? 4 : 0) : (_reading ? 6 : 2)),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
               SizedBox(
-                width: _reading ? (ordered ? 28 : 22) : (ordered ? 24 : 16),
-                child: Text(ordered ? '${start + i}.' : '•', style: style.copyWith(color: pal.sub)),
+                width: numSlot,
+                child: ordered
+                    ? Text('${start + i}.', style: style.copyWith(fontFeatures: const [FontFeature.tabularFigures()]))
+                    // Dấu vẽ nằm giữa chiều cao chữ của dòng đầu (Text giữ baseline để thẳng hàng với nội dung).
+                    : Text.rich(TextSpan(children: [
+                        const TextSpan(text: '\u200B'),
+                        WidgetSpan(alignment: PlaceholderAlignment.middle, child: _bullet(depth, style.color ?? pal.text)),
+                      ]), style: style),
               ),
               Expanded(child: _listItem(context, pal, items[i], depth)),
             ]),
@@ -221,23 +250,40 @@ class MarkdownView extends StatelessWidget {
     );
   }
 
+  /// Nội dung một mục: chữ trong dòng gộp thành đoạn; mục "lỏng" (nhiều đoạn), danh sách con, khối code, trích dẫn…
+  /// hiện thành các khối riêng theo đúng thứ tự.
   Widget _listItem(BuildContext context, Pal pal, md.Element li, int depth) {
-    final inline = <md.Node>[];
-    final blocks = <Widget>[];
+    final parts = <Widget>[];
+    var inline = <md.Node>[];
+    void flush() {
+      if (inline.isEmpty) return;
+      parts.add(_para(pal, inline, style, 0));
+      inline = <md.Node>[];
+    }
+
     for (final c in li.children ?? const <md.Node>[]) {
       if (c is md.Element && (c.tag == 'ul' || c.tag == 'ol')) {
-        blocks.add(_list(context, pal, c, depth + 1));
+        flush();
+        parts.add(_list(context, pal, c, depth + 1));
       } else if (c is md.Element && c.tag == 'p') {
+        flush();
         inline.addAll(c.children ?? const []);
+        flush();
       } else if (c is md.Element && c.tag == 'input') {
         inline.add(md.Text(c.attributes['checked'] != null ? '☑ ' : '☐ '));
+      } else if (c is md.Element && const {'pre', 'blockquote', 'table', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}.contains(c.tag)) {
+        flush();
+        final w = _block(context, pal, c, 0);
+        if (w != null) parts.add(Padding(padding: EdgeInsets.only(top: _reading ? 6 : 3), child: w));
       } else {
         inline.add(c);
       }
     }
+    flush();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      if (inline.isNotEmpty) _para(pal, inline, style, 0),
-      ...blocks,
+      for (var i = 0; i < parts.length; i++)
+        // Các đoạn trong cùng một mục cách nhau như đoạn văn (danh sách con đã tự có khoảng cách).
+        if (i > 0 && parts[i] is Text) Padding(padding: EdgeInsets.only(top: _reading ? 8 : 4), child: parts[i]) else parts[i],
     ]);
   }
 

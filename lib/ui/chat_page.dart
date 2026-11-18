@@ -2767,7 +2767,7 @@ class _Bubble extends StatelessWidget {
           ),
         ),
       // Dòng thời gian: từng bước hiện ngay trong tin theo thứ tự, xen chữ trung gian; câu trả lời cuối ở dưới.
-      if (combined && hasAgentTimeline(agentRun)) AgentTimeline(run: agentRun, textStyle: textStyle, openKey: post.id, channelId: post.channelId),
+      if (combined && hasAgentTimeline(agentRun)) AgentTimeline(run: agentRun, textStyle: textStyle, openKey: post.id, channelId: post.channelId, summary: claude),
       if (showName && !combined)
         Padding(
           padding: const EdgeInsets.only(bottom: 2),
@@ -2902,21 +2902,15 @@ class _Bubble extends StatelessWidget {
       // Tách / chuyển phiên AI (runner 0.6.60: props.flygo_session_handoff): nút mở phiên mới / xem phiên cũ.
       if (post.props['flygo_session_handoff'] is Map)
         _SessionHandoffActions(app: app, here: post.channelId, h: (post.props['flygo_session_handoff'] as Map).cast<String, dynamic>()),
-      // Kiểu Claude: dưới câu trả lời của trợ lý có nút sao chép.
+      // Kiểu Claude: dưới câu trả lời của trợ lý một hàng nút nhỏ (sao chép, chuyển tiếp, thêm) + giờ tương đối.
       if (claude && !mine && last && post.message.trim().isNotEmpty && !streaming)
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: tr('Sao chép'),
-              icon: Icon(Icons.copy_rounded, size: 18, color: pal.sub),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: post.message));
-                ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Đã sao chép'))));
-              },
-            ),
-          ]),
+        _AnswerActions(
+          post: post,
+          text: msgText.isNotEmpty ? msgText : agentDisplayText(post),
+          onMore: () {
+            final key = _bubbleKeys['${post.id}:$inThreadView:${identityHashCode(ModalRoute.of(context))}'];
+            _actions(context, app, mine, anchor: key == null ? null : _rectOf(key));
+          },
         ),
       if (revealedAt != null && !mine) _BurnCountdown(until: revealedAt + readMs),
       // Tin khẩn cấp / tin yêu cầu xác nhận: ghi chú tên những người đã xác nhận đã đọc (ai trong chat cũng thấy).
@@ -7244,4 +7238,90 @@ class _MediaPasteAction extends Action<PasteTextIntent> {
     onPaste(fallback == null ? null : () => fallback.invoke(intent));
     return null;
   }
+}
+
+/// Hàng nút dưới câu trả lời của trợ lý (kiểu app Claude): sao chép, chuyển tiếp, thêm thao tác, rồi giờ tương đối
+/// ("1 phút trước"; rê chuột / giữ để xem giờ đầy đủ).
+class _AnswerActions extends StatefulWidget {
+  final MmPost post;
+  final String text;
+  final VoidCallback onMore;
+  const _AnswerActions({required this.post, required this.text, required this.onMore});
+  @override
+  State<_AnswerActions> createState() => _AnswerActionsState();
+}
+
+class _AnswerActionsState extends State<_AnswerActions> {
+  Timer? _tick;
+  bool _copied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Cập nhật "x phút trước" mỗi phút.
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final at = DateTime.fromMillisecondsSinceEpoch(widget.post.createAt);
+    Widget btn(IconData icon, String tip, VoidCallback onTap) => IconButton(
+          tooltip: tip,
+          onPressed: onTap,
+          icon: Icon(icon, size: 18, color: pal.sub),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        // Bỏ phần đệm trái của nút đầu để biểu tượng thẳng lề chữ.
+        Transform.translate(
+          offset: const Offset(-7, 0),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            btn(_copied ? Icons.check_rounded : Icons.copy_rounded, tr('Sao chép'), () {
+              Clipboard.setData(ClipboardData(text: widget.text));
+              setState(() => _copied = true);
+              Future.delayed(const Duration(seconds: 2), () {
+                if (mounted) setState(() => _copied = false);
+              });
+            }),
+            const SizedBox(width: 2),
+            btn(Icons.shortcut_rounded, tr('Chuyển tiếp'),
+                () => Navigator.of(context).push(AppPageRoute(builder: (_) => ForwardPage(post: widget.post)))),
+            const SizedBox(width: 2),
+            btn(Icons.more_horiz_rounded, tr('Thêm'), widget.onMore),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: '${hhmm(at)}, ${two(at.day)}/${two(at.month)}/${at.year}',
+              child: Text(relativeAgo(at), style: TextStyle(fontSize: 13.5, color: pal.sub)),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+/// "vừa xong", "5 phút trước", "3 giờ trước", "hôm qua", rồi ngày.
+String relativeAgo(DateTime at, [DateTime? now]) {
+  final n = now ?? DateTime.now();
+  final d = n.difference(at);
+  if (d.inMinutes < 1) return tr('vừa xong');
+  if (d.inHours < 1) return tr('{0} phút trước', [d.inMinutes]);
+  if (d.inDays < 1 && n.day == at.day) return tr('{0} giờ trước', [d.inHours]);
+  final y = DateTime(n.year, n.month, n.day).subtract(const Duration(days: 1));
+  if (at.year == y.year && at.month == y.month && at.day == y.day) return tr('hôm qua');
+  if (d.inDays < 7) return tr('{0} ngày trước', [d.inDays < 1 ? 1 : d.inDays]);
+  return at.year == n.year ? '${two(at.day)}/${two(at.month)}' : '${two(at.day)}/${two(at.month)}/${at.year}';
 }
