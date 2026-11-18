@@ -124,6 +124,8 @@ class CallService extends ChangeNotifier {
   /// Mình đang nói (máy chủ báo `user_voice_on` cho phiên của mình).
   bool meSpeaking = false;
   CallMedia? _client;
+  /// Tên của thiết bị mời bằng mã QR trong cuộc họp hiện tại (identity `device:…` -> "TV · mời bởi X (QR)").
+  final Map<String, String> deviceNames = {};
   /// Cuộc gọi hiện tại đi qua LiveKit SFU tự host (cuộc họp trong kênh chat, khi relay bật LiveKit); không thì plugin Calls.
   bool liveKit = false;
   /// Relay cho mình quyền chủ phòng LiveKit (tắt mic / mời ra bắt buộc ở SFU).
@@ -953,6 +955,8 @@ class CallService extends ChangeNotifier {
     }
     final sid = data['session_id'] as String? ?? '';
     final uid = (data['user_id'] ?? data['userID']) as String? ?? '';
+    // Thiết bị mời bằng mã QR (TV phòng họp): không phải người dùng chat, tên lấy từ phòng LiveKit.
+    if (uid.startsWith('device:') && data['name'] is String && (data['name'] as String).isNotEmpty) deviceNames[uid] = data['name'] as String;
     if (ev == 'call_state') {
       final ch = data['channel_id'] as String? ?? data['channelID'] as String?;
       if (ch != null && ch != channelId) return;
@@ -1534,6 +1538,7 @@ class CallService extends ChangeNotifier {
 
   void _reset() {
     _stopReconnect();
+    deviceNames.clear();
     liveKit = false;
     _lkHost = false;
     callThreadId = null;

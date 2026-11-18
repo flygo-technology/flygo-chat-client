@@ -111,7 +111,7 @@ class LiveKitMedia implements CallMedia {
   }
 
   void _emit(String ev, lk.Participant p, [Map<String, dynamic> extra = const {}]) =>
-      onEvent?.call(ev, {'session_id': p.sid, 'user_id': p.identity, ...extra});
+      onEvent?.call(ev, {'session_id': p.sid, 'user_id': p.identity, 'name': p.name, ...extra});
 
   void _joined(lk.RemoteParticipant p) {
     _emit('user_joined', p);

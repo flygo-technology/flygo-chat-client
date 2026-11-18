@@ -75,7 +75,8 @@ class MeetRoomInfo {
   bool get finished => status == MeetRoomStatus.ended || status == MeetRoomStatus.cancelled;
 
   /// Chưa tới giờ và không cho vào sớm.
-  bool get locked => status == MeetRoomStatus.scheduled;
+  /// Luôn vào được trước giờ (Sếp 2026-11-18): không khoá phòng chờ.
+  bool get locked => false;
 }
 
 /// Kết quả xin vào phòng.

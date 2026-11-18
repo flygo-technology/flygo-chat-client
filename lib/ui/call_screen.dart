@@ -12,6 +12,7 @@ import 'ai_panel.dart';
 import '../calls/meet_room.dart';
 import '../calls/meet_rooms.dart';
 import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
+import 'meet/meet_qr_invite.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
@@ -516,6 +517,7 @@ class _CallScreenState extends State<CallScreen> {
 
   static final _fetching = <String>{};
   String _nameOf(AppState app, String userId) {
+    if (userId.startsWith('device:')) return app.calls.deviceNames[userId] ?? tr('Thiết bị phòng họp');
     final n = app.users[userId]?.displayName ?? '';
     if (n.isEmpty && userId.isNotEmpty && _fetching.add(userId)) {
       // Người trong cuộc gọi chưa có trong danh bạ của app (vd. ngoài nhóm): tải tên về rồi vẽ lại.
@@ -1049,6 +1051,7 @@ class _CallScreenState extends State<CallScreen> {
                   tile('comments', Icons.chat_bubble_outline_rounded, tr('Bình luận'),
                       badge: room.comments.isEmpty ? null : '${room.comments.length}'),
                 if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
+                if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
                 if (room != null && room.webUrl == null) tile('web', Icons.public, tr('Chia sẻ website')),
                 if (room != null && room.webUrl != null) tile('web_close', Icons.public_off, tr('Dừng chia sẻ website')),
                 if (room != null && host) tile('mute_all', Icons.mic_off_outlined, tr('Tắt tiếng tất cả')),
@@ -1402,6 +1405,7 @@ class _CallScreenState extends State<CallScreen> {
       items: [
         item('layout', Icons.auto_awesome_mosaic_outlined, tr('Đổi bố cục')),
         item('poll', Icons.poll_outlined, tr('Bình chọn')),
+        if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
         if (room.webUrl == null) item('web', Icons.public, tr('Chia sẻ website')) else item('web_close', Icons.public_off, tr('Dừng chia sẻ website')),
         if (host) item('mute_all', Icons.mic_off_outlined, tr('Tắt tiếng tất cả')),
         if (room.stage != null && host) item('clear', Icons.layers_clear_outlined, tr('Tắt màn trình chiếu')),
@@ -1417,6 +1421,8 @@ class _CallScreenState extends State<CallScreen> {
     switch (a) {
       case 'layout':
         await _pickLayout();
+      case 'qr_invite':
+        if (mounted) await inviteDeviceByQr(context, call);
       case 'info':
         await _infoSheet(app, call);
       case 'poll':

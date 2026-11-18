@@ -169,7 +169,7 @@ void main() {
         'invitees': [_u('a')],
         'own_channel': true,
       });
-      expect(r.locked, isTrue);
+      expect(r.locked, isFalse); // luôn vào được trước giờ
       expect(r.live, isFalse);
       expect(r.member, isFalse);
       expect(r.invitees, [_u('a')]);
@@ -361,7 +361,7 @@ void main() {
       member: true,
     );
     await show(t, 'p2-lobby-locked', const Size(390, 844), MeetLobbyPage(key: const ValueKey('locked'), code: locked.code, room: locked, demo: true));
-    expect(t.widget<FilledButton>(find.byKey(const ValueKey('lobby-join'))).onPressed, isNull);
+    expect(t.widget<FilledButton>(find.byKey(const ValueKey('lobby-join'))).onPressed, isNotNull); // luôn vào được trước giờ
     // Phòng chỉ dành cho người được mời: người ngoài danh sách thấy "Xin tham gia".
     final invited = MeetRoomInfo(
       code: 'ghi-jkmn-pqr',

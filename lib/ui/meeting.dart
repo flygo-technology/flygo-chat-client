@@ -33,7 +33,8 @@ class _CreateMeetingState extends State<_CreateMeeting> {
     final n = DateTime.now().add(const Duration(hours: 1));
     return DateTime(n.year, n.month, n.day, n.hour, n.minute < 30 ? 30 : 0).add(Duration(hours: n.minute < 30 ? 0 : 1));
   }();
-  bool _early = true;
+  // Luôn vào được trước giờ (Sếp 2026-11-18): không còn tuỳ chọn khoá.
+  static const _early = true;
   bool _remind = true;
   final _reminders = <int>{10};
 
@@ -94,13 +95,6 @@ class _CreateMeetingState extends State<_CreateMeeting> {
             child: Text(tr('Thời gian bắt đầu phải ở tương lai.'), style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
           ),
         head(tr('Tùy chọn')),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          value: _early,
-          onChanged: (v) => setState(() => _early = v),
-          title: Text(tr('Cho phép tham gia trước giờ'), style: TextStyle(color: pal.text)),
-          subtitle: Text(tr('Tắt: chỉ vào được khi tới giờ bắt đầu.'), style: TextStyle(color: pal.sub, fontSize: 13)),
-        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           value: _remind,
@@ -206,7 +200,6 @@ class _MeetingCardState extends State<MeetingCard> {
     final now = DateTime.now();
     final left = start.difference(now);
     final started = !left.isNegative;
-    final canJoin = m['allow_early'] == true || !started;
     // Thẻ mới: kết thúc khi người tạo bấm "Kết thúc". Thẻ cũ: đã có cuộc gọi sau thẻ này và mọi cuộc gọi đã kết thúc.
     final bool ended;
     if (meetingV2(m)) {
@@ -267,11 +260,12 @@ class _MeetingCardState extends State<MeetingCard> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: canJoin && !app.calls.busy
+              // Luôn vào được trước giờ (Sếp 2026-11-18); giờ bắt đầu chỉ để hiện và nhắc.
+              onPressed: !app.calls.busy
                   ? () => app.calls.startCall(widget.post.channelId, meeting: true, meetingPost: widget.post.id)
                   : null,
               icon: const Icon(Icons.groups_rounded, size: 19),
-              label: Text(inThis ? tr('Đang tham gia') : (canJoin ? tr('Tham gia') : tr('Chưa tới giờ'))),
+              label: Text(inThis ? tr('Đang tham gia') : tr('Tham gia')),
             ),
           ),
           // Chỉ người tạo kết thúc được cuộc họp (người khác vào ra tự do).

@@ -52,6 +52,6 @@ bool meetingV2(Map<String, dynamic> m) => ((m['v'] as num?) ?? 0) >= kMeetingVer
 /// Thẻ cuộc họp đang mở để vào (chưa kết thúc, đã tới giờ hoặc cho vào sớm).
 bool meetingOpen(Map<String, dynamic> m, DateTime now) {
   if (!meetingV2(m) || meetingEnded(m)) return false;
-  final start = ((m['start'] as num?) ?? 0).toInt();
-  return m['allow_early'] == true || start <= now.millisecondsSinceEpoch;
+  // Luôn vào được trước giờ (Sếp 2026-11-18): thẻ chưa kết thúc là mở.
+  return true;
 }
