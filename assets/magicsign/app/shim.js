@@ -102,6 +102,7 @@
 
   // Keep what the WebView already put on `chrome`: on Windows, WebView2's
   // `chrome.webview` carries every flutter_inappwebview handler call.
+  window.__msChromeAtStart = `${typeof window.chrome}/${typeof (window.chrome && window.chrome.webview)}`;
   window.chrome = Object.assign(window.chrome || {}, {
     runtime: {
       id: "vn.flygo.magic-sign",

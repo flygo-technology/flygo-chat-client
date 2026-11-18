@@ -377,7 +377,7 @@ class KysoHost {
           try {
             final state = await controller.evaluateJavascript(
                 source: 'JSON.stringify({ready: typeof window.__msReady, chrome: typeof window.chrome, runtime: typeof (window.chrome && chrome.runtime && chrome.runtime.getURL), '
-                    'bridge: typeof (window.flutter_inappwebview && window.flutter_inappwebview.callHandler), scripts: [...document.scripts].map((s) => s.src).filter(Boolean)})');
+                    'bridge: typeof (window.flutter_inappwebview && window.flutter_inappwebview.callHandler), atStart: window.__msChromeAtStart, webview: typeof (window.chrome && window.chrome.webview), scripts: [...document.scripts].map((s) => s.src).filter(Boolean)})');
             kysoTrace('engine chưa sẵn sàng: $state');
           } catch (e) {
             kysoTrace('engine chưa sẵn sàng, không đọc được trang: $e');
