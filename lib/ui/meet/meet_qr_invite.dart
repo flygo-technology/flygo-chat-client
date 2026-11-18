@@ -20,8 +20,9 @@ String? parsePairCode(String raw) {
   final s = raw.trim();
   final m = RegExp(r'/hop/pair/([A-Za-z0-9_-]{6,20})(?:[/?#]|$)').firstMatch(s);
   if (m != null) return m[1];
-  final bare = s.replaceAll(RegExp(r'[\s-]'), '');
-  return RegExp(r'^[A-Za-z0-9_]{12}$').hasMatch(bare) ? bare : null;
+  // Mã gõ tay (hiện dưới mã QR): 12 chữ hoa / số, có hoặc không có gạch nối.
+  final bare = s.replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+  return RegExp(r'^[A-Z0-9]{12}$').hasMatch(bare) ? bare : null;
 }
 
 String _lastName = '';
