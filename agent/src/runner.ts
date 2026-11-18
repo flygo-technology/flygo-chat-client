@@ -4,6 +4,7 @@
 // - Tin trong luồng -> trả lời trong luồng: thẻ tiến trình (props.flygo_agent) + tin stream (props.flygo_agent_message).
 // - Duyệt quyền: post "Cần Sếp duyệt" trong chủ đề, chủ bot bấm Xác nhận / Từ chối (reaction +1 / -1).
 // - Chế độ --json: in sự kiện JSON từng dòng ra stdout cho app Flygo Chat (log ra stderr).
+import { resolvePermMode } from "./perm-mode";
 import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -247,6 +248,10 @@ interface Session { root_id: string; channel_id: string; engine: EngineName; ses
 db.run(`CREATE TABLE IF NOT EXISTS projects (channel_id TEXT PRIMARY KEY, path TEXT)`);
 // "Luôn cho phép" (🔓 của chủ bot trên lời xin duyệt): phạm vi = khoá phiên (chat chính của kênh / luồng / a2a:<caller>:<context>).
 db.run(`CREATE TABLE IF NOT EXISTS bypass (scope TEXT PRIMARY KEY, by_user TEXT, at INTEGER)`);
+// Chế độ quyền chủ bot chọn gần nhất (props.flygo_agent_config.mode): áp cho mọi phiên mới của bot (perm-mode.ts).
+db.run(`CREATE TABLE IF NOT EXISTS owner_mode (user_id TEXT PRIMARY KEY, mode TEXT, at INTEGER)`);
+// "bật lại duyệt" trong một chat / luồng: phạm vi đó duyệt tay dù chủ bot đang để toàn quyền.
+db.run(`CREATE TABLE IF NOT EXISTS forced_manual (scope TEXT PRIMARY KEY, at INTEGER)`);
 // TeamWork: phiên (kênh) đang gắn với lượt chạy nào (token đã kiểm), để các lượt sau trong phiên vẫn đẩy tiến độ / giữ chế độ.
 db.run(`CREATE TABLE IF NOT EXISTS tw_sessions (channel_id TEXT PRIMARY KEY, run TEXT, bypass INTEGER, exp INTEGER, at INTEGER)`);
 // Khối "Vị trí & ID / Công cụ" đã đưa cho phiên: chỉ nhắc lại khi đổi.
@@ -276,7 +281,14 @@ const isSeen = (id: string) => !!db.query("SELECT 1 FROM seen_posts WHERE post_i
 const markSeen = (id: string) => { db.query("INSERT OR IGNORE INTO seen_posts VALUES (?, ?)").run(id, Date.now()); };
 const enqueuedPosts = new Set<string>();
 const isBypass = (scope: string) => !!scope && !!db.query("SELECT 1 FROM bypass WHERE scope = ?").get(scope);
+const ownerMode = (user: string) => (db.query("SELECT mode FROM owner_mode WHERE user_id = ?").get(user) as { mode: string } | null)?.mode ?? null;
+const isForcedManual = (scope: string) => !!scope && !!db.query("SELECT 1 FROM forced_manual WHERE scope = ?").get(scope);
+function setForcedManual(scope: string, on: boolean) {
+  if (on) db.query("INSERT OR REPLACE INTO forced_manual VALUES (?, ?)").run(scope, Date.now());
+  else db.query("DELETE FROM forced_manual WHERE scope = ?").run(scope);
+}
 function setBypass(scope: string, on: boolean, by = "") {
+  if (on) setForcedManual(scope, false); // "luôn cho phép" lại thì bỏ "bật lại duyệt"
   if (on) db.query("INSERT OR REPLACE INTO bypass VALUES (?, ?, ?)").run(scope, by, Date.now());
   else db.query("DELETE FROM bypass WHERE scope = ?").run(scope);
   log(`${on ? "bật" : "tắt"} luôn cho phép: ${scope}`);
@@ -1810,8 +1822,10 @@ async function onPosted(post: Post, channelType: string) {
   const proj = /^(?:dự án|du an|project)(?:\s+(.+))?$/i.exec(text);
   if (proj && isOwner(post.user_id)) return projectCommand(post, proj[1]?.trim() ?? "");
   if (/^(tắt luôn cho phép|tat luon cho phep|bật lại duyệt|bat lai duyet)[.!]?$/i.test(text) && isOwner(post.user_id)) {
-    const was = isBypass(root);
-    if (was) setBypass(root, false);
+    const full = ownerMode(post.user_id) === "bypassPermissions";
+    const was = isBypass(root) || (full && !isForcedManual(root));
+    if (isBypass(root)) setBypass(root, false);
+    if (full) setForcedManual(root, true); // chế độ toàn quyền chung vẫn giữ, riêng chat / luồng này duyệt tay
     const where = post.root_id ? "luồng này" : "chat này";
     await mm.createPost({ channel_id: post.channel_id, root_id: post.root_id, message: was ? `🔒 Đã bật lại duyệt cho ${where}: từ lượt sau em sẽ xin Sếp duyệt như bình thường.` : `${where[0].toUpperCase()}${where.slice(1)} đang duyệt bình thường, không bật "Luôn cho phép".`, props: { ...(post.root_id ? { flygo_reply: "thread" } : { flygo_bypass: false }), flygo_agent_owner: post.user_id } });
     return;
@@ -3323,9 +3337,12 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const effort = want.effort && !opts.efforts.includes(want.effort) ? (bad.push(`mức ${want.effort}`), opts.default.effort) : want.effort || opts.default.effort;
   // Chế độ quyền: props.flygo_agent_config["<bot>"].mode = manual | acceptEdits | plan | auto (thiếu = mặc định của engine).
   // "Bỏ qua kiểm tra" (bypassPermissions): chỉ Claude, chỉ chủ bot (như "Luôn cho phép").
-  const okMode = (m: any) => PERM_MODES.includes(m) && (m !== "bypassPermissions" || (ENGINE !== "codex" && isOwner(post.user_id)));
-  const mode: PermMode | undefined = okMode(want.mode) ? want.mode : undefined;
-  if (want.mode && !mode) bad.push(`chế độ ${want.mode}`);
+  // Phiên không gửi chế độ (phiên mới ở Dự án AI, khung bên, lượt chạy lại…): dùng chế độ chủ bot chọn gần nhất (perm-mode.ts).
+  const owner_ = isOwner(post.user_id);
+  const pm = resolvePermMode({ want: want.mode, owner: owner_, remembered: owner_ ? ownerMode(post.user_id) : null, forcedManual: isForcedManual(root), modes: PERM_MODES, canBypass: ENGINE !== "codex" });
+  if (pm.remember && pm.remember !== ownerMode(post.user_id)) db.query("INSERT OR REPLACE INTO owner_mode VALUES (?, ?, ?)").run(post.user_id, pm.remember, Date.now());
+  const mode: PermMode | undefined = pm.mode;
+  if (pm.bad) bad.push(pm.bad);
   const runConfig = { model, effort, mode: mode ?? defaultMode(), ...(bad.length ? { note: `Không hỗ trợ ${bad.join(", ")}, dùng mặc định.` } : {}) };
   // TeamWork (app Làm việc nhóm): token đã kiểm quyết định có đẩy tiến độ / chạy không cần duyệt (giữ danh sách cấm).
   const tw = await teamworkOf(post, rawText).catch(() => null);
@@ -3383,7 +3400,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       log(`lượt tự chạy ${runId}: tự duyệt ${req.tool} (${oneLine(req.title, 120)})`);
       return "accept";
     }
-    if (isBypass(root) || tw?.bypass) { // đã "luôn cho phép" / lượt TeamWork không cần duyệt: tự duyệt (danh sách cấm vẫn chặn trước đó)
+    if (isBypass(root) || tw?.bypass || mode === "bypassPermissions") { // "luôn cho phép" / toàn quyền của chủ bot / lượt TeamWork không cần duyệt: tự duyệt (danh sách cấm vẫn chặn trước đó)
       card.step({ id: sid, kind: "approval", title: `🔓 Tự duyệt: ${req.title.slice(0, 100)}`, status: "done" });
       return "accept";
     }
@@ -3422,7 +3439,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   card.bypassOf = () => isBypass(root);
   if (research) card.mode = "research";
   if ((post as any).via_mcp) card.step({ id: "bridge", kind: "approval", title: "🔗 Yêu cầu từ agent ngoài (Token MCP), thay chủ phiên", status: "done" });
-  if (!bypass && mode === "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
+  if (!bypass && mode === "bypassPermissions" && want.mode === "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
   if (outer) reportRuns.set(runId, { outer, card, reply, assigner: post.user_id, channelId: post.channel_id, postId: post.id, dir, signal: ac.signal, sent: 0 });
 
   let release = () => {};
