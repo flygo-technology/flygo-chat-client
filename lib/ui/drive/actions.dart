@@ -86,7 +86,7 @@ List<(ItemAction, IconData, String)> actionsFor(DriveSession s, List<DriveItem> 
   final allFav = items.every((i) => i.fav);
   final allPinned = items.every((i) => s.offline.pinned(i.path));
   return [
-    if (one != null && isOffice(one)) (ItemAction.office, Icons.edit_document, tr('Mở bằng OnlyOffice')),
+    if (one != null && isOffice(one) && canEditOffice) (ItemAction.office, Icons.edit_document, tr('Chỉnh sửa bằng OnlyOffice')),
     if (one != null && one.canShare) (ItemAction.share, Icons.person_add_alt_1_rounded, tr('Chia sẻ')),
     if (one != null) (ItemAction.link, Icons.link_rounded, tr('Sao chép liên kết')),
     if (items.every((i) => !i.dir)) (ItemAction.chat, Icons.chat_bubble_outline_rounded, tr('Gửi vào cuộc trò chuyện')),
@@ -356,12 +356,12 @@ class _DetailsPanelState extends State<DetailsPanel> {
         row(tr('Vị trí'), it.parent == '/' ? tr('Drive của tôi') : it.parent),
         if (it.ownerName.isNotEmpty) row(tr('Chủ sở hữu'), it.owner == s.me?.uid ? tr('tôi') : it.ownerName),
         if (it.mtime > 0) row(tr('Sửa lần cuối'), fmtDate(it.mtime)),
-        if (isOffice(it))
+        if (isOffice(it) && canEditOffice)
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: FilledButton.icon(onPressed: () => openOffice(context, s, it), icon: const Icon(Icons.edit_document, size: 18), label: Text(tr('Mở bằng OnlyOffice'))),
+              child: FilledButton.icon(onPressed: () => openOffice(context, s, it), icon: const Icon(Icons.edit_document, size: 18), label: Text(tr('Chỉnh sửa bằng OnlyOffice'))),
             ),
           ),
       ] else if (_activity == null)

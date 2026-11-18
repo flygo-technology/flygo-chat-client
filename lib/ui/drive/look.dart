@@ -53,7 +53,10 @@ DriveKind kindOf(DriveItem it) {
 bool isOffice(DriveItem it) => const {DriveKind.doc, DriveKind.sheet, DriveKind.slide}.contains(kindOf(it));
 
 /// Xem trực tiếp trong app.
-bool canPreview(DriveItem it) => const {DriveKind.image, DriveKind.video, DriveKind.audio, DriveKind.pdf, DriveKind.text, DriveKind.code}.contains(kindOf(it));
+bool canPreview(DriveItem it) => const {DriveKind.image, DriveKind.video, DriveKind.audio, DriveKind.pdf, DriveKind.text, DriveKind.code}.contains(kindOf(it)) || isOffice(it);
+
+/// Sửa tài liệu Office (OnlyOffice) chỉ trên máy tính; điện thoại chỉ xem (Sếp, 2026-11-18).
+bool get canEditOffice => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
 (IconData, Color) kindIcon(DriveKind k, DriveLook l) => switch (k) {
       DriveKind.folder => (Icons.folder_rounded, l.folder),

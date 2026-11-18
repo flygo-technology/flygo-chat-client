@@ -391,9 +391,12 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
       ('folder', Icons.create_new_folder_rounded, l.folder, tr('Thư mục mới')),
       ('upload', Icons.upload_file_rounded, l.accent, tr('Tải tệp lên')),
       if (!driveWide(ctx)) ('media', Icons.photo_library_rounded, const Color(0xFF8E44AD), tr('Tải ảnh hoặc video lên')),
-      ('docx', Icons.description_rounded, const Color(0xFF2B579A), tr('Tài liệu Word')),
-      ('xlsx', Icons.table_chart_rounded, const Color(0xFF1E7B45), tr('Bảng tính Excel')),
-      ('pptx', Icons.slideshow_rounded, const Color(0xFFC4501F), tr('Bản trình bày PowerPoint')),
+      // Tạo tài liệu Office mở thẳng trình soạn: chỉ trên máy tính (điện thoại chỉ xem).
+      if (canEditOffice) ...[
+        ('docx', Icons.description_rounded, const Color(0xFF2B579A), tr('Tài liệu Word')),
+        ('xlsx', Icons.table_chart_rounded, const Color(0xFF1E7B45), tr('Bảng tính Excel')),
+        ('pptx', Icons.slideshow_rounded, const Color(0xFFC4501F), tr('Bản trình bày PowerPoint')),
+      ],
     ];
     String? v;
     if (at != null) {

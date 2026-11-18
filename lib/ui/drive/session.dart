@@ -74,14 +74,15 @@ class DriveSession {
   Future<DriveMe> loadMe() async => me = await api.me();
 }
 
-/// Mở một tệp: thư mục do màn hình gọi tự xử lý; Office mở OnlyOffice (webview); ảnh / PDF / video / chữ xem trong app;
+/// Mở một tệp: thư mục do màn hình gọi tự xử lý; ảnh / PDF / Word / Excel / PowerPoint / video / chữ xem trong app
+/// (Office xem bản PDF máy chủ chuyển sẵn; máy tính có nút "Chỉnh sửa" mở OnlyOffice ở tab riêng);
 /// loại khác tải về rồi mở bằng app khác của máy.
 Future<void> openDriveFile(BuildContext context, DriveSession s, DriveItem it, {List<DriveItem> siblings = const []}) async {
   final messenger = ScaffoldMessenger.of(context);
-  if (isOffice(it)) return openOffice(context, s, it);
   if (canPreview(it)) {
-    final list = siblings.where((x) => !x.dir && kindOf(x) == DriveKind.image).toList();
-    await Navigator.of(context).push(AppPageRoute(builder: (_) => DrivePreviewPage(session: s, item: it, gallery: kindOf(it) == DriveKind.image ? list : const [])));
+    // ← → / vuốt qua các tệp xem được cùng thư mục (ảnh, PDF, Office…).
+    final list = siblings.where((x) => !x.dir && canPreview(x)).toList();
+    await Navigator.of(context).push(AppPageRoute(builder: (_) => DrivePreviewPage(session: s, item: it, gallery: list)));
     return;
   }
   try {
@@ -90,6 +91,14 @@ Future<void> openDriveFile(BuildContext context, DriveSession s, DriveItem it, {
   } catch (e) {
     messenger.showSnackBar(toast(Text(tr('Không mở được tệp: {0}', ['$e']))));
   }
+}
+
+/// Bản PDF để xem tài liệu Office (máy chủ chuyển bằng OnlyOffice, cache theo mã tệp + etag; máy cũng giữ một bản).
+Future<File> previewPdf(DriveSession s, DriveItem it, {void Function(int, int)? onProgress}) async {
+  final dir = Directory('${(await getTemporaryDirectory()).path}/drive_preview');
+  final f = File('${dir.path}/${it.id}_${it.etag.replaceAll(RegExp(r'[^A-Za-z0-9]'), '')}_${it.mtime}.pdf');
+  if (await f.exists()) return f;
+  return s.api.previewPdf(it.id, it.path, f, onProgress: onProgress);
 }
 
 /// Bản trên máy của tệp: bản ghim offline nếu còn khớp, không thì tải vào thư mục tạm.
