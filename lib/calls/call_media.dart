@@ -17,6 +17,8 @@ abstract class CallMedia {
   Future<void> startScreen(MediaStream stream);
   Future<void> stopScreen();
   void setMuted(bool mute);
+  /// Phát tiếng ra loa ngoài (true) hay loa trong / tai nghe (false). Chỉ điện thoại.
+  Future<void> setSpeaker(bool on);
   Future<void> leave();
   /// Bỏ kết nối này để vào lại bằng kết nối mới (không báo rời đi, không dừng luồng chia sẻ màn hình).
   void abandon();

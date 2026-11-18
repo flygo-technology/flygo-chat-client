@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -290,6 +291,14 @@ class LiveKitMedia implements CallMedia {
         await _room?.localParticipant?.removePublishedTrack(p.sid).catchError((_) {});
       }
     }
+  }
+
+  @override
+  // LiveKit tự quản lý phiên âm thanh (iOS: AVAudioSession, Android: audioswitch) và đặt lại đường ra mỗi khi máy
+  // phát / thu đổi trạng thái, nên đổi loa phải qua LiveKit (Helper.setSpeakerphoneOn của flutter_webrtc bị đè).
+  Future<void> setSpeaker(bool on) async {
+    if (!Platform.isIOS && !Platform.isAndroid) return;
+    await lk.AudioManager.instance.setSpeakerOutputPreferred(on, force: on);
   }
 
   @override

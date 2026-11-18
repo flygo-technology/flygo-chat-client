@@ -27,6 +27,12 @@ import 'meet_home.dart';
 /// sổ không có thanh tab: trang toàn màn hình.
 Future<void> openMeetLobby(BuildContext context, String? code, {MeetRoomInfo? room, String? channelId, bool fresh = false}) {
   final calls = context.read<AppState>().calls;
+  // Đang ở trong chính cuộc họp này (đã rời màn hình cuộc gọi): mở lại màn hình cuộc gọi.
+  final ch = room?.channelId ?? channelId;
+  if (calls.busy && ch != null && ch.isNotEmpty && calls.channelId == ch) {
+    calls.showCallScreen();
+    return Future.value();
+  }
   if (calls.busy) {
     meetToast(context, tr('Bạn đang trong một cuộc gọi khác.'));
     return Future.value();

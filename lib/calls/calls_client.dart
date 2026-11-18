@@ -899,6 +899,9 @@ class CallsClient implements CallMedia {
   }
 
   @override
+  Future<void> setSpeaker(bool on) => Helper.setSpeakerphoneOn(on);
+
+  @override
   void setMuted(bool mute) {
     for (final t in _local?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       t.enabled = !mute;

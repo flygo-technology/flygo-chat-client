@@ -3599,15 +3599,18 @@ class _CallCard extends StatelessWidget {
                 ]),
               ),
             ]),
-            if (ongoing && !inCall) ...[
+            if (ongoing) ...[
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
+                // Đang ở trong cuộc gọi này (đã rời màn hình cuộc gọi): nút mở lại màn hình cuộc gọi.
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(backgroundColor: pal.accent, foregroundColor: Colors.white),
-                  onPressed: app.calls.busy ? null : () => app.calls.join(channel.id),
-                  icon: const Icon(Icons.call, size: 18),
-                  label: Text(meeting ? tr('Tham gia cuộc họp') : tr('Tham gia')),
+                  onPressed: inCall ? app.calls.showCallScreen : (app.calls.busy ? null : () => app.calls.join(channel.id)),
+                  icon: Icon(inCall ? Icons.open_in_full_rounded : Icons.call, size: 18),
+                  label: Text(inCall
+                      ? (meeting ? tr('Mở cuộc họp') : tr('Mở cuộc gọi'))
+                      : (meeting ? tr('Tham gia cuộc họp') : tr('Tham gia'))),
                 ),
               ),
             ],

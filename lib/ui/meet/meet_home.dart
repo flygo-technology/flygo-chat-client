@@ -669,10 +669,13 @@ class _RoomRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
+    final calls = context.watch<AppState>().calls;
+    // Mình đang ở trong cuộc họp này (đã rời màn hình cuộc gọi).
+    final here = calls.busy && room.channelId.isNotEmpty && calls.channelId == room.channelId;
     final s = room.start;
     final now = DateTime.now();
     final future = s != null && s.isAfter(now);
-    final Widget lead = room.live
+    final Widget lead = room.live || here
         ? const Icon(Icons.radio_button_checked_rounded, color: Color(0xFF1FA463))
         : future
         ? Column(
@@ -688,6 +691,7 @@ class _RoomRow extends StatelessWidget {
         : Icon(room.finished ? Icons.history_rounded : Icons.videocam_outlined, color: pal.sub);
     final sub = [
       room.code,
+      if (here) tr('bạn đang tham gia'),
       if (room.live) tr('{0} người', [room.participants]),
       if (!room.live && !future && s != null) '${hhmm(s)} ${ddmmyyyy(s)}',
       if (room.status == MeetRoomStatus.ended) tr('đã kết thúc'),
@@ -722,7 +726,13 @@ class _RoomRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (room.live)
+            if (here)
+              FilledButton.icon(
+                onPressed: calls.showCallScreen,
+                icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                label: Text(tr('Mở cuộc họp')),
+              )
+            else if (room.live)
               FilledButton(onPressed: () => onOpen(room), child: Text(tr('Tham gia')))
             else if (!room.finished)
               IconButton(

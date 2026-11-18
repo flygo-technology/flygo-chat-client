@@ -1170,10 +1170,23 @@ class CallService extends ChangeNotifier {
 
   Future<void> toggleSpeaker() async {
     speaker = !speaker;
-    try {
-      await Helper.setSpeakerphoneOn(speaker);
-    } catch (_) {}
+    await _applySpeaker();
     notifyListeners();
+  }
+
+  Future<void> _applySpeaker() async {
+    if (!Platform.isIOS && !Platform.isAndroid) return;
+    try {
+      final c = _client;
+      await (c != null ? c.setSpeaker(speaker) : Helper.setSpeakerphoneOn(speaker));
+    } catch (e) {
+      debugPrint('[calls] speaker: $e');
+    }
+  }
+
+  /// Mở lại màn hình cuộc gọi đang tham gia (đã rời màn hình nhưng vẫn ở trong cuộc gọi).
+  void showCallScreen() {
+    if (busy) onShowCallScreen?.call();
   }
 
   /// Tiêu đề gửi kèm khi tạo cuộc gọi (gọi video 1-1).
@@ -1334,7 +1347,10 @@ class CallService extends ChangeNotifier {
       },
     );
     _client = c;
+    // Cuộc họp trên điện thoại: mặc định loa ngoài (như các app họp khác), bấm nút loa để chuyển sang loa trong.
+    if (meeting && !rejoin) speaker = true;
     await c.start(video: video, muted: muted);
+    if (_client == c) await _applySpeaker();
     if (_client == c && c.localVideo != null) {
       localVideo = c.localVideo;
       camera = true;
