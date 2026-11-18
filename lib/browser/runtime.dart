@@ -128,7 +128,8 @@ Future<CustomSchemeResponse?> kysoServeAsset(WebResourceRequest request) async {
   try {
     final data = await rootBundle.load(url.path.substring(1));
     return CustomSchemeResponse(data: data.buffer.asUint8List(), contentType: _mime(url.path));
-  } catch (_) {
+  } catch (e) {
+    kysoTrace('asset lỗi ${url.path}: $e');
     return null;
   }
 }
@@ -367,10 +368,15 @@ class KysoHost {
         controller.addJavaScriptHandler(handlerName: 'ms', callback: (args) => _fromEngine(args));
       },
       onConsoleMessage: (_, message) => kysoTrace('engine: ${message.message}'),
+      onLoadStart: (_, url) => kysoTrace('engine tải $url'),
+      onLoadStop: (_, url) => kysoTrace('engine tải xong $url'),
+      onReceivedError: (_, request, error) => kysoTrace('engine lỗi tải ${request.url}: ${error.type} ${error.description}'),
+      onReceivedHttpError: (_, request, response) => kysoTrace('engine lỗi HTTP ${request.url}: ${response.statusCode}'),
     );
+    kysoTrace('engine khởi động ${kysoAppBase}app/engine.html');
     await _engine!.run();
     await _engineReady.future.timeout(const Duration(seconds: 20), onTimeout: () {
-      debugPrint('[kyso] engine không sẵn sàng sau 20 giây');
+      kysoTrace('engine không sẵn sàng sau 20 giây');
     });
     for (final seconds in const [0, 3, 10]) {
       Timer(Duration(seconds: seconds), refreshStatus);
