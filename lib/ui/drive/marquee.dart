@@ -78,9 +78,13 @@ class _DriveMarqueeState extends State<DriveMarquee> {
     _active = false;
   }
 
+  /// Toạ độ trong widget theo bố cục hiện tại: localPosition của sự kiện tính theo vị trí lúc nhấn chuột, mà bố cục
+  /// có thể đã dịch (vd thanh chọn hiện ra) làm khung lệch khỏi con trỏ.
+  Offset _local(PointerEvent e) => _box?.globalToLocal(e.position) ?? e.localPosition;
+
   void _move(PointerMoveEvent e) {
     if (e.pointer != _pointer || _start == null) return;
-    _now = e.localPosition;
+    _now = _local(e);
     if (!_active) {
       if ((Offset(_start!.dx, _start!.dy - _off) - _now!).distance < 8) return;
       final k = HardwareKeyboard.instance;
