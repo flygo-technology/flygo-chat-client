@@ -60,9 +60,8 @@ const _customScheme = 'flygoext';
 const _secretKeys = {'token'};
 
 /// Nền tảng chạy được app Browser (WebView có user script lúc document_start, WebView ẩn). Linux: chưa.
-/// Windows: build được nhưng chưa chạy thử thật (máy build Windows tắt), nên chỉ bật với KYSO_POC.
-bool get kysoSupported =>
-    Platform.isAndroid || (Platform.isIOS && _iosMajor() >= 17) || Platform.isMacOS || (Platform.isWindows && kKysoPoc);
+/// Windows (WebView2): bật cho mọi bản từ 2026-11-18 (Sếp), trước chỉ bật với KYSO_POC.
+bool get kysoSupported => Platform.isAndroid || (Platform.isIOS && _iosMajor() >= 17) || Platform.isMacOS || Platform.isWindows;
 
 /// iOS 17 trở lên mới có data store riêng cho từng space (Sếp chốt: iOS tối thiểu 17 cho Browser; app vẫn 15).
 int _iosMajor() => int.tryParse(RegExp(r'(\d+)').firstMatch(Platform.operatingSystemVersion)?.group(1) ?? '') ?? 0;
