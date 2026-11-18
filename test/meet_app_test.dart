@@ -18,6 +18,7 @@ import 'package:flygo_chat/ui/call_screen.dart';
 import 'package:flygo_chat/ui/desk_tabs.dart';
 import 'package:flygo_chat/ui/meet/meet_home.dart';
 import 'package:flygo_chat/ui/meet/meet_lobby.dart';
+import 'package:flygo_chat/ui/meet/meet_qr_invite.dart';
 import 'package:flygo_chat/ui/meet/meet_schedule.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
@@ -145,6 +146,13 @@ void main() {
   }
 
   group('mã và link', () {
+    test('mã mời thiết bị: từ mã QR, link, hoặc gõ tay', () {
+      expect(parsePairCode('https://chat.example.test/__apps/hop/pair/KYSRGTWTPW9C'), 'KYSRGTWTPW9C');
+      expect(parsePairCode('kysr-gtwt-pw9c'), 'KYSRGTWTPW9C');
+      expect(parsePairCode('KYSR GTWT PW9C'), 'KYSRGTWTPW9C');
+      expect(parsePairCode('abc-defg-hij'), isNull);
+      expect(parsePairCode('xin chào'), isNull);
+    });
     test('đọc mã từ mã trần, không gạch, link', () {
       expect(parseMeetCode('ABC-DEFG-HIJ'), 'abc-defg-hij');
       expect(parseMeetCode(' abcdefghij '), 'abc-defg-hij');
