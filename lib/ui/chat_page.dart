@@ -2749,7 +2749,7 @@ class _Bubble extends StatelessWidget {
       // Trả lời của trợ lý AI: một dòng "trạng thái · logo · tên bot · mô hình · mức suy nghĩ" (bấm để xem các bước).
       if (combined)
         Padding(
-          padding: EdgeInsets.only(right: msgText.isEmpty ? metaWidth : 0, bottom: 4),
+          padding: EdgeInsets.only(right: msgText.isEmpty ? metaWidth : 0, bottom: claude ? 0 : 4),
           child: AgentRunCard(
             run: agentRun,
             openKey: post.id,

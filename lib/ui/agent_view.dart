@@ -173,10 +173,14 @@ class _AgentRunCardState extends State<AgentRunCard> {
     final cfgText = cfg == null
         ? ''
         : [if (cfg['model'] is String) modelLabel(cfg['model'] as String), if (cfg['effort'] != null) effortLabel(cfg['effort'] as String)].join(' · ');
+    // Chat kiểu Claude, dạng gọn trong câu trả lời, các bước nằm ở dòng thời gian: bỏ dòng "✳ Opus 5.5 ▂▄" như app
+    // Claude (Sếp duyệt mockup 2026-11-18); ghi chú, lỗi, kế hoạch việc vẫn hiện.
+    final hideHead = widget.quiet && widget.compact && steps.isEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (!hideHead)
         InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: steps.isEmpty ? null : _toggle,
