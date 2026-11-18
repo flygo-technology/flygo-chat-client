@@ -100,6 +100,17 @@ void main() {
     await t.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await settle(t);
     expect(printed.length, 3);
+    // ← →: tệp sau / trước của thư (không phải trang PDF).
+    final others = store.items.firstWhere((x) => x.attachments.any(isPdfAttachment)).attachments.where((x) => !isImageAttachment(x)).toList();
+    if (others.length > 1) {
+      final next = others[others.indexOf(pdf) + 1 < others.length ? others.indexOf(pdf) + 1 : 0];
+      await t.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, next.name), findsOneWidget);
+      await t.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, pdf.name), findsOneWidget);
+    }
   });
 
   test('ảnh thành PDF một trang để in', () async {

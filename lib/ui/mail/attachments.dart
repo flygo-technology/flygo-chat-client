@@ -156,34 +156,15 @@ class AttachmentThumb extends StatelessWidget {
   }
 }
 
-/// PDF trong trình xem: mở ra thấy trọn trang đầu (trang bìa); lăn chuột (hoặc chụm hai ngón) phóng to / thu nhỏ quanh
-/// con trỏ, kéo để di chuyển (Sếp, 18/11: lăn chuột để zoom như ảnh).
-final mailPdfParams = mailPdfParamsWith();
-
-/// [mailPdfParams] kèm phím ← → sang trang trước / sau của [controller]; ở trang đầu / cuối thì gọi [onBefore] / [onAfter]
-/// (trình xem tệp: sang tệp trước / sau).
-PdfViewerParams mailPdfParamsWith({PdfViewerController? controller, VoidCallback? onBefore, VoidCallback? onAfter}) => PdfViewerParams(
-      backgroundColor: const Color(0xFF0B0D12),
-      margin: 12,
-      scrollByMouseWheel: null,
-      sizeDelegateProvider: PdfViewerSizeDelegateProviderLegacy(calculateInitialZoom: (doc, c, fitPage, fitWidth) => fitPage),
-      onKey: controller == null
-          ? null
-          : (params, key, isRealKeyPress) {
-              final left = key == LogicalKeyboardKey.arrowLeft, right = key == LogicalKeyboardKey.arrowRight;
-              if (!left && !right) return null;
-              if (!controller.isReady) return true;
-              final n = controller.pageNumber ?? 1, last = controller.pageCount;
-              if (left && n <= 1) {
-                onBefore?.call();
-              } else if (right && n >= last) {
-                onAfter?.call();
-              } else {
-                controller.goToPage(pageNumber: n + (left ? -1 : 1), duration: const Duration(milliseconds: 150));
-              }
-              return true;
-            },
-    );
+/// PDF trong trình xem (Thư, Drive): mở ra thấy trọn trang đầu (trang bìa); lăn chuột cuộn qua các trang như trang thường,
+/// Ctrl/Cmd + lăn chuột (hoặc chụm hai ngón) phóng to quanh con trỏ. Phím ← → không thuộc PDF: để trình xem chuyển tệp.
+final mailPdfParams = PdfViewerParams(
+  backgroundColor: const Color(0xFF0B0D12),
+  margin: 12,
+  scrollByMouseWheel: 1,
+  sizeDelegateProvider: PdfViewerSizeDelegateProviderLegacy(calculateInitialZoom: (doc, c, fitPage, fitWidth) => fitPage),
+  onKey: (params, key, isRealKeyPress) => key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight ? false : null,
+);
 
 /// Trình xem toàn màn hình: vuốt qua lại giữa các tệp của thư; ảnh phóng to được, PDF xem trong app,
 /// tệp khác thì mở bằng ứng dụng trên máy. Thanh trên: Tải về, Lưu vào Drive, Mở bằng ứng dụng khác.
@@ -204,9 +185,8 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
   late final _pages = PageController(initialPage: widget.index);
 
   MailAttachment get _cur => widget.items[_i];
-  final _pdf = <String, PdfViewerController>{};
 
-  /// Sang tệp trước / sau (phím ← → ngoài trang PDF, hoặc ở trang đầu / cuối của PDF).
+  /// Sang tệp trước / sau (phím ← →, cả khi đang xem PDF).
   void _go(int d) {
     final i = _i + d;
     if (i < 0 || i >= widget.items.length) return;
@@ -250,7 +230,7 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
   @override
   Widget build(BuildContext context) {
     const fg = Colors.white;
-    // Máy tính: Esc đóng trình xem, ← → sang tệp trước / sau (trong PDF: sang trang), Ctrl/Cmd + P in tệp đang xem.
+    // Máy tính: Esc đóng trình xem, ← → sang tệp trước / sau, Ctrl/Cmd + P in tệp đang xem.
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.maybePop(context),
@@ -311,8 +291,7 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
         if (isImageAttachment(a)) {
           return InteractiveViewer(maxScale: 8, child: Center(child: Image.file(f, errorBuilder: (_, _, _) => const Text('Không hiển thị được ảnh này', style: TextStyle(color: fg)))));
         }
-        final c = _pdf.putIfAbsent(a.id, PdfViewerController.new);
-        return PdfViewer.file(f.path, controller: c, params: mailPdfParamsWith(controller: c, onBefore: () => _go(-1), onAfter: () => _go(1)));
+        return PdfViewer.file(f.path, params: mailPdfParams);
       },
     );
   }
