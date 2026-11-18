@@ -100,7 +100,9 @@
     alarms.set(name, timer);
   }
 
-  window.chrome = {
+  // Keep what the WebView already put on `chrome`: on Windows, WebView2's
+  // `chrome.webview` carries every flutter_inappwebview handler call.
+  window.chrome = Object.assign(window.chrome || {}, {
     runtime: {
       id: "vn.flygo.magic-sign",
       getURL: (path = "") => `${base}${path}`,
@@ -144,7 +146,7 @@
     // Debug capture of whole requests needs Chrome's webRequest; the app only
     // has what inject.js logs inside the page.
     webRequest: { onBeforeRequest: noopEvent, onSendHeaders: noopEvent, onHeadersReceived: noopEvent, onCompleted: noopEvent, onErrorOccurred: noopEvent },
-  };
+  });
 
   if (role === "engine") {
     // background.js loads its helpers with importScripts(); engine.html loads
