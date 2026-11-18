@@ -281,7 +281,7 @@ class AboveNavSnackBars extends StatelessWidget {
   Widget build(BuildContext context) => child;
 }
 
-/// Thông báo (SnackBar) nổi bật ở GIỮA màn hình thay vì sát đáy: đặt khoảng đệm dưới bằng nửa màn hình.
+/// Thông báo (SnackBar) dạng toast nổi sát đáy, giữa chiều ngang (Sếp, 2026-11-18: trước đây hiện giữa màn hình).
 class CenteredToasts extends StatelessWidget {
   final Widget child;
   const CenteredToasts({super.key, required this.child});
@@ -289,14 +289,14 @@ class CenteredToasts extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final theme = Theme.of(context);
-    final side = ((size.width - 380) / 2).clamp(16.0, 2000.0);
+    final side = ((size.width - 440) / 2).clamp(16.0, 2000.0);
     return Theme(
       data: theme.copyWith(
         snackBarTheme: theme.snackBarTheme.copyWith(
           behavior: SnackBarBehavior.floating,
-          insetPadding: EdgeInsets.fromLTRB(side, 0, side, (size.height / 2 - 70).clamp(80.0, 2000.0)),
-          elevation: 12,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: EdgeInsets.fromLTRB(side, 0, side, 24),
+          elevation: 8,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
       child: child,
@@ -304,7 +304,7 @@ class CenteredToasts extends StatelessWidget {
   }
 }
 
-/// Thông báo nổi bật: icon lớn + chữ căn giữa. Icon tự chọn theo nội dung (lỗi / xong / thông tin).
+/// Toast đáy: icon nhỏ bên trái + chữ. Icon tự chọn theo nội dung (lỗi / xong / thông tin).
 SnackBar toast(Text t, {IconData? icon}) {
   final s = (t.data ?? '').toLowerCase();
   final bad = s.startsWith('không') || s.contains('lỗi') || s.contains('thất bại') || s.contains('chưa có quyền');
@@ -313,14 +313,15 @@ SnackBar toast(Text t, {IconData? icon}) {
   final color = bad ? const Color(0xFFFF6B6B) : good ? const Color(0xFF4CD08A) : const Color(0xFF7FB8FF);
   return SnackBar(
     duration: const Duration(seconds: 3),
-    padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-    content: Column(mainAxisSize: MainAxisSize.min, children: [
-      Icon(ic, size: 34, color: color),
-      const SizedBox(height: 8),
-      DefaultTextStyle.merge(
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 15, height: 1.35),
-        child: t,
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+    content: Row(children: [
+      Icon(ic, size: 22, color: color),
+      const SizedBox(width: 12),
+      Expanded(
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(fontSize: 14.5, height: 1.35),
+          child: t,
+        ),
       ),
     ]),
   );
