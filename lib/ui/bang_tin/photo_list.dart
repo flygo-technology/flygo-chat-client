@@ -81,7 +81,7 @@ Future<void> copyPhoto(BuildContext context, Future<Uint8List> Function() bytes)
 /// Lớp phủ phóng to ảnh, bọc vùng có [PhotoColumn]. [builder] nhận `locked` = đang chụm / phóng to: danh sách bên
 /// trong phải tắt cuộn (physics NeverScrollableScrollPhysics) để hai ngón không vừa cuộn vừa phóng.
 class PhotoZoomScope extends StatefulWidget {
-  const PhotoZoomScope({super.key, required this.source, required this.builder, this.keyboard = false, this.dark = false});
+  const PhotoZoomScope({super.key, required this.source, required this.builder, this.keyboard = false, this.dark = false, this.wheelZooms = false});
   final PhotoSource source;
   final Widget Function(BuildContext context, bool locked) builder;
 
@@ -90,6 +90,10 @@ class PhotoZoomScope extends StatefulWidget {
 
   /// Nền đã tối (trang xem ảnh): lớp phóng to không cần phủ đen dần.
   final bool dark;
+
+  /// Trang xem ảnh (máy tính): lăn chuột trên ảnh là phóng to (không cần Ctrl), bấm một lần vào ảnh cũng phóng to;
+  /// danh sách thì chuyển ảnh bằng phím mũi tên.
+  final bool wheelZooms;
 
   @override
   State<PhotoZoomScope> createState() => PhotoZoomScopeState();
@@ -386,6 +390,7 @@ class PhotoZoomScopeState extends State<PhotoZoomScope> with SingleTickerProvide
         },
         child: GestureDetector(
           key: const ValueKey('bt-photo-zoom'),
+          onTap: widget.wheelZooms ? zoomOut : null,
           onDoubleTap: zoomOut,
           onLongPress: () => _photoMenu(context, widget.source, z.ids, z.index),
           onSecondaryTapUp: (d) => _photoMenu(context, widget.source, z.ids, z.index, at: d.globalPosition),
@@ -600,11 +605,12 @@ class _PhotoState extends State<_Photo> {
           onPointerSignal: (ev) {
             final s = _scope;
             final k = HardwareKeyboard.instance;
-            if (s == null || ev is! PointerScrollEvent || !(k.isControlPressed || k.isMetaPressed)) return;
+            if (s == null || ev is! PointerScrollEvent || !(s.widget.wheelZooms || k.isControlPressed || k.isMetaPressed)) return;
             // Đăng ký trước danh sách (ảnh nằm trong danh sách): Ctrl + lăn chuột là phóng to, không cuộn.
             GestureBinding.instance.pointerSignalResolver.register(ev, (e) => s._wheel(_entry, e as PointerScrollEvent));
           },
           child: GestureDetector(
+            onTapUp: _scope?.widget.wheelZooms == true ? (d) => _scope?._doubleTap(_entry, d.globalPosition) : null,
             onDoubleTapDown: (d) => _tapAt = d.globalPosition,
             onDoubleTap: () => _scope?._doubleTap(_entry, _tapAt),
             onLongPress: () => _photoMenu(context, widget.source, widget.ids, widget.index),

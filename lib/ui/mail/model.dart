@@ -314,6 +314,11 @@ class MailAiResult {
 final _automatedAddr = RegExp(r'^(no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster|bounces?|notifications?|notify|alerts?|automated|system)([+._-].*)?@|[._-](no-?reply|alerts?|notifications?)@', caseSensitive: false);
 bool isAutomatedSender(String email) => _automatedAddr.hasMatch(email);
 
+/// Địa chỉ không nhận thư trả lời (no-reply, mailer-daemon, cảnh báo Google Workspace…): ẩn Trả lời, chỉ còn Chuyển tiếp.
+/// Hẹp hơn [isAutomatedSender]: thư thông báo từ một địa chỉ thật (bản tin…) vẫn trả lời được, chỉ không có nháp AI.
+final _noReplyAddr = RegExp(r'^(no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster)([+._-].*)?@|[._-]no-?reply@', caseSensitive: false);
+bool isNoReplySender(String email) => _noReplyAddr.hasMatch(email);
+
 /// AI tóm tắt việc cần làm từ các thư chưa đọc (POST /mail/api/ai/digest).
 class MailDigest {
   const MailDigest({this.summary = '', this.tasks = const [], this.threads = 0, this.model = '', this.unread});

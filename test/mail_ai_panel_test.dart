@@ -6,6 +6,7 @@ import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
+import 'package:flygo_chat/ui/mail/thread_view.dart';
 
 void main() {
   Future<MailStore> open(WidgetTester t, bool Function(MailThreadSummary) pick, {Size size = const Size(1440, 900)}) async {
@@ -68,5 +69,40 @@ void main() {
     expect(find.text('Thư tự động, không cần trả lời'), findsOneWidget);
     expect(find.text('Bản nháp trả lời'), findsNothing);
     expect(find.text('Dùng bản nháp'), findsNothing);
+  });
+
+  test('địa chỉ không nhận trả lời (hẹp hơn thư tự động)', () {
+    for (final e in ['no-reply@bank.example', 'noreply@x.vn', 'google-workspace-alerts-noreply@google.com', 'mailer-daemon@googlemail.com', 'donotreply@x.vn']) {
+      expect(isNoReplySender(e), isTrue, reason: e);
+    }
+    // Thông báo / bản tin từ địa chỉ thật: vẫn trả lời được (chỉ không có nháp AI).
+    for (final e in ['notifications@github.com', 'alerts@x.vn', 'newsletter@shop.vn', 'jason.jia@hpmont.com']) {
+      expect(isNoReplySender(e), isFalse, reason: e);
+    }
+  });
+
+  testWidgets('thư từ no-reply: không có Trả lời / Trả lời tất cả (nút, menu, phím r a), vẫn Chuyển tiếp', (t) async {
+    await open(t, (x) => x.participants.any((p) => isNoReplySender(p.email)));
+    expect(find.widgetWithText(OutlinedButton, 'Trả lời'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Chuyển tiếp'), findsOneWidget);
+    expect(find.byTooltip('Trả lời'), findsNothing);
+    expect(find.byKey(const ValueKey('mail-ai-reply-ask')), findsNothing);
+    // Phím r / a đi qua ThreadViewState.reply: báo, không mở khung trả lời.
+    t.state<ThreadViewState>(find.byType(ThreadView)).reply('reply');
+    await t.pump();
+    expect(find.text('Thư tự động từ địa chỉ không nhận trả lời, chỉ chuyển tiếp được'), findsOneWidget);
+  });
+
+  testWidgets('dặn AI trước khi soạn: ô dưới nút AI soạn trả lời, nội dung dặn vào bản nháp', (t) async {
+    await open(t, (x) => x.count > 1 && !x.participants.any((p) => isAutomatedSender(p.email)));
+    final ask = find.byKey(const ValueKey('mail-ai-reply-ask'));
+    await t.ensureVisible(ask);
+    await t.enterText(ask, 'đồng ý, hẹn gửi báo giá thứ Hai');
+    await t.tap(find.byKey(const ValueKey('mail-ai-reply')));
+    for (var i = 0; i < 15; i++) {
+      await t.pump(const Duration(milliseconds: 100));
+    }
+    // Bản nháp AI (demo: 'Về nội dung "…": <lời dặn>.') đã vào khung trả lời.
+    expect(find.textContaining('Về nội dung', findRichText: true), findsWidgets);
   });
 }

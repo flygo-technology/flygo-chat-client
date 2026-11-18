@@ -294,6 +294,43 @@ void main() {
     });
   }
 
+  testWidgets('máy tính: lăn chuột (không cần Ctrl) phóng to ảnh, bấm một lần cũng phóng to, ← → chuyển ảnh', (t) async {
+    await openThread(t, const Size(1440, 900));
+    await t.scrollUntilVisible(find.text('nghiem-thu-1.jpg'), 200, scrollable: threadScroll());
+    await t.drag(threadScroll(), const Offset(0, -200));
+    await t.pumpAndSettle();
+    await t.tap(find.text('nghiem-thu-1.jpg'));
+    await settle(t, 8);
+    expect(find.text('2/4'), findsOneWidget);
+    final mouse = TestPointer(1, PointerDeviceKind.mouse);
+    await t.sendEventToBinding(mouse.hover(t.getCenter(photos().at(zoom(t).currentIndex!))));
+    await t.sendEventToBinding(mouse.scroll(const Offset(0, -200)));
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isTrue);
+    // Lăn ngược về cỡ gốc: về danh sách.
+    await t.sendEventToBinding(mouse.scroll(const Offset(0, 600)));
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isFalse);
+    // Bấm một lần vào ảnh: phóng to; bấm lần nữa: thu nhỏ.
+    final c = t.getCenter(photos().at(zoom(t).currentIndex!));
+    // (một chạm chỉ được nhận sau thời gian chờ chạm đúp)
+    await t.tapAt(c);
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isTrue);
+    await t.tapAt(c);
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pumpAndSettle();
+    expect(zoom(t).zoomed, isFalse);
+    // ← →: ảnh trước / sau.
+    await t.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await t.pumpAndSettle();
+    expect(find.text('3/4'), findsOneWidget);
+    await t.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await t.pumpAndSettle();
+    expect(find.text('2/4'), findsOneWidget);
+  });
+
   testWidgets('ảnh từ mạng đang ẩn: không bấm được; PDF vẫn mở trình xem tệp', (t) async {
     t.view.physicalSize = const Size(800, 600);
     t.view.devicePixelRatio = 1;

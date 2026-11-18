@@ -1,5 +1,5 @@
 // Thư: trình xem ảnh của một thư — mọi ảnh của thư (ảnh dán trong thư, ảnh từ mạng khi đã cho hiện, ảnh đính kèm)
-// xếp dọc như Bảng tin (PhotoZoomScope + PhotoColumn): chụm / bấm đúp / Ctrl + lăn chuột để phóng to, thu nhỏ hết cỡ
+// xếp dọc như Bảng tin (PhotoZoomScope + PhotoColumn): chụm / bấm / lăn chuột để phóng to, thu nhỏ hết cỡ
 // là về danh sách; phím mũi tên sang ảnh trước / sau, Esc đóng. Thao tác: Tải về, Lưu vào Drive, In, Sao chép ảnh.
 import 'dart:io';
 import 'dart:math' as math;
@@ -257,6 +257,7 @@ class _MailPhotoPageState extends State<MailPhotoPage> {
           source: p,
           keyboard: true,
           dark: true,
+          wheelZooms: true,
           builder: (context, locked) => NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n is UserScrollNotification) _userScrolled = true;
