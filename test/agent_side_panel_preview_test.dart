@@ -46,7 +46,7 @@ Future<void> _fonts() async {
     await l.load();
   }
 
-  await asset('Flygo Roboto', ['Roboto-Regular.ttf', 'Roboto-Italic.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf']);
+  await asset('Flygo Inter', ['Inter-Regular.ttf', 'Inter-Italic.ttf', 'Inter-Medium.ttf', 'Inter-SemiBold.ttf', 'Inter-Bold.ttf']);
   await asset('JetBrains Mono', ['JetBrainsMono-Regular.ttf', 'JetBrainsMono-Medium.ttf', 'JetBrainsMono-Bold.ttf', 'JetBrainsMono-Italic.ttf']);
   // Chữ đơn cách cũ ('monospace': máy Linux lấy DejaVu) cho ảnh "trước".
   final mono = FontLoader('monospace');

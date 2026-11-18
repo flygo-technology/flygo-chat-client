@@ -342,7 +342,8 @@ class MarkdownView extends StatelessWidget {
       final kids = n.children ?? const <md.Node>[];
       switch (n.tag) {
         case 'strong':
-          out.add(TextSpan(children: _inline(pal, kids, st), style: const TextStyle(fontWeight: FontWeight.w700)));
+          // Câu trả lời của trợ lý (Inter): đậm vừa (600) như app Claude, Inter Bold quá nặng ở cỡ đọc.
+          out.add(TextSpan(children: _inline(pal, kids, st), style: TextStyle(fontWeight: _reading ? FontWeight.w600 : FontWeight.w700)));
         case 'em':
           out.add(TextSpan(children: _inline(pal, kids, st), style: const TextStyle(fontStyle: FontStyle.italic)));
         case 'del':
@@ -385,7 +386,7 @@ class MarkdownView extends StatelessWidget {
   }
 
   List<InlineSpan> _mentions(Pal pal, String text) {
-    List<InlineSpan> plain(String t) => linkSpans(t, pal, (x) => mentionSpans(x, pal, onMention));
+    List<InlineSpan> plain(String t) => _reading && t.contains('\uFE0F') ? _emojiSpans(t, pal) : linkSpans(t, pal, (x) => mentionSpans(x, pal, onMention));
     if (!_reading || !_cite.hasMatch(text)) return plain(text);
     // Câu trả lời của trợ lý: trích dẫn [n] (Nghiên cứu sâu) hiện thành huy hiệu nhỏ.
     final out = <InlineSpan>[];
@@ -408,4 +409,20 @@ class MarkdownView extends StatelessWidget {
   }
 
   static final _cite = RegExp(r'\[(\d{1,2})\]');
+
+  /// Ký tự + U+FE0F ("↔️", "ℹ️", "1️⃣"): Inter có sẵn nét chữ của "↔", "ℹ"… nên máy vẽ thành chữ đen thay vì emoji.
+  /// Ép các cụm này dùng phông emoji của hệ điều hành.
+  static final _vs16 = RegExp('[^\uFE0F]\uFE0F\u20E3?');
+  static const _emojiStyle = TextStyle(fontFamily: 'Apple Color Emoji', fontFamilyFallback: ['Noto Color Emoji', 'Segoe UI Emoji']);
+  List<InlineSpan> _emojiSpans(String text, Pal pal) {
+    final out = <InlineSpan>[];
+    var i = 0;
+    for (final m in _vs16.allMatches(text)) {
+      if (m.start > i) out.addAll(linkSpans(text.substring(i, m.start), pal, (x) => mentionSpans(x, pal, onMention)));
+      out.add(TextSpan(text: m.group(0), style: _emojiStyle));
+      i = m.end;
+    }
+    if (i < text.length) out.addAll(linkSpans(text.substring(i), pal, (x) => mentionSpans(x, pal, onMention)));
+    return out;
+  }
 }

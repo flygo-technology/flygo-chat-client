@@ -134,21 +134,26 @@ flutter:
     - assets/magicsign/
     - assets/magicsign/app/
     - assets/magicsign/ext/
-    - assets/fonts/LICENSE-Roboto.txt
+    - assets/fonts/OFL-Inter.txt
     - assets/fonts/OFL-JetBrainsMono.txt
 
-  # Phông cho chat với trợ lý: chữ đọc câu trả lời (Roboto, Apache-2.0) + chữ đơn cách cho lệnh / code (JetBrains Mono, OFL).
+  # Phông cho chat với trợ lý: chữ đọc câu trả lời (Inter, OFL) + chữ đơn cách cho lệnh / code (JetBrains Mono, OFL).
   fonts:
-    # Roboto đóng gói dưới tên riêng: Android ngầm dùng "Roboto" cho cả app, không muốn đổi chữ chỗ khác.
-    - family: Flygo Roboto
+    # Inter đóng gói dưới tên riêng: máy có cài sẵn Inter (bản khác) cũng không lẫn.
+    - family: Flygo Inter
       fonts:
-        - asset: assets/fonts/Roboto-Regular.ttf
-        - asset: assets/fonts/Roboto-Italic.ttf
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Italic.ttf
           style: italic
-        - asset: assets/fonts/Roboto-Medium.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Roboto-Bold.ttf
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
+        - asset: assets/fonts/Inter-BoldItalic.ttf
+          weight: 700
+          style: italic
     - family: JetBrains Mono
       fonts:
         - asset: assets/fonts/JetBrainsMono-Regular.ttf

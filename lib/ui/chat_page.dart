@@ -2549,7 +2549,7 @@ class _Bubble extends StatelessWidget {
       bottomRight: mine && last ? tailR : r,
     );
 
-    // Câu trả lời của trợ lý (chat với trợ lý): Roboto 16 px, giãn dòng thoáng; tin người gửi giữ nguyên.
+    // Câu trả lời của trợ lý (chat với trợ lý): Inter 16 px, giãn dòng thoáng; tin người gửi giữ nguyên.
     final aiAnswer = claude && !mine && app.users[post.userId]?.isBot == true;
     final textStyle = aiAnswer ? aiAnswerStyle(pal.text) : TextStyle(fontSize: 17, color: pal.text, height: 1.3);
     // Bấm @tên trong tin: mở tin nhắn riêng với người đó.
@@ -2624,7 +2624,8 @@ class _Bubble extends StatelessWidget {
             WidgetSpan(child: SizedBox(width: metaWidth, height: 12)),
           ]),
           style: textStyle);
-    } else if (MarkdownView.isSimple(msgText)) {
+    } else if (MarkdownView.isSimple(msgText) && !aiAnswer) {
+      // Câu trả lời của trợ lý luôn qua MarkdownView (phông Inter: emoji "↔️" phải ép phông emoji).
       body = Text.rich(
         TextSpan(children: [
           ..._linkify(msgText, pal, onMention),

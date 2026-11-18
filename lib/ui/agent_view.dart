@@ -935,8 +935,8 @@ Color usageColor(double f, Color normal) => f > .95 ? const Color(0xFFE5484D) : 
 
 String _engineName(String e) => switch (e) { 'codex' => 'Codex', 'claude' => 'Claude Code', 'agy' => 'Antigravity', _ => e };
 
-/// Hai vòng tròn cạnh nhau: vòng 1 = ngữ cảnh của phiên (% đã dùng), vòng 2 = hạn mức tài khoản engine còn lại
-/// (cửa sổ 5 giờ / tuần đang dùng nhiều nhất). Giữ chuột xem nhanh, bấm vòng nào cũng mở hộp chi tiết có thanh tiến độ.
+/// Vòng kép đồng tâm: vòng trong = ngữ cảnh của phiên (% đã dùng), vòng ngoài = hạn mức tài khoản engine đã dùng
+/// (cửa sổ 5 giờ / tuần đang dùng nhiều nhất). Giữ chuột xem nhanh, bấm để mở hộp chi tiết có thanh tiến độ.
 /// [always]: luôn hiện cả hai vòng (vòng chưa có số liệu để trống) để chat trợ lý không bao giờ mất hai vòng này.
 class AgentUsageRing extends StatelessWidget {
   final ({int used, int max, String model})? ctx;
@@ -1007,35 +1007,18 @@ class AgentUsageRing extends StatelessWidget {
     );
   }
 
-  Widget _ring(BuildContext context, {required Key key, required double? value, required Color color, required String label, required String tip}) {
-    final pal = Pal.of(context);
-    return Tooltip(
-      message: tip,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: () => _details(context),
-        child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: Stack(alignment: Alignment.center, children: [
-              SizedBox.expand(
-                child: CircularProgressIndicator(
-                  key: key,
-                  value: value ?? 0,
-                  strokeWidth: 3,
-                  backgroundColor: pal.text.withValues(alpha: .12),
-                  color: color,
-                ),
-              ),
-              Text(label, style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w700, color: pal.text)),
-            ]),
-          ),
+  /// Một vòng tiến độ; [size] = đường kính ngoài.
+  Widget _ring(BuildContext context, {required Key key, required double size, required double value, required Color color}) => SizedBox(
+        width: size,
+        height: size,
+        child: CircularProgressIndicator(
+          key: key,
+          value: value,
+          strokeWidth: 3,
+          backgroundColor: Pal.of(context).text.withValues(alpha: .12),
+          color: color,
         ),
-      ),
-    );
-  }
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -1046,31 +1029,54 @@ class AgentUsageRing extends StatelessWidget {
     final t = now ?? DateTime.now();
     final f = c == null ? 0.0 : (c.used / c.max).clamp(0.0, 1.0);
     final used = (l?.maxUsed(t) ?? 0).clamp(0, 100);
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      if (c != null || always)
-        _ring(
-          context,
-          key: const ValueKey('usage-context-ring'),
-          value: f,
-          color: usageColor(f, const Color(0xFF2E9D5B)),
-          label: c == null ? '-' : '${(f * 100).round()}',
-          tip: c == null ? tr('Ngữ cảnh: chưa có số liệu') : tr('Ngữ cảnh: {0} / {1} token ({2}%)', [_kTokens(c.used), _kTokens(c.max), (f * 100).round()]),
+    final showCtx = c != null || always;
+    final showLimit = l != null || always;
+    // Vòng kép đồng tâm (Sếp, 2026-11-18): vòng ngoài = hạn mức tài khoản, vòng trong = ngữ cảnh của phiên;
+    // số ở giữa là % ngữ cảnh (hạn mức xem trong chú thích / hộp chi tiết).
+    final tip = [
+      if (showCtx)
+        c == null ? tr('Ngữ cảnh: chưa có số liệu') : tr('Ngữ cảnh: {0} / {1} token ({2}%)', [_kTokens(c.used), _kTokens(c.max), (f * 100).round()]),
+      if (showLimit) l == null ? tr('Hạn mức: chưa có số liệu') : [for (final w in l.windows) agentLimitLine(w, t)].join('\n'),
+    ].join('\n');
+    final label = showCtx ? (c == null ? '-' : '${(f * 100).round()}') : (l == null ? '-' : '$used');
+    return Tooltip(
+      message: tip,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => _details(context),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Stack(alignment: Alignment.center, children: [
+              if (showLimit)
+                _ring(
+                  context,
+                  key: const ValueKey('usage-limit-ring'),
+                  size: 32,
+                  // % đã dùng của cửa sổ dùng nhiều nhất; đỏ khi sắp hết / đã chạm hạn mức.
+                  value: l == null ? 0 : used / 100,
+                  color: l != null && l.reached ? const Color(0xFFE5484D) : usageColor(used / 100, pal.accent),
+                ),
+              if (showCtx)
+                _ring(
+                  context,
+                  key: const ValueKey('usage-context-ring'),
+                  size: showLimit ? 22 : 32,
+                  value: f,
+                  color: usageColor(f, const Color(0xFF2E9D5B)),
+                ),
+              Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: pal.text)),
+            ]),
+          ),
         ),
-      if (l != null || always)
-        _ring(
-          context,
-          key: const ValueKey('usage-limit-ring'),
-          // Vòng hạn mức: % đã dùng của cửa sổ dùng nhiều nhất (như vòng ngữ cảnh); đỏ khi sắp hết / đã chạm hạn mức.
-          value: l == null ? 0 : used / 100,
-          color: l != null && l.reached ? const Color(0xFFE5484D) : usageColor(used / 100, pal.accent),
-          label: l == null ? '-' : '$used',
-          tip: l == null ? tr('Hạn mức: chưa có số liệu') : [for (final w in l.windows) agentLimitLine(w, t)].join('\n'),
-        ),
-    ]);
+      ),
+    );
   }
 }
 
-/// Hai vòng tròn ở góc trên bên phải chat trợ lý: % ngữ cảnh và % hạn mức đã dùng; bấm xem chi tiết.
+/// Vòng kép ở góc trên bên phải chat trợ lý: % ngữ cảnh (trong) và % hạn mức đã dùng (ngoài); bấm xem chi tiết.
 class AgentContextRing extends StatelessWidget {
   final String channelId;
   const AgentContextRing({super.key, required this.channelId});

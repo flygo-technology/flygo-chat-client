@@ -274,23 +274,23 @@ TextSpan shellSpan(String cmd, CodeColors c, TextStyle base) {
   ]);
 }
 
-/// Phông của chat với trợ lý (đóng gói trong app): chữ đọc câu trả lời (Roboto, tên riêng để không đổi chữ của
-/// Android) và chữ đơn cách cho lệnh / code.
-const kReadingFont = 'Flygo Roboto';
+/// Phông của chat với trợ lý (đóng gói trong app): chữ đọc câu trả lời (Inter, tên riêng để không lẫn với Inter cài
+/// sẵn trên máy; Sếp chọn 2026-11-18) và chữ đơn cách cho lệnh / code.
+const kReadingFont = 'Flygo Inter';
 const kMonoFont = 'JetBrains Mono';
 const kMonoFallback = ['Menlo', 'Consolas', 'DejaVu Sans Mono', 'monospace'];
 /// Tắt chữ ghép của JetBrains Mono ("--" thành một nét, "!=" thành "≠"): lệnh phải hiện đúng từng ký tự.
 const kNoLigatures = [FontFeature.disable('calt'), FontFeature.disable('liga')];
 const kMono = TextStyle(fontFamily: kMonoFont, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures);
 
-/// Kiểu chữ câu trả lời của trợ lý: Roboto 16 px, giãn dòng 1.58.
+/// Kiểu chữ câu trả lời của trợ lý: Inter 16 px, giãn dòng 1.6.
 TextStyle aiAnswerStyle(Color color) =>
-    TextStyle(fontFamily: kReadingFont, fontFamilyFallback: const ['Roboto', 'Noto Sans', 'Noto Color Emoji'], fontSize: 16, height: 1.58, color: color);
+    TextStyle(fontFamily: kReadingFont, fontFamilyFallback: const ['Roboto', 'Noto Sans', 'Noto Color Emoji'], fontSize: 16, height: 1.6, color: color);
 
 /// Giấy phép của hai phông trên (trang Giấy phép của app).
 void registerAiFontLicenses() {
   LicenseRegistry.addLicense(() async* {
-    for (final (name, file) in [('Roboto', 'LICENSE-Roboto.txt'), ('JetBrains Mono', 'OFL-JetBrainsMono.txt')]) {
+    for (final (name, file) in [('Inter', 'OFL-Inter.txt'), ('JetBrains Mono', 'OFL-JetBrainsMono.txt')]) {
       yield LicenseEntryWithLineBreaks([name], await rootBundle.loadString('assets/fonts/$file'));
     }
   });

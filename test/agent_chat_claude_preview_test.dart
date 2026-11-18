@@ -30,7 +30,7 @@ Future<void> _fonts() async {
   await load('Roboto', roboto);
   await load('Noto Sans', roboto);
   await load('MaterialIcons', ['MaterialIcons-Regular.otf']);
-  await load('Flygo Roboto', [for (final f in ['Regular', 'Italic', 'Medium', 'Bold']) 'assets/fonts/Roboto-$f.ttf']);
+  await load('Flygo Inter', [for (final f in ['Regular', 'Italic', 'Medium', 'SemiBold', 'Bold']) 'assets/fonts/Inter-$f.ttf']);
   await load('JetBrains Mono', [for (final f in ['Regular', 'Medium', 'Bold']) 'assets/fonts/JetBrainsMono-$f.ttf']);
   final emoji = Platform.environment['EMOJI_FONT'];
   if (emoji != null) await load('Noto Color Emoji', [emoji]);
@@ -77,6 +77,18 @@ AppState _app(int now) {
         'status': 'done',
         'engine': 'claude',
         'config': {'model': 'claude-opus-5-5', 'effort': 'high'},
+        // Vòng kép ở đầu chat: ngữ cảnh 42% (trong), hạn mức 68% (ngoài).
+        'usage': {
+          'contextTokens': 84000,
+          'contextWindow': 200000,
+          'limits': {
+            'engine': 'claude',
+            'at': now,
+            'windows': [
+              {'id': 'five_hour', 'usedPercent': 68, 'windowMins': 300, 'resetsAt': now ~/ 1000 + 7200},
+            ],
+          },
+        },
         'texts': [''],
         'steps': [
           {'id': 'a', 'seg': 0, 'kind': 'command', 'status': 'done', 'title': r'$ git -C bang-tin log --oneline -3', 'label': 'Xem lịch sử nhánh'},

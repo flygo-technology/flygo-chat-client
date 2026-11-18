@@ -47,7 +47,7 @@ void main() {
     expect(usageColor(.96, n), const Color(0xFFE5484D));
   });
 
-  testWidgets('two rings side by side: context used and quota used; tap opens details with progress bars', (t) async {
+  testWidgets('one double ring: inner = context used, outer = quota used; tap opens details with progress bars', (t) async {
     await t.pumpWidget(wrap(AgentUsageRing(
       ctx: (used: 50000, max: 200000, model: ''),
       limits: AgentLimits.parse(raw(five: 85, week: 40)),
@@ -59,15 +59,18 @@ void main() {
     // Vòng 2: % đã dùng của cửa sổ dùng nhiều nhất (85%), màu cam.
     expect(ring(t, 'usage-limit-ring').value, closeTo(.85, 1e-9));
     expect(ring(t, 'usage-limit-ring').color, const Color(0xFFF5A623));
+    // Vòng trong nhỏ hơn, nằm giữa vòng ngoài; số ở giữa là % ngữ cảnh.
+    expect(t.getSize(find.byKey(const ValueKey('usage-context-ring'))).width, lessThan(t.getSize(find.byKey(const ValueKey('usage-limit-ring'))).width));
+    expect(t.getCenter(find.byKey(const ValueKey('usage-context-ring'))), t.getCenter(find.byKey(const ValueKey('usage-limit-ring'))));
     expect(find.text('25'), findsOneWidget);
-    expect(find.text('85'), findsOneWidget);
-    final tips = [for (final w in t.widgetList<Tooltip>(find.byType(Tooltip))) w.message!];
-    expect(tips.first, 'Ngữ cảnh: 50k / 200k token (25%)');
-    expect(tips.last, contains('Phiên 5 giờ: đã dùng 85% · đặt lại lúc 13:05 (04/11)'));
-    expect(tips.last, contains('Hàng tuần: đã dùng 40% · đặt lại lúc 08:30 (09/11)'));
+    expect(find.text('85'), findsNothing);
+    final tip = t.widget<Tooltip>(find.byType(Tooltip)).message!;
+    expect(tip, startsWith('Ngữ cảnh: 50k / 200k token (25%)'));
+    expect(tip, contains('Phiên 5 giờ: đã dùng 85% · đặt lại lúc 13:05 (04/11)'));
+    expect(tip, contains('Hàng tuần: đã dùng 40% · đặt lại lúc 08:30 (09/11)'));
 
     // Bấm vòng nào cũng mở hộp chi tiết: thanh tiến độ cho ngữ cảnh và từng cửa sổ hạn mức.
-    await t.tap(find.byType(InkWell).last);
+    await t.tap(find.byType(InkWell));
     await t.pumpAndSettle();
     expect(find.text('Hạn mức Codex (gói plus)'), findsOneWidget);
     expect(find.text('Hàng tuần: đã dùng 40% · đặt lại lúc 08:30 (09/11)'), findsOneWidget);
