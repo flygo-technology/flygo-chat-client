@@ -2331,7 +2331,7 @@ class AppState extends ChangeNotifier {
   /// Bot này là trợ lý AI (có mốc flygo-agent).
   bool isAssistant(String userId) => engineOf(users[userId]) != null;
 
-  /// Trợ lý AI đang ở trong chat (null nếu chưa có). Mỗi chat chỉ có một trợ lý.
+  /// Trợ lý AI đầu tiên đang ở trong chat (null nếu chưa có).
   Future<String?> assistantIn(String channelId) async {
     for (final u in await channelUsers(channelId)) {
       if (u.isBot && isAssistant(u.id)) return u.id;
@@ -2340,11 +2340,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> addMember(String channelId, String userId) async {
-    // Mỗi chat chỉ một trợ lý AI: đã có trợ lý khác thì không thêm.
-    if (isAssistant(userId)) {
-      final cur = await assistantIn(channelId);
-      if (cur != null && cur != userId) throw const OneAssistantException();
-    }
+    // Nhiều trợ lý AI trong một chat được phép (Sếp, 2026-11-18): runner chỉ tự trả lời khi chat có một bot,
+    // còn nhiều bot thì phải @tag (bot tag đầu chủ trì, nhờ bot khác qua A2A), không trả lời tin của bot khác.
     try {
       await api.post('/channels/$channelId/members', {'user_id': userId});
     } catch (_) {
