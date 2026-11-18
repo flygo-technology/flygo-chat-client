@@ -1,11 +1,18 @@
 // Hợp đồng: soạn / sửa hợp đồng — tệp PDF, số / tên / giá trị, "Ai ký?" (thẻ từng bên: nhãn, tên, MST/CCCD, email),
 // lần lượt / cùng lúc, thời hạn (hiệu lực, hạn ký, nhắc gia hạn), ghi chú, tiến độ luồng ký và thanh dưới Lưu nháp / Gửi ký.
 // Sau khi gửi ký máy chủ chỉ cho sửa ghi chú, công khai ghi chú và nhắc gia hạn: các phần khác khoá lại.
+// Thẻ "Tài liệu ký": nhiều PDF (tối đa 10) — thêm từ Drive / từ máy (máy tính kéo thả được), kéo để sắp xếp, nhãn, bên ký
+// của từng tài liệu. Thêm / thay tệp đi qua đường /docs; thứ tự, nhãn, bên ký lưu cùng hợp đồng (PUT docs).
+// Máy chủ cũ chỉ có một tài liệu: thẻ chỉ hiện một tệp, chọn tệp mới là thay tệp cũ.
 
+import 'dart:io';
+
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../config.dart' show isDesktop;
 import '../drive/session.dart' show localCopy;
 import '../drive/pickers.dart' show pickFromDrive;
 import 'api.dart';
@@ -21,7 +28,7 @@ class _PartyDraft {
         email = TextEditingController(text: email);
   factory _PartyDraft.of(HdParty p) =>
       _PartyDraft(id: p.id, label: p.label, name: p.name, idNo: p.idNo, email: p.email, kind: p.idKind, internal: p.internal);
-  final String? id;
+  String? id;
   final TextEditingController label, name, idNo, email;
   String kind;
   bool internal;
@@ -38,6 +45,17 @@ class _PartyDraft {
     idNo.dispose();
     email.dispose();
   }
+}
+
+/// Tài liệu đang soạn: tệp trên máy chủ + nhãn, bên ký (null = tất cả các bên, kể cả bên thêm sau) chưa lưu.
+class _DocDraft {
+  _DocDraft(this.src, {required this.label, this.signers});
+  final HdDoc src;
+  String label;
+  Set<_PartyDraft>? signers;
+
+  bool signs(_PartyDraft p) => signers == null || signers!.contains(p);
+  String get title => label.trim().isEmpty ? src.title : label.trim();
 }
 
 /// Tệp PDF đã chọn trong Drive: đường dẫn + tên, cách xin vé Drive và cách tải về máy (dự phòng cho máy chủ cũ).
@@ -67,17 +85,23 @@ class _ContractEditPageState extends State<ContractEditPage> {
   final _no = TextEditingController(), _title = TextEditingController(), _value = TextEditingController(), _note = TextEditingController();
   final _add = TextEditingController();
   final List<_PartyDraft> _parties = [];
+  final List<_DocDraft> _docs = [];
   String _mode = 'seq';
   DateTime? _effFrom, _effTo, _deadline;
   int? _effMonths; // 6 / 12 / 24; 0 = tuỳ chọn
   int? _signDays; // 3 / 7 / 14
   bool _remind = true, _notePublic = false;
-  bool _saving = false, _dirty = false, _uploading = false;
+  bool _saving = false, _dirty = false, _uploading = false, _dropping = false;
   String _uploadText = '';
   DateTime? _savedAt;
   String _company = '';
 
   bool get _locked => _c != null && !_c!.isDraft;
+
+  /// Máy chủ nhận nhiều tài liệu (chưa tạo hợp đồng thì coi như có).
+  bool get _multi => _c?.multi ?? true;
+
+  static const _maxDocs = 10, _maxBytes = 30 * 1024 * 1024;
 
   @override
   void initState() {
@@ -135,6 +159,23 @@ class _ContractEditPageState extends State<ContractEditPage> {
     _parties
       ..clear()
       ..addAll(c.parties.map(_PartyDraft.of));
+    _loadDocs(c);
+  }
+
+  /// Tài liệu theo bản máy chủ trả về; bên ký (id) gắn vào thẻ bên đang soạn.
+  void _loadDocs(Contract c) {
+    _docs
+      ..clear()
+      ..addAll(c.docs.map((d) => _DocDraft(d,
+          label: d.label, signers: d.signers == null ? null : {for (final p in _parties) if (p.id != null && d.signers!.contains(p.id)) p})));
+  }
+
+  /// Giữ ô đang gõ, chỉ gắn id máy chủ cấp cho bên mới (cùng thứ tự).
+  void _bindIds(Contract n) {
+    if (_parties.length != n.parties.length) return;
+    for (var i = 0; i < _parties.length; i++) {
+      _parties[i].id ??= n.parties[i].id;
+    }
   }
 
   @override
@@ -178,28 +219,38 @@ class _ContractEditPageState extends State<ContractEditPage> {
       'eff_from': _effFrom?.millisecondsSinceEpoch, 'eff_to': _effTo?.millisecondsSinceEpoch, 'sign_deadline': _deadline?.millisecondsSinceEpoch,
       'remind_days': _remind ? 30 : 0, 'note': _note.text, 'note_public': _notePublic, 'mode': _mode,
       'parties': [for (var i = 0; i < _parties.length; i++) {..._parties[i].toJson(), if (_parties[i].label.text.trim().isEmpty) 'label': defaultLabel(i)}],
+      if (_c != null && _multi) 'docs': _docsJson(),
     };
   }
+
+  /// Thứ tự, nhãn, bên ký của các tài liệu. Máy chủ xoá tài liệu không có trong danh sách; bên đã bỏ thì không gửi.
+  List<Json> _docsJson() => [
+        for (final d in _docs)
+          if (d.src.id.isNotEmpty)
+            {
+              'id': d.src.id, 'label': d.label.trim(),
+              'signers': d.signers == null ? null : [for (final p in _parties) if (d.signers!.contains(p) && p.id != null) p.id],
+            },
+      ];
 
   Future<Contract?> _save({bool quiet = false}) async {
     if (_saving) return null;
     setState(() => _saving = true);
     try {
-      final n = _c == null ? await widget.api.create(_body()) : await widget.api.update(_c!.id, _body());
+      final body = _body();
+      final docs = body.remove('docs');
+      // Bên mới chưa có id mà có tài liệu chọn riêng bên ký: lưu các bên trước để có id, rồi mới lưu tài liệu.
+      final twoStep = docs != null && _parties.any((p) => p.id == null) && _docs.any((d) => d.signers != null);
+      var n = _c == null ? await widget.api.create(body) : await widget.api.update(_c!.id, twoStep ? body : {...body, 'docs': ?docs});
+      if (twoStep) {
+        _bindIds(n);
+        n = await widget.api.update(n.id, {'docs': _docsJson()});
+      }
       if (!mounted) return n;
       setState(() {
-        final keep = _parties.length == n.parties.length;
         _c = n;
-        // Giữ ô đang gõ, chỉ gắn id máy chủ cấp cho bên mới.
-        if (keep) {
-          for (var i = 0; i < _parties.length; i++) {
-            if (_parties[i].id == null) {
-              final old = _parties[i];
-              _parties[i] = _PartyDraft.of(n.parties[i]);
-              old.dispose();
-            }
-          }
-        }
+        _bindIds(n);
+        _loadDocs(n);
         _dirty = false;
         _savedAt = hdNow();
       });
@@ -214,14 +265,22 @@ class _ContractEditPageState extends State<ContractEditPage> {
   }
 
   /// Những gì còn thiếu trước khi gửi ký.
+  /// Nhiều tài liệu: tài liệu nào cũng có người ký, bên nào cũng ký ít nhất một tài liệu (máy chủ cũng kiểm tra).
   List<String> _missing() => [
-        if (_c?.doc == null) 'tài liệu PDF',
+        if (_docs.isEmpty) 'tài liệu PDF',
         if (_parties.isEmpty) 'bên ký',
+        if (_multi)
+          for (final d in _docs)
+            if (!_parties.any(d.signs)) 'bên ký của ${d.title}',
         for (var i = 0; i < _parties.length; i++) ...[
           if (_parties[i].name.text.trim().isEmpty) 'tên ${_label(i)}',
           if (!_parties[i].valid) '${_parties[i].kind == 'cccd' ? 'CCCD' : 'MST'} ${_label(i)}',
+          if (_multi && _docs.isNotEmpty && _docCount(_parties[i]) == 0) 'tài liệu cho ${_label(i)} ký',
         ],
       ];
+
+  /// Số tài liệu bên [p] ký.
+  int _docCount(_PartyDraft p) => _docs.where((d) => d.signs(p)).length;
 
   String _label(int i) => _parties[i].label.text.trim().isEmpty ? defaultLabel(i) : _parties[i].label.text.trim();
 
@@ -236,7 +295,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
     final ok = await hdConfirm(
       context,
       '$_sendText?',
-      'Link ký sẽ mở cho $who. Hạn ký: ${_deadline == null ? '7 ngày' : dmyHm(_deadline!.millisecondsSinceEpoch)}.\n\n'
+      'Link ký sẽ mở cho $who${_docs.length > 1 ? ' · ${_docs.length} tài liệu' : ''}. Hạn ký: ${_deadline == null ? '7 ngày' : dmyHm(_deadline!.millisecondsSinceEpoch)}.\n\n'
           'Sau khi gửi không sửa được tài liệu, các bên và thời hạn — chỉ sửa được ghi chú.',
       ok: 'Gửi ký',
     );
@@ -256,40 +315,89 @@ class _ContractEditPageState extends State<ContractEditPage> {
     }
   }
 
-  Future<void> _pickPdf({bool drive = false}) async {
+  /// Thêm PDF từ máy (chọn được nhiều tệp).
+  Future<void> _pickLocal() async {
     if (_locked || _uploading) return;
-    if (drive) return _pickFromDrive();
-    Uint8List? bytes;
-    String name = 'hop-dong.pdf';
+    final files = <(String, Uint8List)>[];
     try {
-      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['pdf']);
-      final f = files.firstOrNull;
-      if (f == null) return;
-      bytes = await f.readAsBytes();
-      name = f.name;
+      for (final f in await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['pdf'])) {
+        files.add((f.name, await f.readAsBytes()));
+      }
     } catch (e) {
       if (mounted) hdToast(context, 'Không mở được tệp: $e');
       return;
     }
-    if (!mounted) return;
-    await _withUpload('Đang tải $name lên…', (id) => widget.api.uploadDoc(id, name, bytes!), name);
+    if (files.isNotEmpty && mounted) await _addFiles(files);
   }
 
-  /// Chọn PDF trong Drive: máy chủ Hợp đồng tự lấy tệp từ Drive (một lượt truyền trong máy chủ), không tải qua máy.
-  /// Máy chủ cũ chưa có /doc-from-drive (404 "không có" / 501) thì tải về máy rồi tải lên như cũ.
+  /// Máy tính: thả tệp vào thẻ tài liệu, chỉ nhận PDF.
+  Future<void> _onDrop(List<(String, String)> dropped) async {
+    setState(() => _dropping = false);
+    if (_locked || _uploading) return;
+    final pdfs = [for (final f in dropped) if (f.$2.toLowerCase().endsWith('.pdf')) f];
+    if (pdfs.isEmpty) return hdToast(context, 'Chỉ nhận tệp PDF');
+    final files = <(String, Uint8List)>[];
+    try {
+      for (final f in pdfs) {
+        files.add((f.$2, await File(f.$1).readAsBytes()));
+      }
+    } catch (e) {
+      if (mounted) hdToast(context, 'Không mở được tệp: $e');
+      return;
+    }
+    if (mounted) await _addFiles(files);
+  }
+
+  /// Tải lần lượt các tệp lên: quá 30 MB thì bỏ qua, đủ 10 tài liệu thì thôi. Máy chủ cũ: tệp đầu thay tài liệu cũ.
+  Future<void> _addFiles(List<(String, Uint8List)> files) async {
+    final big = [for (final f in files) if (f.$2.length > _maxBytes) f.$1];
+    if (big.isNotEmpty) hdToast(context, 'Bỏ qua tệp quá 30 MB: ${big.join(', ')}');
+    var ok = [for (final f in files) if (f.$2.length <= _maxBytes) f];
+    if (ok.isEmpty) return;
+    if (_multi) {
+      final room = _maxDocs - _docs.length;
+      if (room <= 0) return hdToast(context, 'Tối đa $_maxDocs tài liệu');
+      if (ok.length > room) hdToast(context, 'Chỉ thêm được $room tệp nữa (tối đa $_maxDocs tài liệu)');
+      ok = ok.take(room).toList();
+    }
+    await _withUpload('Đang tải ${ok.first.$1} lên…', (id) async {
+      if (!(_c?.multi ?? false)) return widget.api.uploadDoc(id, ok.first.$1, ok.first.$2);
+      late Contract n;
+      for (var i = 0; i < ok.length; i++) {
+        if (i > 0 && mounted) setState(() => _uploadText = 'Đang tải ${ok[i].$1} lên (${i + 1}/${ok.length})…');
+        n = await widget.api.addDoc(id, ok[i].$1, ok[i].$2);
+        // Tệp nào lên xong hiện ngay trong danh sách.
+        if (mounted) {
+          setState(() {
+            _c = n;
+            _loadDocs(n);
+          });
+        }
+      }
+      return n;
+    }, ok.length == 1 ? ok.first.$1 : '${ok.length} tệp');
+  }
+
+  /// Thêm PDF từ Drive: máy chủ Hợp đồng tự lấy tệp từ Drive (một lượt truyền trong máy chủ), không tải qua máy.
+  /// Máy chủ chưa có đường lấy từ Drive (404 "không có" / 501) thì tải về máy rồi tải lên. Máy chủ cũ: thay tài liệu cũ.
   Future<void> _pickFromDrive() async {
+    if (_locked || _uploading) return;
+    if (_multi && _docs.length >= _maxDocs) return hdToast(context, 'Tối đa $_maxDocs tài liệu');
     final pick = await (ContractEditPage.debugDrivePicker ?? _drivePick)(context);
     if (pick == null || !mounted) return;
     await _withUpload('Đang lấy tệp từ Drive…', (id) async {
+      final multi = _c?.multi ?? false;
       try {
-        return await widget.api.docFromDrive(id, path: pick.path, name: pick.name, ticket: await pick.ticket());
+        return multi
+            ? await widget.api.addDocFromDrive(id, path: pick.path, name: pick.name, ticket: await pick.ticket())
+            : await widget.api.docFromDrive(id, path: pick.path, name: pick.name, ticket: await pick.ticket());
       } on HopdongException catch (e) {
         final old = e.status == 501 || (e.status == 404 && !e.message.contains('Drive'));
         if (!old) rethrow;
         if (mounted) setState(() => _uploadText = 'Đang tải tệp từ Drive về máy…');
         final bytes = await pick.download();
         if (mounted) setState(() => _uploadText = 'Đang tải ${pick.name} lên…');
-        return widget.api.uploadDoc(id, pick.name, bytes);
+        return multi ? widget.api.addDoc(id, pick.name, bytes) : widget.api.uploadDoc(id, pick.name, bytes);
       }
     }, pick.name);
   }
@@ -308,19 +416,39 @@ class _ContractEditPageState extends State<ContractEditPage> {
     );
   }
 
-  /// Gắn tài liệu: lưu nháp trước nếu chưa có trên máy chủ, hiện tiến trình trên thẻ PDF, khoá các nút trong lúc chạy.
+  /// Thay tệp PDF của một tài liệu (bản mới, giữ nhãn và bên ký).
+  Future<void> _replaceDoc(_DocDraft d) async {
+    if (_locked || _uploading) return;
+    (String, Uint8List) f;
+    try {
+      final r = (await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['pdf'])).firstOrNull;
+      if (r == null) return;
+      f = (r.name, await r.readAsBytes());
+    } catch (e) {
+      if (mounted) hdToast(context, 'Không mở được tệp: $e');
+      return;
+    }
+    if (!mounted) return;
+    if (f.$2.length > _maxBytes) return hdToast(context, 'Tệp quá 30 MB');
+    final did = d.src.id;
+    await _withUpload('Đang thay ${d.src.name}…', (id) => did.isEmpty ? widget.api.uploadDoc(id, f.$1, f.$2) : widget.api.replaceDoc(id, did, f.$1, f.$2), f.$1);
+  }
+
+  /// Gắn / thay tài liệu: lưu nháp trước nếu chưa có trên máy chủ hoặc còn thay đổi chưa lưu (thứ tự, nhãn, bên ký),
+  /// hiện tiến trình trong thẻ tài liệu, khoá các nút trong lúc chạy.
   Future<void> _withUpload(String text, Future<Contract> Function(String id) run, String name) async {
     setState(() {
       _uploading = true;
       _uploadText = text;
     });
     try {
-      final c = _c ?? await _save(quiet: true);
+      final c = _c == null || _dirty ? await _save(quiet: true) : _c;
       if (c == null) return;
       final n = await run(c.id);
       if (!mounted) return;
       setState(() {
         _c = n;
+        _loadDocs(n);
         if (_no.text.trim().isEmpty && n.no.isNotEmpty) _no.text = n.no;
         _savedAt = hdNow();
       });
@@ -332,18 +460,136 @@ class _ContractEditPageState extends State<ContractEditPage> {
     }
   }
 
+  /// Điện thoại: nút thêm tài liệu hỏi lấy từ máy hay từ Drive.
   Future<void> _choosePdf(BuildContext anchor) async {
     final box = anchor.findRenderObject() as RenderBox?;
     final pos = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+    final add = _multi ? 'Thêm' : 'Chọn';
     final v = await showMenu<String>(
       context: context,
       position: pos == null ? const RelativeRect.fromLTRB(100, 100, 100, 100) : RelativeRect.fromLTRB(pos.left, pos.bottom, pos.right, pos.bottom),
-      items: const [
-        PopupMenuItem(value: 'local', child: ListTile(leading: Icon(Icons.upload_file_rounded), title: Text('Chọn PDF trên máy'), dense: true)),
-        PopupMenuItem(value: 'drive', child: ListTile(leading: Icon(Icons.add_to_drive_rounded), title: Text('Chọn từ Drive'), dense: true)),
+      items: [
+        PopupMenuItem(value: 'local', child: ListTile(leading: const Icon(Icons.upload_file_rounded), title: Text('$add PDF trên máy'), dense: true)),
+        PopupMenuItem(value: 'drive', child: ListTile(leading: const Icon(Icons.add_to_drive_rounded), title: Text('$add từ Drive'), dense: true)),
       ],
     );
-    if (v != null) await _pickPdf(drive: v == 'drive');
+    if (v == 'local') await _pickLocal();
+    if (v == 'drive') await _pickFromDrive();
+  }
+
+  // ------------------------------------------------------------ tài liệu
+  /// [to] đã tính sau khi bỏ tài liệu ở [from] ra (onReorderItem).
+  void _reorderDoc(int from, int to) {
+    if (to == from) return;
+    setState(() {
+      _docs.insert(to, _docs.removeAt(from));
+      _dirty = true;
+    });
+  }
+
+  void _docMenu(_DocDraft d, String a) {
+    switch (a) {
+      case 'label':
+        _renameDoc(d);
+      case 'replace':
+        _replaceDoc(d);
+      case 'view':
+        if (_c != null) openPdf(context, widget.api, _c!, doc: d.src);
+      case 'remove':
+        _removeDoc(d);
+    }
+  }
+
+  Future<void> _renameDoc(_DocDraft d) async {
+    final ctl = TextEditingController(text: d.title);
+    final v = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Nhãn tài liệu'),
+        content: TextField(controller: ctl, autofocus: true, decoration: const InputDecoration(hintText: 'Hợp đồng chính, Phụ lục 01, Biên bản…')),
+        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Thôi')), FilledButton(onPressed: () => Navigator.pop(c, ctl.text.trim()), child: const Text('Xong'))],
+      ),
+    );
+    ctl.dispose();
+    if (v != null && v.isNotEmpty && mounted) {
+      setState(() {
+        d.label = v;
+        _dirty = true;
+      });
+    }
+  }
+
+  /// Bỏ một tài liệu: lưu ngay (máy chủ xoá tài liệu không còn trong danh sách); lỗi thì hiện lại như máy chủ.
+  Future<void> _removeDoc(_DocDraft d) async {
+    final ok = await hdConfirm(context, 'Xoá tài liệu?', '"${d.src.name}" sẽ bị bỏ khỏi hợp đồng.', ok: 'Xoá', danger: true);
+    if (!ok || !mounted) return;
+    setState(() {
+      _docs.remove(d);
+      _dirty = true;
+    });
+    final n = await _save(quiet: true);
+    if (!mounted) return;
+    if (n != null) {
+      hdToast(context, 'Đã xoá ${d.src.name}');
+    } else if (_c != null) {
+      setState(() => _loadDocs(_c!));
+    }
+  }
+
+  /// Chọn các bên ký một tài liệu (đánh dấu nhiều); chọn đủ các bên = tất cả (null).
+  Future<void> _pickSigners(_DocDraft d) async {
+    if (_locked || _parties.isEmpty) return;
+    final picked = {for (final p in _parties) if (d.signs(p)) p};
+    final r = await showDialog<Set<_PartyDraft>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => AlertDialog(
+          title: Text('Ai ký ${d.title}?'),
+          content: SizedBox(
+            width: 380,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              for (var i = 0; i < _parties.length; i++)
+                CheckboxListTile(
+                  value: picked.contains(_parties[i]),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(_label(i)),
+                  subtitle: _parties[i].name.text.trim().isEmpty ? null : Text(_parties[i].name.text.trim(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onChanged: (v) => set(() {
+                    if (v == true) {
+                      picked.add(_parties[i]);
+                    } else {
+                      picked.remove(_parties[i]);
+                    }
+                  }),
+                ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => set(() => picked.addAll(_parties)), child: const Text('Tất cả các bên')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Thôi')),
+            FilledButton(onPressed: picked.isEmpty ? null : () => Navigator.pop(ctx, picked), child: const Text('Xong')),
+          ],
+        ),
+      ),
+    );
+    if (r == null || !mounted) return;
+    setState(() {
+      d.signers = r.length == _parties.length ? null : r;
+      _dirty = true;
+    });
+  }
+
+  /// Chữ trên chip bên ký: (chữ, chỉ một phần các bên?, chưa ai ký?).
+  (String, bool, bool) _signersText(_DocDraft d) {
+    final who = [for (var i = 0; i < _parties.length; i++) if (d.signs(_parties[i])) i];
+    if (who.isEmpty) return ('Chưa chọn bên ký', true, true);
+    if (who.length == _parties.length) {
+      return (_parties.length == 1 ? '${_label(0)} ký' : _parties.length == 2 ? 'Cả 2 bên ký' : 'Tất cả các bên ký', false, false);
+    }
+    if (who.length == 1) return ('Chỉ ${_label(who.first)} ký', true, false);
+    return ('${who.map(_label).join(', ')} ký', true, false);
   }
 
   Future<void> _deleteDraft() async {
@@ -383,7 +629,12 @@ class _ContractEditPageState extends State<ContractEditPage> {
         case 'kind':
           p.kind = p.kind == 'cccd' ? 'mst' : 'cccd';
         case 'remove':
-          _parties.removeAt(i).dispose();
+          // Bỏ bên này khỏi danh sách bên ký của các tài liệu.
+          final gone = _parties.removeAt(i);
+          for (final d in _docs) {
+            d.signers?.remove(gone);
+          }
+          gone.dispose();
       }
       _dirty = true;
     });
@@ -417,8 +668,8 @@ class _ContractEditPageState extends State<ContractEditPage> {
     return LayoutBuilder(builder: (context, box) {
       final wide = box.maxWidth >= 900;
       final gap = SizedBox(height: wide ? 12 : 14);
-      final left = [_fileCard(l, wide), gap, _partiesCard(l, wide), if (wide) ...[gap, _flowCard(l)]];
-      final right = [_termCard(l, wide), gap, _noteCard(l, wide)];
+      final left = [_infoCard(l, wide), gap, _docsCard(l, wide), gap, _partiesCard(l, wide), if (wide) ...[gap, _flowCard(l)]];
+      final right = [_termCard(l, wide), if (wide && _multi && _docs.length > 1) ...[gap, _howCard(l)], gap, _noteCard(l, wide)];
       if (wide) return _desktop(l, left, right);
       return PopScope(
         canPop: false,
@@ -516,6 +767,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
     final ready = miss.isEmpty;
     final busy = _saving || _uploading;
     final summary = [
+      if (_docs.length > 1) '${_docs.length} tài liệu',
       '${_parties.length} bên',
       _mode == 'par' ? 'cùng lúc' : 'lần lượt',
       if (_deadline != null) 'hạn ${dm(_deadline!.millisecondsSinceEpoch)}',
@@ -606,8 +858,8 @@ class _ContractEditPageState extends State<ContractEditPage> {
         ),
         if (_c?.doc != null)
           wide
-              ? HdAction(Icons.visibility_outlined, 'Xem PDF', small: true, onTap: () => openPdf(context, widget.api, _c!))
-              : IconButton(tooltip: 'Xem PDF', onPressed: () => openPdf(context, widget.api, _c!), icon: Icon(Icons.visibility_outlined, color: l.sub)),
+              ? HdAction(Icons.visibility_outlined, _c!.docs.length > 1 ? 'Xem tài liệu' : 'Xem PDF', small: true, onTap: () => openPdf(context, widget.api, _c!))
+              : IconButton(tooltip: 'Xem tài liệu', onPressed: () => openPdf(context, widget.api, _c!), icon: Icon(Icons.visibility_outlined, color: l.sub)),
         if (!_locked)
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert_rounded, color: l.sub, size: wide ? 20 : 24),
@@ -689,76 +941,229 @@ class _ContractEditPageState extends State<ContractEditPage> {
     );
   }
 
-  Widget _fileCard(HdLook l, bool wide) {
-    final d = _c?.doc;
-    final box = wide ? 40.0 : 56.0;
-    final icon = Container(
-      width: box,
-      height: box,
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(wide ? 8 : 12), border: Border.all(color: l.border)),
-      child: _uploading
-          ? Padding(padding: EdgeInsets.all(wide ? 11 : 18), child: const CircularProgressIndicator(strokeWidth: 2.2))
-          : Icon(Icons.picture_as_pdf_rounded, color: const Color(0xFFE5484D), size: wide ? 22 : 32),
-    );
-    final info = _uploading
-        ? _uploadText
-        : d == null
-            ? (_c == null ? 'Chọn tệp PDF hợp đồng (bản chưa ký)' : 'Chưa có tài liệu — chọn tệp PDF (bản chưa ký)')
-            : [if (d.pages != null) '${d.pages} trang', 'bản ${d.rev}', if (wide && _c!.updatedAt != null) 'cập nhật ${dm(_c!.updatedAt)}'].join(' · ');
-    final value = parseMoney(_value.text);
-    final fields = wide
-        ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: 190, child: _field(l, true, 'Số hợp đồng', _no, hint: 'VD: HĐDV-2026/087')),
-            const SizedBox(width: 10),
-            Expanded(child: _field(l, true, 'Tên hợp đồng', _title, hint: 'VD: Bảo trì hệ thống 12 tháng')),
-            const SizedBox(width: 10),
-            SizedBox(width: 190, child: _valueField(l, true)),
-          ])
-        : Column(children: [
-            _field(l, false, 'Số hợp đồng', _no, hint: 'VD: HĐDV-2026/087'),
-            const SizedBox(height: 10),
-            _field(l, false, 'Tên hợp đồng', _title, hint: 'VD: Bảo trì hệ thống 12 tháng'),
-            const SizedBox(height: 10),
-            _valueField(l, false),
-          ]);
-    return HdCard(
-      pad: const EdgeInsets.all(16),
+  /// Số / tên / giá trị hợp đồng.
+  Widget _infoCard(HdLook l, bool wide) => HdCard(
+        pad: EdgeInsets.all(wide ? 14 : 16),
+        child: wide
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SizedBox(width: 190, child: _field(l, true, 'Số hợp đồng', _no, hint: 'VD: HĐDV-2026/087')),
+                const SizedBox(width: 10),
+                Expanded(child: _field(l, true, 'Tên hợp đồng', _title, hint: 'VD: Bảo trì hệ thống 12 tháng')),
+                const SizedBox(width: 10),
+                SizedBox(width: 190, child: _valueField(l, true)),
+              ])
+            : Column(children: [
+                _field(l, false, 'Số hợp đồng', _no, hint: 'VD: HĐDV-2026/087'),
+                const SizedBox(height: 10),
+                _field(l, false, 'Tên hợp đồng', _title, hint: 'VD: Bảo trì hệ thống 12 tháng'),
+                const SizedBox(height: 10),
+                _valueField(l, false),
+              ]),
+      );
+
+  /// Thẻ "Tài liệu ký": tiêu đề "N file · M trang" + Từ Drive / Từ máy, danh sách tài liệu (kéo để sắp xếp), dòng tiến trình
+  /// khi đang tải lên và dòng gợi ý thêm PDF. Máy tính: thả tệp vào thẻ là thêm.
+  Widget _docsCard(HdLook l, bool wide) {
+    final pages = _docs.fold<int>(0, (a, d) => a + (d.src.pages ?? 0));
+    final count = _docs.isEmpty ? '' : '${_docs.length} file${pages > 0 ? ' · $pages trang' : ''}';
+    final canAdd = !_locked && (_multi ? _docs.length < _maxDocs : true);
+    final drag = _multi && !_locked && _docs.length > 1;
+    final gap = wide ? 6.0 : 8.0;
+    final head = Row(children: [
+      Icon(Icons.folder_copy_outlined, size: wide ? 18 : 21, color: l.accentText),
+      SizedBox(width: wide ? 8 : 10),
+      Expanded(
+        child: Text.rich(
+          TextSpan(children: [
+            const TextSpan(text: 'Tài liệu ký'),
+            if (count.isNotEmpty) TextSpan(text: '  $count', style: TextStyle(color: l.sub, fontSize: wide ? 12 : 14, fontWeight: FontWeight.w500)),
+          ]),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: l.text, fontSize: wide ? 14 : 17, fontWeight: FontWeight.w700),
+        ),
+      ),
+      if (canAdd && wide) ...[
+        HdAction(Icons.add_to_drive_outlined, 'Từ Drive', small: true, onTap: _uploading ? null : _pickFromDrive),
+        const SizedBox(width: 6),
+        HdAction(Icons.upload_file_rounded, 'Từ máy', small: true, onTap: _uploading ? null : _pickLocal),
+      ],
+      if (canAdd && !wide)
+        Builder(
+          builder: (b) => IconButton(
+            tooltip: _multi ? 'Thêm tài liệu' : 'Chọn PDF',
+            onPressed: _uploading ? null : () => _choosePdf(b),
+            icon: Icon(_multi || _docs.isEmpty ? Icons.add_circle_outline_rounded : Icons.swap_horiz_rounded, color: l.accentText),
+          ),
+        ),
+    ]);
+    final rows = [for (var k = 0; k < _docs.length; k++) Padding(key: ValueKey('doc:${_docs[k].src.id}:$k'), padding: EdgeInsets.only(bottom: gap), child: _docRow(l, wide, k, drag))];
+    final hintText = !_multi
+        ? 'Chọn tệp PDF hợp đồng (bản chưa ký)'
+        : '${isDesktop ? (_docs.isEmpty ? 'Kéo thả PDF vào đây' : 'Kéo thả thêm PDF vào đây') : 'Thêm PDF'} · tối đa $_maxDocs file, mỗi file ≤ 30 MB';
+    final card = HdCard(
+      pad: EdgeInsets.all(wide ? 14 : 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          icon,
-          SizedBox(width: wide ? 12 : 16),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
-                d?.name ?? (wide ? 'Chưa có tệp PDF' : [if (_no.text.trim().isNotEmpty) _no.text.trim(), 'Chưa có PDF'].join(' · ')),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: l.text, fontSize: wide ? 14 : 17, fontWeight: wide ? FontWeight.w600 : FontWeight.w700),
+        head,
+        SizedBox(height: wide ? 10 : 12),
+        if (drag)
+          ReorderableListView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            onReorderItem: _reorderDoc,
+            children: rows,
+          )
+        else
+          ...rows,
+        if (_uploading)
+          Container(
+            height: wide ? 40 : 52,
+            margin: EdgeInsets.only(bottom: gap),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(color: l.accentSoft.withValues(alpha: .5), borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              const SizedBox(width: 10),
+              Expanded(child: Text(_uploadText, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.accentText, fontSize: wide ? 12.5 : 14))),
+            ]),
+          )
+        else if (canAdd && (_multi || _docs.isEmpty))
+          Builder(
+            builder: (b) => InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: wide ? _pickLocal : () => _choosePdf(b),
+              child: Container(
+                height: wide ? 34 : 46,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: _dropping ? l.accentSoft : null,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _dropping ? l.accent : l.border, width: 1.2),
+                ),
+                child: Row(children: [
+                  Icon(Icons.note_add_outlined, size: wide ? 17 : 20, color: l.accentText),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(hintText, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: wide ? 12 : 13.5))),
+                ]),
               ),
-              SizedBox(height: wide ? 1 : 3),
-              Text(!_uploading && !wide && d != null && value != null ? '$info · ${money(value)}' : info,
-                  maxLines: wide ? 1 : 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: _uploading ? l.accentText : l.sub, fontSize: wide ? 12.5 : 14)),
+            ),
+          ),
+      ]),
+    );
+    if (!isDesktop || _locked) return card;
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _dropping = true),
+      onDragExited: (_) => setState(() => _dropping = false),
+      onDragDone: (d) => _onDrop([for (final f in d.files) (f.path, f.name)]),
+      child: card,
+    );
+  }
+
+  /// Một tài liệu: tay kéo, icon PDF, tên + nhãn, "4 trang · bản 3 · từ Drive /…", chip bên ký, menu.
+  /// Điện thoại: chip bên ký xuống dưới dòng phụ.
+  Widget _docRow(HdLook l, bool wide, int k, bool drag) {
+    final d = _docs[k];
+    final s = d.src;
+    final label = d.title == s.name ? '' : d.title;
+    final sub = [if (s.pages != null) '${s.pages} trang', if (s.rev > 1) 'bản ${s.rev}', s.fromText].where((x) => x.isNotEmpty).join(' · ');
+    final (who, part, none) = _signersText(d);
+    final fg = none ? l.red : (part ? l.warn : l.text);
+    final chip = !_multi
+        ? null
+        : InkWell(
+            onTap: _locked ? null : () => _pickSigners(d),
+            borderRadius: BorderRadius.circular(99),
+            child: Container(
+              height: wide ? 26 : 30,
+              padding: EdgeInsets.symmetric(horizontal: wide ? 9 : 11),
+              decoration: BoxDecoration(
+                color: none ? l.redSoft : (part ? null : l.card2),
+                borderRadius: BorderRadius.circular(99),
+                border: Border.all(color: none ? l.red : (part ? l.warn : l.border)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(part ? Icons.person_outline_rounded : Icons.group_outlined, size: wide ? 15 : 17, color: none || part ? fg : l.sub),
+                const SizedBox(width: 5),
+                Flexible(child: Text(who, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontSize: wide ? 12 : 13.5, fontWeight: FontWeight.w600))),
+              ]),
+            ),
+          );
+    final pill = _multi && label.isNotEmpty ? Pill(label.toUpperCase(), fg: k == 0 ? l.accentText : l.sub, bg: k == 0 ? l.accentSoft : l.card2, size: wide ? 10 : 11) : null;
+    final box = wide ? 30.0 : 40.0;
+    return Container(
+      padding: EdgeInsets.fromLTRB(drag ? 2 : 10, wide ? 7 : 9, 0, wide ? 7 : 9),
+      decoration: BoxDecoration(color: l.field, borderRadius: BorderRadius.circular(10), border: Border.all(color: l.border)),
+      child: Row(children: [
+        if (drag)
+          ReorderableDragStartListener(
+            index: k,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.grab,
+              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8), child: Icon(Icons.drag_indicator_rounded, size: wide ? 18 : 22, color: l.faint)),
+            ),
+          ),
+        Container(
+          width: box,
+          height: box,
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(wide ? 7 : 10), border: Border.all(color: l.border)),
+          child: Icon(Icons.picture_as_pdf_rounded, color: const Color(0xFFE5484D), size: wide ? 18 : 24),
+        ),
+        SizedBox(width: wide ? 10 : 12),
+        Expanded(
+          child: InkWell(
+            onTap: _c == null ? null : () => openPdf(context, widget.api, _c!, doc: s),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Flexible(
+                  child: Text(s.name.isEmpty ? 'Chưa đặt tên' : s.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: wide ? 13 : 15, fontWeight: FontWeight.w600)),
+                ),
+                if (wide && pill != null) ...[const SizedBox(width: 6), pill],
+              ]),
+              SizedBox(height: wide ? 2 : 3),
+              Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: wide ? 11.5 : 13)),
+              // Điện thoại: nhãn + chip bên ký xuống dòng riêng cho tên tệp đủ chỗ.
+              if (!wide && (pill != null || chip != null)) ...[
+                const SizedBox(height: 6),
+                Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [?pill, ?chip]),
+              ],
             ]),
           ),
-          if (!_locked && wide) ...[
-            HdAction(Icons.add_to_drive_outlined, 'Từ Drive', small: true, onTap: _uploading ? null : () => _pickPdf(drive: true)),
-            const SizedBox(width: 6),
-            HdAction(Icons.upload_file_rounded, 'Từ máy', small: true, onTap: _uploading ? null : () => _pickPdf()),
+        ),
+        if (wide && chip != null) ...[const SizedBox(width: 8), ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: chip)],
+        PopupMenuButton<String>(
+          icon: Icon(Icons.more_vert_rounded, color: l.sub, size: wide ? 18 : 22),
+          padding: EdgeInsets.zero,
+          onSelected: (v) => _docMenu(d, v),
+          itemBuilder: (_) => [
+            if (_multi && !_locked) const PopupMenuItem(value: 'label', child: Text('Đổi nhãn')),
+            if (!_locked) const PopupMenuItem(value: 'replace', child: Text('Thay file')),
+            const PopupMenuItem(value: 'view', child: Text('Xem')),
+            if (_multi && !_locked) const PopupMenuItem(value: 'remove', child: Text('Xoá')),
           ],
-          if (!_locked && !wide)
-            Builder(
-              builder: (b) => IconButton(
-                      onPressed: _uploading ? null : () => _choosePdf(b),
-                      icon: Icon(d == null ? Icons.upload_file_rounded : Icons.swap_horiz_rounded, color: l.accentText)),
-            ),
-        ]),
-        SizedBox(height: wide ? 12 : 14),
-        fields,
+        ),
       ]),
     );
   }
+
+  /// Máy tính, từ hai tài liệu: cách ký nhiều tài liệu.
+  Widget _howCard(HdLook l) => HdCard(
+        pad: const EdgeInsets.all(14),
+        color: l.accentSoft.withValues(alpha: .6),
+        borderColor: Colors.transparent,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const HdCardTitle(Icons.info_outline_rounded, 'Cách ký nhiều tài liệu', size: 14),
+          const SizedBox(height: 8),
+          for (final t in const [
+            'Mỗi bên mở 1 link, bấm ký 1 lần, hệ thống ký lần lượt từng file.',
+            'Mỗi file có chữ ký số riêng, tải và kiểm tra riêng được.',
+            'Hợp đồng hoàn tất khi mọi file đủ chữ ký.',
+            'Sắp xếp kéo thả = thứ tự hiển thị cho đối tác.',
+          ])
+            Padding(padding: const EdgeInsets.only(bottom: 3), child: Text('• $t', style: TextStyle(color: l.text, fontSize: 12.5, height: 1.45))),
+        ]),
+      );
 
   Widget _valueField(HdLook l, bool wide) => _field(l, wide, 'Giá trị', _value, hint: '0', kb: TextInputType.number, suffix: '₫', fmt: [
         FilteringTextInputFormatter.digitsOnly,
@@ -865,9 +1270,19 @@ class _ContractEditPageState extends State<ContractEditPage> {
   }
 
   /// Hàng bên ký trên máy tính (~60px): vòng số 24, avatar 38, tên + nhãn, MST + gợi ý một dòng, email bên phải.
+  /// "ký N tài liệu" dưới mỗi bên (null khi chưa có tài liệu / máy chủ cũ).
+  String? _docHint(_PartyDraft p) {
+    if (!_multi || _docs.isEmpty) return null;
+    final n = _docCount(p);
+    return n == 0 ? 'chưa ký tài liệu nào' : 'ký $n tài liệu';
+  }
+
   Widget _partyRowDesk(HdLook l, int i) {
     final p = _parties[i];
-    final (ok, kind, color, hint) = _idState(l, p);
+    final (ok, kind, color, idHint) = _idState(l, p);
+    final dh = _docHint(p);
+    final none = dh != null && _docCount(p) == 0;
+    final hint = ok && dh != null ? '$dh${p.internal ? ' · token công ty' : ''}' : idHint;
     final ring = i == 0 ? l.warn : l.accent;
     final label = p.label.text.trim().isEmpty ? defaultLabel(i) : p.label.text.trim();
     return Container(
@@ -918,7 +1333,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
                 ]),
               ),
               const SizedBox(width: 10),
-              Flexible(child: Text(hint, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: ok ? l.sub : color, fontSize: 12))),
+              Flexible(child: Text(hint, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: ok ? (none ? l.warn : l.sub) : color, fontSize: 12))),
             ]),
           ]),
         ),
@@ -988,6 +1403,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
                 ]),
               ),
               if (!ok) Text(hint, style: TextStyle(color: color, fontSize: 13)),
+              if (_docHint(p) != null) Text(_docHint(p)!, style: TextStyle(color: _docCount(p) == 0 ? l.warn : l.sub, fontSize: 13)),
             ]),
           ]),
         ),
@@ -1228,6 +1644,7 @@ class _ContractEditPageState extends State<ContractEditPage> {
     final ready = miss.isEmpty;
     final busy = _saving || _uploading;
     final summary = [
+      if (_docs.length > 1) '${_docs.length} tài liệu',
       '${_parties.length} bên',
       _mode == 'par' ? 'cùng lúc' : 'lần lượt',
       if (_deadline != null) 'hạn ${dm(_deadline!.millisecondsSinceEpoch)}',

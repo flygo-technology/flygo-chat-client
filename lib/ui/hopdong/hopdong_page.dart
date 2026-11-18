@@ -462,7 +462,12 @@ class _HopdongHomeState extends State<HopdongHome> {
   String _rowSub(Contract c) {
     final d = c.doc;
     return [
-      if (d != null) '${d.pages != null ? '${d.pages} trang · ' : ''}bản ${d.rev}' else 'chưa có PDF',
+      if (c.docs.length > 1)
+        '${c.docs.length} tài liệu'
+      else if (d != null)
+        '${d.pages != null ? '${d.pages} trang · ' : ''}bản ${d.rev}'
+      else
+        'chưa có PDF',
       if (c.status == 'signed' && c.doneAt != null) 'ký xong ${dm(c.doneAt)}' else if (c.sentAt != null) 'gửi ${dm(c.sentAt)}' else if (c.updatedAt != null) 'sửa ${dm(c.updatedAt)}',
     ].join(' · ');
   }

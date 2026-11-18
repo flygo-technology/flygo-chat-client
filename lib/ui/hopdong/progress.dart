@@ -1,5 +1,6 @@
 // Hợp đồng: tiến độ ký — các bước theo từng bên (MST khớp, CA, ký qua plugin / offline, giờ ký), hành động với bên đang tới
 // lượt (sao chép link, gửi nhắc, gia hạn, thu hồi) và nhật ký. Dùng làm khung phải trên máy tính và trang riêng trên điện thoại.
+// Nhiều tài liệu: thêm "Chữ ký theo tài liệu" — bảng tài liệu × bên (rộng) hoặc danh sách từng tài liệu (hẹp), tải từng tệp.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,7 +14,9 @@ import 'model.dart';
 
 /// Các bước ký + nhật ký của một hợp đồng.
 class ProgressPane extends StatefulWidget {
-  const ProgressPane({super.key, required this.api, required this.contract, required this.onChanged, this.compact = false, this.header = true, this.logLimit});
+  const ProgressPane({
+    super.key, required this.api, required this.contract, required this.onChanged, this.compact = false, this.header = true, this.logLimit, this.docs = true,
+  });
   final HopdongApi api;
   final Contract contract;
   final ValueChanged<Contract> onChanged;
@@ -24,6 +27,9 @@ class ProgressPane extends StatefulWidget {
   /// Hiện tiêu đề (luồng ký, tên HĐ, nút Sửa / PDF).
   final bool header;
   final int? logLimit;
+
+  /// Hiện "Chữ ký theo tài liệu" khi có nhiều tài liệu (chi tiết máy tính đã có bảng riêng bên trái).
+  final bool docs;
   @override
   State<ProgressPane> createState() => _ProgressPaneState();
 }
@@ -110,13 +116,21 @@ class _ProgressPaneState extends State<ProgressPane> {
             ]),
           ),
           const SizedBox(width: 12),
+          if (c.docs.length > 1) ...[
+            HdAction(Icons.download_rounded, 'Tải ZIP', small: true, onTap: () => downloadAll(context, widget.api, c)),
+            const SizedBox(width: 6),
+          ],
           if (c.doc != null) ...[
-            HdAction(Icons.picture_as_pdf_outlined, 'Xem PDF', small: true, onTap: () => openPdf(context, widget.api, c)),
+            HdAction(Icons.picture_as_pdf_outlined, c.docs.length > 1 ? 'Xem tài liệu' : 'Xem PDF', small: true, onTap: () => openPdf(context, widget.api, c)),
             const SizedBox(width: 6),
           ],
           if (c.canEdit) HdAction(Icons.edit_outlined, c.isDraft ? 'Sửa hợp đồng' : 'Ghi chú', small: true, onTap: _edit),
         ]),
         const SizedBox(height: 14),
+      ],
+      if (widget.docs && c.docs.length > 1) ...[
+        cp ? HdCard(pad: const EdgeInsets.fromLTRB(14, 12, 14, 8), child: DocSigs(api: widget.api, contract: c, compact: true)) : DocSigs(api: widget.api, contract: c),
+        SizedBox(height: cp ? 18 : 14),
       ],
       for (var i = 0; i < c.parties.length; i++) _step(context, l, c.parties[i], i, now, cp),
       _finalStep(l, total, cp),
@@ -155,8 +169,11 @@ class _ProgressPaneState extends State<ProgressPane> {
       HdStep.todo => (c.status == 'draft' ? 'Chưa gửi' : c.status == 'cancelled' ? 'Đã huỷ' : 'Chưa tới lượt', l.sub),
     };
     final idOk = p.signed ? '${p.idLabel} ✓ khớp' : p.idLabel;
+    // Nhiều tài liệu: "đã ký a/b tài liệu" (bên đã ký đủ thì đã ký hết, khỏi nói).
+    final docs = c.docs.length > 1 && !p.signed && c.status != 'draft' ? 'đã ký ${c.docsSignedOf(p)}/${c.docsTotalOf(p)} tài liệu' : '';
     final sub = <String>[
       idOk,
+      docs,
       if (p.signed) ...[
         if ((p.certIssuer ?? '').isNotEmpty) p.certIssuer!,
         if (!cp && (p.certSerial ?? '').isNotEmpty) 'serial ${_short(p.certSerial!)}',
@@ -254,7 +271,7 @@ class _ProgressPaneState extends State<ProgressPane> {
             child: Icon(cancelled ? Icons.block_rounded : Icons.check_rounded, size: cp ? 18 : 14, color: cancelled ? l.red : l.sub),
           );
     final sub = done
-        ? 'Đủ chữ ký ${dmHm(c.doneAt)} · PDF đã ký gồm $total chữ ký'
+        ? (c.docs.length > 1 ? 'Đủ chữ ký ${dmHm(c.doneAt)} · ${c.docs.length} tài liệu, ${c.sigsTotal} chữ ký' : 'Đủ chữ ký ${dmHm(c.doneAt)} · PDF đã ký gồm $total chữ ký')
         : cancelled
             ? 'Hợp đồng đã huỷ · link ký của các bên đã bị thu hồi'
             : cp
@@ -337,6 +354,8 @@ class _ContractProgressPageState extends State<ContractProgressPage> {
     switch (a) {
       case 'pdf':
         return openPdf(context, widget.api, c);
+      case 'zip':
+        return downloadAll(context, widget.api, c);
       case 'edit':
         final n = await Navigator.of(context).push<Contract>(AppPageRoute(builder: (_) => ContractEditPage(api: widget.api, initial: c)));
         if (n != null) _set(n);
@@ -363,11 +382,13 @@ class _ContractProgressPageState extends State<ContractProgressPage> {
           surfaceTintColor: Colors.transparent,
           title: const Text('Tiến độ ký', style: TextStyle(fontWeight: FontWeight.w700)),
           actions: [
-            if (c.doc != null) IconButton(tooltip: 'Xem PDF', onPressed: () => openPdf(context, widget.api, c), icon: const Icon(Icons.picture_as_pdf_outlined)),
+            if (c.doc != null)
+              IconButton(tooltip: c.docs.length > 1 ? 'Xem tài liệu' : 'Xem PDF', onPressed: () => openPdf(context, widget.api, c), icon: const Icon(Icons.picture_as_pdf_outlined)),
             PopupMenuButton<String>(
               onSelected: _menu,
               itemBuilder: (_) => [
-                if (c.doc != null) const PopupMenuItem(value: 'pdf', child: Text('Xem PDF toàn màn hình')),
+                if (c.doc != null) PopupMenuItem(value: 'pdf', child: Text(c.docs.length > 1 ? 'Xem tài liệu' : 'Xem PDF toàn màn hình')),
+                if (c.docs.length > 1) const PopupMenuItem(value: 'zip', child: Text('Tải tất cả (ZIP)')),
                 if (c.canEdit) PopupMenuItem(value: 'edit', child: Text(c.isDraft ? 'Sửa hợp đồng' : 'Sửa ghi chú')),
                 if (c.canEdit && ['draft', 'sending', 'rejected'].contains(c.status)) const PopupMenuItem(value: 'cancel', child: Text('Huỷ hợp đồng')),
               ],
@@ -390,7 +411,10 @@ class _ContractProgressPageState extends State<ContractProgressPage> {
                 SegProgress(c, now: now, height: 6),
                 const SizedBox(height: 10),
                 Row(children: [
-                  Expanded(child: Text('${c.signedCount}/${c.parties.length} bên đã ký', style: TextStyle(color: l.sub, fontSize: 14))),
+                  Expanded(
+                    child: Text('${c.signedCount}/${c.parties.length} bên đã ký${c.docs.length > 1 ? ' · ${c.docsDone}/${c.docsTotal} tài liệu xong' : ''}',
+                        style: TextStyle(color: l.sub, fontSize: 14)),
+                  ),
                   if (c.signDeadline != null && c.status == 'sending')
                     Text('hạn ${dm(c.signDeadline)} · ${left! >= 0 ? 'còn $left ngày' : 'quá ${-left} ngày'}',
                         style: TextStyle(color: left >= 0 ? l.sub : l.red, fontSize: 14)),
@@ -404,13 +428,178 @@ class _ContractProgressPageState extends State<ContractProgressPage> {
               OutlinedButton.icon(
                 onPressed: () => openPdf(context, widget.api, c),
                 icon: const Icon(Icons.picture_as_pdf_outlined),
-                label: Text('Xem PDF${c.doc!.pages != null ? ' · ${c.doc!.pages} trang' : ''}'),
+                label: Text(c.docs.length > 1
+                    ? 'Xem tài liệu · ${c.docs.length} file'
+                    : 'Xem PDF${c.doc!.pages != null ? ' · ${c.doc!.pages} trang' : ''}'),
                 style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
               ),
             ],
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// Chữ ký theo tài liệu: tiêu đề "x/y chữ ký · a/b tài liệu hoàn tất"; rộng ≥ 560px (không [compact]) là bảng tài liệu × bên,
+/// hẹp là danh sách từng tài liệu với một dòng trạng thái cho mỗi bên. Mỗi tài liệu có nút tải PDF; bấm tên tài liệu là xem.
+class DocSigs extends StatelessWidget {
+  const DocSigs({super.key, required this.api, required this.contract, this.compact = false, this.onOpen});
+  final HopdongApi api;
+  final Contract contract;
+  final bool compact;
+
+  /// Bấm tên tài liệu (mặc định: mở PDF toàn màn hình).
+  final ValueChanged<HdDoc>? onOpen;
+
+  Contract get c => contract;
+
+  /// Ô của [p] trên [d]: (icon, chữ chính, màu, dòng phụ); icon null = không cần ký.
+  (IconData?, String, Color, String) _cell(HdLook l, HdDoc d, HdParty p, int i) {
+    if (!d.signs(p.id)) return (null, 'không cần ký', l.sub, '');
+    final s = c.sigOf(d, p);
+    if (s != null) {
+      final now = hdNow();
+      final t = s.signedAt == null ? null : DateTime.fromMillisecondsSinceEpoch(s.signedAt!);
+      final today = t != null && t.year == now.year && t.month == now.month && t.day == now.day;
+      final hm = t == null ? '' : (today ? dmHm(s.signedAt).split(' ').last : dmHm(s.signedAt));
+      final sub = [
+        if (p.internal) 'token công ty',
+        if ((s.certIssuer ?? '').isNotEmpty) s.certIssuer!,
+        if (!p.internal) '${p.idKind == 'cccd' ? 'CCCD' : 'MST'} khớp',
+        viaText(s.via).replaceFirst('qua plugin ', ''),
+      ].where((x) => x.isNotEmpty).join(' · ');
+      return (Icons.check_circle_rounded, 'Đã ký $hm'.trim(), l.ok, sub);
+    }
+    if (c.status == 'draft') return (Icons.radio_button_unchecked_rounded, 'Chưa gửi', l.sub, '');
+    if (c.status == 'cancelled') return (Icons.block_rounded, 'Đã huỷ', l.sub, '');
+    if (p.status == 'rejected') return (Icons.cancel_rounded, 'Từ chối ký', l.warn, '');
+    if (p.waitingTurn && c.status == 'sending') {
+      if (p.internal) return (Icons.pending_outlined, 'Đến lượt mình', l.accentText, 'chờ ký bằng token công ty');
+      final expired = p.linkExpired(hdNow());
+      return (Icons.pending_outlined, expired ? 'Link hết hạn' : 'Chờ ký', expired ? l.red : l.accentText, p.openCount > 0 ? 'đã mở link ${p.openCount} lần' : 'chưa mở link');
+    }
+    final prev = c.mode == 'seq' && i > 0 ? c.parties[i - 1] : null;
+    return (Icons.schedule_rounded, 'Đang chờ', l.sub, prev == null ? '' : 'sau ${prev.label.isEmpty ? prev.name : prev.label}');
+  }
+
+  void _open(BuildContext context, HdDoc d) => onOpen != null ? onOpen!(d) : openPdf(context, api, c, doc: d);
+
+  /// Tên ngắn của bên cho tiêu đề cột: "1 · Đông Nam Á (Bên A)".
+  static String _col(HdParty p, int i) {
+    final n = p.name.replaceFirst(RegExp(r'^(CÔNG TY|CTY)\s+(CỔ PHẦN|CP|TNHH)?\s*', caseSensitive: false), '').trim();
+    final short = n.isEmpty ? p.name : n.split(' ').map((w) => w.length <= 1 ? w : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}').join(' ');
+    return '${i + 1} · ${short.isEmpty ? p.label : short}${p.label.isNotEmpty && short.isNotEmpty ? ' (${p.label})' : ''}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = HdLook.of(context);
+    final head = Row(children: [
+      Icon(Icons.grid_view_rounded, size: compact ? 20 : 18, color: l.accentText),
+      SizedBox(width: compact ? 10 : 8),
+      Expanded(child: Text('Chữ ký theo tài liệu', style: TextStyle(color: l.text, fontSize: compact ? 16 : 14, fontWeight: FontWeight.w700))),
+      Text('${c.sigsDone}/${c.sigsTotal} chữ ký · ${c.docsDone}/${c.docsTotal} tài liệu${compact ? '' : ' hoàn tất'}', style: TextStyle(color: l.sub, fontSize: compact ? 13 : 12)),
+    ]);
+    return LayoutBuilder(builder: (context, box) {
+      final table = !compact && box.maxWidth >= 560;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        head,
+        SizedBox(height: table ? 8 : 6),
+        if (table) _table(context, l) else for (var k = 0; k < c.docs.length; k++) _docBlock(context, l, c.docs[k], k),
+      ]);
+    });
+  }
+
+  Widget _docTitle(BuildContext context, HdLook l, HdDoc d, {double size = 13}) => InkWell(
+        onTap: () => _open(context, d),
+        borderRadius: BorderRadius.circular(6),
+        child: Row(children: [
+          Icon(Icons.picture_as_pdf_rounded, color: const Color(0xFFE5484D), size: size + 5),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(d.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.text, fontSize: size, fontWeight: FontWeight.w600)),
+              Text([if (d.label.isNotEmpty) d.label, if (d.pages != null) '${d.pages} trang'].join(' · '),
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: size - 2)),
+            ]),
+          ),
+        ]),
+      );
+
+  Widget _dl(BuildContext context, HdLook l, HdDoc d, {double size = 18}) => IconButton(
+        tooltip: 'Tải ${d.name}',
+        visualDensity: VisualDensity.compact,
+        onPressed: () => downloadDoc(context, api, c, d),
+        icon: Icon(Icons.download_rounded, color: l.sub, size: size),
+      );
+
+  Widget _status(HdLook l, (IconData?, String, Color, String) v, {double size = 12.5}) {
+    final (icon, text, color, sub) = v;
+    if (icon == null) return Text(text, style: TextStyle(color: l.sub, fontSize: size - .5));
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: size + 4, color: color),
+        const SizedBox(width: 6),
+        Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: size, fontWeight: FontWeight.w600))),
+      ]),
+      if (sub.isNotEmpty)
+        Padding(
+          padding: EdgeInsets.only(left: size + 10),
+          child: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: size - 1.5)),
+        ),
+    ]);
+  }
+
+  /// Bảng: cột Tài liệu co giãn, mỗi bên một cột bằng nhau, cột tải 44px.
+  Widget _table(BuildContext context, HdLook l) {
+    final ps = c.parties;
+    final th = TextStyle(color: l.sub, fontSize: 12, fontWeight: FontWeight.w600);
+    return Table(
+      columnWidths: {0: const FlexColumnWidth(1.4), for (var i = 0; i < ps.length; i++) i + 1: const FlexColumnWidth(1), ps.length + 1: const FixedColumnWidth(44)},
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      border: TableBorder(horizontalInside: BorderSide(color: l.border), top: BorderSide(color: l.border), bottom: BorderSide(color: l.border)),
+      children: [
+        TableRow(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(8, 8, 8, 8), child: Text('Tài liệu', style: th)),
+          for (var i = 0; i < ps.length; i++)
+            Padding(padding: const EdgeInsets.fromLTRB(0, 8, 8, 8), child: Text(_col(ps[i], i), maxLines: 1, overflow: TextOverflow.ellipsis, style: th)),
+          const SizedBox(),
+        ]),
+        for (final d in c.docs)
+          TableRow(children: [
+            Padding(padding: const EdgeInsets.fromLTRB(4, 9, 12, 9), child: _docTitle(context, l, d)),
+            for (var i = 0; i < ps.length; i++) Padding(padding: const EdgeInsets.only(right: 8), child: _status(l, _cell(l, d, ps[i], i))),
+            _dl(context, l, d),
+          ]),
+      ],
+    );
+  }
+
+  /// Hẹp / điện thoại: mỗi tài liệu một khối, dưới là từng bên: nhãn bên + trạng thái.
+  Widget _docBlock(BuildContext context, HdLook l, HdDoc d, int k) {
+    final fs = compact ? 14.0 : 12.5;
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: compact ? 10 : 8),
+      decoration: BoxDecoration(border: k == 0 ? null : Border(top: BorderSide(color: l.border))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(child: _docTitle(context, l, d, size: compact ? 14.5 : 13)),
+          _dl(context, l, d, size: compact ? 22 : 18),
+        ]),
+        for (var i = 0; i < c.parties.length; i++)
+          Padding(
+            padding: EdgeInsets.only(left: compact ? 26 : 24, top: compact ? 6 : 4),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(
+                width: compact ? 70 : 60,
+                child: Text(c.parties[i].label.isEmpty ? '${i + 1}' : c.parties[i].label,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: l.sub, fontSize: fs - .5, fontWeight: FontWeight.w600)),
+              ),
+              Expanded(child: _status(l, _cell(l, d, c.parties[i], i), size: fs)),
+            ]),
+          ),
+      ]),
     );
   }
 }

@@ -34,7 +34,7 @@ class HdParty {
   HdParty({
     required this.id, this.idx = 0, this.label = '', this.name = '', this.idKind = 'mst', this.idNo = '', this.email = '', this.internal = false,
     this.status = 'waiting', this.linkExpires, this.openedAt, this.openCount = 0, this.signedAt, this.signedVia, this.certCn, this.certIssuer,
-    this.certSerial, this.rejectReason, this.link,
+    this.certSerial, this.rejectReason, this.link, this.docsTotal, this.docsSigned,
   });
   factory HdParty.fromJson(Json j) => HdParty(
         id: _s(j['id']), idx: _int(j['idx']) ?? 0, label: _s(j['label']), name: _s(j['name']), idKind: j['id_kind'] == 'cccd' ? 'cccd' : 'mst',
@@ -42,11 +42,15 @@ class HdParty {
         linkExpires: _int(j['link_expires']), openedAt: _int(j['opened_at']), openCount: _int(j['open_count']) ?? 0, signedAt: _int(j['signed_at']),
         signedVia: j['signed_via'] as String?, certCn: j['cert_cn'] as String?, certIssuer: j['cert_issuer'] as String?,
         certSerial: j['cert_serial'] as String?, rejectReason: j['reject_reason'] as String?, link: j['link'] as String?,
+        docsTotal: _int(j['docs_total']), docsSigned: _int(j['docs_signed']),
       );
   final String id, label, name, idKind, idNo, email, status;
   final int idx, openCount;
   final bool internal;
   final int? linkExpires, openedAt, signedAt;
+
+  /// Số tài liệu bên này phải ký / đã ký (máy chủ cũ không có: null).
+  final int? docsTotal, docsSigned;
   final String? signedVia, certCn, certIssuer, certSerial, rejectReason, link;
 
   bool get signed => status == 'signed';
@@ -68,29 +72,80 @@ class HdEvent {
   final String? ip;
 }
 
+/// Chữ ký của một bên trên một tài liệu.
+class HdDocSig {
+  HdDocSig({this.signedAt, this.via, this.certCn, this.certIssuer, this.certSerial});
+  factory HdDocSig.fromJson(Json j) => HdDocSig(
+        signedAt: _int(j['signed_at']), via: j['via'] as String?, certCn: j['cert_cn'] as String?, certIssuer: j['cert_issuer'] as String?,
+        certSerial: j['cert_serial'] as String?,
+      );
+  final int? signedAt;
+  final String? via, certCn, certIssuer, certSerial;
+}
+
+/// Một tài liệu ký của hợp đồng. [signers] null = tất cả các bên ký; [legacy] = máy chủ cũ chỉ trả `doc` (không id, không bên ký).
 class HdDoc {
-  HdDoc({required this.name, required this.rev, this.sha256, this.pages});
-  final String name;
-  final int rev;
-  final String? sha256;
-  final int? pages;
+  HdDoc({
+    this.id = '', this.idx = 0, this.label = '', required this.name, required this.rev, this.sha256, this.pages, this.size, this.from, this.signers,
+    this.sigs = const {}, this.legacy = false,
+  });
+  factory HdDoc.fromJson(Json j, {bool legacy = false}) => HdDoc(
+        id: _s(j['id']), idx: _int(j['idx']) ?? 0, label: _s(j['label']), name: _s(j['name']), rev: _int(j['rev']) ?? 1, sha256: j['sha256'] as String?,
+        pages: _int(j['pages']), size: _int(j['size']), from: j['from'] as String?,
+        signers: j['signers'] is List ? [for (final x in j['signers'] as List) '$x'] : null,
+        sigs: j['sigs'] is Map
+            ? {for (final e in (j['sigs'] as Map).entries) if (e.value is Map) '${e.key}': HdDocSig.fromJson(Map<String, dynamic>.from(e.value as Map))}
+            : const {},
+        legacy: legacy,
+      );
+  final String id, label, name;
+  final int idx, rev;
+  final String? sha256, from;
+  final int? pages, size;
+  final List<String>? signers;
+  final Map<String, HdDocSig> sigs;
+  final bool legacy;
+
+  bool signs(String partyId) => signers == null || signers!.contains(partyId);
+
+  /// Nhãn hiện ra: nhãn máy chủ đặt, không có thì tên tệp.
+  String get title => label.isEmpty ? name : label;
+
+  /// Nguồn tệp: "drive:/Hợp đồng/2026/a.pdf" → "từ Drive /Hợp đồng/2026"; null → "từ máy" (máy chủ cũ: không rõ).
+  String get fromText {
+    if (legacy) return '';
+    final f = from ?? '';
+    if (f.isEmpty) return 'từ máy';
+    if (f.startsWith('drive:')) {
+      final p = f.substring(6);
+      final i = p.lastIndexOf('/');
+      return 'từ Drive ${i <= 0 ? '/' : p.substring(0, i)}';
+    }
+    return 'từ $f';
+  }
 }
 
 class Contract {
   Contract({
     required this.id, this.no = '', this.title = '', this.value, this.currency = 'VND', this.effFrom, this.effTo, this.signDeadline, this.remindDays = 0,
-    this.note = '', this.notePublic = false, this.mode = 'seq', this.status = 'draft', this.ownerId = '', this.ownerName = '', this.role, this.doc,
-    this.sentAt, this.doneAt, this.updatedAt, this.parties = const [], this.events = const [],
+    this.note = '', this.notePublic = false, this.mode = 'seq', this.status = 'draft', this.ownerId = '', this.ownerName = '', this.role,
+    this.docs = const [], this.multi = false, this.sentAt, this.doneAt, this.updatedAt, this.parties = const [], this.events = const [], this.progress = const {},
   });
   factory Contract.fromJson(Json j) {
     final d = j['doc'] is Map ? Map<String, dynamic>.from(j['doc'] as Map) : null;
     final o = Map<String, dynamic>.from((j['owner'] as Map?) ?? const {});
+    // Máy chủ mới trả `docs` (nhiều tài liệu); máy chủ cũ chỉ có `doc` → coi như một tài liệu, không biết bên ký.
+    final multi = j['docs'] is List;
+    final docs = multi
+        ? ([for (final x in j['docs'] as List) if (x is Map) HdDoc.fromJson(Map<String, dynamic>.from(x))]..sort((a, b) => a.idx.compareTo(b.idx)))
+        : [if (d != null) HdDoc.fromJson(d, legacy: true)];
     return Contract(
       id: _s(j['id']), no: _s(j['no']), title: _s(j['title']), value: j['value'] as num?, currency: _s(j['currency']).isEmpty ? 'VND' : _s(j['currency']),
       effFrom: _int(j['eff_from']), effTo: _int(j['eff_to']), signDeadline: _int(j['sign_deadline']), remindDays: _int(j['remind_days']) ?? 0,
       note: _s(j['note']), notePublic: j['note_public'] == true, mode: j['mode'] == 'par' ? 'par' : 'seq', status: _s(j['status']).isEmpty ? 'draft' : _s(j['status']),
       ownerId: _s(o['id']), ownerName: _s(o['name']), role: j['role'] as String?,
-      doc: d == null ? null : HdDoc(name: _s(d['name']), rev: _int(d['rev']) ?? 1, sha256: d['sha256'] as String?, pages: _int(d['pages'])),
+      docs: docs, multi: multi,
+      progress: j['progress'] is Map ? {for (final e in (j['progress'] as Map).entries) '${e.key}': _int(e.value) ?? 0} : const {},
       sentAt: _int(j['sent_at']), doneAt: _int(j['done_at']), updatedAt: _int(j['updated_at']),
       parties: [for (final p in (j['parties'] as List? ?? const [])) HdParty.fromJson(Map<String, dynamic>.from(p as Map))]..sort((a, b) => a.idx.compareTo(b.idx)),
       events: [for (final e in (j['events'] as List? ?? const [])) HdEvent.fromJson(Map<String, dynamic>.from(e as Map))],
@@ -103,9 +158,35 @@ class Contract {
   final int remindDays;
   final bool notePublic;
   final String? role;
-  final HdDoc? doc;
+
+  /// Các tài liệu ký theo thứ tự; [multi] = máy chủ có hỗ trợ nhiều tài liệu (trả `docs`).
+  final List<HdDoc> docs;
+  final bool multi;
   final List<HdParty> parties;
   final List<HdEvent> events;
+
+  /// progress của máy chủ: signed / total (bên), sigs_done / sigs_total, docs_done / docs_total.
+  final Map<String, int> progress;
+
+  /// Tài liệu đầu (như `doc` cũ).
+  HdDoc? get doc => docs.firstOrNull;
+
+  /// Chữ ký của [p] trên [d]; máy chủ cũ (một tài liệu) lấy theo trạng thái của bên.
+  HdDocSig? sigOf(HdDoc d, HdParty p) =>
+      d.sigs[p.id] ??
+      (d.legacy && p.signed ? HdDocSig(signedAt: p.signedAt, via: p.signedVia, certCn: p.certCn, certIssuer: p.certIssuer, certSerial: p.certSerial) : null);
+
+  /// Các bên phải ký [d].
+  List<HdParty> signersOf(HdDoc d) => [for (final p in parties) if (d.signs(p.id)) p];
+
+  /// Số tài liệu [p] phải ký / đã ký (máy chủ không trả thì tự đếm).
+  int docsTotalOf(HdParty p) => p.docsTotal ?? docs.where((d) => d.signs(p.id)).length;
+  int docsSignedOf(HdParty p) => p.docsSigned ?? docs.where((d) => d.signs(p.id) && sigOf(d, p) != null).length;
+
+  int get sigsTotal => progress['sigs_total'] ?? docs.fold(0, (a, d) => a + signersOf(d).length);
+  int get sigsDone => progress['sigs_done'] ?? docs.fold(0, (a, d) => a + signersOf(d).where((p) => sigOf(d, p) != null).length);
+  int get docsTotal => progress['docs_total'] ?? docs.length;
+  int get docsDone => progress['docs_done'] ?? docs.where((d) => signersOf(d).every((p) => sigOf(d, p) != null)).length;
 
   int get signedCount => parties.where((p) => p.signed).length;
   bool get isDraft => status == 'draft';
@@ -222,7 +303,7 @@ String viaText(String? via) {
 
 const _fieldNames = {
   'no': 'số HĐ', 'title': 'tên', 'value': 'giá trị', 'currency': 'tiền tệ', 'eff_from': 'hiệu lực', 'eff_to': 'hiệu lực', 'sign_deadline': 'hạn ký',
-  'mode': 'thứ tự ký', 'note': 'ghi chú', 'note_public': 'ghi chú', 'remind_days': 'nhắc gia hạn', 'parties': 'các bên ký',
+  'mode': 'thứ tự ký', 'note': 'ghi chú', 'note_public': 'ghi chú', 'remind_days': 'nhắc gia hạn', 'parties': 'các bên ký', 'docs': 'tài liệu',
 };
 
 /// Một dòng nhật ký: (câu tiếng Việt, cảnh báo?).

@@ -81,19 +81,50 @@ class HopdongApi {
   Future<Contract> partyAction(String id, String pid, String action, {int? until}) async =>
       _c(await post('/api/contracts/$id/parties/$pid/$action', {'until': ?until}));
 
-  /// Tải PDF lên (chỉ khi còn nháp).
-  Future<Contract> uploadDoc(String id, String name, Uint8List bytes) async {
+  /// Gửi một tệp dạng multipart (trường `file`, thêm các trường chữ [fields]); hết vé thì xin vé mới thử lại một lần.
+  Future<Json> _multipart(String method, String path, String name, Uint8List bytes, {Map<String, String> fields = const {}}) async {
     Future<http.Response> go(bool refresh) async {
-      final req = http.MultipartRequest('PUT', uri('/api/contracts/$id/doc'))
+      final req = http.MultipartRequest(method, uri(path))
         ..headers.addAll(await auth(refresh: refresh))
+        ..fields.addAll(fields)
         ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: name));
       return http.Response.fromStream(await _http.send(req).timeout(const Duration(minutes: 5)));
     }
 
     var res = await go(false);
     if (res.statusCode == 401) res = await go(true);
-    return _c(_json(res));
+    return _json(res);
   }
+
+  Future<Uint8List> _bytes(String path, [Map<String, String>? q]) async {
+    final res = await _send('GET', path, query: q, timeout: const Duration(minutes: 3));
+    if (res.statusCode >= 400) _json(res);
+    return res.bodyBytes;
+  }
+
+  // ---------------------------------------------------------------- nhiều tài liệu
+  /// Thêm một tài liệu từ máy (chỉ khi còn nháp, tối đa 10). [label] trống thì máy chủ tự đặt "Hợp đồng chính" / "Phụ lục 01"…
+  Future<Contract> addDoc(String id, String name, Uint8List bytes, {String? label}) async =>
+      _c(await _multipart('POST', '/api/contracts/$id/docs', name, bytes, fields: {'label': ?label}));
+
+  /// Máy chủ tự lấy PDF từ Drive rồi thêm thành một tài liệu ([ticket] như [docFromDrive]).
+  Future<Contract> addDocFromDrive(String id, {required String path, required String name, required String ticket, String? label}) async =>
+      _c(_json(await _send('POST', '/api/contracts/$id/docs/from-drive',
+          body: {'path': path, 'name': name, 'ticket': ticket, 'label': ?label}, timeout: const Duration(minutes: 3))));
+
+  /// Thay tệp PDF của một tài liệu (bản +1).
+  Future<Contract> replaceDoc(String id, String did, String name, Uint8List bytes) async => _c(await _multipart('PUT', '/api/contracts/$id/docs/$did', name, bytes));
+
+  /// PDF hiện tại của một tài liệu (đã gồm các chữ ký đã có). Tài liệu của máy chủ cũ (không id) lấy qua /pdf.
+  Future<Uint8List> docPdf(String id, HdDoc d, {bool dl = false}) =>
+      d.id.isEmpty ? pdf(id) : _bytes('/api/contracts/$id/docs/${d.id}/pdf', dl ? const {'dl': '1'} : null);
+
+  /// Tất cả tài liệu trong một tệp ZIP.
+  Future<Uint8List> zip(String id) => _bytes('/api/contracts/$id/zip');
+
+  // ---------------------------------------------------------------- một tài liệu (máy chủ cũ)
+  /// Tải PDF lên (chỉ khi còn nháp).
+  Future<Contract> uploadDoc(String id, String name, Uint8List bytes) async => _c(await _multipart('PUT', '/api/contracts/$id/doc', name, bytes));
 
   /// Máy chủ tự lấy PDF từ Drive ([ticket] = vé Flygo ID của app Drive, chuỗi trần không "Bearer").
   /// Máy chủ cũ chưa có đường này trả 404 / 501.
@@ -101,9 +132,5 @@ class HopdongApi {
       _c(_json(await _send('PUT', '/api/contracts/$id/doc-from-drive', body: {'path': path, 'name': name, 'ticket': ticket}, timeout: const Duration(minutes: 3))));
 
   /// Bản PDF hiện tại (đã gồm các chữ ký đã có).
-  Future<Uint8List> pdf(String id) async {
-    final res = await _send('GET', '/api/contracts/$id/pdf');
-    if (res.statusCode >= 400) _json(res);
-    return res.bodyBytes;
-  }
+  Future<Uint8List> pdf(String id) => _bytes('/api/contracts/$id/pdf');
 }
