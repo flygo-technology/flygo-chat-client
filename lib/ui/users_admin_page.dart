@@ -64,6 +64,8 @@ class _UsersAdminPageState extends State<UsersAdminPage> {
 
   /// Chặn đăng nhập toàn bộ (null = máy chủ chưa có tính năng này).
   Map<String, dynamic>? _guard;
+  /// Người đang xem: 'admin' (Quản trị Flygo ID) hoặc 'users_admin' (vai trò Quản trị người dùng, quyền hẹp).
+  String _viewer = 'admin';
 
   /// Máy tính (đủ rộng): người đang xem chi tiết ở cột phải.
   String? _selected;
@@ -96,7 +98,9 @@ class _UsersAdminPageState extends State<UsersAdminPage> {
             if (u is Map) Map<String, dynamic>.from(u),
         ];
         _total = (j['total'] as num?)?.toInt() ?? _users.length;
-        _guard = r[1] != null && r[1]!['enabled'] is bool ? r[1] : null;
+        _viewer = '${(j['viewer'] as Map?)?['role'] ?? 'admin'}';
+        // Quản trị người dùng không bật / tắt chặn đăng nhập toàn bộ (máy chủ cũng từ chối).
+        _guard = _viewer == 'admin' && r[1] != null && r[1]!['enabled'] is bool ? r[1] : null;
         _loading = false;
       });
     } catch (e) {
@@ -196,6 +200,7 @@ class _UsersAdminPageState extends State<UsersAdminPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_guard != null) _GuardCard(guard: _guard!, onPatch: _setGuard),
+        if (_viewer == 'users_admin') const _ScopedBanner(),
         Padding(
           padding: EdgeInsets.fromLTRB(side, 12, side, 0),
           child: TextField(
@@ -454,6 +459,43 @@ Future<void> _allowDeptsDialog(BuildContext context, Map<String, dynamic> guard,
   if (ok == true) await onPatch({'allowed_depts': sel.toList()}, tr('Đã lưu phòng ban được phép'));
 }
 
+/// Người xem có vai trò Quản trị người dùng: nói rõ được / không được làm gì.
+class _ScopedBanner extends StatelessWidget {
+  const _ScopedBanner();
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final side = isDesktop ? 24.0 : 16.0;
+    return Container(
+      key: const ValueKey('scoped-banner'),
+      margin: EdgeInsets.fromLTRB(side, 8, side, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF0EA5E9).withValues(alpha: .10), borderRadius: BorderRadius.circular(14)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.manage_accounts_rounded, color: toneOn(const Color(0xFF0EA5E9), Theme.of(context).brightness)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            tr('Bạn đang dùng quyền Quản trị người dùng: xem, sửa, đặt mật khẩu, khoá / mở khoá, bật tắt Google / mật khẩu và duyệt passkey khi mất máy. Không sửa được quản trị viên, quyền app và cài đặt chặn đăng nhập.'),
+            style: TextStyle(fontSize: 13, color: pal.text),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Danh sách quyền của vai trò Quản trị người dùng (hộp gán vai trò + thẻ Vai trò).
+List<(bool, String)> usersAdminScope() => [
+      (true, tr('Xem và sửa thông tin người dùng, tạo tài khoản')),
+      (true, tr('Đặt mật khẩu, bật / tắt đăng nhập Google và mật khẩu')),
+      (true, tr('Khoá / mở khoá tài khoản')),
+      (true, tr('Duyệt passkey khi người dùng mất máy, thu hồi thiết bị')),
+      (false, tr('Cấp / bỏ quyền app, Cổng AI')),
+      (false, tr('Chặn đăng nhập toàn bộ, chính sách passkey')),
+      (false, tr('Sửa quản trị viên hoặc người có vai trò quản trị')),
+    ];
+
 class _UserTile extends StatelessWidget {
   final Map<String, dynamic> u;
   final VoidCallback onTap;
@@ -487,7 +529,8 @@ class _UserTile extends StatelessWidget {
             '${(u['name'] ?? '').toString().isEmpty ? u['username'] : u['name']}',
             style: TextStyle(fontWeight: FontWeight.w600, color: inactive ? pal.sub : pal.text),
           ),
-          if (u['system_admin'] == true) _Chip(tr('Quản trị'), _violet),
+          if (u['system_admin'] == true || u['flygo_admin'] == true) _Chip(tr('Quản trị'), _violet),
+          if (u['users_admin'] == true) _Chip(tr('QT người dùng'), const Color(0xFF0EA5E9)),
           if (u['is_bot'] == true) _Chip('Bot', pal.sub),
           if (inactive) _Chip(tr('Đã khoá'), _red),
           if (guard && !inactive && u['system_admin'] != true && u['login_allowed'] is bool)
@@ -1300,6 +1343,11 @@ class _UserDetailPageState extends State<UserDetailPage> {
       action: tr('Khoá'),
     );
     if (!ok || !mounted) return;
+    // Quản trị người dùng chỉ khoá; cho nghỉ việc (gỡ quyền app, phòng ban, quản trị) là việc của Quản trị Flygo ID.
+    if (_scoped) {
+      await _do('POST', '/v1/admin/users/${widget.userId}/deactivate', {'offboard': false}, tr('Đã khoá tài khoản'));
+      return;
+    }
     offboard =
         await showDialog<bool>(
           context: context,
@@ -1318,6 +1366,10 @@ class _UserDetailPageState extends State<UserDetailPage> {
 
   Map? get _pw => _d?['password_login'] is Map ? _d!['password_login'] as Map : null;
   Map? get _login => _d?['login'] is Map ? _d!['login'] as Map : null;
+  /// Người đang xem là Quản trị người dùng (quyền hẹp).
+  bool get _scoped => (_d?['viewer'] as Map?)?['role'] == 'users_admin';
+  /// Quản trị người dùng xem một quản trị viên: chỉ xem.
+  bool get _readOnly => _d?['editable'] == false;
 
   @override
   Widget build(BuildContext context) {
@@ -1353,7 +1405,7 @@ class _UserDetailPageState extends State<UserDetailPage> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(child: Column(children: [_header(pal), _signIn(pal), _depts(pal), _devices(pal)])),
+                            Expanded(child: Column(children: [_ro(_header(pal)), if (_readOnly) _readOnlyNote(pal), _ro(_signIn(pal)), _roles(pal), _depts(pal), _ro(_devices(pal))])),
                             Expanded(child: Column(children: [grants, _audit(pal)])),
                           ],
                         ),
@@ -1367,7 +1419,7 @@ class _UserDetailPageState extends State<UserDetailPage> {
                     constraints: const BoxConstraints(maxWidth: 760),
                     child: ListView(
                       padding: const EdgeInsets.only(bottom: 32),
-                      children: [_header(pal), _signIn(pal), _depts(pal), grants, _devices(pal), _audit(pal)],
+                      children: [_ro(_header(pal)), if (_readOnly) _readOnlyNote(pal), _ro(_signIn(pal)), _roles(pal), _depts(pal), grants, _ro(_devices(pal)), _audit(pal)],
                     ),
                   ),
                 );
@@ -1496,6 +1548,21 @@ class _UserDetailPageState extends State<UserDetailPage> {
     );
   }
 
+  /// Chỉ xem (Quản trị người dùng mở trang của một quản trị viên): khoá thao tác, làm mờ phần sửa được.
+  Widget _ro(Widget w) => _readOnly ? AbsorbPointer(child: Opacity(opacity: .55, child: w)) : w;
+
+  Widget _readOnlyNote(Pal pal) => Container(
+        key: const ValueKey('read-only-note'),
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: _amber.withValues(alpha: .12), borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          Icon(Icons.lock_outline_rounded, size: 18, color: toneOn(_amber, Theme.of(context).brightness)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(tr('Đây là quản trị viên: chỉ Quản trị Flygo ID sửa được. Bạn chỉ xem.'), style: TextStyle(fontSize: 13, color: pal.text))),
+        ]),
+      );
+
   /// Một dòng công tắc trong thẻ Đăng nhập.
   Widget _switch(
     Pal pal, {
@@ -1533,6 +1600,85 @@ class _UserDetailPageState extends State<UserDetailPage> {
     );
   }
 
+  /// Thẻ Vai trò quản trị (chỉ Quản trị Flygo ID thấy): Quản trị Flygo ID (cấu hình máy chủ, chỉ xem), Quản trị người dùng
+  /// (gán / bỏ ở đây, có nhật ký), Quản trị viên máy chủ chat.
+  Widget _roles(Pal pal) {
+    if (_scoped) return const SizedBox.shrink();
+    final u = _u;
+    final id = widget.userId;
+    final full = u['flygo_admin'] == true;
+    return _Card(
+      title: tr('Vai trò quản trị'),
+      children: [
+        if (full)
+          ListTile(
+            key: const ValueKey('role-full'),
+            leading: Icon(Icons.verified_rounded, color: pal.accent),
+            title: Text(tr('Quản trị Flygo ID'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            subtitle: Text(tr('Toàn quyền: người dùng, quyền app, Cổng AI, chặn đăng nhập. Đặt trong cấu hình máy chủ.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+            trailing: _Chip(tr('Luôn bật'), _green),
+          ),
+        _switch(
+          pal,
+          key: const ValueKey('sw-users-admin'),
+          icon: Icons.manage_accounts_rounded,
+          title: tr('Quản trị người dùng'),
+          subtitle: full
+              ? tr('Đã có toàn quyền (Quản trị Flygo ID).')
+              : tr('Quyền hẹp: quản lý tài khoản, mật khẩu, khoá / mở khoá, duyệt passkey khi mất máy. Không cấp quyền app, không sửa quản trị viên.'),
+          value: full || u['users_admin'] == true,
+          onChanged: full ? null : (v) => _setUsersAdmin(v),
+        ),
+        _switch(
+          pal,
+          key: const ValueKey('sw-admin'),
+          icon: Icons.admin_panel_settings_rounded,
+          title: tr('Quản trị viên máy chủ chat'),
+          subtitle: tr('Quyền quản trị của máy chủ chat (System Console). Không cần cho Quản trị người dùng.'),
+          value: u['system_admin'] == true,
+          onChanged: (v) => _do('PATCH', '/v1/admin/users/$id', {'system_admin': v}, v ? tr('Đã cấp quyền quản trị') : tr('Đã bỏ quyền quản trị')),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _setUsersAdmin(bool on) async {
+    final pal = Pal.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(on ? tr('Giao vai trò Quản trị người dùng cho {0}?', [_name]) : tr('Bỏ vai trò Quản trị người dùng của {0}?', [_name])),
+        content: SizedBox(
+          width: 420,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (on) Text(tr('Người này sẽ:'), style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (on) const SizedBox(height: 6),
+            if (on)
+              for (final (yes, t) in usersAdminScope())
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(yes ? Icons.check_circle_rounded : Icons.block_rounded, size: 17, color: yes ? _green : _red),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(t, style: TextStyle(fontSize: 13.5, color: pal.text))),
+                  ]),
+                ),
+            if (!on) Text(tr('Người này không vào được Quản trị › Người dùng nữa. Các thay đổi đã làm vẫn giữ.')),
+            const SizedBox(height: 10),
+            Text(tr('Có ghi vào nhật ký.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Huỷ'))),
+          FilledButton(key: const ValueKey('users-admin-confirm'), onPressed: () => Navigator.pop(ctx, true), child: Text(on ? tr('Giao vai trò') : tr('Bỏ vai trò'))),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _do('PATCH', '/v1/admin/users/${widget.userId}', {'users_admin': on}, on ? tr('Đã giao vai trò Quản trị người dùng') : tr('Đã bỏ vai trò Quản trị người dùng'));
+    }
+  }
+
   Widget _signIn(Pal pal) {
     final u = _u;
     final pw = _pw;
@@ -1544,7 +1690,7 @@ class _UserDetailPageState extends State<UserDetailPage> {
     return _Card(
       title: tr('Đăng nhập'),
       children: [
-        if (login != null)
+        if (login != null && !_scoped)
           _switch(
             pal,
             key: const ValueKey('sw-allowed'),
@@ -1615,7 +1761,7 @@ class _UserDetailPageState extends State<UserDetailPage> {
                   ),
           ),
         ],
-        if (login != null && login.containsKey('passkey_required'))
+        if (login != null && login.containsKey('passkey_required') && !_scoped)
           _switch(
             pal,
             key: const ValueKey('sw-passkey'),
@@ -1629,15 +1775,6 @@ class _UserDetailPageState extends State<UserDetailPage> {
             value: login['passkey_required'] == true,
             onChanged: (v) => _do('PATCH', '/v1/admin/users/$id', {'passkey_required': v}, v ? tr('Đã bắt buộc passkey') : tr('Đã bỏ bắt buộc passkey')),
           ),
-        _switch(
-          pal,
-          key: const ValueKey('sw-admin'),
-          icon: Icons.admin_panel_settings_rounded,
-          title: tr('Quản trị viên máy chủ'),
-          subtitle: tr('Quản lý người dùng, phòng ban, quyền và cài đặt máy chủ.'),
-          value: admin,
-          onChanged: (v) => _do('PATCH', '/v1/admin/users/$id', {'system_admin': v}, v ? tr('Đã cấp quyền quản trị') : tr('Đã bỏ quyền quản trị')),
-        ),
       ],
     );
   }

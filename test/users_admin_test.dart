@@ -19,19 +19,26 @@ import 'package:provider/provider.dart';
 
 /// Flygo ID giả: trả dữ liệu mẫu theo đường dẫn, ghi lại các lời gọi ghi.
 class _Id extends FlygoId {
-  _Id({this.guard = true, this.passwordError}) : super(base: 'https://id.example.invalid', chatToken: 't');
+  _Id({this.guard = true, this.passwordError, this.viewer = 'admin'}) : super(base: 'https://id.example.invalid', chatToken: 't');
   final bool guard;
+  /// 'admin' (Quản trị Flygo ID) | 'users_admin' (vai trò Quản trị người dùng).
+  final String viewer;
   final String? passwordError;
   final calls = <String>[];
   @override
   Future<Map<String, dynamic>> request(String method, String path, [Object? body]) async {
     calls.add('$method $path');
-    if (method == 'GET' && path.startsWith('/v1/admin/users?')) return {'users': _users, 'total': _users.length};
+    if (method == 'GET' && path.startsWith('/v1/admin/users?')) return {'users': _users, 'total': _users.length, 'viewer': {'role': viewer}};
     if (method == 'GET' && path == '/v1/admin/login-guard') {
       if (!guard) throw FlygoIdException(404, 'không hỗ trợ');
+      if (viewer != 'admin') throw FlygoIdException(403, 'chỉ quản trị viên');
       return _guard;
     }
-    if (method == 'GET' && path.startsWith('/v1/admin/users/')) return _detail(path.split('/').last, guard: guard);
+    if (method == 'GET' && path.startsWith('/v1/admin/users/')) {
+      final d = _detail(path.split('/').last, guard: guard);
+      final u = d['user'] as Map;
+      return {...d, 'viewer': {'role': viewer}, 'editable': viewer == 'admin' || (u['flygo_admin'] != true && u['users_admin'] != true)};
+    }
     if (path.endsWith('/password') && passwordError != null) throw FlygoIdException(400, passwordError!);
     return {'ok': true};
   }
@@ -46,6 +53,7 @@ final _users = <Map<String, dynamic>>[
     'username': 'ba',
     'name': 'Nguyễn Văn Ba',
     'system_admin': true,
+    'flygo_admin': true,
     'depts': [
       {'name': 'Ban giám đốc', 'head': true},
     ],
@@ -65,6 +73,7 @@ final _users = <Map<String, dynamic>>[
     'id': 'u3',
     'username': 'minh.tq',
     'name': 'Trần Quang Minh',
+    'users_admin': true,
     'depts': [
       {'name': 'Kỹ thuật'},
     ],
@@ -481,9 +490,38 @@ void main() {
       expect(find.text('HOME'), findsOneWidget);
     });
 
-    testWidgets('quản trị: thiết bị chờ duyệt có nút Duyệt passkey', (t) async {
+    testWidgets('Quản trị Flygo ID giao vai trò Quản trị người dùng (có hộp xác nhận)', (t) async {
       final id = _Id();
       await _pump(t, UserDetailPage(id: id, userId: 'u2', policy: _loadPolicy), size: const Size(500, 2600));
+      expect(find.text('Vai trò quản trị'.toUpperCase()), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('sw-users-admin')));
+      await _settle(t);
+      expect(find.textContaining('Cấp / bỏ quyền app'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('users-admin-confirm')));
+      await _settle(t);
+      expect(id.calls.where((c) => c == 'PATCH /v1/admin/users/u2'), isNotEmpty);
+    });
+
+    testWidgets('Quản trị người dùng: thấy ghi chú quyền, không có công tắc tổng, không có thẻ vai trò', (t) async {
+      await _pump(t, UsersAdminPage(id: _Id(viewer: 'users_admin'), policy: _loadPolicy));
+      expect(find.byKey(const ValueKey('scoped-banner')), findsOneWidget);
+      expect(find.byKey(const ValueKey('guard-switch')), findsNothing);
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'users_admin'), userId: 'u2', policy: _loadPolicy), size: const Size(500, 2600));
+      expect(find.byKey(const ValueKey('sw-users-admin')), findsNothing);
+      expect(find.byKey(const ValueKey('sw-admin')), findsNothing);
+      expect(find.byKey(const ValueKey('sw-allowed')), findsNothing);
+      expect(find.byKey(const ValueKey('sw-google')), findsOneWidget);
+      expect(find.byKey(const ValueKey('read-only-note')), findsNothing);
+    });
+
+    testWidgets('Quản trị người dùng mở trang của quản trị viên: chỉ xem', (t) async {
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'users_admin'), userId: 'u1', policy: _loadPolicy), size: const Size(500, 2600));
+      expect(find.byKey(const ValueKey('read-only-note')), findsOneWidget);
+    });
+
+    testWidgets('quản trị: thiết bị chờ duyệt có nút Duyệt passkey', (t) async {
+      final id = _Id();
+      await _pump(t, UserDetailPage(id: id, userId: 'u2', policy: _loadPolicy), size: const Size(500, 3400));
       expect(find.text('Passkey chờ duyệt'), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('trust-d3')));
       await _settle(t);
@@ -554,7 +592,7 @@ void _previews() {
         ratio: 2,
       );
       await save(t, 'phone-$th-03-chi-tiet-toan-trang');
-      await _pump(t, UserDetailPage(id: _Id(), userId: 'u2', policy: _loadPolicy), size: const Size(390, 1100), b: b, ratio: 2);
+      await _pump(t, UserDetailPage(id: _Id(), userId: 'u2', policy: _loadPolicy), size: const Size(390, 1700), b: b, ratio: 2);
       await top('QUYỀN');
       await t.tap(find.text('Ghi chú & Việc'));
       await _settle(t);
@@ -624,6 +662,19 @@ void _previews() {
       await gate('15-nguoi-dung-khong-xac-thuc-duoc', _pkStatus('verify'), help: true);
       await _pump(t, PasskeyPage(api: _FakePk(_pkPersonal())), size: phone, b: b, ratio: 2);
       await save(t, 'phone-$th-16-ca-nhan-passkey');
+
+      // Vai trò Quản trị người dùng.
+      await _pump(t, UserDetailPage(id: _Id(), userId: 'u2', policy: _loadPolicy), size: const Size(390, 1100), b: b, ratio: 2);
+      await top('VAI TRÒ QUẢN TRỊ');
+      await save(t, 'phone-$th-20-vai-tro-the');
+      await t.tap(find.byKey(const ValueKey('sw-users-admin')));
+      await save(t, 'phone-$th-21-vai-tro-xac-nhan');
+      await _pump(t, UsersAdminPage(id: _Id(viewer: 'users_admin'), policy: _loadPolicy), size: phone, b: b, ratio: 2);
+      await save(t, 'phone-$th-22-qt-nguoi-dung-danh-sach');
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'users_admin'), userId: 'u2', policy: _loadPolicy), size: const Size(390, 1600), b: b, ratio: 2);
+      await save(t, 'phone-$th-23-qt-nguoi-dung-chi-tiet');
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'users_admin'), userId: 'u1', policy: _loadPolicy), size: phone, b: b, ratio: 2);
+      await save(t, 'phone-$th-24-qt-nguoi-dung-xem-quan-tri-vien');
       debugDisableShadows = true;
     });
 
