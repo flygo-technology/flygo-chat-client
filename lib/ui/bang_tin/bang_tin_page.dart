@@ -16,6 +16,7 @@ import '../app_shell.dart';
 import '../app_route.dart';
 import '../common.dart';
 import '../theme.dart';
+import '../flows/column_resizer.dart';
 import 'admin_pages.dart';
 import 'api.dart';
 import 'bang_tin_service.dart';
@@ -76,6 +77,18 @@ enum _View { all, mine, archived }
 /// Máy tính, cửa sổ đủ rộng: bài mở ở cột phải (bài + bình luận), bảng tin vẫn ở giữa.
 const _splitMinWidth = 720.0;
 
+/// Cột phải (chi tiết bài) trên máy tính (Sếp, 2026-11-18): mặc định một nửa cửa sổ, kéo được từ 420px tới 70%;
+/// độ rộng nhớ trên máy theo tài khoản (uiPref, tỉ lệ so với cửa sổ).
+const kBangTinSideDefault = .5;
+const _sideMin = 420.0, _sideMaxFrac = .7, _feedMin = 320.0;
+const _sidePref = 'bangtin_side_frac';
+
+/// Độ rộng cột phải theo tỉ lệ [frac] của khung rộng [total], trong giới hạn 420px .. 70% (cột bảng tin còn ≥ 320px).
+double bangTinSideWidth(double total, double frac) {
+  final max = math.max(_sideMin, math.min(total * _sideMaxFrac, total - _feedMin));
+  return (total * frac).clamp(_sideMin, max);
+}
+
 class _BangTinHomeState extends State<BangTinHome> {
   BangTinMe? _me;
   List<Map<String, dynamic>> _pinned = const [], _posts = const [];
@@ -94,12 +107,28 @@ class _BangTinHomeState extends State<BangTinHome> {
   /// Cột phải đang hiện danh sách "đã xem" của bài [_side] thay vì bài + bình luận.
     bool _sideViews = false;
   bool _wide = false;
+  /// Tỉ lệ độ rộng cột phải (đã lưu hoặc mặc định).
+  double _sideFrac = kBangTinSideDefault;
 
   BangTinApi get api => widget.api;
+
+  Future<void> _loadSideFrac() async {
+    try {
+      final v = await context.read<AppState>().uiPref<num>(_sidePref);
+      if (v != null && mounted) setState(() => _sideFrac = v.toDouble().clamp(.2, _sideMaxFrac));
+    } catch (_) {}
+  }
+
+  void _saveSideFrac() {
+    try {
+      context.read<AppState>().setUiPref(_sidePref, _sideFrac);
+    } catch (_) {}
+  }
 
   @override
   void initState() {
     super.initState();
+    if (isDesktop) _loadSideFrac();
     // Tab Bảng tin: hiện ngay bản tải sẵn (không vòng chờ), rồi làm mới; đang xem thì xoá số trên tab.
     final svc = BangTinService.instance;
     if (widget.inTab && svc.api == widget.api && svc.me != null) {
@@ -260,7 +289,7 @@ class _BangTinHomeState extends State<BangTinHome> {
       builder: (context, box) {
         _wide = isDesktop && box.maxWidth >= _splitMinWidth;
         final side = _wide ? _side : null;
-        final sideW = (box.maxWidth * .38).clamp(400.0, 520.0);
+        final sideW = bangTinSideWidth(box.maxWidth, _sideFrac);
         // Điện thoại, tab Bảng tin (Sếp): bỏ thanh trên trống; tìm kiếm và menu nằm ở ô soạn bài.
         final compact = widget.inTab && !isDesktop && _view == _View.all && !_searching;
         final feed = Scaffold(
@@ -318,7 +347,16 @@ class _BangTinHomeState extends State<BangTinHome> {
         return Row(
           children: [
             Expanded(child: feed),
-            VerticalDivider(width: 1, color: pal.divider),
+            // Kéo để đổi độ rộng cột phải, bấm đúp về mặc định.
+            ColumnResizer(
+              key: const ValueKey('bangtin-side-resizer'),
+              onDrag: (dx) => setState(() => _sideFrac = bangTinSideWidth(box.maxWidth, _sideFrac - dx / box.maxWidth) / box.maxWidth),
+              onDragEnd: _saveSideFrac,
+              onReset: () {
+                setState(() => _sideFrac = kBangTinSideDefault);
+                _saveSideFrac();
+              },
+            ),
             SizedBox(
               width: sideW,
               child: _sideViews

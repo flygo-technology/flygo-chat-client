@@ -803,6 +803,36 @@ void main() {
     expect(find.text('Chị gửi vào nhóm chung rồi nhé.'), findsNothing);
   });
 
+  testWidgets('máy tính: cột chi tiết rộng nửa cửa sổ, kéo vạch ngăn để đổi, bấm đúp về mặc định', (t) async {
+    await pump(t, BangTinHome(api: api(), title: 'Bảng tin'), size: const Size(1440, 1000));
+    await t.scrollUntilVisible(find.textContaining('7 bình luận'), 300, scrollable: find.byType(Scrollable).first);
+    await settle(t, 2);
+    await t.tap(find.textContaining('7 bình luận'));
+    await settle(t);
+    double sideW() => t.getSize(find.ancestor(of: find.byType(BangTinPostPage), matching: find.byType(SizedBox)).first).width;
+    expect(sideW(), 720);
+    final handle = find.byKey(const ValueKey('bangtin-side-resizer'));
+    expect(handle, findsOneWidget);
+    // Kéo vạch sang trái 200px: cột phải rộng thêm 200px.
+    await t.drag(handle, const Offset(-200, 0));
+    await settle(t, 2);
+    expect(sideW(), inInclusiveRange(890, 921)); // trừ ngưỡng bắt đầu kéo của test
+    // Kéo quá tay: tối đa 70% cửa sổ.
+    await t.drag(handle, const Offset(-600, 0));
+    await settle(t, 2);
+    expect(sideW(), closeTo(1008, 1));
+    await shot(t, 'bang-tin-3b-may-tinh-cot-rong');
+    // Bấm đúp: về một nửa.
+    await t.tap(handle);
+    await t.pump(const Duration(milliseconds: 50));
+    await t.tap(handle);
+    await settle(t, 3);
+    expect(sideW(), 720);
+    // Tối thiểu 420px.
+    expect(bangTinSideWidth(1000, .1), 420);
+    expect(bangTinSideWidth(1000, .9), 680);
+  });
+
   testWidgets('thanh cảm xúc: bấm giữ nút Thích rồi chọn', (t) async {
     calls.clear();
     await pump(t, BangTinHome(api: api(), title: 'Bảng tin'), size: const Size(420, 1100));
