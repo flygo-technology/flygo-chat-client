@@ -79,6 +79,16 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
           foregroundColor: fg,
           title: Text(_cur.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, color: fg)),
           actions: [
+            // Word / Excel / PowerPoint: xem ở đây; sửa bằng OnlyOffice ở tab riêng, chỉ trên máy tính.
+            if (isOffice(_cur) && canEditOffice && _cur.canWrite)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                child: FilledButton.icon(
+                  onPressed: () => openOffice(context, widget.session, _cur),
+                  icon: const Icon(Icons.edit_rounded, size: 18),
+                  label: Text(tr('Chỉnh sửa')),
+                ),
+              ),
             IconButton(tooltip: tr('Chia sẻ'), icon: const Icon(Icons.person_add_alt_1_rounded), onPressed: () => showShareDialog(context, widget.session, _cur)),
             IconButton(
               tooltip: tr('Thêm'),
@@ -139,9 +149,12 @@ class _ViewerState extends State<_Viewer> {
 
   Future<void> _load() async {
     try {
-      final f = await localCopy(widget.session, widget.item, onProgress: (got, total) {
+      void prog(int got, int total) {
         if (mounted && total > 0) setState(() => _progress = got / total);
-      });
+      }
+
+      // Office: bản PDF máy chủ chuyển (lần đầu mất vài giây, sau đó lấy từ cache).
+      final f = isOffice(widget.item) ? await previewPdf(widget.session, widget.item, onProgress: prog) : await localCopy(widget.session, widget.item, onProgress: prog);
       if (_kind == DriveKind.video || _kind == DriveKind.audio) {
         final v = VideoPlayerController.file(f);
         await v.initialize();
@@ -180,7 +193,7 @@ class _ViewerState extends State<_Viewer> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           SizedBox(width: 56, height: 56, child: CircularProgressIndicator(value: _progress > 0 ? _progress : null, color: fg)),
           const SizedBox(height: 14),
-          Text(_progress > 0 ? '${(_progress * 100).round()}%' : tr('Đang tải…'), style: const TextStyle(color: fg)),
+          Text(_progress > 0 ? '${(_progress * 100).round()}%' : (isOffice(widget.item) ? tr('Đang chuẩn bị bản xem…') : tr('Đang tải…')), style: const TextStyle(color: fg)),
         ]),
       );
     }
@@ -191,6 +204,9 @@ class _ViewerState extends State<_Viewer> {
           child: Image.file(f, errorBuilder: (_, _, _) => Text(tr('Không hiển thị được ảnh này'), style: const TextStyle(color: fg))),
         );
       case DriveKind.pdf:
+      case DriveKind.doc:
+      case DriveKind.sheet:
+      case DriveKind.slide:
         return Stack(children: [
           PdfViewer.file(
             f.path,

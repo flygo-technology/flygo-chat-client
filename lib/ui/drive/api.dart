@@ -262,6 +262,10 @@ class DriveApi {
   Future<File> download(String path, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) =>
       _fetchTo('/api/file', {'path': path}, dest, onProgress: onProgress, cancelled: cancelled);
 
+  /// Bản PDF xem trước của tài liệu Office (drive-gw chuyển bằng OnlyOffice).
+  Future<File> previewPdf(int id, String path, File dest, {void Function(int got, int total)? onProgress}) =>
+      _fetchTo('/api/preview', {if (id > 0) 'id': '$id' else 'path': path}, dest, onProgress: onProgress);
+
   /// Tải các mục [names] (tệp hoặc thư mục) trong thư mục [dir] thành một tệp zip [dest].
   Future<File> downloadZip(String dir, List<String> names, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) =>
       _fetchTo('/api/zip', {'dir': dir, 'files': jsonEncode(names)}, dest, onProgress: onProgress, cancelled: cancelled);

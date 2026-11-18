@@ -9,6 +9,7 @@ import 'package:flygo_chat/ui/drive/api.dart';
 import 'package:flygo_chat/ui/drive/drive_page.dart';
 import 'package:flygo_chat/ui/drive/look.dart';
 import 'package:flygo_chat/ui/drive/pickers.dart';
+import 'package:flygo_chat/ui/drive/preview.dart';
 import 'package:flygo_chat/ui/drive/session.dart';
 import 'package:flygo_chat/ui/drive/transfers.dart';
 import 'package:flygo_chat/ui/drive/uploads.dart';
@@ -279,5 +280,28 @@ void main() {
     expect(find.text('Đã tải xuống'), findsOneWidget);
     expect(find.text('Mở thư mục'), findsOneWidget);
     expect(find.text('Mở tệp'), findsOneWidget);
+  });
+
+  testWidgets('Office mở bản xem trong Drive (không mở trình soạn); máy tính có nút Chỉnh sửa', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reqs = <http.Request>[];
+    final s = DriveSession(api: fakeDriveApi(onRequest: reqs.add), key: 'test-${DateTime.now().microsecondsSinceEpoch}', app: null, chatToken: 't');
+    await tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: DriveHome(session: s)));
+    await tester.pumpAndSettle();
+    final f = tester.getCenter(find.text('Báo cáo doanh thu Q3.xlsx'));
+    await tester.tapAt(f, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(f, kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(DrivePreviewPage), findsOneWidget);
+    expect(find.text('Chỉnh sửa'), findsOneWidget); // máy chạy test là máy tính (Linux)
+    // Không mở trình soạn (không có tab / trang OnlyOffice).
+    expect(reqs.any((r) => r.url.path.contains('onlyoffice')), isFalse);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(DrivePreviewPage), findsNothing);
   });
 }
