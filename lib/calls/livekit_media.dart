@@ -105,6 +105,7 @@ class LiveKitMedia implements CallMedia {
       }
     }
     onConnected();
+    onEvent?.call('room_metadata', {'metadata': room.metadata ?? ''});
     // Người đã có sẵn trong phòng.
     for (final p in room.remoteParticipants.values) {
       _joined(p);
@@ -179,6 +180,8 @@ class LiveKitMedia implements CallMedia {
           default:
         }
       })
+      // Metadata phòng do relay đặt (vd. {"scribe": true}: chủ phòng bật phiên âm).
+      ..on<lk.RoomMetadataChangedEvent>((e) => onEvent?.call('room_metadata', {'metadata': e.metadata ?? ''}))
       ..on<lk.ActiveSpeakersChangedEvent>((e) {
         final now = {for (final p in e.speakers) p.sid: p};
         for (final sid in _speaking.difference(now.keys.toSet()).toList()) {

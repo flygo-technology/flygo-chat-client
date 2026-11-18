@@ -253,6 +253,11 @@ class _CallScreenState extends State<CallScreen> {
         ));
       });
     }
+    if (call.phase == CallPhase.active && call.scribePrompt && call.isMeetingCreator) {
+      // Chủ phòng vào cuộc họp lần đầu: hỏi một lần có bật phiên âm tự động không (mặc định tắt).
+      call.scribePrompt = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _askScribe(call) : null);
+    }
     if (call.phase == CallPhase.active && call.presentOnJoin) {
       // Vào bằng nút "Trình bày" của phòng chờ: mở chọn màn hình ngay.
       call.presentOnJoin = false;
@@ -659,8 +664,10 @@ class _CallScreenState extends State<CallScreen> {
               top: 0,
               left: 0,
               right: 0,
-              child: _fade(show, _topBar(title, status)),
+              child: _fade(show, _topBar(title, status, reserve: call.transcribing)),
             ),
+            // Đang phiên âm: luôn hiện (cả khi thanh nút ẩn) để mọi người biết lời nói đang được ghi thành chữ.
+            if (call.transcribing) const Positioned(top: 12, right: 16, child: _ScribeChip()),
             Positioned(
               bottom: 0,
               left: 0,
@@ -692,7 +699,7 @@ class _CallScreenState extends State<CallScreen> {
         ),
       );
 
-  Widget _topBar(String title, String status) => Padding(
+  Widget _topBar(String title, String status, {bool reserve = false}) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         child: Row(
           children: [
@@ -712,6 +719,7 @@ class _CallScreenState extends State<CallScreen> {
                 ],
               ),
             ),
+            if (reserve) const SizedBox(width: 150),
           ],
         ),
       );
@@ -1052,6 +1060,9 @@ class _CallScreenState extends State<CallScreen> {
                       badge: room.comments.isEmpty ? null : '${room.comments.length}'),
                 if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
                 if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
+                if (call.isMeetingCreator && call.scribeAvailable)
+                  tile('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
+                      call.transcribing ? tr('Phiên âm: Bật') : tr('Phiên âm: Tắt'), on: call.transcribing),
                 if (room != null && room.webUrl == null) tile('web', Icons.public, tr('Chia sẻ website')),
                 if (room != null && room.webUrl != null) tile('web_close', Icons.public_off, tr('Dừng chia sẻ website')),
                 if (room != null && host) tile('mute_all', Icons.mic_off_outlined, tr('Tắt tiếng tất cả')),
@@ -1359,6 +1370,50 @@ class _CallScreenState extends State<CallScreen> {
     await app.send(ch, '📊 ${tr('Bình chọn')}: ${poll['question']}', props: {'flygo_poll': poll});
   }
 
+  /// Chủ phòng vừa vào cuộc họp: hỏi một lần có bật phiên âm tự động không.
+  Future<void> _askScribe(CallService call) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (d) => AlertDialog(
+        icon: const Icon(Icons.subtitles_rounded),
+        title: Text(tr('Bạn có muốn bật phiên âm tự động cho cuộc họp này?')),
+        content: Text(tr('Lời nói của người đang bật mic sẽ được ghi thành tin nhắn trong nhóm của cuộc họp. '
+            'Bạn bật / tắt lại được trong menu cuộc họp.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Không'))),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Có'))),
+        ],
+      ),
+    );
+    if (yes == null || !mounted) return;
+    // "Không" cũng lưu lại (đã hỏi) để lần vào sau không hỏi nữa.
+    final ok = await call.setTranscribing(yes);
+    if (!ok && mounted) _snack(tr('Không đổi được trạng thái phiên âm, thử lại trong menu cuộc họp.'));
+  }
+
+  Future<void> _toggleScribe(CallService call) async {
+    if (call.transcribing) {
+      final off = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(tr('Tắt phiên âm cuộc họp này?')),
+          content: Text(tr('Từ giờ lời nói không còn được ghi thành tin nhắn. Bạn bật lại được bất cứ lúc nào.')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Tắt phiên âm'))),
+          ],
+        ),
+      );
+      if (off != true || !mounted) return;
+    }
+    final ok = await call.setTranscribing(!call.transcribing);
+    if (!ok && mounted) _snack(tr('Không đổi được trạng thái phiên âm, thử lại sau.'));
+  }
+
+  void _snack(String text) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text(text)));
+
   bool _isHost(AppState app, CallService call) =>
       (_room?.host ?? false) || call.callerId == app.me?.id || (call.channelId != null && app.canManage(call.channelId!));
 
@@ -1406,6 +1461,9 @@ class _CallScreenState extends State<CallScreen> {
         item('layout', Icons.auto_awesome_mosaic_outlined, tr('Đổi bố cục')),
         item('poll', Icons.poll_outlined, tr('Bình chọn')),
         if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
+        if (call.isMeetingCreator && call.scribeAvailable)
+          item('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
+              call.transcribing ? tr('Phiên âm: Bật') : tr('Phiên âm: Tắt')),
         if (room.webUrl == null) item('web', Icons.public, tr('Chia sẻ website')) else item('web_close', Icons.public_off, tr('Dừng chia sẻ website')),
         if (host) item('mute_all', Icons.mic_off_outlined, tr('Tắt tiếng tất cả')),
         if (room.stage != null && host) item('clear', Icons.layers_clear_outlined, tr('Tắt màn trình chiếu')),
@@ -1416,6 +1474,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _runMore(String? a, AppState app, CallService call) async {
+    if (a == 'scribe') return _toggleScribe(call);
     final room = _room;
     if (room == null) return;
     switch (a) {
@@ -2385,5 +2444,21 @@ class _PanelButton extends StatelessWidget {
             ),
           ),
         ),
+      );
+}
+
+/// Dấu "Đang phiên âm" trên màn hình cuộc gọi (chủ phòng bật Thư ký Họp).
+class _ScribeChip extends StatelessWidget {
+  const _ScribeChip();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .55), borderRadius: BorderRadius.circular(14)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFFE5484D), shape: BoxShape.circle)),
+          const SizedBox(width: 7),
+          Text(tr('Đang phiên âm'), style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
+        ]),
       );
 }

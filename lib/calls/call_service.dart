@@ -130,6 +130,12 @@ class CallService extends ChangeNotifier {
   bool liveKit = false;
   /// Relay cho mình quyền chủ phòng LiveKit (tắt mic / mời ra bắt buộc ở SFU).
   bool _lkHost = false;
+  /// Phiên âm tự động (Thư ký Họp): chỉ có ở cuộc họp (relay trả `scribe` kèm token). Mặc định tắt, chủ phòng bật.
+  bool scribeAvailable = false;
+  /// Cuộc họp đang được phiên âm (metadata phòng LiveKit) — mọi người thấy dấu "Đang phiên âm".
+  bool transcribing = false;
+  /// Chủ phòng vừa vào cuộc họp chưa từng được hỏi: màn hình cuộc gọi hỏi một lần "bật phiên âm?".
+  bool scribePrompt = false;
   Timer? _noAnswer;
   Timer? _ringBuzz;
   // Giữ tham chiếu để luồng âm thanh phía xa không bị thu hồi.
@@ -541,7 +547,7 @@ class CallService extends ChangeNotifier {
 
   /// Token vào phòng LiveKit của cuộc họp: phòng họp có mã thì qua sổ phòng (kiểm huỷ / kết thúc), không thì theo kênh.
   /// Null: relay chưa bật LiveKit (dùng plugin Calls như cũ).
-  Future<({String url, String token, bool host})?> _lkToken(String ch) async {
+  Future<({String url, String token, bool host, Map? scribe})?> _lkToken(String ch) async {
     await discoverPush(kServerUrl);
     final code = meeting ? meetingInfo?.code : null;
     final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/token' : '/meet/livekit/channel/$ch/token';
@@ -549,7 +555,31 @@ class CallService extends ChangeNotifier {
     if (r.statusCode == 501 || r.statusCode == 404) return null;
     final j = (jsonDecode(r.body) as Map).cast<String, dynamic>();
     if (r.statusCode != 200) throw CallJoinError(j['error'] as String? ?? 'HTTP ${r.statusCode}');
-    return (url: j['url'] as String, token: j['token'] as String, host: j['host'] == true);
+    return (url: j['url'] as String, token: j['token'] as String, host: j['host'] == true, scribe: j['scribe'] as Map?);
+  }
+
+  /// Chủ phòng bật / tắt phiên âm tự động của cuộc họp (relay lưu, đặt metadata phòng, báo tin trong nhóm).
+  Future<bool> setTranscribing(bool on) async {
+    final ch = channelId;
+    if (ch == null || !scribeAvailable) return false;
+    scribePrompt = false;
+    final code = meetingInfo?.code;
+    final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/scribe' : '/meet/livekit/channel/$ch/scribe';
+    try {
+      final r = await http
+          .post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: jsonEncode({'on': on}))
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) {
+        debugPrint('[livekit] scribe: ${r.statusCode} ${r.body}');
+        return false;
+      }
+      transcribing = on;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('[livekit] scribe: $e');
+      return false;
+    }
   }
 
   /// Chủ phòng: tắt mic / mời ra, làm ở SFU (relay kiểm quyền).
@@ -937,6 +967,19 @@ class CallService extends ChangeNotifier {
   /// Sự kiện trạng thái người tham gia (từ WebSocket chính hoặc WebSocket riêng của cuộc gọi;
   /// nhận trùng cũng không sao).
   void _onPeerEvent(String ev, Map<String, dynamic> data) {
+    if (ev == 'room_metadata') {
+      try {
+        final m = jsonDecode(data['metadata'] as String? ?? '');
+        if (m is Map) {
+          final on = m['scribe'] == true;
+          if (on != transcribing) {
+            transcribing = on;
+            notifyListeners();
+          }
+        }
+      } catch (_) {}
+      return;
+    }
     if (ev == 'user_joined' && liveKit && phase == CallPhase.outgoing && (data['user_id'] as String? ?? '') != myId()) {
       // Gọi nhóm qua LiveKit: có người vào là đã kết nối.
       _noAnswer?.cancel();
@@ -1237,6 +1280,12 @@ class CallService extends ChangeNotifier {
     liveKit = lkt != null;
     if (lkt != null) {
       _lkHost = lkt.host;
+      final sc = lkt.scribe;
+      scribeAvailable = sc != null;
+      if (sc != null && !rejoin) {
+        transcribing = sc['on'] == true;
+        scribePrompt = _lkHost && sc['asked'] != true;
+      }
       return _connectLiveKit(lkt.url, lkt.token, video: video, rejoin: rejoin);
     }
     final servers = await _iceServers();
@@ -1557,6 +1606,9 @@ class CallService extends ChangeNotifier {
     deviceNames.clear();
     liveKit = false;
     _lkHost = false;
+    scribeAvailable = false;
+    transcribing = false;
+    scribePrompt = false;
     callThreadId = null;
     muted = false;
     deafened = false;
