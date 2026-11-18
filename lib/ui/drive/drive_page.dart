@@ -875,15 +875,15 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
       );
 
   /// Thanh khi đang chọn nhiều mục.
-  Widget _selectionBar(DriveLook l) {
+  Widget _selectionBar(DriveLook l, {bool compact = false}) {
     final items = _selected;
     final acts = actionsFor(s, items, trash: _section == DriveSection.trash)
         .where((a) => const {ItemAction.share, ItemAction.offline, ItemAction.star, ItemAction.move, ItemAction.copy, ItemAction.trash, ItemAction.restore, ItemAction.purge, ItemAction.chat, ItemAction.download}.contains(a.$1))
         .toList();
     final main = acts.take(driveWide(context) ? 8 : 3).toList(), more = acts.skip(main.length).toList();
     return Container(
-      height: 52,
-      margin: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      height: compact ? null : 52,
+      margin: compact ? const EdgeInsets.fromLTRB(8, 2, 8, 2) : const EdgeInsets.fromLTRB(8, 4, 8, 4),
       decoration: BoxDecoration(color: l.surface2, borderRadius: BorderRadius.circular(26)),
       child: Row(children: [
         IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setState(_sel.clear)),
@@ -970,8 +970,12 @@ class _DriveHomeState extends State<DriveHome> with WidgetsBindingObserver {
                         if (_canPaste) _pasteChip(l),
                       ]),
                     ),
-                    if (_sel.isNotEmpty) _selectionBar(l) else if (_searching) Padding(padding: const EdgeInsets.only(top: 4), child: _chips(l)),
-                    _sortRow(l, wide: true),
+                    if (_searching) Padding(padding: const EdgeInsets.only(top: 4), child: _chips(l)),
+                    // Thanh "Đã chọn N" nằm đè lên hàng sắp xếp (cùng chiều cao): chọn / bỏ chọn không đẩy danh sách lên xuống.
+                    Stack(children: [
+                      Visibility(visible: _sel.isEmpty, maintainSize: true, maintainAnimation: true, maintainState: true, child: _sortRow(l, wide: true)),
+                      if (_sel.isNotEmpty) Positioned.fill(child: _selectionBar(l, compact: true)),
+                    ]),
                     Expanded(child: _content(l, wide: true)),
                   ]),
                 ),
