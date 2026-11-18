@@ -167,11 +167,28 @@ class ThreadViewState extends State<ThreadView> {
       ) ??
       false;
 
-  /// Bật khung AI và cho AI đọc cuộc hội thoại (lần đầu: tóm tắt + bản nháp).
+  final _aiKey = GlobalKey();
+
+  /// Cuộn tới khung AI (ở cuối cuộc hội thoại).
+  void _showAi() => WidgetsBinding.instance.addPostFrameCallback((_) {
+        final c = _aiKey.currentContext;
+        if (c != null && c.mounted) Scrollable.ensureVisible(c, duration: const Duration(milliseconds: 250), curve: Curves.easeOut, alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd);
+      });
+
+  /// Thư cuối không phải của mình đến từ máy (no-reply, cảnh báo…): AI chỉ tóm tắt, không soạn trả lời.
+  bool get _automated {
+    if (_ai?.automated == true) return true;
+    final me = store.me?.person.email.toLowerCase();
+    final last = _t?.messages.lastWhere((m) => m.from.email.toLowerCase() != me, orElse: () => _t!.messages.last);
+    return last != null && isAutomatedSender(last.from.email);
+  }
+
+  /// Bật khung AI (cuối cuộc hội thoại) và cho AI đọc (lần đầu: tóm tắt + bản nháp, thư tự động thì chỉ tóm tắt).
   Future<void> openAi() async {
     setState(() => _aiOpen = true);
+    _showAi();
     if (_ai == null && !_aiBusy) await _runAi();
-    if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+    _showAi();
   }
 
   /// "AI soạn trả lời": AI viết bản nháp rồi mở ô trả lời với nội dung đó (không tự gửi).
@@ -182,7 +199,12 @@ class ThreadViewState extends State<ThreadView> {
     try {
       final r = await store.api.ai(t.summary.id, task: 'draft', tone: _aiTone);
       if (!mounted) return;
-      if (r.draft.trim().isEmpty) {
+      if (r.automated) {
+        // Máy chủ nhận ra thư tự động (header List-Unsubscribe / Auto-Submitted…): báo rõ, ẩn nút, mở khung tóm tắt.
+        setState(() => (_ai = r, _aiOpen = true));
+        _showAi();
+        _snack('Thư tự động, không cần trả lời');
+      } else if (r.draft.trim().isEmpty) {
         _snack('AI chưa soạn được thư trả lời, thử lại sau');
       } else {
         reply('all', null, r.draft);
@@ -201,7 +223,7 @@ class ThreadViewState extends State<ThreadView> {
       _aiErr = null;
     });
     try {
-      final r = await store.api.ai(t.summary.id, task: store.readOnly ? 'summary' : 'draft', instruction: _aiAsk.text.trim(), tone: _aiTone);
+      final r = await store.api.ai(t.summary.id, task: store.readOnly || _automated ? 'summary' : 'draft', instruction: _aiAsk.text.trim(), tone: _aiTone);
       if (mounted) setState(() => _ai = r);
     } catch (e) {
       if (mounted) setState(() => _aiErr = e);
@@ -459,8 +481,9 @@ class ThreadViewState extends State<ThreadView> {
               ],
             ),
           ),
-          if (_aiOpen) Padding(padding: EdgeInsets.fromLTRB(pad, 4, 16, 12), child: _aiPanel(mc)),
           for (var i = 0; i < t.messages.length; i++) _message(t, t.messages[i], i, mc),
+          // AI đọc thư: ở cuối, sau thư cuối, ngay trên phần trả lời (Sếp, 18/11).
+          if (_aiOpen) Padding(key: _aiKey, padding: EdgeInsets.fromLTRB(pad, 12, 16, 4), child: _aiPanel(mc)),
           if (store.readOnly)
             const SizedBox.shrink()
           else if (_inline != null && widget.inlineReply != null)
@@ -480,7 +503,7 @@ class ThreadViewState extends State<ThreadView> {
                 children: [
                   _replyBtn(Icons.reply, 'Trả lời', () => reply('all')),
                   _replyBtn(Icons.forward, 'Chuyển tiếp', () => reply('fwd')),
-                  if (!store.readOnly)
+                  if (!store.readOnly && !_automated)
                     OutlinedButton.icon(
                       key: const ValueKey('mail-ai-reply'),
                       onPressed: _aiReplyBusy ? null : aiReply,
@@ -587,7 +610,17 @@ class ThreadViewState extends State<ThreadView> {
                 ]),
               ),
           ],
-          if (!store.readOnly && r.draft.isNotEmpty) ...[
+          if (_automated)
+            Padding(
+              key: const ValueKey('mail-ai-automated'),
+              padding: const EdgeInsets.only(top: 10, right: 8),
+              child: Row(children: [
+                Icon(Icons.smart_toy_outlined, size: 15, color: mc.muted),
+                const SizedBox(width: 6),
+                Expanded(child: Text('Thư tự động, không cần trả lời', style: TextStyle(fontSize: 12.5, color: mc.muted))),
+              ]),
+            ),
+          if (!store.readOnly && !_automated && r.draft.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text('Bản nháp trả lời', style: TextStyle(fontSize: 12.5, color: mc.muted, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
@@ -599,7 +632,7 @@ class ThreadViewState extends State<ThreadView> {
             ),
           ],
         ],
-        if (!store.readOnly) ...[
+        if (!store.readOnly && !_automated) ...[
           const SizedBox(height: 10),
           Wrap(spacing: 6, runSpacing: 6, children: [tone('polite', 'Lịch sự'), tone('casual', 'Thân mật'), tone('short', 'Ngắn gọn')]),
           const SizedBox(height: 8),
