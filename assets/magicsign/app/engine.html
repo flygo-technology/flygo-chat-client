@@ -16,5 +16,5 @@
       });
     }
     window.flutter_inappwebview.callHandler("ms", { op: "engine.ready" });
-  })();
+  })().catch((error) => console.error("engine start failed: " + (error && error.message)));
 </script>

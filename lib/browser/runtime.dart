@@ -369,7 +369,21 @@ class KysoHost {
       },
       onConsoleMessage: (_, message) => kysoTrace('engine: ${message.message}'),
       onLoadStart: (_, url) => kysoTrace('engine tải $url'),
-      onLoadStop: (_, url) => kysoTrace('engine tải xong $url'),
+      onLoadStop: (controller, url) {
+        kysoTrace('engine tải xong $url');
+        // Engine chưa báo sẵn sàng sau 5 giây: ghi trạng thái trang để biết kẹt ở đâu.
+        Timer(const Duration(seconds: 5), () async {
+          if (_engineReady.isCompleted) return;
+          try {
+            final state = await controller.evaluateJavascript(
+                source: 'JSON.stringify({ready: typeof window.__msReady, chrome: typeof window.chrome, runtime: typeof (window.chrome && chrome.runtime && chrome.runtime.getURL), '
+                    'bridge: typeof (window.flutter_inappwebview && window.flutter_inappwebview.callHandler), scripts: [...document.scripts].map((s) => s.src).filter(Boolean)})');
+            kysoTrace('engine chưa sẵn sàng: $state');
+          } catch (e) {
+            kysoTrace('engine chưa sẵn sàng, không đọc được trang: $e');
+          }
+        });
+      },
       onReceivedError: (_, request, error) => kysoTrace('engine lỗi tải ${request.url}: ${error.type} ${error.description}'),
       onReceivedHttpError: (_, request, response) => kysoTrace('engine lỗi HTTP ${request.url}: ${response.statusCode}'),
     );
