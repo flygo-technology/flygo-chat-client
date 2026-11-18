@@ -4,6 +4,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../../data/image_disk_cache.dart' show fetchImageBytes;
 
 import '../open_file.dart' show openLocalFile;
 import 'attachments.dart';
@@ -12,7 +15,6 @@ import 'html_view.dart';
 import 'image_trust.dart';
 import 'skeleton.dart';
 import 'model.dart';
-import 'photos.dart';
 import 'store.dart';
 import 'widgets.dart';
 
@@ -305,28 +307,51 @@ class ThreadViewState extends State<ThreadView> {
   final _inlineImgs = <String, Future<Uint8List?>>{};
   Future<Uint8List?> _inlineImage(String path) => _inlineImgs.putIfAbsent(path, () => store.api.inlineImage(path));
 
-  MailPhotos _photos(MailMessage m) =>
-      MailPhotos.of(m, mailBodyImages(m.html, loadImages: _imagesOn(m)), _files, inlineImage: _inlineImage, saveToDrive: MailHooks.saveToDrive);
-
-  /// Bấm ảnh trong thân thư: trình xem ảnh của thư (mọi ảnh của thư xếp dọc) tại ảnh đó.
-  void _viewImage(MailMessage m, String src) {
-    final p = _photos(m);
-    openMailPhotos(context, p, p.indexOfSrc(src));
+  /// Mọi thứ xem được của thư [m], một dãy cho trình xem tệp: ảnh trong thân thư (bỏ biểu tượng nhỏ; ảnh mạng chỉ khi đã cho
+  /// hiện), rồi các tệp đính kèm (bỏ tệp trùng ảnh đã dán trong thư).
+  List<MailAttachment> _viewItems(MailMessage m) {
+    String path(String u) => u.split('?').first;
+    final body = mailBodyImages(m.html, loadImages: _imagesOn(m));
+    final inBody = body.map(path).toSet();
+    return [
+      for (final (n, src) in body.indexed) _bodyImage(m, src, n + 1),
+      for (final a in m.attachments)
+        if (!inBody.contains(path(a.url))) a,
+    ];
   }
 
-  /// Ảnh đính kèm: trình xem ảnh của thư; PDF / tệp khác: trình xem tệp (vuốt giữa các tệp không phải ảnh).
+  /// Ảnh trong thân thư thành một "tệp" của trình xem: lấy qua máy chủ thư (ảnh dán, có vé) hoặc từ mạng, ghi ra thư mục tạm.
+  MailAttachment _bodyImage(MailMessage m, String src, int n) {
+    final seg = Uri.tryParse(src)?.pathSegments.lastOrNull ?? '';
+    final name = RegExp(r'\.(jpe?g|png|gif|webp|bmp)$', caseSensitive: false).hasMatch(seg) ? Uri.decodeComponent(seg) : 'anh-trong-thu-$n.jpg';
+    final a = MailAttachment(id: 'body:${m.id}:$src', name: name, type: 'image/*', url: src);
+    _files.register(a, () async {
+      final b = src.startsWith('/mail/api/attachments/') ? await _inlineImage(src) : await fetchImageBytes(src);
+      if (b == null) throw StateError('Không tải được ảnh');
+      final dir = Directory('${(await getTemporaryDirectory()).path}${Platform.pathSeparator}mail-anh${Platform.pathSeparator}${m.id.hashCode.toUnsigned(32)}');
+      await dir.create(recursive: true);
+      final f = File('${dir.path}${Platform.pathSeparator}${name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')}');
+      return f.writeAsBytes(b);
+    });
+    return a;
+  }
+
+  void _openViewer(List<MailAttachment> items, int index) => Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => AttachmentViewer(items: items, index: index.clamp(0, items.length - 1), files: _files, onOpenExternal: _openAttachment, saveToDrive: MailHooks.saveToDrive),
+      ));
+
+  /// Bấm ảnh trong thân thư: trình xem tệp của thư, tại ảnh đó.
+  void _viewImage(MailMessage m, String src) {
+    final items = _viewItems(m);
+    _openViewer(items, items.indexWhere((x) => x.url == src));
+  }
+
+  /// Bấm tệp đính kèm: trình xem tệp của thư, tại tệp đó (tệp trùng ảnh trong thư: tại ảnh trong thư).
   void _view(MailMessage m, MailAttachment a) {
-    if (isImageAttachment(a)) {
-      final p = _photos(m);
-      final i = p.indexOfAttachment(a);
-      // Ảnh đính kèm cũng dán trong thư: mở tại ảnh trong thư.
-      openMailPhotos(context, p, i >= 0 ? i : p.photos.indexWhere((x) => x.src?.split('?').first == a.url.split('?').first));
-      return;
-    }
-    final items = m.attachments.where((x) => !isImageAttachment(x)).toList();
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => AttachmentViewer(items: items, index: items.indexOf(a), files: _files, onOpenExternal: _openAttachment, saveToDrive: MailHooks.saveToDrive),
-    ));
+    final items = _viewItems(m);
+    var i = items.indexWhere((x) => x.id == a.id);
+    if (i < 0) i = items.indexWhere((x) => x.url.split('?').first == a.url.split('?').first);
+    _openViewer(items, i);
   }
 
   Future<void> _download(MailAttachment a) async {
@@ -354,7 +379,7 @@ class ThreadViewState extends State<ThreadView> {
     final ms = ScaffoldMessenger.maybeOf(context);
     ms?.showSnackBar(SnackBar(content: Text('Đang mở "${a.name}"…'), duration: const Duration(seconds: 2)));
     try {
-      final f = await store.api.download(a);
+      final f = await _files.file(a);
       if (mounted) await MailHooks.openFile(context, f.path, a);
     } catch (e) {
       _snack('Không mở được tệp: $e');

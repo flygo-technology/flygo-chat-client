@@ -1,5 +1,5 @@
-// Trình xem ảnh của Thư: bấm ảnh trong thư / ảnh đính kèm mở mọi ảnh của thư xếp dọc (như Bảng tin), phóng to,
-// phím, thao tác; quay lại giữ chỗ cuộn. Ảnh chụp (chạy tay): MAIL_OUT=<thư mục> flutter test test/mail_photos_test.dart
+// Trình xem tệp của Thư (từng tệp một, như PDF / Drive): bấm ảnh trong thư / tệp đính kèm mở một dãy chung (ảnh trong thư,
+// ảnh và PDF đính kèm), ảnh vừa màn hình, Ctrl + lăn chuột phóng to, bấm đúp, ← → chuyển tệp; quay lại giữ chỗ cuộn. Ảnh chụp (chạy tay): MAIL_OUT=<thư mục> flutter test test/mail_photos_test.dart
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -8,14 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flygo_chat/ui/bang_tin/photo_list.dart';
-import 'package:flygo_chat/ui/clip.dart';
 import 'package:flygo_chat/ui/mail/attachments.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/html_view.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
-import 'package:flygo_chat/ui/mail/photos.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
 import 'package:flygo_chat/ui/mail/thread_view.dart' show MailHooks;
 import 'package:flygo_chat/ui/theme.dart';
@@ -113,6 +110,9 @@ void main() {
       ..clear()
       ..clearLiveImages();
     AttachmentThumb.pdfThumbs = false;
+    // Ảnh trong thân thư được ghi ra thư mục tạm khi mở trong trình xem.
+    final tmp = Directory.systemTemp.createTempSync('mail-photos');
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/path_provider'), (_) async => tmp.path);
     final api = _Api();
     await t.runAsync(() async {
       if (out != null) await _fonts();
@@ -133,8 +133,8 @@ void main() {
     return (api, th);
   }
 
-  Finder photos() => find.descendant(of: find.byType(PhotoColumn), matching: find.byType(Image));
-  PhotoZoomScopeState zoom(WidgetTester t) => t.state<PhotoZoomScopeState>(find.byType(PhotoZoomScope));
+  ZoomImageState img(WidgetTester t) => t.state<ZoomImageState>(find.byType(ZoomImage).hitTestable());
+  String pos(WidgetTester t) => (t.widget<Text>(find.byKey(const ValueKey('att-pos'))).data ?? '');
   Finder threadScroll() => find.ancestor(of: find.byKey(const ValueKey('mail-img-$_inlineSrc')), matching: find.byType(Scrollable)).first;
 
   test('ảnh xem được trong thân thư: ảnh dán + ảnh mạng khi cho hiện, bỏ biểu tượng ≤ 48px', () {
@@ -144,142 +144,119 @@ void main() {
     expect(mailBodyImages(html, loadImages: true), ['/mail/api/attachments/a/b', 'https://x/y.png']);
   });
 
-  testWidgets('điện thoại: bấm ảnh trong thư mở trình xem mọi ảnh của thư; bấm đúp phóng to; quay lại giữ chỗ cuộn', (t) async {
+  testWidgets('điện thoại: bấm ảnh trong thư mở trình xem từng tệp tại ảnh đó (1/4); bấm đúp phóng to; quay lại giữ chỗ cuộn', (t) async {
     await openThread(t, const Size(390, 844), ratio: 2);
-    final img = find.byKey(const ValueKey('mail-img-$_inlineSrc'));
-    await t.ensureVisible(img);
+    final inline = find.byKey(const ValueKey('mail-img-$_inlineSrc'));
+    await t.ensureVisible(inline);
     await t.pumpAndSettle();
     final before = t.state<ScrollableState>(threadScroll()).position.pixels;
     await shot(t, 'phone-1-thu');
-    await t.tap(img);
-    await settle(t, 8);
-    expect(find.byType(MailPhotoPage), findsOneWidget);
-    // 1 ảnh dán trong thư + 3 ảnh đính kèm; biểu tượng 16px không vào trình xem.
-    expect(find.byType(PhotoColumn), findsOneWidget);
-    expect(t.widget<PhotoColumn>(find.byType(PhotoColumn)).ids.length, 4);
-    expect(find.text('1/4'), findsOneWidget);
-    expect(find.byKey(const ValueKey('photo-download')), findsOneWidget);
-    expect(find.byKey(const ValueKey('photo-copy')), findsOneWidget);
+    await t.tap(inline);
+    for (var i = 0; i < 20 && find.byType(ZoomImage).evaluate().isEmpty; i++) {
+      await settle(t, 2);
+    }
+    expect(find.byType(AttachmentViewer), findsOneWidget);
+    // Một dãy: ảnh trong thư + 3 ảnh đính kèm (biểu tượng 16px không vào); một tệp mỗi lần, không xếp dọc.
+    expect(pos(t), '1/4');
+    expect(find.byType(ZoomImage).hitTestable(), findsOneWidget);
+    expect(find.byKey(const ValueKey('att-download')), findsOneWidget);
+    expect(find.byTooltip('In'), findsOneWidget);
     await shot(t, 'phone-2-xem-anh');
-
-    // Bấm đúp phóng to, bấm đúp lần nữa về danh sách.
-    final c = t.getCenter(photos().at(0));
-    Future<void> doubleTap() async {
-      await t.tapAt(c);
-      await t.pump(const Duration(milliseconds: 80));
-      await t.tapAt(c);
-      await t.pumpAndSettle();
-    }
-
-    await doubleTap();
-    expect(zoom(t).zoomed, isTrue);
-    expect(find.byTooltip('Thu nhỏ'), findsOneWidget);
+    final c = t.getCenter(find.byType(ZoomImage).hitTestable());
+    await t.tapAt(c);
+    await t.pump(const Duration(milliseconds: 80));
+    await t.tapAt(c);
+    await t.pumpAndSettle();
+    expect(img(t).scale, greaterThan(2));
     await shot(t, 'phone-3-phong-to');
-    await doubleTap();
-    expect(zoom(t).zoomed, isFalse);
-
-    // Chụm hai ngón phóng to, thả: vẫn phóng to; nút quay lại thu nhỏ trước, lần nữa mới đóng trình xem.
-    final a = await t.startGesture(c - const Offset(20, 0), pointer: 1);
-    await t.pump(const Duration(milliseconds: 20));
-    final b = await t.startGesture(c + const Offset(20, 0), pointer: 2);
-    for (var i = 1; i <= 8; i++) {
-      await a.moveTo(c - Offset(20 + 10.0 * i, 0));
-      await b.moveTo(c + Offset(20 + 10.0 * i, 0));
-      await t.pump(const Duration(milliseconds: 16));
-    }
-    await a.up();
-    await b.up();
+    await t.tapAt(c);
+    await t.pump(const Duration(milliseconds: 80));
+    await t.tapAt(c);
     await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isTrue);
+    expect(img(t).scale, closeTo(1, .01));
+    // Vuốt sang tệp sau.
+    await t.fling(find.byType(PageView), const Offset(-300, 0), 1200);
+    await t.pumpAndSettle();
+    expect(pos(t), '2/4');
     await t.binding.handlePopRoute();
     await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isFalse);
-    expect(find.byType(MailPhotoPage), findsOneWidget);
-    await t.binding.handlePopRoute();
-    await t.pumpAndSettle();
-    expect(find.byType(MailPhotoPage), findsNothing);
+    expect(find.byType(AttachmentViewer), findsNothing);
     expect(t.state<ScrollableState>(threadScroll()).position.pixels, before);
-    expect(find.byKey(const ValueKey('mail-img-$_inlineSrc')), findsOneWidget);
   });
 
-  testWidgets('máy tính: bấm ảnh đính kèm mở tại ảnh đó; Ctrl + lăn chuột phóng to; phím mũi tên, Esc; Sao chép / Drive', (t) async {
+  testWidgets('máy tính: bấm ảnh đính kèm mở tại ảnh đó; lăn chuột thường không phóng to; Ctrl + lăn chuột phóng to, rồi lăn để di chuyển; ← →, Esc; In / Drive', (t) async {
     final (api, _) = await openThread(t, const Size(1440, 900));
     final saved = <List<String>>[];
     MailHooks.saveToDrive = (context, files) async => saved.add([for (final f in files) f.$2]);
     addTearDown(() => MailHooks.saveToDrive = null);
-    Uint8List? copied;
-    copyImageOverride = (b) async {
-      copied = b;
+    final printed = <String>[];
+    printOverride = (name, pdf) async {
+      printed.add(name);
       return true;
     };
-    addTearDown(() => copyImageOverride = null);
-    // Thẻ ảnh đính kèm thứ hai (MailHooks đặt sau khi mở thư: dựng lại cho có nút Drive).
+    addTearDown(() => printOverride = null);
     await t.scrollUntilVisible(find.text('nghiem-thu-2.jpg'), 200, scrollable: threadScroll());
     await t.drag(threadScroll(), const Offset(0, -200));
     await t.pumpAndSettle();
     await t.tap(find.text('nghiem-thu-2.jpg'));
     await settle(t, 8);
-    expect(find.byType(MailPhotoPage), findsOneWidget);
-    expect(find.byType(AttachmentViewer), findsNothing);
-    expect(find.text('3/4'), findsOneWidget);
-    expect(find.byKey(const ValueKey('photo-drive')), findsOneWidget);
+    expect(find.byType(AttachmentViewer), findsOneWidget);
+    expect(pos(t), '3/4');
     await shot(t, 'desktop-1-xem-anh');
-
-    // Sao chép ảnh, Lưu vào Drive của ảnh đang xem.
-    await t.tap(find.byKey(const ValueKey('photo-copy')));
-    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
-    await t.pump();
-    expect(copied, api.png['nghiem-thu-2.jpg']);
-    await t.tap(find.byKey(const ValueKey('photo-drive')));
+    final at = t.getCenter(find.byType(ZoomImage).hitTestable());
+    final mouse = TestPointer(1, PointerDeviceKind.mouse);
+    await t.sendEventToBinding(mouse.hover(at));
+    // Vừa màn hình: lăn chuột thường không làm gì.
+    await t.sendEventToBinding(mouse.scroll(const Offset(0, -200)));
+    await t.pumpAndSettle();
+    expect(img(t).scale, closeTo(1, .01));
+    // Ctrl + lăn chuột: phóng to quanh con trỏ.
+    await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await t.sendEventToBinding(mouse.scroll(const Offset(0, -200)));
+    await t.pumpAndSettle();
+    await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(img(t).scale, greaterThan(2));
+    await shot(t, 'desktop-2-phong-to');
+    // Đã phóng to: lăn chuột là di chuyển, không đổi cỡ.
+    final s0 = img(t).scale;
+    await t.sendEventToBinding(mouse.scroll(const Offset(0, 100)));
+    await t.pumpAndSettle();
+    expect(img(t).scale, closeTo(s0, .001));
+    // In, Lưu vào Drive của tệp đang xem.
+    await t.tap(find.descendant(of: find.byType(AppBar), matching: find.byTooltip('In')));
+    for (var i = 0; i < 30 && printed.isEmpty; i++) {
+      await settle(t, 1);
+    }
+    expect(printed, ['nghiem-thu-2.jpg']);
+    await t.tap(find.byKey(const ValueKey('att-drive')));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
     await t.pump();
     expect(saved.last, ['nghiem-thu-2.jpg']);
-
-    // Mũi tên xuống / lên: sang ảnh sau / trước.
-    await t.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    // ← →: tệp trước / sau (ảnh trong thư là tệp đầu).
+    await t.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await t.pumpAndSettle();
-    expect(find.text('4/4'), findsOneWidget);
-    await t.sendKeyEvent(LogicalKeyboardKey.arrowUp);
-    await t.sendKeyEvent(LogicalKeyboardKey.arrowUp);
-    await t.pumpAndSettle();
-    expect(find.text('2/4'), findsOneWidget);
-
-    // Ctrl + lăn chuột trên ảnh: phóng to (không cuộn danh sách); lăn chuột ngược về cỡ gốc thì về danh sách.
-    final list = t.state<ScrollableState>(find.descendant(of: find.byKey(const ValueKey('mail-photos')), matching: find.byType(Scrollable)));
-    final pos = list.position.pixels;
-    final i = zoom(t).currentIndex!;
-    final at = t.getCenter(photos().at(i));
-    await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    final mouse = TestPointer(1, PointerDeviceKind.mouse);
-    await t.sendEventToBinding(mouse.hover(at));
-    await t.sendEventToBinding(mouse.scroll(const Offset(0, -200)));
-    await t.pumpAndSettle();
-    await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    expect(zoom(t).zoomed, isTrue);
-    expect(list.position.pixels, pos);
-    await shot(t, 'desktop-2-phong-to');
-    await t.sendEventToBinding(mouse.scroll(const Offset(0, 600)));
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isFalse);
-
-    // Lăn chuột không giữ Ctrl: cuộn danh sách, không phóng to.
-    await t.sendEventToBinding(mouse.scroll(const Offset(0, 120)));
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isFalse);
-    // Esc: đang phóng to thì thu nhỏ; không thì đóng trình xem, về thư.
-    await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await t.sendEventToBinding(mouse.hover(t.getCenter(photos().at(zoom(t).currentIndex!))));
-    await t.sendEventToBinding(mouse.scroll(const Offset(0, -200)));
-    await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isTrue);
+    expect(pos(t), '4/4');
+    await t.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await t.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await t.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    // (ảnh trong thư đang tải: vòng chờ quay, không chờ "settle")
+    await settle(t, 6);
+    expect(pos(t), '1/4');
+    expect(find.widgetWithText(AppBar, 'so-do.png'), findsNothing);
+    // Ảnh trong thư cũng in được (ảnh thành PDF).
+    for (var i = 0; i < 30 && find.byType(ZoomImage).hitTestable().evaluate().isEmpty; i++) {
+      await settle(t, 1);
+    }
+    await t.tap(find.descendant(of: find.byType(AppBar), matching: find.byTooltip('In')));
+    for (var i = 0; i < 30 && printed.length < 2; i++) {
+      await settle(t, 1);
+    }
+    expect(printed.length, 2);
+    expect(api.asked, contains(_inlineSrc));
+    // Esc: đóng, về thư.
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isFalse);
-    expect(find.byType(MailPhotoPage), findsOneWidget);
-    await t.sendKeyEvent(LogicalKeyboardKey.escape);
-    await t.pumpAndSettle();
-    expect(find.byType(MailPhotoPage), findsNothing);
+    expect(find.byType(AttachmentViewer), findsNothing);
     expect(find.text('nghiem-thu-2.jpg'), findsOneWidget);
   });
 
@@ -293,43 +270,6 @@ void main() {
       expect(find.text('Báo cáo thư rác'), findsOneWidget);
     });
   }
-
-  testWidgets('máy tính: lăn chuột (không cần Ctrl) phóng to ảnh, bấm một lần cũng phóng to, ← → chuyển ảnh', (t) async {
-    await openThread(t, const Size(1440, 900));
-    await t.scrollUntilVisible(find.text('nghiem-thu-1.jpg'), 200, scrollable: threadScroll());
-    await t.drag(threadScroll(), const Offset(0, -200));
-    await t.pumpAndSettle();
-    await t.tap(find.text('nghiem-thu-1.jpg'));
-    await settle(t, 8);
-    expect(find.text('2/4'), findsOneWidget);
-    final mouse = TestPointer(1, PointerDeviceKind.mouse);
-    await t.sendEventToBinding(mouse.hover(t.getCenter(photos().at(zoom(t).currentIndex!))));
-    await t.sendEventToBinding(mouse.scroll(const Offset(0, -200)));
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isTrue);
-    // Lăn ngược về cỡ gốc: về danh sách.
-    await t.sendEventToBinding(mouse.scroll(const Offset(0, 600)));
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isFalse);
-    // Bấm một lần vào ảnh: phóng to; bấm lần nữa: thu nhỏ.
-    final c = t.getCenter(photos().at(zoom(t).currentIndex!));
-    // (một chạm chỉ được nhận sau thời gian chờ chạm đúp)
-    await t.tapAt(c);
-    await t.pump(const Duration(milliseconds: 400));
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isTrue);
-    await t.tapAt(c);
-    await t.pump(const Duration(milliseconds: 400));
-    await t.pumpAndSettle();
-    expect(zoom(t).zoomed, isFalse);
-    // ← →: ảnh trước / sau.
-    await t.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    await t.pumpAndSettle();
-    expect(find.text('3/4'), findsOneWidget);
-    await t.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
-    await t.pumpAndSettle();
-    expect(find.text('2/4'), findsOneWidget);
-  });
 
   testWidgets('ảnh từ mạng đang ẩn: không bấm được; PDF vẫn mở trình xem tệp', (t) async {
     t.view.physicalSize = const Size(800, 600);

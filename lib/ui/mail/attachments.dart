@@ -3,7 +3,9 @@
 // và Lưu vào Drive (chọn thư mục, tải lên nền).
 // Tệp luôn đi qua máy chủ thư với vé của người dùng (kiểm quyền hộp thư mỗi lần), không có link công khai.
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -91,12 +93,19 @@ class AttachmentFiles {
   AttachmentFiles(this.api);
   final MailApi api;
   final _files = <String, Future<File>>{};
+  final _loaders = <String, Future<File> Function()>{};
 
-  Future<File> file(MailAttachment a) => _files.putIfAbsent(a.id, () => api.download(a).catchError((Object e) {
+  /// Tệp không đến từ máy chủ thư theo cách thường (ảnh trong thân thư): cách lấy riêng, theo mã của [a].
+  void register(MailAttachment a, Future<File> Function() load) => _loaders[a.id] = load;
+
+  Future<File> file(MailAttachment a) => _files.putIfAbsent(a.id, () => (_loaders[a.id]?.call() ?? api.download(a)).catchError((Object e) {
         _files.remove(a.id);
         throw e;
       }));
 }
+
+/// Ảnh trong thân thư dưới dạng "tệp" của trình xem (mã bắt đầu bằng body:), để xem / tải / in / lưu Drive như tệp đính kèm.
+bool isBodyImage(MailAttachment a) => a.id.startsWith('body:');
 
 /// Móc nối Lưu vào Drive (mail_page gắn: chọn thư mục Drive của người dùng rồi tải lên nền). Null = không có Drive.
 typedef SaveToDrive = Future<void> Function(BuildContext context, List<(String path, String name)> files);
@@ -166,8 +175,9 @@ final mailPdfParams = PdfViewerParams(
   onKey: (params, key, isRealKeyPress) => key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight ? false : null,
 );
 
-/// Trình xem toàn màn hình: vuốt qua lại giữa các tệp của thư; ảnh phóng to được, PDF xem trong app,
-/// tệp khác thì mở bằng ứng dụng trên máy. Thanh trên: Tải về, Lưu vào Drive, Mở bằng ứng dụng khác.
+/// Trình xem toàn màn hình, từng tệp một (như xem PDF / Drive): ảnh trong thư, ảnh và PDF đính kèm, tệp khác cùng một dãy;
+/// ← → (điện thoại: vuốt) sang tệp trước / sau. Ảnh vừa màn hình khi mở ([ZoomImage]); PDF xem trong app; tệp khác mở bằng
+/// ứng dụng trên máy. Thanh trên: Đóng, tên + n/N, Tải về, In, Lưu vào Drive, Mở bằng ứng dụng khác.
 class AttachmentViewer extends StatefulWidget {
   const AttachmentViewer({super.key, required this.items, required this.index, required this.files, required this.onOpenExternal, this.saveToDrive});
   final List<MailAttachment> items;
@@ -183,15 +193,24 @@ class AttachmentViewer extends StatefulWidget {
 class _AttachmentViewerState extends State<AttachmentViewer> {
   late int _i = widget.index;
   late final _pages = PageController(initialPage: widget.index);
+  /// Ảnh đang phóng to: khoá vuốt sang tệp khác (kéo là di chuyển trong ảnh).
+  bool _zoomed = false;
 
   MailAttachment get _cur => widget.items[_i];
 
   /// Sang tệp trước / sau (phím ← →, cả khi đang xem PDF).
   void _go(int d) {
-    final i = _i + d;
+    final i = (_target ?? _i) + d;
     if (i < 0 || i >= widget.items.length) return;
-    _pages.animateToPage(i, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+    setState(() => _zoomed = false);
+    _target = i;
+    _pages.animateToPage(i, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic).whenComplete(() {
+      if (_target == i) _target = null;
+    });
   }
+
+  /// Tệp đang chuyển tới (bấm phím liên tiếp khi trang chưa chuyển xong).
+  int? _target;
 
   @override
   void dispose() {
@@ -249,18 +268,24 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0B0D12),
         foregroundColor: fg,
-        title: Text(_cur.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16)),
+        leading: IconButton(tooltip: 'Đóng', icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.maybePop(context)),
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(_cur.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16)),
+          if (widget.items.length > 1)
+            Text('${_i + 1}/${widget.items.length}', key: const ValueKey('att-pos'), style: const TextStyle(fontSize: 12, color: Colors.white60)),
+        ]),
         actions: [
           IconButton(key: const ValueKey('att-download'), tooltip: 'Tải về', icon: const Icon(Icons.download_rounded), onPressed: _download),
           if (canPrint(_cur)) AttachmentPrintButton(_cur, key: _printKey, files: widget.files, color: fg, size: 48, iconSize: 24),
           if (widget.saveToDrive != null) IconButton(key: const ValueKey('att-drive'), tooltip: 'Lưu vào Drive', icon: const Icon(Icons.add_to_drive_rounded), onPressed: _drive),
-          IconButton(tooltip: 'Mở bằng ứng dụng khác', icon: const Icon(Icons.open_in_new_rounded), onPressed: () => widget.onOpenExternal(_cur)),
+          if (!isBodyImage(_cur)) IconButton(tooltip: 'Mở bằng ứng dụng khác', icon: const Icon(Icons.open_in_new_rounded), onPressed: () => widget.onOpenExternal(_cur)),
         ],
       ),
       body: PageView.builder(
         controller: _pages,
+        physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
         itemCount: widget.items.length,
-        onPageChanged: (i) => setState(() => _i = i),
+        onPageChanged: (i) => setState(() => (_i = i, _zoomed = false)),
         itemBuilder: (context, i) => _page(widget.items[i]),
       ),
     );
@@ -289,10 +314,127 @@ class _AttachmentViewerState extends State<AttachmentViewer> {
           return Center(child: snap.hasError ? Text('Không tải được tệp: ${snap.error}', style: const TextStyle(color: fg)) : const CircularProgressIndicator());
         }
         if (isImageAttachment(a)) {
-          return InteractiveViewer(maxScale: 8, child: Center(child: Image.file(f, errorBuilder: (_, _, _) => const Text('Không hiển thị được ảnh này', style: TextStyle(color: fg)))));
+          return ZoomImage(
+            key: ValueKey('att-img-${a.id}'),
+            image: FileImage(f),
+            onZoomChanged: (z) {
+              if (z != _zoomed && mounted) setState(() => _zoomed = z);
+            },
+          );
         }
         return PdfViewer.file(f.path, params: mailPdfParams);
       },
     );
   }
+}
+
+/// Ảnh trong trình xem tệp: vừa màn hình khi mở; Ctrl/Cmd + lăn chuột phóng to quanh con trỏ (như PDF), đã phóng to thì
+/// lăn chuột là di chuyển (vừa màn hình thì không làm gì); bấm đúp: phóng to / về vừa màn hình; chụm hai ngón.
+class ZoomImage extends StatefulWidget {
+  const ZoomImage({super.key, required this.image, this.onZoomChanged});
+  final ImageProvider image;
+  final ValueChanged<bool>? onZoomChanged;
+
+  @override
+  State<ZoomImage> createState() => ZoomImageState();
+}
+
+class ZoomImageState extends State<ZoomImage> {
+  static const maxScale = 8.0;
+  final _tc = TransformationController();
+  Size _view = Size.zero;
+  Offset _tapAt = Offset.zero;
+  bool _zoomed = false;
+
+  double get scale => _tc.value.getMaxScaleOnAxis();
+
+  @override
+  void initState() {
+    super.initState();
+    _tc.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    _tc.dispose();
+    super.dispose();
+  }
+
+  void _changed() {
+    final z = scale > 1.01;
+    if (z != _zoomed) {
+      _zoomed = z;
+      widget.onZoomChanged?.call(z);
+    }
+  }
+
+  /// Giữ ảnh phủ khung: không kéo ra ngoài mép.
+  Matrix4 _clamp(Matrix4 m) {
+    final s = m.getMaxScaleOnAxis();
+    if (s <= 1) return Matrix4.identity();
+    final t = m.getTranslation();
+    final x = t.x.clamp(_view.width * (1 - s), 0.0), y = t.y.clamp(_view.height * (1 - s), 0.0);
+    return Matrix4.identity()
+      ..translateByDouble(x, y, 0, 1)
+      ..scaleByDouble(s, s, 1, 1);
+  }
+
+  /// Phóng [factor] lần quanh điểm [p] của khung.
+  void zoomAt(Offset p, double factor) {
+    final s = (scale * factor).clamp(1.0, maxScale), f = s / scale;
+    _tc.value = _clamp(Matrix4.identity()
+      ..translateByDouble(p.dx, p.dy, 0, 1)
+      ..scaleByDouble(f, f, 1, 1)
+      ..translateByDouble(-p.dx, -p.dy, 0, 1)
+      ..multiply(_tc.value));
+  }
+
+  void _wheel(PointerScrollEvent e) {
+    final k = HardwareKeyboard.instance;
+    // Listener nằm trong InteractiveViewer: đổi toạ độ của ảnh ra toạ độ khung.
+    final p = MatrixUtils.transformPoint(_tc.value, e.localPosition);
+    if (k.isControlPressed || k.isMetaPressed) {
+      zoomAt(p, math.exp(-e.scrollDelta.dy / 200));
+    } else if (_zoomed) {
+      _tc.value = _clamp(Matrix4.identity()
+        ..translateByDouble(-e.scrollDelta.dx, -e.scrollDelta.dy, 0, 1)
+        ..multiply(_tc.value));
+    }
+  }
+
+  void _doubleTap() => scale > 1.01 ? _tc.value = Matrix4.identity() : zoomAt(_tapAt, 2.5);
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, c) {
+          _view = c.biggest;
+          return GestureDetector(
+            onDoubleTapDown: (d) => _tapAt = d.localPosition,
+            onDoubleTap: _doubleTap,
+            child: InteractiveViewer(
+              transformationController: _tc,
+              minScale: 1,
+              maxScale: maxScale,
+              // Lăn chuột không phóng to qua InteractiveViewer (Ctrl + lăn chuột / di chuyển do _wheel lo); chụm vẫn phóng.
+              scaleFactor: double.infinity,
+              panEnabled: _zoomed,
+              child: Listener(
+                // Đăng ký trước InteractiveViewer (nằm sâu hơn): lăn chuột thường không phóng to.
+                onPointerSignal: (e) {
+                  if (e is PointerScrollEvent) GestureBinding.instance.pointerSignalResolver.register(e, (ev) => _wheel(ev as PointerScrollEvent));
+                },
+                child: SizedBox(
+                  width: _view.width,
+                  height: _view.height,
+                  child: Image(
+                    image: widget.image,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Center(child: Text('Không hiển thị được ảnh này', style: TextStyle(color: Colors.white70))),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
 }

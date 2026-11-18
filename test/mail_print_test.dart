@@ -11,7 +11,6 @@ import 'package:flygo_chat/ui/mail/attachments.dart';
 import 'package:flygo_chat/ui/mail/demo.dart';
 import 'package:flygo_chat/ui/mail/mail_page.dart';
 import 'package:flygo_chat/ui/mail/model.dart';
-import 'package:flygo_chat/ui/mail/photos.dart';
 import 'package:flygo_chat/ui/mail/store.dart';
 
 Future<Uint8List> _png() async {
@@ -118,19 +117,4 @@ void main() {
     expect(String.fromCharCodes(pdf.take(5)), '%PDF-');
   });
 
-  testWidgets('trình xem ảnh của thư: thao tác In gửi ảnh thành PDF', (t) async {
-    final png = await t.runAsync(_png);
-    final photos = MailPhotos(
-      messageId: 'm1',
-      photos: [const MailPhoto.body('/mail/api/attachments/m1/a1', name: 'so-do.png')],
-      files: AttachmentFiles(DemoMailApi()),
-      inlineImage: (_) async => png,
-    );
-    late BuildContext ctx;
-    await t.pumpWidget(MaterialApp(home: Scaffold(body: Builder(builder: (c) => (ctx = c, const SizedBox()).$2))));
-    final act = photos.actions(ctx, photos.ids, 0).firstWhere((a) => a.key == const ValueKey('photo-print'));
-    await t.runAsync(act.run);
-    expect(printed.single.$1, 'so-do.png');
-    expect(String.fromCharCodes(printed.single.$2.take(5)), '%PDF-');
-  });
 }
