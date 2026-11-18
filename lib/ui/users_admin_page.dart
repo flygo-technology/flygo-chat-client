@@ -154,7 +154,9 @@ class _UsersAdminPageState extends State<UsersAdminPage> {
     return Scaffold(
       backgroundColor: pal.bg,
       appBar: AppBar(backgroundColor: pal.bg, title: Text(tr('Người dùng'))),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: _viewer != 'admin'
+          ? null
+          : FloatingActionButton.extended(
         onPressed: _create,
         icon: const Icon(Icons.person_add_alt_1_rounded),
         label: Text(tr('Thêm người dùng')),
@@ -201,6 +203,7 @@ class _UsersAdminPageState extends State<UsersAdminPage> {
       children: [
         if (_guard != null) _GuardCard(guard: _guard!, onPatch: _setGuard),
         if (_viewer == 'users_admin') const _ScopedBanner(),
+        if (_viewer == 'user_editor') const _EditorBanner(),
         Padding(
           padding: EdgeInsets.fromLTRB(side, 12, side, 0),
           child: TextField(
@@ -485,6 +488,27 @@ class _ScopedBanner extends StatelessWidget {
   }
 }
 
+/// Người xem có vai trò Sửa tên người dùng.
+class _EditorBanner extends StatelessWidget {
+  const _EditorBanner();
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final side = isDesktop ? 24.0 : 16.0;
+    return Container(
+      key: const ValueKey('editor-banner'),
+      margin: EdgeInsets.fromLTRB(side, 8, side, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFF0EA5E9).withValues(alpha: .10), borderRadius: BorderRadius.circular(14)),
+      child: Row(children: [
+        Icon(Icons.drive_file_rename_outline_rounded, color: toneOn(const Color(0xFF0EA5E9), Theme.of(context).brightness)),
+        const SizedBox(width: 10),
+        Expanded(child: Text(tr('Bạn có quyền sửa tên người dùng. Chọn một người để đổi tên (không đổi được tên quản trị viên).'), style: TextStyle(fontSize: 13, color: pal.text))),
+      ]),
+    );
+  }
+}
+
 /// Danh sách quyền của vai trò Quản trị người dùng (hộp gán vai trò + thẻ Vai trò).
 List<(bool, String)> usersAdminScope() => [
       (true, tr('Xem và sửa thông tin người dùng, tạo tài khoản')),
@@ -531,6 +555,7 @@ class _UserTile extends StatelessWidget {
           ),
           if (u['system_admin'] == true || u['flygo_admin'] == true) _Chip(tr('Quản trị'), _violet),
           if (u['users_admin'] == true) _Chip(tr('QT người dùng'), const Color(0xFF0EA5E9)),
+          if (u['user_editor'] == true) _Chip(tr('Sửa tên'), const Color(0xFF0EA5E9)),
           if (u['is_bot'] == true) _Chip('Bot', pal.sub),
           if (inactive) _Chip(tr('Đã khoá'), _red),
           if (guard && !inactive && u['system_admin'] != true && u['login_allowed'] is bool)
@@ -1298,7 +1323,7 @@ class _UserDetailPageState extends State<UserDetailPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(tr('Sửa thông tin')),
+        title: Text(_nameOnly ? tr('Sửa tên') : tr('Sửa thông tin')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1306,10 +1331,11 @@ class _UserDetailPageState extends State<UserDetailPage> {
               controller: name,
               decoration: InputDecoration(labelText: tr('Họ tên')),
             ),
-            TextField(
-              controller: pos,
-              decoration: InputDecoration(labelText: tr('Chức vụ')),
-            ),
+            if (!_nameOnly)
+              TextField(
+                controller: pos,
+                decoration: InputDecoration(labelText: tr('Chức vụ')),
+              ),
           ],
         ),
         actions: [
@@ -1318,7 +1344,9 @@ class _UserDetailPageState extends State<UserDetailPage> {
         ],
       ),
     );
-    if (ok == true) await _do('PATCH', '/v1/admin/users/${widget.userId}', {'name': name.text.trim(), 'position': pos.text.trim()}, tr('Đã lưu'));
+    if (ok == true) {
+      await _do('PATCH', '/v1/admin/users/${widget.userId}', {'name': name.text.trim(), if (!_nameOnly) 'position': pos.text.trim()}, tr('Đã lưu'));
+    }
   }
 
   Future<void> _password() async {
@@ -1368,6 +1396,8 @@ class _UserDetailPageState extends State<UserDetailPage> {
   Map? get _login => _d?['login'] is Map ? _d!['login'] as Map : null;
   /// Người đang xem là Quản trị người dùng (quyền hẹp).
   bool get _scoped => (_d?['viewer'] as Map?)?['role'] == 'users_admin';
+  /// Người đang xem chỉ có vai trò Sửa tên người dùng: trang chỉ có tên và nút Sửa tên.
+  bool get _nameOnly => (_d?['viewer'] as Map?)?['role'] == 'user_editor';
   /// Quản trị người dùng xem một quản trị viên: chỉ xem.
   bool get _readOnly => _d?['editable'] == false;
 
@@ -1381,6 +1411,8 @@ class _UserDetailPageState extends State<UserDetailPage> {
           ? Center(
               child: _error != null ? Text(_error!, style: TextStyle(color: pal.sub)) : const CircularProgressIndicator(),
             )
+          : _nameOnly
+          ? _nameOnlyBody(pal)
           : LayoutBuilder(
               builder: (context, box) {
                 final grants = _GrantsCard(
@@ -1548,6 +1580,54 @@ class _UserDetailPageState extends State<UserDetailPage> {
     );
   }
 
+  /// Vai trò Sửa tên người dùng: chỉ thẻ tên + nút Sửa tên (hoặc ghi chú không sửa được tên quản trị viên).
+  Widget _nameOnlyBody(Pal pal) {
+    final u = _u;
+    final editable = _d?['editable'] != false;
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: ListView(padding: const EdgeInsets.only(bottom: 32), children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Material(
+              color: pal.surface,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Avatar(userId: widget.userId, name: _name, size: 64),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(_name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20, color: pal.text)),
+                        const SizedBox(height: 4),
+                        Text('@${u['username']}', style: TextStyle(color: pal.sub, fontSize: 13.5)),
+                        if ('${u['email'] ?? ''}'.isNotEmpty) Text('${u['email']}', style: TextStyle(color: pal.sub, fontSize: 13.5)),
+                      ]),
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
+                  if (editable)
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('btn-rename'),
+                      onPressed: _edit,
+                      icon: const Icon(Icons.drive_file_rename_outline_rounded, size: 18),
+                      label: Text(tr('Sửa tên')),
+                    )
+                  else
+                    Text(tr('Đây là quản trị viên: bạn không đổi được tên.'), key: const ValueKey('rename-locked'), style: TextStyle(fontSize: 13, color: pal.sub)),
+                ]),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
   /// Chỉ xem (Quản trị người dùng mở trang của một quản trị viên): khoá thao tác, làm mờ phần sửa được.
   Widget _ro(Widget w) => _readOnly ? AbsorbPointer(child: Opacity(opacity: .55, child: w)) : w;
 
@@ -1618,6 +1698,20 @@ class _UserDetailPageState extends State<UserDetailPage> {
             subtitle: Text(tr('Toàn quyền: người dùng, quyền app, Cổng AI, chặn đăng nhập. Đặt trong cấu hình máy chủ.'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
             trailing: _Chip(tr('Luôn bật'), _green),
           ),
+        _switch(
+          pal,
+          key: const ValueKey('sw-user-editor'),
+          icon: Icons.drive_file_rename_outline_rounded,
+          title: tr('Sửa tên người dùng'),
+          subtitle: full
+              ? tr('Đã có toàn quyền (Quản trị Flygo ID).')
+              : tr('Chỉ được đổi tên của người dùng khác (không đổi tên quản trị viên). Không cần quyền quản trị.'),
+          value: full || u['user_editor'] == true,
+          onChanged: full
+              ? null
+              : (v) => _do('PATCH', '/v1/admin/users/$id', {'user_editor': v}, v ? tr('Đã giao vai trò Sửa tên người dùng') : tr('Đã bỏ vai trò Sửa tên người dùng')),
+        ),
+        if (u.containsKey('users_admin'))
         _switch(
           pal,
           key: const ValueKey('sw-users-admin'),

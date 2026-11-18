@@ -37,6 +37,7 @@ class _Id extends FlygoId {
     if (method == 'GET' && path.startsWith('/v1/admin/users/')) {
       final d = _detail(path.split('/').last, guard: guard);
       final u = d['user'] as Map;
+      if (viewer == 'user_editor') return {'user': u, 'viewer': {'role': viewer}, 'editable': u['flygo_admin'] != true && u['system_admin'] != true};
       return {...d, 'viewer': {'role': viewer}, 'editable': viewer == 'admin' || (u['flygo_admin'] != true && u['users_admin'] != true)};
     }
     if (path.endsWith('/password') && passwordError != null) throw FlygoIdException(400, passwordError!);
@@ -169,6 +170,8 @@ Map<String, dynamic> _detail(String id, {required bool guard}) {
   final noPw = id == 'u4';
   return {
     'user': {
+      'users_admin': false,
+      'user_editor': false,
       ...u,
       'email': '${u['username']}@flygo.vn',
       'position': id == 'u2' ? 'Kế toán trưởng' : 'Nhân viên',
@@ -514,6 +517,29 @@ void main() {
       expect(find.byKey(const ValueKey('read-only-note')), findsNothing);
     });
 
+    testWidgets('Sếp giao vai trò Sửa tên người dùng', (t) async {
+      final id = _Id();
+      await _pump(t, UserDetailPage(id: id, userId: 'u2', policy: _loadPolicy), size: const Size(500, 3400));
+      await t.tap(find.byKey(const ValueKey('sw-user-editor')));
+      await _settle(t);
+      expect(id.calls.where((c) => c == 'PATCH /v1/admin/users/u2'), isNotEmpty);
+    });
+
+    testWidgets('Sửa tên người dùng: chỉ có nút Sửa tên; quản trị viên thì không sửa được', (t) async {
+      await _pump(t, UsersAdminPage(id: _Id(viewer: 'user_editor'), policy: _loadPolicy));
+      expect(find.byKey(const ValueKey('editor-banner')), findsOneWidget);
+      expect(find.text('Thêm người dùng'), findsNothing);
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'user_editor'), userId: 'u2', policy: _loadPolicy));
+      expect(find.byKey(const ValueKey('btn-rename')), findsOneWidget);
+      expect(find.byKey(const ValueKey('btn-password')), findsNothing);
+      expect(find.byKey(const ValueKey('sw-google')), findsNothing);
+      await t.tap(find.byKey(const ValueKey('btn-rename')));
+      await _settle(t);
+      expect(find.text('Chức vụ'), findsNothing);
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'user_editor'), userId: 'u1', policy: _loadPolicy));
+      expect(find.byKey(const ValueKey('rename-locked')), findsOneWidget);
+    });
+
     testWidgets('Quản trị người dùng mở trang của quản trị viên: chỉ xem', (t) async {
       await _pump(t, UserDetailPage(id: _Id(viewer: 'users_admin'), userId: 'u1', policy: _loadPolicy), size: const Size(500, 2600));
       expect(find.byKey(const ValueKey('read-only-note')), findsOneWidget);
@@ -675,6 +701,11 @@ void _previews() {
       await save(t, 'phone-$th-23-qt-nguoi-dung-chi-tiet');
       await _pump(t, UserDetailPage(id: _Id(viewer: 'users_admin'), userId: 'u1', policy: _loadPolicy), size: phone, b: b, ratio: 2);
       await save(t, 'phone-$th-24-qt-nguoi-dung-xem-quan-tri-vien');
+      await _pump(t, UsersAdminPage(id: _Id(viewer: 'user_editor'), policy: _loadPolicy), size: phone, b: b, ratio: 2);
+      await save(t, 'phone-$th-25-sua-ten-danh-sach');
+      await _pump(t, UserDetailPage(id: _Id(viewer: 'user_editor'), userId: 'u2', policy: _loadPolicy), size: phone, b: b, ratio: 2);
+      await t.tap(find.byKey(const ValueKey('btn-rename')));
+      await save(t, 'phone-$th-26-sua-ten-hop-thoai');
       debugDisableShadows = true;
     });
 
