@@ -210,7 +210,7 @@ class _PostBodyState extends State<PostBody> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: widget.full || _open
-                ? MarkdownView(text: body, style: style)
+                ? MarkdownView(text: body, style: style, safeLinks: true)
                 : _Collapsed(
                     text: body,
                     style: style,
@@ -268,13 +268,8 @@ class _Collapsed extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
       final pal = Pal.of(context);
-      // Đo bằng chữ thô (bỏ dấu Markdown) với đúng kiểu chữ của theme.
-      final plain = text
-          .split('\n')
-          .map((l) => l.replaceFirst(RegExp(r'^\s*(#{1,6}|>|[-*+])\s+'), '').replaceAll(RegExp(r'\*\*|__|`'), ''))
-          .join('\n')
-          .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-          .trim();
+      // Đo bằng chữ thô (bỏ mọi dấu Markdown: đậm, link, danh sách lồng, bảng…) với đúng kiểu chữ của theme.
+      final plain = MarkdownView.plain(text);
       final full = DefaultTextStyle.of(context).style.merge(style);
       final tp = TextPainter(
         text: TextSpan(text: plain, style: full),
@@ -283,7 +278,7 @@ class _Collapsed extends StatelessWidget {
         textScaler: MediaQuery.textScalerOf(context),
       )..layout(maxWidth: box.maxWidth);
       final overflow = tp.didExceedMaxLines || more;
-      if (!overflow) return MarkdownView(text: text, style: style);
+      if (!overflow) return MarkdownView(text: text, style: style, safeLinks: true);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

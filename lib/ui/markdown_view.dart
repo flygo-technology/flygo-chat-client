@@ -21,7 +21,39 @@ class MarkdownView extends StatelessWidget {
   final double trailingSpace;
   /// Bấm vào @tên.
   final void Function(String username)? onMention;
-  const MarkdownView({super.key, required this.text, required this.style, this.trailingSpace = 0, this.onMention});
+  /// Nội dung do người khác viết (Bảng tin): chỉ link http(s) / mailto / tel bấm được; đường dẫn tệp trên máy, file:,
+  /// javascript:… hiện thành chữ thường.
+  final bool safeLinks;
+  const MarkdownView({super.key, required this.text, required this.style, this.trailingSpace = 0, this.onMention, this.safeLinks = false});
+
+  static bool _safeHref(String href) {
+    final u = Uri.tryParse(href.trim());
+    return u != null && const {'http', 'https', 'mailto', 'tel'}.contains(u.scheme.toLowerCase());
+  }
+
+  /// Chữ thô của markdown (bỏ dấu định dạng, giữ xuống dòng giữa các khối và mục danh sách): đo / thu gọn nội dung.
+  static String plain(String text) {
+    final out = StringBuffer();
+    void walk(md.Node n) {
+      if (n is md.Text) {
+        out.write(n.text);
+        return;
+      }
+      if (n is! md.Element) return;
+      const blocks = {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'pre', 'blockquote', 'tr', 'hr'};
+      if (n.tag == 'br') out.write('\n');
+      if (n.tag == 'input') out.write(n.attributes['checked'] != null ? '☑ ' : '☐ ');
+      for (final c in n.children ?? const <md.Node>[]) {
+        walk(c);
+      }
+      if (blocks.contains(n.tag) && !out.toString().endsWith('\n')) out.write('\n');
+    }
+
+    for (final n in _parse(text)) {
+      walk(n);
+    }
+    return out.toString().replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  }
 
   /// Câu trả lời của trợ lý (kiểu chữ [aiAnswerStyle]): đoạn cách nhau rộng hơn, tiêu đề vừa phải, danh sách thụt
   /// thoáng, code dùng phông đơn cách đóng gói trong app.
@@ -276,6 +308,10 @@ class MarkdownView extends StatelessWidget {
           ));
         case 'br':
           out.add(const TextSpan(text: '\n'));
+        case 'a' when safeLinks && !_safeHref(n.attributes['href'] ?? ''):
+          out.addAll(_inline(pal, kids, st));
+        case 'img' when safeLinks && !_safeHref(n.attributes['src'] ?? ''):
+          out.add(TextSpan(text: '🖼 ${n.attributes['alt'] ?? ''}'));
         case 'a':
           // Link markdown chỉ hiện tên, kèm nút sao chép / mở.
           final href = n.attributes['href'] ?? '';

@@ -499,6 +499,7 @@ class _BangTinEditorState extends State<BangTinEditor> {
                   child: _body.text.trim().isEmpty
                       ? Text(tr('Chưa có nội dung'), style: TextStyle(color: pal.sub))
                       : MarkdownView(
+                          safeLinks: true,
                           text: _body.text,
                           style: TextStyle(fontSize: 15.5, color: pal.text, height: 1.45),
                         ),
@@ -549,19 +550,28 @@ class _BangTinEditorState extends State<BangTinEditor> {
               if (!_useBg && !_preview)
                 Row(
                   children: [
-                    for (final (icon, tip, act) in [
-                      (Icons.format_bold_rounded, tr('Đậm'), () => _wrap('**')),
-                      (Icons.format_italic_rounded, tr('Nghiêng'), () => _wrap('_')),
-                      (Icons.format_list_bulleted_rounded, tr('Danh sách'), () => _linePrefix('- ')),
-                      (Icons.link_rounded, tr('Liên kết'), () => _wrap('[', '](https://)')),
-                    ])
-                      IconButton(
-                        tooltip: tip,
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(icon, size: 19, color: pal.sub),
-                        onPressed: act,
+                    // Nút định dạng cuộn ngang khi khung hẹp; "Xem trước" luôn ở bên phải.
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          for (final (icon, tip, act) in [
+                            (Icons.format_bold_rounded, tr('Đậm'), () => _wrap('**')),
+                            (Icons.format_italic_rounded, tr('Nghiêng'), () => _wrap('_')),
+                            (Icons.format_list_bulleted_rounded, tr('Danh sách'), () => _linePrefix('- ')),
+                            (Icons.format_list_numbered_rounded, tr('Danh sách đánh số'), () => _linePrefix('1. ')),
+                            (Icons.link_rounded, tr('Liên kết'), () => _wrap('[', '](https://)')),
+                            (Icons.code_rounded, tr('Mã'), () => _wrap('`')),
+                          ])
+                            IconButton(
+                              tooltip: tip,
+                              visualDensity: VisualDensity.compact,
+                              icon: Icon(icon, size: 19, color: pal.sub),
+                              onPressed: act,
+                            ),
+                        ]),
                       ),
-                    const Spacer(),
+                    ),
                     TextButton(onPressed: () => setState(() => _preview = true), child: Text(tr('Xem trước'))),
                   ],
                 ),

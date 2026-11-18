@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../i18n/i18n.dart';
 import '../common.dart';
+import '../markdown_view.dart';
 import '../open_file.dart';
 import '../theme.dart';
 import 'api.dart';
@@ -703,7 +704,8 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
                           )
                         else ...[
                           if (hidden) Text(tr('Đã ẩn với mọi người'), style: const TextStyle(color: Color(0xFFE8833A), fontSize: 12)),
-                          if (body.isNotEmpty) Text(body, style: TextStyle(color: pal.text, fontSize: 14.5, height: 1.35)),
+                          // Bình luận cũng hiển thị Markdown (Sếp, 2026-11-18); chữ thường vẫn như trước.
+                          if (body.isNotEmpty) MarkdownView(text: body, safeLinks: true, style: TextStyle(color: pal.text, fontSize: 14.5, height: 1.35)),
                         ],
                       ],
                     ),
