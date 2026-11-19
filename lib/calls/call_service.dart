@@ -2,12 +2,14 @@ import '../i18n/i18n.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'ringtones.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 import '../api/mm_api.dart';
 import '../api/mm_ws.dart';
@@ -34,6 +36,8 @@ class CallJoinError implements Exception {
 class CallParticipant {
   final String sessionId;
   String userId;
+  /// Loại máy (LiveKit: phone / desktop / tablet / web) — một người vào bằng nhiều máy thì hiện kèm loại máy.
+  String kind = '';
   bool unmuted = false;
   bool speaking = false;
   /// Máy chủ báo đang bật camera.
@@ -141,9 +145,113 @@ class CallService extends ChangeNotifier {
   // Giữ tham chiếu để luồng âm thanh phía xa không bị thu hồi.
   final Map<String, MediaStream> _audio = {};
 
-  /// Người khác trong cuộc gọi (bỏ phiên của chính mình, kể cả mình trên thiết bị khác).
-  List<CallParticipant> get participants =>
-      [for (final p in _people.values) if (p.userId != myId() && p.sessionId != mySessionId) p];
+  /// Người khác trong cuộc gọi (bỏ phiên của chính mình). Plugin Calls: bỏ cả mình trên thiết bị khác; LiveKit: mỗi máy một
+  /// kết nối, máy khác của mình vẫn hiện (vd. chia sẻ màn hình từ máy tính khi đang họp bằng điện thoại).
+  List<CallParticipant> get participants => [
+        for (final p in _people.values)
+          if (p.sessionId != mySessionId && (liveKit || p.userId != myId())) p
+      ];
+
+  /// Nhãn loại máy cho người vào bằng nhiều máy (hoặc máy khác của chính mình), không thì ''.
+  String deviceLabel(CallParticipant p) {
+    final multi = p.userId == myId() || _people.values.where((x) => x.userId == p.userId).length > 1;
+    if (!multi) return '';
+    return switch (p.kind) {
+      'phone' => tr('điện thoại'),
+      'tablet' => tr('máy tính bảng'),
+      'desktop' => tr('máy tính'),
+      'web' => tr('trình duyệt'),
+      _ => tr('máy khác'),
+    };
+  }
+
+  // ---------------------------------------------------------------- chủ trì / phó phòng / bố cục (LiveKit)
+  /// Trạng thái chung của phòng do relay đặt (metadata phòng LiveKit): chủ trì, phó phòng, bố cục cho cả phòng.
+  String roomHost = '';
+  List<String> roomCohosts = const [];
+  /// {mode: grid | speaker | pin | present, pin: id / danh tính, locked: bool}.
+  Map<String, dynamic> roomLayout = const {'mode': 'speaker', 'locked': false};
+  /// Chủ trì / phó phòng vừa mời mình bật mic (tên người mời) — màn hình cuộc gọi hỏi rồi xoá.
+  String? unmuteAsk;
+  bool get amHost => roomHost.isNotEmpty && roomHost == myId();
+  bool get amCohost => roomCohosts.contains(myId());
+  /// Mình điều khiển được cuộc họp (chủ trì / phó phòng / quản trị — relay kiểm lại).
+  bool get canModerate => liveKitHost || amHost || amCohost;
+
+  void _applyRoomMeta(Map m) {
+    final h = '${m['host'] ?? ''}';
+    final co = [for (final x in (m['cohosts'] as List? ?? const [])) '$x'];
+    final lay = m['layout'] is Map ? (m['layout'] as Map).cast<String, dynamic>() : null;
+    var changed = false;
+    if (h.isNotEmpty && h != roomHost) {
+      roomHost = h;
+      changed = true;
+    }
+    if (m.containsKey('cohosts') && co.join(',') != roomCohosts.join(',')) {
+      roomCohosts = co;
+      changed = true;
+    }
+    if (lay != null && jsonEncode(lay) != jsonEncode(roomLayout)) {
+      roomLayout = lay;
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// Chủ trì giao phó phòng / chuyển chủ trì.
+  Future<String?> setRoles({String? host, List<String>? cohosts}) =>
+      _meetPost('roles', {'host': ?host, 'cohosts': ?cohosts});
+  /// Bố cục cho cả phòng (chủ trì / phó phòng).
+  Future<String?> setRoomLayout(String mode, {String? pin, bool? locked}) =>
+      _meetPost('layout', {'mode': mode, 'pin': ?pin, 'locked': ?locked});
+  /// Tắt mic / mời bật mic / dừng chia sẻ / mời ra một người (mọi máy của họ), hoặc tắt mic tất cả.
+  Future<String?> moderate(String action, [String? userId]) => _meetPost('moderate', {'action': action, 'user_id': ?userId});
+
+  /// POST tới sổ phòng của cuộc họp hiện tại. Trả lỗi (câu đọc được) hoặc null khi xong.
+  Future<String?> _meetPost(String what, Map<String, dynamic> body) async {
+    final ch = channelId;
+    if (ch == null) return tr('Không ở trong cuộc họp');
+    final code = meetingInfo?.code;
+    final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/$what' : '/meet/livekit/channel/$ch/$what';
+    try {
+      final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: jsonEncode(body)).timeout(const Duration(seconds: 10));
+      if (r.statusCode == 200) {
+        if (what == 'roles' || what == 'layout') {
+          final j = jsonDecode(utf8.decode(r.bodyBytes));
+          if (j is Map) _applyRoomMeta(what == 'layout' ? {'layout': j} : j);
+        }
+        return null;
+      }
+      try {
+        return '${(jsonDecode(utf8.decode(r.bodyBytes)) as Map)['error']}';
+      } catch (_) {
+        return 'HTTP ${r.statusCode}';
+      }
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  /// Mã cố định của máy này (danh tính LiveKit riêng cho từng máy).
+  static String? _deviceTag;
+  static Future<String> _device() async {
+    if (_deviceTag != null) return _deviceTag!;
+    try {
+      final f = File('${(await getApplicationSupportDirectory()).path}/hop-device-id');
+      if (await f.exists()) {
+        final v = (await f.readAsString()).trim();
+        if (RegExp(r'^[a-z0-9]{8,16}$').hasMatch(v)) return _deviceTag = v;
+      }
+      final rnd = Random.secure();
+      const ab = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      final v = List.generate(10, (_) => ab[rnd.nextInt(ab.length)]).join();
+      await f.writeAsString(v);
+      return _deviceTag = v;
+    } catch (_) {
+      return _deviceTag = 'x${DateTime.now().millisecondsSinceEpoch % 100000000}';
+    }
+  }
+  static String get _deviceKind => Platform.isAndroid || Platform.isIOS ? 'phone' : 'desktop';
 
   String? get mySessionId {
     final id = _client?.sessionId;
@@ -551,10 +659,12 @@ class CallService extends ChangeNotifier {
     await discoverPush(kServerUrl);
     final code = meeting ? meetingInfo?.code : null;
     final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/token' : '/meet/livekit/channel/$ch/token';
-    final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders).timeout(const Duration(seconds: 10));
+    final body = jsonEncode({'device': await _device(), 'kind': _deviceKind});
+    final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: body).timeout(const Duration(seconds: 10));
     if (r.statusCode == 501 || r.statusCode == 404) return null;
     final j = (jsonDecode(r.body) as Map).cast<String, dynamic>();
     if (r.statusCode != 200) throw CallJoinError(j['error'] as String? ?? 'HTTP ${r.statusCode}');
+    if (j['meta'] is Map) _applyRoomMeta(j['meta'] as Map);
     return (url: j['url'] as String, token: j['token'] as String, host: j['host'] == true, scribe: j['scribe'] as Map?);
   }
 
@@ -971,6 +1081,7 @@ class CallService extends ChangeNotifier {
       try {
         final m = jsonDecode(data['metadata'] as String? ?? '');
         if (m is Map) {
+          _applyRoomMeta(m);
           final on = m['scribe'] == true;
           if (on != transcribing) {
             transcribing = on;
@@ -986,6 +1097,13 @@ class CallService extends ChangeNotifier {
       _hangSoon?.cancel();
       phase = CallPhase.active;
       startedAt ??= DateTime.now();
+    }
+    if (ev == 'ask_unmute') {
+      if (muted) {
+        unmuteAsk = (data['by_name'] as String?)?.trim().isNotEmpty == true ? data['by_name'] as String : tr('Chủ trì');
+        notifyListeners();
+      }
+      return;
     }
     if (ev == 'self_muted') {
       // LiveKit: chủ phòng tắt mic của mình.
@@ -1036,6 +1154,7 @@ class CallService extends ChangeNotifier {
     }
     final p = _people.putIfAbsent(sid, () => CallParticipant(sid, uid));
     if (uid.isNotEmpty) p.userId = uid;
+    if ((data['kind'] as String?)?.isNotEmpty == true) p.kind = data['kind'] as String;
     switch (ev) {
       case 'user_muted':
         p.unmuted = false;
@@ -1518,9 +1637,10 @@ class CallService extends ChangeNotifier {
   Future<String?> startScreenShare(String sourceId) async {
     final c = _client;
     if (c == null || localScreen != null) return null;
-    if (!screenAllowed) return tr('Máy chủ không cho phép chia sẻ màn hình');
-    if (_people.values.any((p) => p.screen)) return tr('Người khác đang chia sẻ màn hình');
+    if (!screenAllowed && c is! LiveKitMedia) return tr('Máy chủ không cho phép chia sẻ màn hình');
+    // LiveKit: ai cũng chia sẻ được, nhiều màn hình cùng lúc (màn hình mới nhất lên khung lớn). Plugin Calls chỉ một.
     if (c is LiveKitMedia) return _shareLiveKit(c, sourceId);
+    if (_people.values.any((p) => p.screen)) return tr('Người khác đang chia sẻ màn hình');
     MediaStream stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
@@ -1609,6 +1729,10 @@ class CallService extends ChangeNotifier {
     scribeAvailable = false;
     transcribing = false;
     scribePrompt = false;
+    roomHost = '';
+    roomCohosts = const [];
+    roomLayout = const {'mode': 'speaker', 'locked': false};
+    unmuteAsk = null;
     callThreadId = null;
     muted = false;
     deafened = false;

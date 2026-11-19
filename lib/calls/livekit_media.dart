@@ -112,8 +112,20 @@ class LiveKitMedia implements CallMedia {
     }
   }
 
-  void _emit(String ev, lk.Participant p, [Map<String, dynamic> extra = const {}]) =>
-      onEvent?.call(ev, {'session_id': p.sid, 'user_id': p.identity, 'name': p.name, ...extra});
+  /// Danh tính LiveKit -> id người dùng chat: mỗi máy một danh tính `<id>~<máy>` (app cũ: `<id>`).
+  static String uidOf(String identity) => identity.split('~').first;
+
+  /// Loại máy của người tham gia (metadata do relay đặt trong token): phone / desktop / tablet / web.
+  static String kindOf(lk.Participant p) {
+    try {
+      return '${(jsonDecode(p.metadata ?? '') as Map)['kind'] ?? ''}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _emit(String ev, lk.Participant p, [Map<String, dynamic> extra = const {}]) => onEvent?.call(
+      ev, {'session_id': p.sid, 'user_id': uidOf(p.identity), 'identity': p.identity, 'kind': kindOf(p), 'name': p.name, ...extra});
 
   void _joined(lk.RemoteParticipant p) {
     _emit('user_joined', p);
@@ -198,7 +210,15 @@ class LiveKitMedia implements CallMedia {
       })
       ..on<lk.DataReceivedEvent>((e) {
         final p = e.participant;
-        if (e.topic != _topic || p == null) return;
+        if (e.topic != _topic) return;
+        if (p == null) {
+          // Tin của máy chủ (relay): chủ trì / phó phòng mời bật mic.
+          try {
+            final m = (jsonDecode(utf8.decode(e.data)) as Map).cast<String, dynamic>();
+            if (m['t'] == 'ask_unmute') onEvent?.call('ask_unmute', {'by': m['by'] ?? '', 'by_name': m['by_name'] ?? ''});
+          } catch (_) {}
+          return;
+        }
         try {
           final m = (jsonDecode(utf8.decode(e.data)) as Map).cast<String, dynamic>();
           if (m['t'] == 'react') {
@@ -233,7 +253,8 @@ class LiveKitMedia implements CallMedia {
     if (me == null || _closed) return;
     switch (action) {
       case 'raise_hand' || 'unraise_hand':
-        me.setAttributes({'hand': action == 'raise_hand' ? '1' : ''}).catchError((Object e) {
+        // Giá trị = lúc giơ tay (ms) để xếp hàng phát biểu; hạ tay = ''. App cũ chỉ xem có rỗng hay không.
+        me.setAttributes({'hand': action == 'raise_hand' ? '${DateTime.now().millisecondsSinceEpoch}' : ''}).catchError((Object e) {
           debugPrint('[livekit] hand: $e');
           return false;
         });

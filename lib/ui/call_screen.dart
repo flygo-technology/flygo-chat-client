@@ -14,6 +14,7 @@ import '../calls/meet_rooms.dart';
 import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
 import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
+import 'meet/extras/actions.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
@@ -76,6 +77,11 @@ class _CallScreenState extends State<CallScreen> {
   /// Ô đang ghim (null = không ghim). Chia sẻ màn hình tự ghim trừ khi đã bỏ ghim nó.
   String? _pinned;
   String? _dismissedScreen;
+  /// Cuộc họp LiveKit: máy này đang theo bố cục của phòng (chủ trì / phó phòng đặt); tự đổi cách xem thì thôi theo.
+  bool _followRoom = true;
+  String _roomLayoutSeen = '';
+  /// Lúc thấy mỗi màn hình chia sẻ lần đầu: màn hình mới nhất lên khung lớn.
+  final Map<String, int> _screenSeen = {};
   bool _controls = true;
   CallPhase? _lastPhase;
   /// Phòng họp (bình luận, tắt tiếng, web chia sẻ, sân khấu của trợ lý AI…) của cuộc gọi đang mở.
@@ -253,6 +259,11 @@ class _CallScreenState extends State<CallScreen> {
           ]),
         ));
       });
+    }
+    if (call.unmuteAsk != null && call.phase == CallPhase.active) {
+      final by = call.unmuteAsk!;
+      call.unmuteAsk = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _askUnmute(call, by) : null);
     }
     if (call.phase == CallPhase.active && call.scribePrompt && call.isMeetingCreator) {
       // Chủ phòng vào cuộc họp lần đầu: hỏi một lần có bật phiên âm tự động không (mặc định tắt).
@@ -522,6 +533,118 @@ class _CallScreenState extends State<CallScreen> {
   // ---------------------------------------------------------------- giao diện kiểu Google Meet
 
   static final _fetching = <String>{};
+  Widget _roleBadge(String text, Color fg, Color bg) => Container(
+        margin: const EdgeInsets.only(left: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+        child: Text(text, style: TextStyle(color: fg, fontSize: 10.5, fontWeight: FontWeight.w700)),
+      );
+
+  /// Chủ trì / phó phòng: thao tác với một người (mọi máy của họ). Chỉ chủ trì giao phó phòng / chuyển chủ trì.
+  Widget _moderateMenu(AppState app, CallService call, String userId, String name, {bool screen = false}) {
+    PopupMenuItem<String> it(String v, IconData i, String t, {Color color = Colors.white}) => PopupMenuItem(
+        value: v, child: Row(children: [Icon(i, color: color, size: 19), const SizedBox(width: 12), Text(t, style: TextStyle(color: color))]));
+    final co = call.roomCohosts.contains(userId);
+    final device = userId.startsWith('device:');
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
+      color: _panelBg,
+      onSelected: (a) async {
+        final messenger = ScaffoldMessenger.of(context);
+        String? err;
+        switch (a) {
+          case 'cohost':
+            err = await call.setRoles(cohosts: co ? [for (final x in call.roomCohosts) if (x != userId) x] : [...call.roomCohosts, userId]);
+          case 'host':
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (d) => AlertDialog(
+                title: Text(tr('Chuyển chủ trì cho {0}?', [name])),
+                content: Text(tr('Bạn thành phó phòng. Chủ trì mới giao phó phòng và chuyển chủ trì tiếp được.')),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
+                  FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Chuyển chủ trì'))),
+                ],
+              ),
+            );
+            if (ok == true) err = await call.setRoles(host: userId);
+          case 'pin':
+            err = await call.setRoomLayout('pin', pin: userId);
+          case 'remove':
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (d) => AlertDialog(
+                title: Text(tr('Mời {0} ra khỏi cuộc họp?', [name])),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
+                  FilledButton(style: FilledButton.styleFrom(backgroundColor: _red), onPressed: () => Navigator.pop(d, true), child: Text(tr('Mời ra'))),
+                ],
+              ),
+            );
+            if (ok == true) err = await call.moderate('remove', userId);
+          default:
+            err = await call.moderate(a, userId);
+            if (a == 'ask_unmute' && err == null) messenger.showSnackBar(toast(Text(tr('Đã mời {0} bật mic', [name]))));
+        }
+        if (err != null) messenger.showSnackBar(toast(Text(err)));
+      },
+      itemBuilder: (_) => [
+        if (call.amHost && !device) it('cohost', co ? Icons.star_outline : Icons.star, co ? tr('Bỏ phó phòng') : tr('Làm phó phòng')),
+        if (call.amHost && !device) it('host', Icons.workspace_premium_outlined, tr('Chuyển chủ trì')),
+        it('ask_unmute', Icons.mic_none, tr('Mời bật mic')),
+        it('mute', Icons.mic_off, tr('Tắt mic')),
+        if (screen) it('stop_share', Icons.cancel_presentation, tr('Dừng chia sẻ màn hình')),
+        it('pin', Icons.push_pin_outlined, tr('Ghim cho mọi người')),
+        it('remove', Icons.person_remove_alt_1, tr('Mời ra khỏi cuộc họp'), color: const Color(0xFFFF9B9B)),
+      ],
+    );
+  }
+
+  /// Bố cục cho cả phòng (chủ trì / phó phòng): mọi máy, kể cả TV, theo bố cục này; khoá thì không ai tự đổi được.
+  Future<void> _roomLayoutSheet(CallService call) async {
+    _hide?.cancel();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF2D2E31),
+      constraints: const BoxConstraints(maxWidth: 520),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => ListenableBuilder(
+        listenable: call,
+        builder: (ctx, _) {
+          final mode = '${call.roomLayout['mode'] ?? 'speaker'}';
+          final locked = call.roomLayout['locked'] == true;
+          Widget opt(String m, IconData i, String t, String sub) => ListTile(
+                leading: Icon(i, color: mode == m ? const Color(0xFF2BB3A3) : Colors.white70),
+                title: Text(t, style: TextStyle(color: Colors.white, fontWeight: mode == m ? FontWeight.w700 : FontWeight.normal)),
+                subtitle: Text(sub, style: const TextStyle(color: _grey, fontSize: 12.5)),
+                trailing: mode == m ? const Icon(Icons.check, color: Color(0xFF2BB3A3)) : null,
+                onTap: () => call.setRoomLayout(m, locked: locked),
+              );
+          return SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+                child: Text(tr('Bố cục cho cả phòng'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+              ),
+              opt('speaker', Icons.auto_awesome_motion_outlined, tr('Theo người trình bày'), tr('Tự phóng to bài trình chiếu / màn hình chia sẻ mới nhất')),
+              opt('grid', Icons.grid_view, tr('Lưới'), tr('Mọi người bằng nhau')),
+              if (mode == 'pin')
+                opt('pin', Icons.push_pin, tr('Đang ghim một người'), tr('Chọn "Ghim cho mọi người" ở danh sách người tham gia để đổi')),
+              SwitchListTile(
+                value: locked,
+                onChanged: (v) => call.setRoomLayout(mode, pin: '${call.roomLayout['pin'] ?? ''}', locked: v),
+                title: Text(tr('Khoá bố cục'), style: const TextStyle(color: Colors.white)),
+                subtitle: Text(tr('Mọi người không tự đổi cách xem trên máy mình'), style: const TextStyle(color: _grey, fontSize: 12.5)),
+              ),
+              const SizedBox(height: 8),
+            ]),
+          );
+        },
+      ),
+    );
+    _poke();
+  }
+
   String _nameOf(AppState app, String userId) {
     if (userId.startsWith('device:')) return app.calls.deviceNames[userId] ?? tr('Thiết bị phòng họp');
     final n = app.users[userId]?.displayName ?? '';
@@ -549,7 +672,9 @@ class _CallScreenState extends State<CallScreen> {
       // Phiên chưa rõ là ai (chưa có user id) thì không vẽ ô "Người dùng" trống.
       if (p.userId.isEmpty) continue;
       // Chính mình vào từ thiết bị khác (hoặc phiên cũ chưa thoát hẳn).
-      final name = p.userId == app.me?.id ? tr('Bạn (thiết bị khác)') : _nameOf(app, p.userId);
+      final dl = call.deviceLabel(p);
+      final base = p.userId == app.me?.id ? tr('Bạn') : _nameOf(app, p.userId);
+      final name = dl.isEmpty ? base : '$base ($dl)';
       if (p.hasScreen) {
         screens.add(_TileData(
           key: 'screen:${p.sessionId}',
@@ -583,7 +708,18 @@ class _CallScreenState extends State<CallScreen> {
     return [...screens, ...people, me];
   }
 
+  /// Máy này tự đổi cách xem: phòng khoá bố cục thì không được; không khoá thì thôi theo bố cục của phòng.
+  bool _localChange(CallService call) {
+    if (call.liveKit && call.roomLayout['locked'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Chủ trì đã khoá bố cục của cuộc họp'))));
+      return false;
+    }
+    _followRoom = false;
+    return true;
+  }
+
   void _tapTile(String key, String? spot) {
+    if (!_localChange(context.read<AppState>().calls)) return;
     setState(() {
       if (key == spot) {
         // Bấm lại ô đang ghim: bỏ ghim (chia sẻ màn hình thì nhớ là đã bỏ ghim).
@@ -603,17 +739,40 @@ class _CallScreenState extends State<CallScreen> {
     final tiles = _tiles(app, call);
     final keys = {for (final t in tiles) t.key};
     if (_pinned != null && !keys.contains(_pinned)) _pinned = null;
+    // Bố cục của phòng (LiveKit, chủ trì / phó phòng đặt): đổi thì máy này theo lại; khoá thì luôn theo.
+    final rl = jsonEncode(call.roomLayout);
+    if (rl != _roomLayoutSeen) {
+      _roomLayoutSeen = rl;
+      _followRoom = true;
+    }
+    final following = call.liveKit && (_followRoom || call.roomLayout['locked'] == true);
+    var layout = _layout;
+    var pinned = _pinned;
+    if (following) {
+      final mode = call.roomLayout['mode'];
+      final pinUser = '${call.roomLayout['pin'] ?? ''}'.split('~').first;
+      layout = mode == 'grid' ? MeetLayout.grid : MeetLayout.auto;
+      pinned = mode == 'pin' ? tiles.where((t) => !t.screen && t.userId == pinUser).firstOrNull?.key : null;
+    }
+    // Màn hình chia sẻ mới nhất (ai cũng chia sẻ được, nhiều màn hình cùng lúc).
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final t in tiles) {
+      if (t.screen) _screenSeen.putIfAbsent(t.key, () => now);
+    }
+    _screenSeen.removeWhere((k, _) => !keys.contains(k));
+    final screens = [for (final t in tiles) if (t.screen && t.key != _dismissedScreen) t]
+      ..sort((a, b) => (_screenSeen[b.key] ?? 0).compareTo(_screenSeen[a.key] ?? 0));
     final star = _room?.star;
-    var spot = _pinned ??
+    var spot = pinned ??
         (star == null ? null : tiles.where((t) => !t.screen && t.userId == star).firstOrNull?.key) ??
-        tiles.where((t) => t.screen && t.key != _dismissedScreen).firstOrNull?.key;
+        screens.firstOrNull?.key;
     final talking = tiles.where((t) => t.speaking && t.key != 'me').firstOrNull?.key;
     if (talking != null) _lastSpeaker = talking;
     if (_lastSpeaker != null && !keys.contains(_lastSpeaker)) _lastSpeaker = null;
-    switch (_layout) {
+    switch (layout) {
       case MeetLayout.grid:
         // Lưới: mọi người bằng nhau (chỉ ô mình tự ghim mới lớn).
-        spot = _pinned;
+        spot = pinned;
       case MeetLayout.sidebar || MeetLayout.spotlight:
         spot ??= _lastSpeaker ?? tiles.where((t) => t.key != 'me').firstOrNull?.key;
       case MeetLayout.auto:
@@ -637,7 +796,11 @@ class _CallScreenState extends State<CallScreen> {
                   padding: EdgeInsets.fromLTRB(8, show ? 60 : 8, 8, show ? 88 : 8),
                   child: staged
                       ? MeetStage(room: room)
-                      : LayoutBuilder(builder: (context, box) => _stage(tiles, spot, box, call, onlyMain: _layout == MeetLayout.spotlight)),
+                      // Màn hình chia sẻ đang lên khung lớn (bố cục tự động): phủ kín khung như trang TV.
+                      : LayoutBuilder(
+                          builder: (context, box) => _stage(tiles, spot, box, call,
+                              onlyMain: layout == MeetLayout.spotlight ||
+                                  (layout == MeetLayout.auto && tiles.any((t) => t.key == spot && t.screen)))),
                 ),
               ),
             ),
@@ -684,6 +847,20 @@ class _CallScreenState extends State<CallScreen> {
                 left: 0,
                 right: 0,
                 child: const Center(child: ReconnectingChip()),
+              ),
+            // Đang tự xem kiểu khác với bố cục của phòng: một chạm để theo lại.
+            if (call.liveKit && !following && show)
+              Positioned(
+                top: 64,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: ActionChip(
+                    avatar: const Icon(Icons.sync_rounded, size: 18),
+                    label: Text(tr('Theo bố cục của phòng')),
+                    onPressed: () => setState(() => _followRoom = true),
+                  ),
+                ),
               ),
           ],
         ),
@@ -1062,6 +1239,8 @@ class _CallScreenState extends State<CallScreen> {
                 if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
                 if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
                 if (call.meeting && call.scribeAvailable) tile('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
+                if (call.liveKit && call.canModerate) tile('room_layout', Icons.dashboard_customize_outlined, tr('Bố cục cho cả phòng')),
+                for (final x in meetExtraActions(context, call)) tile('x:${x.id}', x.icon, x.label, on: x.on),
                 if (call.isMeetingCreator && call.scribeAvailable)
                   tile('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
                       call.transcribing ? tr('Phiên âm: Bật') : tr('Phiên âm: Tắt'), on: call.transcribing),
@@ -1464,6 +1643,8 @@ class _CallScreenState extends State<CallScreen> {
         item('poll', Icons.poll_outlined, tr('Bình chọn')),
         if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
         if (call.meeting && call.scribeAvailable) item('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
+        if (call.liveKit && call.canModerate) item('room_layout', Icons.dashboard_customize_outlined, tr('Bố cục cho cả phòng')),
+        for (final x in meetExtraActions(context, call)) item('x:${x.id}', x.icon, x.label),
         if (call.isMeetingCreator && call.scribeAvailable)
           item('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
               call.transcribing ? tr('Phiên âm: Bật') : tr('Phiên âm: Tắt')),
@@ -1478,6 +1659,12 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _runMore(String? a, AppState app, CallService call) async {
     if (a == 'scribe') return _toggleScribe(call);
+    if (a == 'room_layout') return _roomLayoutSheet(call);
+    if (a != null && a.startsWith('x:')) {
+      final x = meetExtraActions(context, call).where((x) => 'x:${x.id}' == a).firstOrNull;
+      if (x != null) await x.run(context, call);
+      return;
+    }
     if (a == 'summary') {
       final ch = call.channelId;
       if (ch != null) await summarizeMeeting(context, channelId: ch, code: call.meetingInfo?.code);
@@ -1747,8 +1934,24 @@ class _CallScreenState extends State<CallScreen> {
         ]),
       ),
     );
-    if (v != null && mounted) setState(() => _layout = v);
+    if (v != null && mounted && _localChange(context.read<AppState>().calls)) setState(() => _layout = v);
     _poke();
+  }
+
+  Future<void> _askUnmute(CallService call, String by) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        icon: const Icon(Icons.mic_none_rounded),
+        title: Text(tr('{0} mời bạn bật mic', [by])),
+        content: Text(tr('Mic của bạn đang tắt. Chủ trì không tự bật được mic của bạn; bấm "Bật mic" nếu bạn muốn nói.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Để sau'))),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Bật mic'))),
+        ],
+      ),
+    );
+    if (yes == true && call.muted) call.toggleMute();
   }
 
   Widget _knockCard(AppState app, MeetRoom room) {
@@ -1806,7 +2009,12 @@ class _CallScreenState extends State<CallScreen> {
     }) =>
         ListTile(
           leading: _Face(userId: userId, name: name, size: 40),
-          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
+          title: Row(children: [
+            Flexible(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white))),
+            if (call.liveKit && userId != null && userId == call.roomHost) _roleBadge(tr('CHỦ TRÌ'), const Color(0xFFFFD36B), const Color(0xFF3D3010)),
+            if (call.liveKit && userId != null && call.roomCohosts.contains(userId))
+              _roleBadge(tr('PHÓ PHÒNG'), const Color(0xFF9CC2FF), const Color(0xFF16294A)),
+          ]),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1819,8 +2027,11 @@ class _CallScreenState extends State<CallScreen> {
                 color: muted ? _red : (speaking ? _blue : Colors.white),
                 size: 20,
               ),
+              // Cuộc họp LiveKit: chủ trì / phó phòng điều khiển ở SFU (relay kiểm quyền).
+              if (call.liveKit && userId != null && userId != app.me?.id && call.canModerate)
+                _moderateMenu(app, call, userId, name, screen: screen)
               // Chủ phòng: thao tác với người này (tắt mic, mời bật mic, ngôi sao, mời chia sẻ màn hình).
-              if (_room != null && userId != null && userId != app.me?.id && _isHost(app, call))
+              else if (_room != null && userId != null && userId != app.me?.id && _isHost(app, call))
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
                   color: _panelBg,
@@ -1862,7 +2073,10 @@ class _CallScreenState extends State<CallScreen> {
       for (final p in people)
         row(
           userId: p.userId,
-          name: _nameOf(app, p.userId),
+          name: [
+            p.userId == app.me?.id ? tr('Bạn') : _nameOf(app, p.userId),
+            if (call.deviceLabel(p).isNotEmpty) '(${call.deviceLabel(p)})',
+          ].join(' '),
           muted: !p.unmuted,
           speaking: p.speaking && p.unmuted,
           video: p.video,
