@@ -137,13 +137,21 @@ class CastSession {
   };
 
   /// Màn hình của công ty (đang mở hello) + màn hình mình dùng gần đây.
-  static Future<List<CastScreen>> screens(String server, String token) async {
+  /// [all]: cả màn hình đang tắt đã xác nhận (app Màn hình).
+  static Future<List<CastScreen>> screens(String server, String token, {bool all = false}) async {
     await discoverPush(server);
     if (pushUrlFor(server).isEmpty) return const [];
-    final r = await http.get(Uri.parse('${_base(server)}/screens'), headers: _hdr(server, token)).timeout(const Duration(seconds: 10));
+    final r = await http.get(Uri.parse('${_base(server)}/screens${all ? '?all=1' : ''}'), headers: _hdr(server, token)).timeout(const Duration(seconds: 10));
     final j = await _check(r);
     return [for (final x in (j['screens'] as List? ?? const [])) CastScreen.fromJson(x as Map)];
   }
+
+  /// Chi tiết một màn hình (app Màn hình): trạng thái, nội dung, hàng chờ, lịch, người quản lý.
+  static Future<Map> screen(String server, String token, String id) async =>
+      _check(await http.get(Uri.parse('${_base(server)}/screens/$id'), headers: _hdr(server, token)).timeout(const Duration(seconds: 10)));
+
+  /// Địa chỉ đầy đủ của đường dẫn trạm (vd link xem trước /cast/f/…).
+  static String absolute(String server, String path) => '${pushUrlFor(server)}$path';
 
   /// Màn hình: đổi tên (name) / mở khoá (unlock) / xin dùng (request: báo người khoá hoặc người đang chiếu).
   static Future<Map> screenAction(String server, String token, String screenId, String act, [Map body = const {}]) async => _check(
@@ -263,7 +271,7 @@ class CastSession {
 
 /// Một màn hình trong danh sách của công ty.
 class CastScreen {
-  final String id, name, status, nowBy;
+  final String id, name, status, nowBy, location, schedule;
 
   /// Nội dung đang chiếu; [endedName] / [endedBy]: vừa chiếu xong (vài giây), rỗng nếu không.
   final String nowName, endedName, endedBy;
@@ -275,6 +283,8 @@ class CastScreen {
       name = '${j['name'] ?? ''}',
       status = '${j['status'] ?? 'idle'}',
       nowBy = '${j['now_by'] ?? ''}',
+      location = '${j['location'] ?? ''}',
+      schedule = '${j['schedule'] ?? ''}',
       nowName = '${j['now_name'] ?? ''}',
       endedName = '${(j['ended'] as Map?)?['name'] ?? ''}',
       endedBy = '${(j['ended'] as Map?)?['by_name'] ?? ''}',

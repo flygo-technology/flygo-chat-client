@@ -41,7 +41,8 @@ class CastContent {
 bool get _desktop => !(Platform.isAndroid || Platform.isIOS);
 
 /// Ô "Đưa lên màn hình" (Trang chủ): chọn tệp trên máy (PDF, ảnh, video) hoặc chia sẻ màn hình máy tính.
-Future<void> castFromDevice(BuildContext context) async {
+/// [screenId]: chiếu thẳng lên màn hình đã chọn (app Màn hình), không hỏi chọn màn hình.
+Future<void> castFromDevice(BuildContext context, {String? screenId}) async {
   final how = await showModalBottomSheet<String>(
     context: context,
     showDragHandle: true,
@@ -66,7 +67,7 @@ Future<void> castFromDevice(BuildContext context) async {
     ),
   );
   if (how == null || !context.mounted) return;
-  if (how == 'screen') return castToScreen(context, CastContent.mirror(name: tr('Màn hình máy tính')));
+  if (how == 'screen') return castToScreen(context, CastContent.mirror(name: tr('Màn hình máy tính')), screenId: screenId);
   final r = await FilePicker.pickFiles(
     type: FileType.custom,
     allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'm4v', 'webm', 'mov'],
@@ -76,7 +77,11 @@ Future<void> castFromDevice(BuildContext context) async {
   final k = castableByExt(f!.name);
   if (k == null) return;
   final file = File(f.path!);
-  await castToScreen(context, CastContent(type: k.type, mime: k.mime, name: f.name, app: 'device', load: (_) async => file));
+  await castToScreen(
+    context,
+    CastContent(type: k.type, mime: k.mime, name: f.name, app: 'device', load: (_) async => file),
+    screenId: screenId,
+  );
 }
 
 /// Loại tệp chiếu được theo đuôi tệp (ảnh / video trình duyệt TV mở được). Null: không chiếu được.
@@ -100,7 +105,7 @@ Future<void> castPdfToScreen(BuildContext context, {required String name, requir
     castToScreen(context, CastContent.pdf(name: name, load: load, app: app));
 
 /// Đưa [c] lên màn hình: hỏi mã màn hình, ghép, mở trang điều khiển.
-Future<void> castToScreen(BuildContext context, CastContent c) async {
+Future<void> castToScreen(BuildContext context, CastContent c, {String? screenId}) async {
   AppState? app0;
   try {
     app0 = context.read<AppState>();
@@ -111,7 +116,7 @@ Future<void> castToScreen(BuildContext context, CastContent c) async {
     return;
   }
   final token = app0.token;
-  final s = await pickAndPair(context, token);
+  final s = await pickAndPair(context, token, preselect: screenId);
   if (s == null || !context.mounted) return;
   await Navigator.of(context, rootNavigator: true).push(
     AppPageRoute(
@@ -144,14 +149,16 @@ Future<bool> addScreenToMeeting(BuildContext context, {String? code, String? cha
 }
 
 /// Chọn màn hình (danh sách màn hình của công ty, hoặc quét / gõ mã) rồi ghép. Màn hình đang khoá: hỏi "Xin dùng".
-Future<CastSession?> pickAndPair(BuildContext context, String token) async {
+Future<CastSession?> pickAndPair(BuildContext context, String token, {String? preselect}) async {
   final m = ScaffoldMessenger.maybeOf(context);
-  final pick = await showModalBottomSheet<String>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (sh) => _ScreenListSheet(token: token),
-  );
+  final pick =
+      preselect ??
+      await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (sh) => _ScreenListSheet(token: token),
+      );
   if (pick == null || !context.mounted) return null;
   String? code, screenId;
   if (pick == '#code') {
