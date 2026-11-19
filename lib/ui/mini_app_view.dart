@@ -203,6 +203,8 @@ Future<bool> openScannedMiniApp(BuildContext context, String raw) async {
 /// Biểu tượng mini app: ảnh https hoặc emoji.
 /// Biểu tượng theo tên trong manifest "tile.icon" (bộ nhỏ, thêm khi cần).
 const _tileIcons = <String, IconData>{
+  'poll': Icons.poll_rounded,
+  'forum': Icons.forum_rounded,
   'table': Icons.table_chart_rounded,
   'tasks': Icons.task_alt_rounded,
   'network': Icons.hub_rounded,
