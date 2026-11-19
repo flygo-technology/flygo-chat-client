@@ -15,6 +15,9 @@ import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
 import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
+import 'app_route.dart';
+import 'chat_page.dart' show ChatPage;
+import 'home_page.dart' show ChatHost;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
@@ -61,6 +64,8 @@ const _grey = Color(0xFF9AA0A6);
 /// Màn hình cuộc gọi. Lúc đổ chuông / đang gọi / đã kết thúc: kiểu WhatsApp (ảnh lớn, nút tròn).
 /// Khi đã vào cuộc gọi: kiểu Google Meet (lưới ô cho mọi người, ghim, thanh nút ở dưới).
 class CallScreen extends StatefulWidget {
+  /// Số màn hình cuộc gọi đang mở (0 = đã rời màn hình nhưng có thể vẫn đang họp: hiện khung nổi PiP).
+  static final visible = ValueNotifier<int>(0);
   const CallScreen({super.key});
   /// Kiểm thử / ảnh xem trước: phòng họp giả thay cho phòng nối trạm thật.
   @visibleForTesting
@@ -180,6 +185,7 @@ class _CallScreenState extends State<CallScreen> {
     super.initState();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
     _poke();
+    CallScreen.visible.value++;
   }
 
   @override
@@ -187,7 +193,37 @@ class _CallScreenState extends State<CallScreen> {
     _tick?.cancel();
     _hide?.cancel();
     _disposeRoom();
+    // Sau khung hình này: tránh đổi notifier khi cây đang dựng lại.
+    WidgetsBinding.instance.addPostFrameCallback((_) => CallScreen.visible.value = (CallScreen.visible.value - 1).clamp(0, 99));
     super.dispose();
+  }
+
+  /// Về chat của cuộc họp, cuộc gọi chạy tiếp trong khung nổi (PiP).
+  void _backToChat(AppState app, CallService call) {
+    final ch = call.channelId;
+    final host = ChatHost.of(context);
+    final nav = Navigator.of(context);
+    nav.maybePop();
+    if (ch == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (host != null) {
+        host.openChat(ch);
+      } else if (app.activeChannelId != ch) {
+        nav.push(AppPageRoute(builder: (_) => ChatPage(channelId: ch)));
+      }
+    });
+  }
+
+  Widget _chatButton(AppState app, CallService call) {
+    final ch = call.channelId;
+    final n = ch == null ? 0 : app.unreadOf(ch);
+    return _MeetButton(
+      icon: Icons.chat_bubble_outline_rounded,
+      color: _btnBg,
+      tooltip: tr('Chat của cuộc họp (cuộc gọi thu nhỏ)'),
+      badge: n > 0 ? (n > 99 ? '99+' : '$n') : null,
+      onTap: () => _backToChat(app, call),
+    );
   }
 
   /// Hiện thanh nút; trên điện thoại tự ẩn sau vài giây.
@@ -301,7 +337,8 @@ class _CallScreenState extends State<CallScreen> {
     };
 
     return PopScope(
-      canPop: !call.busy,
+      // Họp / gọi nhóm: Back về chat, cuộc gọi chạy tiếp trong khung nổi (PiP). Gọi 1-1 giữ như cũ.
+      canPop: !call.busy || call.direct == null,
       child: call.phase == CallPhase.active
           ? (isDesktop && _panel != _MeetPanel.none && call.channelId != null
               ? LayoutBuilder(builder: (context, box) {
@@ -1137,6 +1174,7 @@ class _CallScreenState extends State<CallScreen> {
                 _poke();
               },
             ),
+            _chatButton(app, call),
             if (ai)
               _MeetButton(
                 icon: Icons.auto_awesome,
@@ -1327,6 +1365,7 @@ class _CallScreenState extends State<CallScreen> {
               _poke();
             },
           ),
+          _chatButton(app, call),
           // Phụ đề: lời trợ lý AI đọc cho cả phòng (phụ đề giọng nói của người họp: đợt sau).
           if (room != null)
             _MeetButton(

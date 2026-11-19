@@ -34,6 +34,7 @@ import 'ui/qr_login.dart';
 import 'state/drafts.dart';
 import 'state/app_state.dart';
 import 'ui/call_screen.dart';
+import 'ui/meet/call_pip.dart';
 import 'ui/direct_call_screen.dart' show IncomingCallToast;
 import 'ui/ai_panel.dart';
 import 'ui/ai_consent.dart';
@@ -255,7 +256,8 @@ class FlygoChatApp extends StatelessWidget {
           builder: (_, app, _) => app == null
               ? child!
               // Trình duyệt Ký số (điện thoại) chạy song song: lớp nổi trên toàn app, thu nhỏ vẫn giữ các tab.
-              : ChangeNotifierProvider<AppState>.value(value: app, child: BrowserDockLayer(child: child!)),
+              // Đang họp mà rời màn hình cuộc gọi: khung nổi PiP trên toàn app.
+              : ChangeNotifierProvider<AppState>.value(value: app, child: CallPipLayer(child: BrowserDockLayer(child: child!))),
         ),
       ),
       home: const Root(),
