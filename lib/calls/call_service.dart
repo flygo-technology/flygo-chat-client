@@ -209,8 +209,8 @@ class CallService extends ChangeNotifier {
       changed = true;
     }
     // Khoá của tính năng thêm: metadata đầy đủ (có host) là nguồn đúng, khoá vắng mặt = đã bỏ.
-    if (m.containsKey('host') || m.containsKey('lock') || m.containsKey('perms')) {
-      final x = <String, dynamic>{for (final k in const ['lock', 'perms']) if (m.containsKey(k)) k: m[k]};
+    if (m.containsKey('host') || m.containsKey('lock') || m.containsKey('perms') || m.containsKey('breakout')) {
+      final x = <String, dynamic>{for (final k in const ['lock', 'perms', 'breakout']) if (m.containsKey(k)) k: m[k]};
       if (jsonEncode(x) != jsonEncode(roomExtras)) {
         roomExtras = x;
         changed = true;
@@ -1702,6 +1702,52 @@ class CallService extends ChangeNotifier {
   }
 
   /// Vào lại cuộc gọi bằng phiên mới (không gửi `leave` để người kia không thấy mình rời đi).
+  // ---------------------------------------------------------------- phòng nhỏ (breakout, module thêm)
+  /// Tên phòng nhỏ đang ở (vd. "Phòng 2 · Kho"), null = phòng chính.
+  String? currentBreakout;
+
+  /// Chuyển cuộc gọi sang một phòng LiveKit khác (phòng nhỏ) mà không kết thúc cuộc gọi / CallKit: giữ mic, camera.
+  Future<void> switchLiveKitRoom({required String url, required String token, String? label}) async {
+    if (!busy || !liveKit) return;
+    currentBreakout = label ?? '';
+    await _moveRoom(() => _connectLiveKit(url, token, video: camera, rejoin: true));
+  }
+
+  /// Về phòng chính (token mới qua đường thường, kể cả cổng khoá / quyền).
+  Future<void> returnToMainRoom() async {
+    final ch = channelId;
+    if (!busy || !liveKit || ch == null || currentBreakout == null) return;
+    final lkt = await _lkToken(ch);
+    if (lkt == null || !busy) return;
+    currentBreakout = null;
+    await _moveRoom(() => _connectLiveKit(lkt.url, lkt.token, video: camera, rejoin: true));
+  }
+
+  Future<void> _moveRoom(Future<void> Function() connect) async {
+    final old = _client;
+    _client = null;
+    old?.abandon();
+    // Người của phòng cũ: bỏ hết, phòng mới tự báo lại ai đang ở đó.
+    for (final p in _people.values) {
+      _dropVideo(p);
+      _dropScreen(p);
+    }
+    _people.clear();
+    _audio.clear();
+    _syncRemoteUsers();
+    final cam = camera;
+    camera = false;
+    localVideo = null;
+    notifyListeners();
+    try {
+      camera = cam;
+      await connect();
+    } catch (e) {
+      debugPrint('[livekit] move room: $e');
+    }
+    notifyListeners();
+  }
+
   Future<void> _rejoin() async {
     if (!busy || phase == CallPhase.incoming || _rejoining) return;
     if (!reconnecting) {
@@ -1866,6 +1912,7 @@ class CallService extends ChangeNotifier {
     roomPresent = null;
     roomExtras = {};
     myQuality = '';
+    currentBreakout = null;
     callThreadId = null;
     muted = false;
     deafened = false;
