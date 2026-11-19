@@ -6175,8 +6175,9 @@ class _ComposerState extends State<_Composer> {
         if (r == null || !mounted) return;
         if (r.files.isNotEmpty) _stageFiles(r.files);
         if (r.text.isNotEmpty) {
-          _ctl.text = _ctl.text.trim().isEmpty ? r.text : '${_ctl.text.trimRight()}\n${r.text}';
-          _ctl.selection = TextSelection.collapsed(offset: _ctl.text.length);
+          final t = _ctl.text.trim().isEmpty ? r.text : '${_ctl.text.trimRight()}\n${r.text}';
+          // setState: nút micro đổi thành nút Gửi (chữ chèn bằng code không qua onChanged của ô soạn).
+          setState(() => _ctl.value = TextEditingValue(text: t, selection: TextSelection.collapsed(offset: t.length)));
           _focus.requestFocus();
         }
       case AttachAction.task:

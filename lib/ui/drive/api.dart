@@ -266,6 +266,37 @@ class DriveApi {
   Future<File> previewPdf(int id, String path, File dest, {void Function(int got, int total)? onProgress}) =>
       _fetchTo('/api/preview', {if (id > 0) 'id': '$id' else 'path': path}, dest, onProgress: onProgress);
 
+  /// Link chia sẻ công khai của Drive (`<drive>/s/<token>`): tên, kiểu, cỡ (đọc như khách, không cần quyền trên tệp).
+  Future<({String name, String mime, int size, String etag})> shareInfo(String token) async {
+    final j = (await get('/api/share/$token/info'))['share'] as Map;
+    return (name: '${j['name'] ?? token}', mime: '${j['mime'] ?? ''}', size: (j['size'] as num?)?.toInt() ?? 0, etag: '${j['etag'] ?? ''}');
+  }
+
+  Future<File> shareFile(String token, File dest, {void Function(int got, int total)? onProgress}) => _fetchTo('/api/share/$token/file', {}, dest, onProgress: onProgress);
+  Future<File> sharePreview(String token, File dest, {void Function(int got, int total)? onProgress}) => _fetchTo('/api/share/$token/preview', {}, dest, onProgress: onProgress);
+
+  /// Bản PDF của tệp Word / Excel / PowerPoint trên máy (vd tệp đính kèm trong chat): gửi nội dung, nhận PDF.
+  Future<File> previewUpload(File src, String name, File dest) async {
+    final bytes = await src.readAsBytes();
+    for (var attempt = 0; ; attempt++) {
+      final req = http.Request('POST', uri('/api/preview/upload', {'name': name}))
+        ..headers.addAll(await auth(refresh: attempt > 0))
+        ..headers['Content-Type'] = 'application/octet-stream'
+        ..bodyBytes = bytes;
+      final res = await _http.send(req).then(http.Response.fromStream).timeout(const Duration(minutes: 3));
+      if (res.statusCode == 401 && attempt == 0) continue;
+      if (res.statusCode != 200) {
+        String msg = 'Lỗi ${res.statusCode}';
+        try {
+          msg = '${(jsonDecode(utf8.decode(res.bodyBytes)) as Map)['error'] ?? msg}';
+        } catch (_) {}
+        throw DriveException(res.statusCode, msg);
+      }
+      await dest.parent.create(recursive: true);
+      return dest.writeAsBytes(res.bodyBytes);
+    }
+  }
+
   /// Tải các mục [names] (tệp hoặc thư mục) trong thư mục [dir] thành một tệp zip [dest].
   Future<File> downloadZip(String dir, List<String> names, File dest, {void Function(int got, int total)? onProgress, bool Function()? cancelled}) =>
       _fetchTo('/api/zip', {'dir': dir, 'files': jsonEncode(names)}, dest, onProgress: onProgress, cancelled: cancelled);

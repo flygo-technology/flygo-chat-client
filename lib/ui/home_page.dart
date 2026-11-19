@@ -40,7 +40,8 @@ import 'mcp_page.dart';
 import 'agents_view.dart';
 import 'qr_login.dart';
 import 'mini_app_view.dart';
-import 'drive/session.dart' show kOfficeTabPrefix, officeTabInfo, restoreOfficeTab;
+import 'drive/session.dart' show driveShareToken, kOfficeTabPrefix, officeLinkOf, officeTabInfo, openDriveShare, openOfficeLink, restoreOfficeTab;
+import 'drive/api.dart' show kDriveApp;
 import '../api/mini_apps.dart' show MiniApps;
 import 'season/appearance_pages.dart' show openAppearance, openAppearanceAdmin, AppearancePage;
 import 'season/chat_wallpaper.dart' show HomeBackground;
@@ -1003,6 +1004,18 @@ class _HomePageState extends State<HomePage> {
 
   /// Link Boards của máy chủ đang dùng: mở màn hình gốc của app (thẻ, bảng, hoặc danh sách bảng), không mở web.
   bool _openInternalLink(Uri u) {
+    // Link chia sẻ Drive (<drive>/s/<mã>): xem ngay trong app (ảnh, PDF, Word / Excel / PowerPoint) thay vì trình duyệt.
+    final share = driveShareToken(u);
+    if (share != null && mounted) {
+      openDriveShare(context, u, share);
+      return true;
+    }
+    // Link mở tài liệu Office của Drive (trang soạn nhanh / trang soạn Nextcloud): tab soạn riêng trên máy tính.
+    final office = _onDriveHost(u) ? officeLinkOf(u) : null;
+    if (office != null && mounted && MiniApps.inAppWebView) {
+      openOfficeLink(context, office.$1, office.$2);
+      return true;
+    }
     // Link mời họp của máy chủ đang dùng (<máy chủ>/__apps/hop/<mã>): mở phòng chờ của app Họp.
     final hop = u.host == Uri.parse(kServerUrl).host && u.path.contains('/hop/') ? parseMeetCode(u.path) : null;
     if (hop != null && mounted) {
@@ -4458,4 +4471,11 @@ String _appFold(String s) {
     out.write(i < 0 ? ch : b[i]);
   }
   return out.toString();
+}
+
+/// [u] trỏ tới máy Drive (Nextcloud) của máy chủ đang dùng.
+bool _onDriveHost(Uri u) {
+  final base = MiniApps.cached.where((a) => a.id == kDriveApp).firstOrNull?.baseUrl;
+  final host = base == null ? null : Uri.tryParse(base)?.host;
+  return host != null && host.isNotEmpty && u.host == host;
 }

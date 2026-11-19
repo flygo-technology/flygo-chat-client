@@ -1,4 +1,5 @@
-// Drive: xem tệp trong app — ảnh (vuốt qua lại, chụm phóng to), PDF (pdfrx), video / âm thanh, văn bản.
+// Xem tệp trong app (Drive, link chia sẻ Drive, tệp đính kèm chat) — ảnh (vuốt qua lại, chụm phóng to), PDF (pdfrx),
+// Word / Excel / PowerPoint (bản PDF máy chủ chuyển), video / âm thanh, văn bản.
 // Dùng bản ghim offline nếu có (xem được khi mất mạng), không thì tải vào thư mục tạm.
 import 'dart:io';
 
@@ -16,36 +17,78 @@ import 'api.dart';
 import 'look.dart';
 import 'session.dart';
 
-class DrivePreviewPage extends StatefulWidget {
+/// Một tệp để xem: tên (quyết định cách hiện), cách lấy bản trên máy (PDF với Word / Excel / PowerPoint).
+class PreviewFile {
+  const PreviewFile({required this.key, required this.name, required this.load, this.mime = '', this.tag});
+  final String key, name, mime;
+  final Future<File> Function(void Function(int got, int total) onProgress) load;
+  /// Dữ liệu riêng của nơi mở (vd DriveItem) cho các nút trên thanh trên.
+  final Object? tag;
+}
+
+/// Xem tệp của Drive: ảnh, PDF, Word / Excel / PowerPoint (bản PDF), video, chữ; máy tính có nút "Chỉnh sửa" cho Office.
+class DrivePreviewPage extends StatelessWidget {
   const DrivePreviewPage({super.key, required this.session, required this.item, this.gallery = const []});
   final DriveSession session;
   final DriveItem item;
-  /// Các ảnh cùng thư mục (vuốt qua lại); rỗng = chỉ tệp này.
+  /// Các tệp xem được cùng thư mục (vuốt / ← → qua lại); rỗng = chỉ tệp này.
   final List<DriveItem> gallery;
+
+  PreviewFile _file(DriveItem it) => PreviewFile(
+        key: it.path,
+        name: it.name,
+        mime: it.mime,
+        tag: it,
+        load: (p) => isOffice(it) ? previewPdf(session, it, onProgress: p) : localCopy(session, it, onProgress: p),
+      );
+
   @override
-  State<DrivePreviewPage> createState() => _DrivePreviewPageState();
+  Widget build(BuildContext context) {
+    var items = gallery.isEmpty ? [item] : gallery;
+    var i = items.indexWhere((x) => x.path == item.path);
+    if (i < 0) {
+      items = [item];
+      i = 0;
+    }
+    return FilePreviewPage(
+      files: [for (final it in items) _file(it)],
+      index: i,
+      actions: (ctx, f) {
+        final cur = f.tag as DriveItem;
+        return [
+          // Word / Excel / PowerPoint: xem ở đây; sửa bằng OnlyOffice ở tab riêng, chỉ trên máy tính.
+          if (isOffice(cur) && canEditOffice && cur.canWrite)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              child: FilledButton.icon(onPressed: () => openOffice(ctx, session, cur), icon: const Icon(Icons.edit_rounded, size: 18), label: Text(tr('Chỉnh sửa'))),
+            ),
+          IconButton(tooltip: tr('Chia sẻ'), icon: const Icon(Icons.person_add_alt_1_rounded), onPressed: () => showShareDialog(ctx, session, cur)),
+          IconButton(tooltip: tr('Thêm'), icon: const Icon(Icons.more_vert_rounded), onPressed: () => showItemActions(ctx, session, cur, fromPreview: true)),
+        ];
+      },
+    );
+  }
 }
 
-class _DrivePreviewPageState extends State<DrivePreviewPage> {
-  late List<DriveItem> _items;
-  late int _index;
-  late final PageController _pages;
+/// Trình xem toàn màn hình dùng chung (Drive, link chia sẻ Drive, tệp đính kèm trong chat): vuốt / ← → qua các tệp,
+/// Esc thoát; PDF và Office lăn chuột để cuộn, Ctrl + lăn / chụm để phóng to; ảnh phóng to quanh con trỏ.
+class FilePreviewPage extends StatefulWidget {
+  const FilePreviewPage({super.key, required this.files, this.index = 0, this.actions});
+  final List<PreviewFile> files;
+  final int index;
+  final List<Widget> Function(BuildContext context, PreviewFile file)? actions;
+  @override
+  State<FilePreviewPage> createState() => _FilePreviewPageState();
+}
+
+class _FilePreviewPageState extends State<FilePreviewPage> {
+  late int _index = widget.index.clamp(0, widget.files.length - 1);
+  late final PageController _pages = PageController(initialPage: _index);
   /// Ảnh đang phóng to: khoá vuốt qua ảnh khác (kéo để xem phần còn lại).
   bool _zoomed = false;
 
-  DriveItem get _cur => _items[_index];
-
-  @override
-  void initState() {
-    super.initState();
-    _items = widget.gallery.isEmpty ? [widget.item] : widget.gallery;
-    _index = _items.indexWhere((x) => x.path == widget.item.path).clamp(0, _items.length - 1);
-    if (_items.isEmpty || _items[_index].path != widget.item.path) {
-      _items = [widget.item];
-      _index = 0;
-    }
-    _pages = PageController(initialPage: _index);
-  }
+  List<PreviewFile> get _items => widget.files;
+  PreviewFile get _cur => _items[_index];
 
   @override
   void dispose() {
@@ -61,7 +104,7 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
       if (_items.length > 1 && i >= 0 && i < _items.length) _pages.animateToPage(i, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
     }
 
-    // Esc thoát xem trước; ← → chuyển ảnh.
+    // Esc thoát xem trước; ← → chuyển tệp.
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.maybePop(context),
@@ -71,45 +114,28 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
       child: Focus(
         autofocus: true,
         child: Theme(
-      data: Theme.of(context).copyWith(iconTheme: const IconThemeData(color: fg)),
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0B0D12),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF0B0D12),
-          foregroundColor: fg,
-          title: Text(_cur.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, color: fg)),
-          actions: [
-            // Word / Excel / PowerPoint: xem ở đây; sửa bằng OnlyOffice ở tab riêng, chỉ trên máy tính.
-            if (isOffice(_cur) && canEditOffice && _cur.canWrite)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                child: FilledButton.icon(
-                  onPressed: () => openOffice(context, widget.session, _cur),
-                  icon: const Icon(Icons.edit_rounded, size: 18),
-                  label: Text(tr('Chỉnh sửa')),
-                ),
-              ),
-            IconButton(tooltip: tr('Chia sẻ'), icon: const Icon(Icons.person_add_alt_1_rounded), onPressed: () => showShareDialog(context, widget.session, _cur)),
-            IconButton(
-              tooltip: tr('Thêm'),
-              icon: const Icon(Icons.more_vert_rounded),
-              onPressed: () => showItemActions(context, widget.session, _cur, onChanged: () => setState(() {}), fromPreview: true),
+          data: Theme.of(context).copyWith(iconTheme: const IconThemeData(color: fg)),
+          child: Scaffold(
+            backgroundColor: const Color(0xFF0B0D12),
+            appBar: AppBar(
+              backgroundColor: const Color(0xFF0B0D12),
+              foregroundColor: fg,
+              title: Text(_cur.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, color: fg)),
+              actions: widget.actions?.call(context, _cur),
             ),
-          ],
-        ),
-        body: _items.length > 1
-            ? PageView.builder(
-                controller: _pages,
-                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
-                itemCount: _items.length,
-                onPageChanged: (i) => setState(() {
-                  _index = i;
-                  _zoomed = false;
-                }),
-                itemBuilder: (_, i) => _Viewer(key: ValueKey(_items[i].path), session: widget.session, item: _items[i], onZoom: (z) => z != _zoomed ? setState(() => _zoomed = z) : null),
-              )
-            : _Viewer(session: widget.session, item: _cur),
-      ),
+            body: _items.length > 1
+                ? PageView.builder(
+                    controller: _pages,
+                    physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
+                    itemCount: _items.length,
+                    onPageChanged: (i) => setState(() {
+                      _index = i;
+                      _zoomed = false;
+                    }),
+                    itemBuilder: (_, i) => _Viewer(key: ValueKey(_items[i].key), file: _items[i], onZoom: (z) => z != _zoomed ? setState(() => _zoomed = z) : null),
+                  )
+                : _Viewer(file: _cur),
+          ),
         ),
       ),
     );
@@ -117,15 +143,15 @@ class _DrivePreviewPageState extends State<DrivePreviewPage> {
 }
 
 class _Viewer extends StatefulWidget {
-  const _Viewer({super.key, required this.session, required this.item, this.onZoom});
-  final DriveSession session;
-  final DriveItem item;
+  const _Viewer({super.key, required this.file, this.onZoom});
+  final PreviewFile file;
   final ValueChanged<bool>? onZoom;
   @override
   State<_Viewer> createState() => _ViewerState();
 }
 
 class _ViewerState extends State<_Viewer> {
+  bool get _office => const {DriveKind.doc, DriveKind.sheet, DriveKind.slide}.contains(_kind);
   File? _file;
   Object? _error;
   double _progress = 0;
@@ -133,7 +159,7 @@ class _ViewerState extends State<_Viewer> {
   String? _text;
   int _page = 1, _pageCount = 0;
 
-  DriveKind get _kind => kindOf(widget.item);
+  DriveKind get _kind => kindOf(DriveItem(path: '/${widget.file.name}', name: widget.file.name, dir: false, mime: widget.file.mime));
 
   @override
   void initState() {
@@ -154,7 +180,7 @@ class _ViewerState extends State<_Viewer> {
       }
 
       // Office: bản PDF máy chủ chuyển (lần đầu mất vài giây, sau đó lấy từ cache).
-      final f = isOffice(widget.item) ? await previewPdf(widget.session, widget.item, onProgress: prog) : await localCopy(widget.session, widget.item, onProgress: prog);
+      final f = await widget.file.load(prog);
       if (_kind == DriveKind.video || _kind == DriveKind.audio) {
         final v = VideoPlayerController.file(f);
         await v.initialize();
@@ -193,7 +219,7 @@ class _ViewerState extends State<_Viewer> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           SizedBox(width: 56, height: 56, child: CircularProgressIndicator(value: _progress > 0 ? _progress : null, color: fg)),
           const SizedBox(height: 14),
-          Text(_progress > 0 ? '${(_progress * 100).round()}%' : (isOffice(widget.item) ? tr('Đang chuẩn bị bản xem…') : tr('Đang tải…')), style: const TextStyle(color: fg)),
+          Text(_progress > 0 ? '${(_progress * 100).round()}%' : (_office ? tr('Đang chuẩn bị bản xem…') : tr('Đang tải…')), style: const TextStyle(color: fg)),
         ]),
       );
     }

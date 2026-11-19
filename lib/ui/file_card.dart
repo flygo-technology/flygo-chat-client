@@ -11,6 +11,12 @@ import '../config.dart';
 import '../data/models.dart';
 import '../i18n/i18n.dart';
 import '../state/app_state.dart';
+import '../api/mini_apps.dart' show MiniApps;
+import 'app_route.dart';
+import 'drive/api.dart' show DriveItem, kDriveApp;
+import 'drive/look.dart' show isOffice, kindOf, DriveKind;
+import 'drive/preview.dart' show FilePreviewPage, PreviewFile;
+import 'drive/session.dart' show DriveSession;
 import 'open_file.dart';
 import 'theme.dart';
 
@@ -248,6 +254,40 @@ class _FileCardState extends State<FileCard> {
     }
   }
 
+  DriveItem get _asItem => DriveItem(path: '/${widget.file.name}', name: widget.file.name, dir: false, mime: widget.file.mime);
+
+  /// Xem được ngay trong app: ảnh, PDF; Word / Excel / PowerPoint khi máy chủ có Drive (chuyển sang PDF).
+  bool get _canView {
+    final k = kindOf(_asItem);
+    if (k == DriveKind.image || k == DriveKind.pdf) return true;
+    return isOffice(_asItem) && MiniApps.cached.any((a) => a.id == kDriveApp);
+  }
+
+  /// "Xem": cùng trình xem với Drive (Esc, ← →, lăn chuột, Ctrl + lăn phóng to; điện thoại chỉ xem).
+  Future<void> _view() async {
+    final state = context.read<AppState>();
+    final f = widget.file;
+    final office = isOffice(_asItem);
+    await Navigator.of(context, rootNavigator: true).push(AppPageRoute(
+      builder: (_) => FilePreviewPage(files: [
+        PreviewFile(
+          key: f.id,
+          name: f.name,
+          mime: f.mime,
+          load: (p) async {
+            final path = await _cached();
+            if (!office) return File(path);
+            final pdf = File('${(await getTemporaryDirectory()).path}/drive_preview/chat_${f.id}.pdf');
+            if (await pdf.exists()) return pdf;
+            final s = await DriveSession.current(state);
+            if (s == null) throw StateError(tr('Máy chủ này chưa có Drive để xem tệp Office'));
+            return s.api.previewUpload(File(path), f.name, pdf);
+          },
+        ),
+      ]),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
@@ -327,6 +367,7 @@ class _FileCardState extends State<FileCard> {
           ),
         // Máy tính: đã lưu thì "Mở thư mục" thay cho "Lưu" (giữ một hàng nút gọn).
         Wrap(children: [
+          if (_canView) btn(tr('Xem'), Icons.visibility_rounded, _view, primary: true),
           if (_desktop && _saved != null)
             btn(tr('Mở thư mục'), Icons.folder_open_rounded, () => revealInFileManager(_saved!), primary: true)
           else
