@@ -122,8 +122,9 @@ class CastSession {
   );
 
   /// Chiếu tệp (người đang chiếu): [type] pdf | image | video, [mime] đúng loại tệp (vd image/png, video/mp4).
-  Future<void> showFile(File f, {required String type, required String mime, required String name, int pages = 0, String app = ''}) async {
-    final q = Uri(queryParameters: {'type': type, 'name': name, if (type == 'pdf') 'pages': '$pages', 'app': app}).query;
+  /// [auto]: PDF tự lật trang mỗi [auto] giây (bảng tin xoay vòng), 0 = không.
+  Future<void> showFile(File f, {required String type, required String mime, required String name, int pages = 0, String app = '', int auto = 0}) async {
+    final q = Uri(queryParameters: {'type': type, 'name': name, if (type == 'pdf') 'pages': '$pages', if (auto > 0) 'auto': '$auto', 'app': app}).query;
     final req = http.StreamedRequest('POST', Uri.parse('${_base(server)}/c/$ctl/content?$q'))
       ..headers.addAll({..._h, 'Content-Type': mime})
       ..contentLength = await f.length();

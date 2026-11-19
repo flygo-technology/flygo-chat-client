@@ -58,23 +58,32 @@ List<_Line> _parse(String md) {
   return out;
 }
 
+/// Một phần của bộ slide: trang chữ rồi mỗi ảnh một trang. Mỗi phần bắt đầu ở trang mới.
+class CastSection {
+  final String title, subtitle, body;
+  final List<Uint8List> images;
+  const CastSection({required this.title, this.subtitle = '', this.body = '', this.images = const []});
+}
+
 /// PDF 16:9 lưu vào thư mục tạm: trang chữ ([title], [subtitle], [body] dạng Markdown đơn giản) rồi mỗi ảnh trong [images] một trang.
-Future<File> buildCastSlides({required String title, String subtitle = '', String body = '', List<Uint8List> images = const [], String fileName = 'slides'}) async {
-  final bytes = await castSlidesPdf(title: title, subtitle: subtitle, body: body, images: images);
+Future<File> buildCastSlides({required String title, String subtitle = '', String body = '', List<Uint8List> images = const [], String fileName = 'slides'}) =>
+    saveCastPdf(castSlidesPdf([CastSection(title: title, subtitle: subtitle, body: body, images: images)], docTitle: title), fileName);
+
+/// Ghi PDF vào thư mục tạm (tên tệp có dấu thời gian).
+Future<File> saveCastPdf(Future<Uint8List> pdf, String fileName) async {
+  final bytes = await pdf;
   final dir = await getTemporaryDirectory();
   final f = File('${dir.path}/cast-${DateTime.now().millisecondsSinceEpoch}-${fileName.replaceAll(RegExp(r'[^\w-]+'), '_')}.pdf');
   await f.writeAsBytes(bytes);
   return f;
 }
 
-/// Nội dung PDF của [buildCastSlides].
-Future<Uint8List> castSlidesPdf({required String title, String subtitle = '', String body = '', List<Uint8List> images = const []}) async {
+/// Nội dung PDF của các [sections]. [maxPagesEach]: giới hạn số trang chữ mỗi phần (bảng tin xoay vòng: 1).
+Future<Uint8List> castSlidesPdf(List<CastSection> sections, {String docTitle = '', int maxPagesEach = 60}) async {
   final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Regular.ttf'));
   final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Bold.ttf'));
   final mono = pw.Font.ttf(await rootBundle.load('assets/fonts/JetBrainsMono-Regular.ttf'));
-  final doc = pw.Document(theme: pw.ThemeData.withFont(base: regular, bold: bold), title: title);
-  final lines = _parse(body);
-  final hasText = lines.any((l) => l.kind != 'blank');
+  final doc = pw.Document(theme: pw.ThemeData.withFont(base: regular, bold: bold), title: docTitle);
 
   pw.Widget line(_Line l) => switch (l.kind) {
     'h1' => pw.Padding(padding: const pw.EdgeInsets.only(top: 18, bottom: 8), child: pw.Text(l.text, style: pw.TextStyle(font: bold, fontSize: 38, color: _ink))),
@@ -96,32 +105,50 @@ Future<Uint8List> castSlidesPdf({required String title, String subtitle = '', St
     _ => pw.Padding(padding: const pw.EdgeInsets.only(bottom: 8), child: pw.Text(l.text, style: const pw.TextStyle(fontSize: 26, color: _ink, lineSpacing: 6))),
   };
 
-  doc.addPage(pw.MultiPage(
-    pageFormat: _fmt,
-    margin: const pw.EdgeInsets.fromLTRB(72, 56, 72, 48),
-    maxPages: 60,
-    header: (ctx) => ctx.pageNumber == 1
-        ? pw.SizedBox()
-        : pw.Padding(padding: const pw.EdgeInsets.only(bottom: 16), child: pw.Text(title, style: const pw.TextStyle(fontSize: 16, color: _sub))),
-    build: (ctx) => [
-      pw.Container(width: 96, height: 8, margin: const pw.EdgeInsets.only(bottom: 22), color: _accent),
-      pw.Text(title, style: pw.TextStyle(font: bold, fontSize: hasText ? 48 : 64, color: _ink, lineSpacing: 4)),
-      if (subtitle.isNotEmpty) pw.Padding(padding: const pw.EdgeInsets.only(top: 14), child: pw.Text(subtitle, style: const pw.TextStyle(fontSize: 22, color: _sub))),
-      pw.SizedBox(height: 28),
-      for (final l in lines) line(l),
-    ],
-  ));
-  for (final b in images) {
-    pw.MemoryImage img;
-    try {
-      img = pw.MemoryImage(b);
-    } catch (_) {
-      continue; // ảnh hỏng / định dạng PDF không đọc được: bỏ qua
+  for (final sec in sections) {
+    var lines = _parse(sec.body);
+    final hasText = lines.any((l) => l.kind != 'blank');
+    var title = sec.title;
+    // Một trang mỗi phần (bảng tin xoay vòng): tiêu đề ≤ 90 ký tự, nội dung ≤ 6 dòng / 320 ký tự cho vừa một trang.
+    if (maxPagesEach == 1) {
+      if (title.length > 90) title = '${title.substring(0, 89)}…';
+      final kept = <_Line>[];
+      var n = 0;
+      for (final l in lines.where((l) => l.kind != 'blank' && l.kind != 'code')) {
+        if (kept.length >= 6 || n >= 320) break;
+        final t = l.text.length > 320 - n ? '${l.text.substring(0, 320 - n)}…' : l.text;
+        kept.add(_Line(l.kind.startsWith('h') ? 'p' : l.kind, t));
+        n += t.length;
+      }
+      lines = kept;
     }
-    doc.addPage(pw.Page(
+    doc.addPage(pw.MultiPage(
       pageFormat: _fmt,
-      build: (_) => pw.Container(color: PdfColors.black, alignment: pw.Alignment.center, child: pw.Image(img, fit: pw.BoxFit.contain)),
+      margin: const pw.EdgeInsets.fromLTRB(72, 56, 72, 48),
+      maxPages: maxPagesEach,
+      header: (ctx) => ctx.pageNumber == 1
+          ? pw.SizedBox()
+          : pw.Padding(padding: const pw.EdgeInsets.only(bottom: 16), child: pw.Text(title, style: const pw.TextStyle(fontSize: 16, color: _sub))),
+      build: (ctx) => [
+        pw.Container(width: 96, height: 8, margin: const pw.EdgeInsets.only(bottom: 22), color: _accent),
+        pw.Text(title, style: pw.TextStyle(font: bold, fontSize: hasText ? 48 : 64, color: _ink, lineSpacing: 4)),
+        if (sec.subtitle.isNotEmpty) pw.Padding(padding: const pw.EdgeInsets.only(top: 14), child: pw.Text(sec.subtitle, style: const pw.TextStyle(fontSize: 22, color: _sub))),
+        pw.SizedBox(height: 28),
+        for (final l in lines) line(l),
+      ],
     ));
+    for (final b in sec.images) {
+      pw.MemoryImage img;
+      try {
+        img = pw.MemoryImage(b);
+      } catch (_) {
+        continue; // ảnh hỏng / định dạng PDF không đọc được: bỏ qua
+      }
+      doc.addPage(pw.Page(
+        pageFormat: _fmt,
+        build: (_) => pw.Container(color: PdfColors.black, alignment: pw.Alignment.center, child: pw.Image(img, fit: pw.BoxFit.contain)),
+      ));
+    }
   }
   return doc.save();
 }

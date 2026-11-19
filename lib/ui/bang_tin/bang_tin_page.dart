@@ -2,6 +2,7 @@
 // lưu trữ, bài của tôi; quản trị Bảng tin có thêm chuyên mục và thống kê. Backend: flygo-chat-server bang-tin/.
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +15,8 @@ import '../../config.dart' show isDesktop;
 import '../../data/image_disk_cache.dart';
 import '../app_shell.dart';
 import '../app_route.dart';
+import '../cast/cast_screen.dart';
+import '../cast/cast_slides.dart';
 import '../common.dart';
 import '../theme.dart';
 import '../flows/column_resizer.dart';
@@ -276,6 +279,40 @@ class _BangTinHomeState extends State<BangTinHome> {
     }
   }
 
+  /// Chiếu bảng tin lên màn hình lớn: các bài đang ghim + mới nhất (tối đa 12), mỗi bài một trang (+ ảnh bìa),
+  /// tự lật trang mỗi 15 giây, hết thì quay lại.
+  Future<void> _castBoard() {
+    final seen = <String>{};
+    final posts = [for (final p in [..._pinned, ..._posts]) if (seen.add('${p['id']}')) p].take(12).toList();
+    return castToScreen(
+      context,
+      CastContent.pdf(
+        name: tr('Bảng tin'),
+        app: 'bang-tin',
+        auto: 15,
+        load: (_) async {
+          final sections = <CastSection>[];
+          for (final p in posts) {
+            final cover = p['cover'];
+            Uint8List? img;
+            if (cover != null) {
+              try {
+                img = await api.bytes('$cover');
+              } catch (_) {}
+            }
+            sections.add(CastSection(
+              title: '${p['title'] ?? ''}'.trim().isEmpty ? tr('Bài viết') : '${p['title']}'.trim(),
+              subtitle: '${(p['author'] as Map?)?['name'] ?? ''}',
+              body: '${p['body_preview'] ?? p['excerpt'] ?? ''}',
+              images: [?img],
+            ));
+          }
+          return saveCastPdf(castSlidesPdf(sections, docTitle: tr('Bảng tin'), maxPagesEach: 1), 'bang-tin');
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
@@ -309,6 +346,8 @@ class _BangTinHomeState extends State<BangTinHome> {
                         )
                       : (widget.inTab && _view == _View.all ? null : Text(title, style: const TextStyle(fontWeight: FontWeight.w800))),
                   actions: [
+                    if (!_searching && _posts.isNotEmpty)
+                      IconButton(tooltip: tr('Chiếu bảng tin lên màn hình'), icon: const Icon(Icons.cast_rounded), onPressed: _castBoard),
                     IconButton(
                       tooltip: _searching ? tr('Đóng') : tr('Tìm kiếm'),
                       icon: Icon(_searching ? Icons.close_rounded : Icons.search_rounded),

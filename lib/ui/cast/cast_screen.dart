@@ -24,8 +24,11 @@ typedef CastLoader = Future<File> Function(void Function(int got, int total)? on
 class CastContent {
   final String type, mime, name, app;
   final CastLoader load;
-  const CastContent({required this.type, required this.mime, required this.name, required this.load, this.app = ''});
-  const CastContent.pdf({required this.name, required this.load, this.app = ''}) : type = 'pdf', mime = 'application/pdf';
+
+  /// PDF tự lật trang mỗi [auto] giây (0 = không).
+  final int auto;
+  const CastContent({required this.type, required this.mime, required this.name, required this.load, this.app = '', this.auto = 0});
+  const CastContent.pdf({required this.name, required this.load, this.app = '', this.auto = 0}) : type = 'pdf', mime = 'application/pdf';
 }
 
 /// Loại tệp chiếu được theo đuôi tệp (ảnh / video trình duyệt TV mở được). Null: không chiếu được.
@@ -212,7 +215,7 @@ class _CastRemotePageState extends State<CastRemotePage> {
       });
       if (c.type == 'pdf') _doc ??= await PdfDocument.openFile(_pdf!.path);
       if (mounted) setState(() => _progress = null);
-      await s.showFile(_pdf!, type: c.type, mime: c.mime, name: c.name, pages: _pages, app: c.app);
+      await s.showFile(_pdf!, type: c.type, mime: c.mime, name: c.name, pages: _pages, app: c.app, auto: c.auto);
       if (c.type == 'video') {
         _clock ??= Timer.periodic(const Duration(seconds: 1), (_) {
           if (mounted) setState(() {});
