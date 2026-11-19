@@ -1,0 +1,401 @@
+// "Đưa lên màn hình" dùng chung cho mọi app: quét / gõ mã trên màn hình (hello.<tên miền>), ghép, đẩy tài liệu lên,
+// điện thoại thành điều khiển (trang trước / sau, laser khi giữ và kéo trên ảnh trang, màn đen, dừng).
+// Màn hình đang có người chiếu thì vào hàng chờ; đến lượt thì tài liệu tự lên.
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:pdfrx/pdfrx.dart';
+import 'package:provider/provider.dart';
+
+import '../../config.dart';
+import '../../i18n/i18n.dart';
+import '../../state/app_state.dart';
+import '../app_route.dart';
+import '../mini_app_view.dart' show ScanOncePage;
+import '../theme.dart' show toast;
+import 'cast_api.dart';
+
+/// Tải bản PDF để chiếu (vd Drive: đổi Office sang PDF). [onProgress]: đã tải / tổng số byte.
+typedef CastPdfLoader = Future<File> Function(void Function(int got, int total)? onProgress);
+
+/// Chiếu một tài liệu PDF lên màn hình: hỏi mã màn hình, ghép, mở trang điều khiển.
+Future<void> castPdfToScreen(BuildContext context, {required String name, required CastPdfLoader load, String app = ''}) async {
+  AppState? app0;
+  try {
+    app0 = context.read<AppState>();
+  } catch (_) {} // cửa sổ con (Drive riêng) không có phiên chat
+  final m = ScaffoldMessenger.maybeOf(context);
+  if (app0 == null) {
+    m?.showSnackBar(toast(Text(tr('Mở Flygo Chat để đưa lên màn hình'))));
+    return;
+  }
+  final code = await askScreenCode(context);
+  if (code == null || !context.mounted) return;
+  CastSession s;
+  try {
+    s = await CastSession.pair(kServerUrl, app0.token, code);
+  } catch (e) {
+    m?.showSnackBar(toast(Text(tr('Không ghép được với màn hình: {0}', ['$e']))));
+    return;
+  }
+  if (!context.mounted) return;
+  await Navigator.of(context, rootNavigator: true).push(AppPageRoute(builder: (_) => CastRemotePage(session: s, name: name, load: load, app: app)));
+}
+
+/// Mã màn hình: điện thoại quét QR (hoặc gõ), máy tính gõ mã hiện dưới QR. Null nếu huỷ.
+Future<String?> askScreenCode(BuildContext context) async {
+  final phone = Platform.isAndroid || Platform.isIOS;
+  String? raw;
+  if (phone) {
+    final how = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sh) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(tr('Đưa lên màn hình'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text(tr('Mở hello.flygo.vn trên TV / máy chiếu rồi quét mã QR trên đó.'), style: TextStyle(color: Theme.of(sh).hintColor)),
+            const SizedBox(height: 16),
+            FilledButton.icon(onPressed: () => Navigator.pop(sh, 'scan'), icon: const Icon(Icons.qr_code_scanner_rounded), label: Text(tr('Quét mã trên màn hình'))),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(onPressed: () => Navigator.pop(sh, 'type'), icon: const Icon(Icons.keyboard_rounded), label: Text(tr('Nhập mã'))),
+          ]),
+        ),
+      ),
+    );
+    if (how == null || !context.mounted) return null;
+    if (how == 'scan') raw = await Navigator.of(context, rootNavigator: true).push<String>(MaterialPageRoute(builder: (_) => const ScanOncePage()));
+  }
+  if (raw == null && context.mounted) raw = await _typeCode(context);
+  if (raw == null || !context.mounted) return null;
+  final other = foreignScreenHost(raw, kServerUrl);
+  final code = parseScreenCode(raw);
+  if (other != null || code == null) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text(other != null
+        ? tr('Màn hình {0} thuộc máy chủ khác, hãy đăng nhập máy chủ đó', [other])
+        : tr('Đây không phải mã màn hình (8 ký tự, vd K7QM-2XPR)'))));
+    return null;
+  }
+  return code;
+}
+
+Future<String?> _typeCode(BuildContext context) {
+  final ctl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (d) => AlertDialog(
+      title: Text(tr('Nhập mã màn hình')),
+      content: SizedBox(
+        width: 380,
+        child: TextField(
+          controller: ctl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          style: const TextStyle(fontSize: 22, letterSpacing: 3, fontFamily: 'monospace'),
+          decoration: InputDecoration(hintText: 'K7QM-2XPR', helperText: tr('Mã hiện dưới QR trên màn hình')),
+          onSubmitted: (v) => Navigator.pop(d, v),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Hủy'))),
+        FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: Text(tr('Kết nối'))),
+      ],
+    ),
+  );
+}
+
+// ---------------------------------------------------------------- trang điều khiển
+class CastRemotePage extends StatefulWidget {
+  final CastSession session;
+  final String name, app;
+  final CastPdfLoader load;
+  const CastRemotePage({super.key, required this.session, required this.name, required this.load, this.app = ''});
+  @override
+  State<CastRemotePage> createState() => _CastRemotePageState();
+}
+
+class _CastRemotePageState extends State<CastRemotePage> {
+  late CastState st = widget.session.first;
+  StreamSubscription<CastState>? _sub;
+  PdfDocument? _doc;
+  File? _pdf;
+  bool _sent = false, _sending = false, _stopped = false;
+  double? _progress;
+  String? _error;
+  int _page = 1;
+  Offset? _laser; // vị trí laser trên ảnh trang (0..1)
+
+  CastSession get s => widget.session;
+  int get _pages => _doc?.pages.length ?? 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = s.events().listen((v) {
+      if (!mounted) return;
+      final wasPresenting = st.presenting;
+      setState(() => st = v);
+      if (v.presenting && !wasPresenting) HapticFeedback.mediumImpact();
+      _maybeSend();
+    });
+    _maybeSend();
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    if (!_stopped) s.stop();
+    _doc?.dispose();
+    super.dispose();
+  }
+
+  /// Đến lượt chiếu: tải PDF (nếu chưa) rồi đẩy lên màn hình.
+  Future<void> _maybeSend() async {
+    if (!st.presenting || _sent || _sending) return;
+    setState(() { _sending = true; _error = null; });
+    try {
+      _pdf ??= await widget.load((got, total) {
+        if (mounted) setState(() => _progress = total > 0 ? got / total : null);
+      });
+      _doc ??= await PdfDocument.openFile(_pdf!.path);
+      await s.showPdf(_pdf!, name: widget.name, pages: _pages, app: widget.app);
+      _page = 1;
+      _sent = true;
+    } catch (e) {
+      _error = '$e';
+    } finally {
+      if (mounted) setState(() { _sending = false; _progress = null; });
+    }
+  }
+
+  Future<void> _go(int p) async {
+    if (!st.presenting || !_sent || _pages == 0) return;
+    final n = p.clamp(1, _pages);
+    if (n == _page) return;
+    setState(() => _page = n);
+    try {
+      await s.page(n);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text('$e')));
+    }
+  }
+
+  Future<void> _stop() async {
+    _stopped = true;
+    await s.stop();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<bool> _confirmLeave() async {
+    if (st.ended) return true;
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(st.presenting ? tr('Dừng chiếu?') : tr('Rời hàng chờ?')),
+        content: Text(st.presenting ? tr('Màn hình sẽ về lại mã QR (hoặc chuyển cho người đang chờ).') : tr('Bạn sẽ không còn trong hàng chờ của màn hình này.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Ở lại'))),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(st.presenting ? tr('Dừng chiếu') : tr('Rời'))),
+        ],
+      ),
+    );
+    return r == true;
+  }
+
+  void _laserAt(Offset local, Size size, {bool on = true}) {
+    final x = (local.dx / size.width).clamp(0.0, 1.0), y = (local.dy / size.height).clamp(0.0, 1.0);
+    setState(() => _laser = on ? Offset(x, y) : null);
+    s.laser(x, y, on: on);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final th = Theme.of(context);
+    final cs = th.colorScheme;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (did, _) async {
+        if (did) return;
+        if (await _confirmLeave() && mounted) _stop();
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () => _go(_page + 1),
+          const SingleActivator(LogicalKeyboardKey.pageDown): () => _go(_page + 1),
+          const SingleActivator(LogicalKeyboardKey.space): () => _go(_page + 1),
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _go(_page - 1),
+          const SingleActivator(LogicalKeyboardKey.pageUp): () => _go(_page - 1),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            appBar: AppBar(
+              title: Row(children: [
+                const Icon(Icons.tv_rounded, size: 22),
+                const SizedBox(width: 8),
+                Flexible(child: Text(st.screen.isEmpty ? tr('Màn hình') : st.screen, overflow: TextOverflow.ellipsis)),
+              ]),
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 14),
+                  child: Center(
+                    child: Text(
+                      st.ended ? tr('Đã ngắt') : st.presenting ? tr('● Đang chiếu') : tr('Đang chờ'),
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: st.presenting ? Colors.green.shade600 : th.hintColor),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            body: SafeArea(child: st.ended ? _ended(th) : st.presenting ? _remote(th, cs) : _queued(th, cs)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _ended(ThemeData th) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.tv_off_rounded, size: 56, color: th.hintColor),
+            const SizedBox(height: 12),
+            Text(st.why == 'timeout' ? tr('Mất kết nối quá lâu, màn hình đã chuyển cho người khác') : tr('Đã ngắt khỏi màn hình'), textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: () { _stopped = true; Navigator.of(context).pop(); }, child: Text(tr('Đóng'))),
+          ]),
+        ),
+      );
+
+  Widget _queued(ThemeData th, ColorScheme cs) => ListView(padding: const EdgeInsets.all(20), children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(color: cs.surfaceContainerHighest.withValues(alpha: .5), borderRadius: BorderRadius.circular(16)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(tr('Đang chiếu: {0}', [st.nowBy]), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text(tr('Bạn đứng thứ {0} trong hàng chờ', ['${st.position}']), style: TextStyle(fontSize: 16, color: cs.primary, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
+            Text(tr('Khi {0} dừng hoặc nhường, “{1}” sẽ tự lên màn hình. Giữ trang này mở.', [st.nowBy, widget.name]), style: TextStyle(color: th.hintColor)),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        OutlinedButton(onPressed: () async { if (await _confirmLeave()) _stop(); }, child: Text(tr('Rời hàng chờ'))),
+      ]);
+
+  Widget _remote(ThemeData th, ColorScheme cs) {
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(tr('Không chiếu được: {0}', [_error!]), textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: _maybeSend, child: Text(tr('Thử lại'))),
+          ]),
+        ),
+      );
+    }
+    if (!_sent || _doc == null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(width: 220, child: LinearProgressIndicator(value: _progress)),
+          const SizedBox(height: 12),
+          Text(tr('Đang chuẩn bị “{0}”…', [widget.name]), textAlign: TextAlign.center),
+        ]),
+      );
+    }
+    final pg = _doc!.pages[(_page - 1).clamp(0, _pages - 1)];
+    final waiting = st.queueNames;
+    return Column(children: [
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: pg.width / pg.height,
+              child: LayoutBuilder(
+                builder: (_, box) => GestureDetector(
+                  onPanStart: (d) => _laserAt(d.localPosition, box.biggest),
+                  onPanUpdate: (d) => _laserAt(d.localPosition, box.biggest),
+                  onPanEnd: (_) => _laserAt(Offset.zero, box.biggest, on: false),
+                  onTapUp: (d) => _go(d.localPosition.dx > box.maxWidth / 2 ? _page + 1 : _page - 1),
+                  child: Stack(children: [
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(blurRadius: 8, color: Color(0x33000000))]),
+                        child: ClipRRect(borderRadius: BorderRadius.circular(8), child: PdfPageView(document: _doc, pageNumber: _page)),
+                      ),
+                    ),
+                    if (st.blank) Positioned.fill(child: Container(color: Colors.black87, alignment: Alignment.center, child: Text(tr('Màn đen'), style: const TextStyle(color: Colors.white70)))),
+                    if (_laser != null)
+                      Positioned(
+                        left: _laser!.dx * box.maxWidth - 8,
+                        top: _laser!.dy * box.maxHeight - 8,
+                        child: Container(width: 16, height: 16, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: .6), blurRadius: 10, spreadRadius: 3)])),
+                      ),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      Text(tr('{0} · trang {1}/{2} · giữ và kéo trên trang để trỏ laser', [widget.name, '$_page', '$_pages']),
+          style: TextStyle(fontSize: 12.5, color: th.hintColor), maxLines: 1, overflow: TextOverflow.ellipsis),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Row(children: [
+          Expanded(child: _bigBtn(Icons.chevron_left_rounded, _page > 1 ? () => _go(_page - 1) : null)),
+          const SizedBox(width: 12),
+          Expanded(child: _bigBtn(Icons.chevron_right_rounded, _page < _pages ? () => _go(_page + 1) : null)),
+        ]),
+      ),
+      if (waiting.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+          decoration: BoxDecoration(color: Colors.orange.withValues(alpha: .12), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange.withValues(alpha: .4))),
+          child: Row(children: [
+            const Text('✋ '),
+            Expanded(child: Text(tr('{0} đang chờ chiếu', [waiting.length > 1 ? '${waiting.first} (+${waiting.length - 1})' : waiting.first]))),
+            TextButton(onPressed: _stop, child: Text(tr('Nhường'))),
+          ]),
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => s.blank(!st.blank).catchError((_) {}),
+              icon: Icon(st.blank ? Icons.visibility_rounded : Icons.square_rounded),
+              label: Text(st.blank ? tr('Hiện lại') : tr('Màn đen')),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer),
+              onPressed: _stop,
+              icon: const Icon(Icons.stop_rounded),
+              label: Text(tr('Dừng chiếu')),
+            ),
+          ),
+        ]),
+      ),
+    ]);
+  }
+
+  Widget _bigBtn(IconData icon, VoidCallback? onTap) => SizedBox(
+        height: 76,
+        child: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+          child: Icon(icon, size: 40),
+        ),
+      );
+}
