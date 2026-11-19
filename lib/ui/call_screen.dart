@@ -18,6 +18,7 @@ import 'meet/extras/actions.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
 import 'home_page.dart' show ChatHost;
+import 'meet/extras/hands.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
@@ -186,13 +187,23 @@ class _CallScreenState extends State<CallScreen> {
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
     _poke();
     CallScreen.visible.value++;
+    // Tính năng thêm (meet/extras): nghe sự kiện của cuộc họp để báo nhanh (vd. "X đã hạ tay bạn").
+    final call = context.read<AppState>().calls;
+    _extrasCall = call;
+    meetExtrasAttach(context, call, (t) {
+      if (mounted) meetToast(context, t);
+    });
   }
+
+  CallService? _extrasCall;
 
   @override
   void dispose() {
     _tick?.cancel();
     _hide?.cancel();
     _disposeRoom();
+    final xc = _extrasCall;
+    if (xc != null) meetExtrasDetach(xc);
     // Sau khung hình này: tránh đổi notifier khi cây đang dựng lại.
     WidgetsBinding.instance.addPostFrameCallback((_) => CallScreen.visible.value = (CallScreen.visible.value - 1).clamp(0, 99));
     super.dispose();
@@ -2057,7 +2068,7 @@ class _CallScreenState extends State<CallScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (hand) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.back_hand, color: Color(0xFFFDD663), size: 20)),
+              if (hand) Padding(padding: const EdgeInsets.only(right: 10), child: MeetHandBadge(order: userId == null ? null : meetHandOrder(call, userId), size: 20)),
               if (screen) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.present_to_all, color: _blue, size: 20)),
               Icon(video ? Icons.videocam : Icons.videocam_off, color: video ? Colors.white : _grey, size: 20),
               const SizedBox(width: 10),
@@ -2293,7 +2304,7 @@ class _Tile extends StatelessWidget {
                     child: Row(
                       children: [
                         if (pinned) const Icon(Icons.push_pin, color: Colors.white, size: 18),
-                        if (d.raisedHand) const Icon(Icons.back_hand, color: Color(0xFFFDD663), size: 18),
+                        if (d.raisedHand) MeetHandBadge(order: d.userId == null ? null : meetHandOrder(context.read<AppState>().calls, d.userId!), size: 18),
                       ],
                     ),
                   ),
