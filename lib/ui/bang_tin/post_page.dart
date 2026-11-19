@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../i18n/i18n.dart';
+import '../cast/cast_screen.dart';
+import '../cast/cast_slides.dart';
 import '../common.dart';
 import '../markdown_view.dart';
 import '../open_file.dart';
@@ -312,6 +314,29 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
       ) ==
       true;
 
+  /// Chiếu bài lên màn hình lớn: trang chữ (tiêu đề, người đăng, nội dung) rồi mỗi ảnh một trang.
+  Future<void> _cast(Map<String, dynamic> p) {
+    final title = '${p['title'] ?? ''}'.trim();
+    final author = '${(p['author'] as Map?)?['name'] ?? ''}';
+    final images = [
+      for (final f in _maps(p['files']))
+        if ('${f['mime']}'.startsWith('image/')) '${f['id']}',
+    ];
+    if (images.isEmpty && p['cover'] != null) images.add('${p['cover']}');
+    return castPdfToScreen(
+      context,
+      name: title.isEmpty ? tr('Bài viết') : title,
+      app: 'bang-tin',
+      load: (_) async => buildCastSlides(
+        title: title.isEmpty ? tr('Bảng tin') : title,
+        subtitle: [if (author.isNotEmpty) author, tr('Bảng tin')].join(' · '),
+        body: '${p['body'] ?? ''}',
+        images: [for (final id in images.take(30)) await api.bytes(id)],
+        fileName: title,
+      ),
+    );
+  }
+
   Future<void> _menu(String v) async {
     final p = _post!;
     try {
@@ -360,6 +385,7 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
         backgroundColor: pal.surface,
         title: Text(tr('Bài viết')),
         actions: [
+          if (p != null) IconButton(tooltip: tr('Đưa lên màn hình'), icon: const Icon(Icons.cast_rounded), onPressed: () => _cast(p)),
           if (p?['can_see_receipts'] == true)
             IconButton(tooltip: tr('Đã xem'), icon: const Icon(Icons.fact_check_outlined), onPressed: () => _views('${p!['title']}')),
           if (p != null && (p['can_edit'] == true || p['can_delete'] == true || p['can_pin'] == true || widget.me.admin))
