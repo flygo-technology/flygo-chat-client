@@ -264,6 +264,9 @@ class CastSession {
 /// Một màn hình trong danh sách của công ty.
 class CastScreen {
   final String id, name, status, nowBy;
+
+  /// Nội dung đang chiếu; [endedName] / [endedBy]: vừa chiếu xong (vài giây), rỗng nếu không.
+  final String nowName, endedName, endedBy;
   final bool online, approved, recent;
   final int queue;
   final Map? lock;
@@ -272,6 +275,9 @@ class CastScreen {
       name = '${j['name'] ?? ''}',
       status = '${j['status'] ?? 'idle'}',
       nowBy = '${j['now_by'] ?? ''}',
+      nowName = '${j['now_name'] ?? ''}',
+      endedName = '${(j['ended'] as Map?)?['name'] ?? ''}',
+      endedBy = '${(j['ended'] as Map?)?['by_name'] ?? ''}',
       online = j['online'] == true,
       approved = j['approved'] == true,
       recent = j['recent'] == true,
