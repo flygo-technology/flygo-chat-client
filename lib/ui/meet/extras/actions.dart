@@ -10,6 +10,7 @@ import 'attendance.dart';
 import 'board.dart';
 import 'captions.dart';
 import 'controls.dart';
+import 'guest_invite.dart';
 import 'hands.dart';
 import 'network.dart';
 import 'qa.dart';
@@ -43,6 +44,8 @@ List<MeetExtraAction> meetExtraActions(BuildContext context, CallService call) {
     MeetExtraAction(id: 'captions', icon: Icons.closed_caption_outlined, label: tr('Phụ đề'), on: meetCaptionsOn.value, run: showCaptions),
     if (hasCode) MeetExtraAction(id: 'board', icon: Icons.draw_outlined, label: tr('Bảng trắng'), on: boardOpen(call), run: openBoard),
     MeetExtraAction(id: 'qa', icon: Icons.question_answer_outlined, label: tr('Hỏi đáp'), run: showQa),
+    if (hasCode && call.canModerate)
+      MeetExtraAction(id: 'guest_invite', icon: Icons.person_add_alt_1_outlined, label: tr('Thêm khách mời'), run: meetGuestInvite),
     if (hasCode && call.canModerate)
       MeetExtraAction(id: 'controls', icon: Icons.admin_panel_settings_outlined, label: tr('Quản lý cuộc họp'), on: meetLocked(call), run: showControls),
     if (hasCode && call.canModerate)
