@@ -127,11 +127,17 @@ class LiveKitMedia implements CallMedia {
   void _emit(String ev, lk.Participant p, [Map<String, dynamic> extra = const {}]) => onEvent?.call(
       ev, {'session_id': p.sid, 'user_id': uidOf(p.identity), 'identity': p.identity, 'kind': kindOf(p), 'name': p.name, ...extra});
 
+  /// Giá trị thuộc tính `hand` -> lúc giơ tay (ms); '1' của app cũ / không rõ = 0.
+  static int _handAt(String v) {
+    final n = int.tryParse(v) ?? 0;
+    return n > 1000000000000 ? n : 0;
+  }
+
   void _joined(lk.RemoteParticipant p) {
     _emit('user_joined', p);
     final mic = p.audioTrackPublications.where((t) => t.source == lk.TrackSource.microphone).firstOrNull;
     _emit(mic != null && !mic.muted ? 'user_unmuted' : 'user_muted', p);
-    if ((p.attributes['hand'] ?? '').isNotEmpty) _emit('user_raise_hand', p);
+    if ((p.attributes['hand'] ?? '').isNotEmpty) _emit('user_raise_hand', p, {'raised_at': _handAt(p.attributes['hand']!)});
   }
 
   static String _typeOf(lk.TrackSource s, lk.Track t) => switch (s) {
@@ -205,8 +211,14 @@ class LiveKitMedia implements CallMedia {
         }
       })
       ..on<lk.ParticipantAttributesChanged>((e) {
-        if (e.participant is! lk.RemoteParticipant || !e.attributes.containsKey('hand')) return;
-        _emit((e.participant.attributes['hand'] ?? '').isNotEmpty ? 'user_raise_hand' : 'user_unraise_hand', e.participant);
+        if (!e.attributes.containsKey('hand')) return;
+        final hand = e.participant.attributes['hand'] ?? '';
+        if (e.participant is! lk.RemoteParticipant) {
+          // Tay của chính mình bị hạ từ máy chủ (chủ trì "Hạ tay"): chỉ báo cho app, không gửi lại.
+          if (hand.isEmpty) onEvent?.call('self_hand_lowered', const {});
+          return;
+        }
+        _emit(hand.isNotEmpty ? 'user_raise_hand' : 'user_unraise_hand', e.participant, {'raised_at': _handAt(hand)});
       })
       ..on<lk.DataReceivedEvent>((e) {
         final p = e.participant;
@@ -216,11 +228,16 @@ class LiveKitMedia implements CallMedia {
           try {
             final m = (jsonDecode(utf8.decode(e.data)) as Map).cast<String, dynamic>();
             if (m['t'] == 'ask_unmute') onEvent?.call('ask_unmute', {'by': m['by'] ?? '', 'by_name': m['by_name'] ?? ''});
+            if ('${m['t']}'.startsWith('fx_')) onEvent?.call('fx', {...m, 'from': ''});
           } catch (_) {}
           return;
         }
         try {
           final m = (jsonDecode(utf8.decode(e.data)) as Map).cast<String, dynamic>();
+          if ('${m['t']}'.startsWith('fx_')) {
+            onEvent?.call('fx', {...m, 'from': p.identity});
+            return;
+          }
           if (m['t'] == 'react') {
             _emit('user_reacted', p, {'emoji': m['emoji'], 'timestamp': DateTime.now().microsecondsSinceEpoch});
           }

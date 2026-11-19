@@ -45,6 +45,8 @@ class CallParticipant {
   /// Đang chia sẻ màn hình.
   bool screen = false;
   bool raisedHand = false;
+  /// Lúc giơ tay (ms) để xếp hàng phát biểu; 0 = chưa rõ (app cũ) hoặc đã hạ.
+  int raisedAt = 0;
   MediaStream? videoStream;
   String? videoTrackId;
   MediaStream? screenStream;
@@ -1098,6 +1100,18 @@ class CallService extends ChangeNotifier {
       phase = CallPhase.active;
       startedAt ??= DateTime.now();
     }
+    if (ev == 'self_hand_lowered') {
+      if (handRaised) {
+        handRaised = false;
+        myHandAt = 0;
+        notifyListeners();
+      }
+      return;
+    }
+    if (ev == 'fx') {
+      fxEvents.add(Map<String, dynamic>.from(data));
+      return;
+    }
     if (ev == 'ask_unmute') {
       if (muted) {
         unmuteAsk = (data['by_name'] as String?)?.trim().isNotEmpty == true ? data['by_name'] as String : tr('Chủ trì');
@@ -1198,8 +1212,10 @@ class CallService extends ChangeNotifier {
         } catch (_) {}
       case 'user_raise_hand':
         p.raisedHand = true;
+        p.raisedAt = (data['raised_at'] as num?)?.toInt() ?? 0;
       case 'user_unraise_hand':
         p.raisedHand = false;
+        p.raisedAt = 0;
     }
     _syncRemoteUsers();
     notifyListeners();
@@ -1272,9 +1288,16 @@ class CallService extends ChangeNotifier {
 
   void toggleHand() {
     handRaised = !handRaised;
+    myHandAt = handRaised ? DateTime.now().millisecondsSinceEpoch : 0;
     _client?.action(handRaised ? 'raise_hand' : 'unraise_hand');
     notifyListeners();
   }
+
+  /// Lúc mình giơ tay (ms), 0 khi không giơ.
+  int myHandAt = 0;
+
+  /// Tin dữ liệu của các tính năng thêm (chủ đề `flygo`, t bắt đầu bằng `fx_`), kèm `from` = danh tính người gửi ('' = máy chủ).
+  final fxEvents = StreamController<Map<String, dynamic>>.broadcast();
 
   /// Hạ tay của mình (chủ phòng / trợ lý yêu cầu).
   void lowerHand() {
@@ -1733,6 +1756,7 @@ class CallService extends ChangeNotifier {
     roomCohosts = const [];
     roomLayout = const {'mode': 'speaker', 'locked': false};
     unmuteAsk = null;
+    myHandAt = 0;
     callThreadId = null;
     muted = false;
     deafened = false;
