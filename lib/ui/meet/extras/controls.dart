@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../calls/call_service.dart';
 import '../../../i18n/i18n.dart';
@@ -53,6 +54,8 @@ class _ControlsSheetState extends State<_ControlsSheet> {
   bool _lock = false;
   Map<String, bool> _perms = {for (final k in _permKeys) k: true};
   List<Map<String, dynamic>> _knocks = const [];
+  Map<String, dynamic>? _link; // link khách đang bật
+  List<Map<String, dynamic>> _guestKnocks = const [], _guests = const [];
   bool _busy = false;
   Timer? _poll;
 
@@ -81,7 +84,28 @@ class _ControlsSheetState extends State<_ControlsSheet> {
         _perms = {for (final k in _permKeys) k: p[k] != false};
         _knocks = [for (final k in (j['knocks'] as List? ?? const [])) (k as Map).cast<String, dynamic>()];
       });
+      final g = await fxRequest(widget.call, 'GET', '/guests');
+      if (!mounted || _busy) return;
+      setState(() {
+        _link = (g['link'] as Map?)?.cast<String, dynamic>();
+        _guestKnocks = [for (final k in (g['knocks'] as List? ?? const [])) (k as Map).cast<String, dynamic>()];
+        _guests = [for (final k in (g['guests'] as List? ?? const [])) (k as Map).cast<String, dynamic>()];
+      });
     } catch (_) {}
+  }
+
+  Future<void> _guestCall(String method, String path, [Map<String, dynamic>? body]) async {
+    setState(() => _busy = true);
+    try {
+      final j = await fxRequest(widget.call, method, '/guests$path', body);
+      if (mounted && j.containsKey('link')) setState(() => _link = (j['link'] as Map?)?.cast<String, dynamic>());
+      if (mounted && method == 'DELETE') setState(() => _link = null);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    await _load();
   }
 
   Future<void> _save(Map<String, dynamic> body) async {
@@ -151,6 +175,43 @@ class _ControlsSheetState extends State<_ControlsSheet> {
                 ),
             ],
             const Divider(height: 24, color: Colors.white12),
+            _switch('🔗 ${tr('Cho khách ngoài công ty vào bằng link')}', tr('Khách không cần tài khoản, luôn phải chờ duyệt. Tối đa 5 khách, link hết hạn sau 24 giờ.'),
+                _link != null, (v) => v ? _guestCall('POST', '/link') : _guestCall('DELETE', '/link')),
+            if (_link != null)
+              Container(
+                padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+                decoration: BoxDecoration(color: const Color(0xFF3A3B3F), borderRadius: BorderRadius.circular(10)),
+                child: Row(children: [
+                  Expanded(child: SelectableText('${_link!['url']}', style: const TextStyle(color: Colors.white, fontSize: 13))),
+                  IconButton(
+                    tooltip: tr('Sao chép link'),
+                    icon: const Icon(Icons.copy, color: Colors.white70, size: 18),
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: '${_link!['url']}'));
+                      if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(tr('Đã sao chép link cho khách'))));
+                    },
+                  ),
+                ]),
+              ),
+            for (final k in _guestKnocks)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.person_outline, color: Colors.white70),
+                title: Text('${k['name'] ?? ''}', style: const TextStyle(color: Colors.white)),
+                subtitle: Text(tr('Khách xin vào'), style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                trailing: Wrap(spacing: 4, children: [
+                  TextButton(onPressed: () => _guestCall('POST', '/admit', {'req': k['req'], 'allow': false}), child: Text(tr('Từ chối'))),
+                  FilledButton(onPressed: () => _guestCall('POST', '/admit', {'req': k['req'], 'allow': true}), child: Text(tr('Cho vào'))),
+                ]),
+              ),
+            for (final g in _guests)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.badge_outlined, color: Colors.white70),
+                title: Text('${g['name'] ?? ''}', style: const TextStyle(color: Colors.white)),
+                trailing: TextButton(onPressed: () => _guestCall('POST', '/remove', {'identity': g['identity']}), child: Text(tr('Mời ra'))),
+              ),
+            const Divider(height: 24, color: Colors.white12),
             Text(tr('Mọi người được phép'), style: const TextStyle(color: Colors.white70, fontSize: 13)),
             for (final k in _permKeys)
               _switch(labels[k]!, k == 'chat' ? tr('Ẩn ô chat của cuộc họp trên app') : null, _perms[k] != false,
@@ -166,19 +227,31 @@ class _ControlsSheetState extends State<_ControlsSheet> {
 
 /// Báo cho chủ trì / phó phòng khi có người xin vào lúc cuộc họp khoá, và cho mọi người khi khoá / mở khoá.
 StreamSubscription<Map<String, dynamic>> listenControlNotices(BuildContext context, CallService call, void Function(String text) toast) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
+  // Lấy ScaffoldMessenger lúc có sự kiện (attach có thể chạy trước khung hình đầu).
+  ScaffoldMessengerState? messenger() => context.mounted ? ScaffoldMessenger.maybeOf(context) : null;
   return call.fxEvents.stream.listen((m) {
       final by = (m['by_name'] as String?)?.trim();
       final who = by?.isNotEmpty == true ? by! : tr('Chủ trì');
       if (m['t'] == 'fx_lock') toast(m['lock'] == true ? tr('{0} đã khoá cuộc họp', [who]) : tr('{0} đã mở khoá cuộc họp', [who]));
       if (m['t'] == 'fx_lock_knock' && call.canModerate) {
         final req = '${m['req'] ?? ''}';
-        messenger?.showSnackBar(SnackBar(
+        messenger()?.showSnackBar(SnackBar(
           duration: const Duration(seconds: 30),
           content: Text(tr('🚪 {0} xin vào cuộc họp đang khoá', [m['name'] ?? ''])),
           action: SnackBarAction(
             label: tr('Cho vào'),
             onPressed: () => fxRequest(call, 'POST', '/controls/admit', {'req': req, 'allow': true}).catchError((_) => <String, dynamic>{}),
+          ),
+        ));
+      }
+      if (m['t'] == 'fx_guest_knock' && call.canModerate) {
+        final req = '${m['req'] ?? ''}';
+        messenger()?.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 30),
+          content: Text(tr('🚪 Khách xin vào: {0} (ngoài công ty)', [m['name'] ?? ''])),
+          action: SnackBarAction(
+            label: tr('Cho vào'),
+            onPressed: () => fxRequest(call, 'POST', '/guests/admit', {'req': req, 'allow': true}).catchError((_) => <String, dynamic>{}),
           ),
         ));
       }
