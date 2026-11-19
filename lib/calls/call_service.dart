@@ -233,8 +233,15 @@ class CallService extends ChangeNotifier {
   Future<String?> setRoles({String? host, List<String>? cohosts}) =>
       _meetPost('roles', {'host': ?host, 'cohosts': ?cohosts});
   /// Bố cục cho cả phòng (chủ trì / phó phòng).
-  Future<String?> setRoomLayout(String mode, {String? pin, bool? locked}) =>
-      _meetPost('layout', {'mode': mode, 'pin': ?pin, 'locked': ?locked});
+  /// [stars]: danh sách ngôi sao mới (đặt ngôi sao đầu tiên tự chuyển sang "chỉ ngôi sao", bỏ hết thì về chế độ trước).
+  Future<String?> setRoomLayout({String? mode, List<String>? stars, bool? locked}) =>
+      _meetPost('layout', {'mode': ?mode, 'stars': ?stars, 'locked': ?locked});
+
+  /// Ngôi sao của cuộc họp (chủ trì / phó phòng chọn).
+  List<String> get roomStars => [for (final x in (roomLayout['stars'] as List? ?? const [])) '$x'];
+
+  /// Mình được chia sẻ màn hình / trình chiếu tài liệu: khi có ngôi sao thì chỉ ngôi sao và chủ trì / phó phòng.
+  bool get mayPresent => roomStars.isEmpty || roomStars.contains(myId()) || canModerate;
   /// Trình chiếu tài liệu: gửi bản PDF lên cuộc họp (mọi máy hiện cùng trang).
   Future<String?> presentUpload(File pdf, String name, int pages) async {
     final ch = channelId;

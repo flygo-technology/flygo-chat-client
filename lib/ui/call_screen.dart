@@ -19,6 +19,7 @@ import 'meet/extras/controls.dart';
 import 'meet/extras/network.dart' show MeetSignalBadge;
 import 'meet/extras/captions.dart';
 import 'meet/meet_present.dart';
+import 'meet/meet_stage.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
 import 'home_page.dart' show ChatHost;
@@ -215,6 +216,17 @@ class _CallScreenState extends State<CallScreen> {
     // Sau khung hình này: tránh đổi notifier khi cây đang dựng lại.
     WidgetsBinding.instance.addPostFrameCallback((_) => CallScreen.visible.value = (CallScreen.visible.value - 1).clamp(0, 99));
     super.dispose();
+  }
+
+  List<String> _banners(AppState app, CallService call) {
+    final x = call.roomExtras, perms = x['perms'] is Map ? x['perms'] as Map : const {};
+    final st = call.roomStars;
+    return [
+      if (x['lock'] == true) tr('🔒 Cuộc họp đã khoá'),
+      if (perms['unmute'] == false) tr('🔇 Chủ trì đã bật im lặng toàn bộ'),
+      if (perms['camera'] == false) tr('📷 Chủ trì đã tắt cam toàn bộ'),
+      if (st.isNotEmpty) tr('★ Chỉ {0} được trình chiếu', [st.map((id) => id == app.me?.id ? tr('bạn') : _nameOf(app, id)).join(', ')]),
+    ];
   }
 
   /// Bật / tắt mic: chủ trì tắt quyền tự bật mic thì nhắc giơ tay (chủ trì "mời bật mic" sẽ mở lại).
@@ -641,8 +653,9 @@ class _CallScreenState extends State<CallScreen> {
               ),
             );
             if (ok == true) err = await call.setRoles(host: userId);
-          case 'pin':
-            err = await call.setRoomLayout('pin', pin: userId);
+          case 'star':
+            final st = call.roomStars;
+            err = await call.setRoomLayout(stars: st.contains(userId) ? [for (final x in st) if (x != userId) x] : [...st, userId]);
           case 'remove':
             final ok = await showDialog<bool>(
               context: context,
@@ -667,53 +680,27 @@ class _CallScreenState extends State<CallScreen> {
         it('ask_unmute', Icons.mic_none, tr('Mời bật mic')),
         it('mute', Icons.mic_off, tr('Tắt mic')),
         if (screen) it('stop_share', Icons.cancel_presentation, tr('Dừng chia sẻ màn hình')),
-        it('pin', Icons.push_pin_outlined, tr('Ghim cho mọi người')),
+        it('star', call.roomStars.contains(userId) ? Icons.star_rounded : Icons.star_border_rounded,
+            call.roomStars.contains(userId) ? tr('Bỏ ngôi sao') : tr('Đặt làm ngôi sao')),
         it('remove', Icons.person_remove_alt_1, tr('Mời ra khỏi cuộc họp'), color: const Color(0xFFFF9B9B)),
       ],
     );
   }
 
-  /// Bố cục cho cả phòng (chủ trì / phó phòng): mọi máy, kể cả TV, theo bố cục này; khoá thì không ai tự đổi được.
+  /// Sân khấu cho cả phòng (chủ trì / phó phòng). Cùng phần đầu của bảng "Quản lý cuộc họp" (meet/extras/controls.dart).
   Future<void> _roomLayoutSheet(CallService call) async {
     _hide?.cancel();
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF2D2E31),
+      isScrollControlled: true,
       constraints: const BoxConstraints(maxWidth: 520),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => ListenableBuilder(
-        listenable: call,
-        builder: (ctx, _) {
-          final mode = '${call.roomLayout['mode'] ?? 'speaker'}';
-          final locked = call.roomLayout['locked'] == true;
-          Widget opt(String m, IconData i, String t, String sub) => ListTile(
-                leading: Icon(i, color: mode == m ? const Color(0xFF2BB3A3) : Colors.white70),
-                title: Text(t, style: TextStyle(color: Colors.white, fontWeight: mode == m ? FontWeight.w700 : FontWeight.normal)),
-                subtitle: Text(sub, style: const TextStyle(color: _grey, fontSize: 12.5)),
-                trailing: mode == m ? const Icon(Icons.check, color: Color(0xFF2BB3A3)) : null,
-                onTap: () => call.setRoomLayout(m, locked: locked),
-              );
-          return SafeArea(
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
-                child: Text(tr('Bố cục cho cả phòng'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
-              ),
-              opt('speaker', Icons.auto_awesome_motion_outlined, tr('Ai trình chiếu lên đầu (mặc định)'),
-                  tr('Màn hình chia sẻ / tài liệu trình chiếu mới nhất lên khung lớn; không ai trình chiếu thì lưới')),
-              opt('grid', Icons.grid_view, tr('Lưới'), tr('Mọi người bằng nhau')),
-              if (mode == 'pin')
-                opt('pin', Icons.push_pin, tr('Đang ghim một người'), tr('Chọn "Ghim cho mọi người" ở danh sách người tham gia để đổi')),
-              SwitchListTile(
-                value: locked,
-                onChanged: (v) => call.setRoomLayout(mode, pin: '${call.roomLayout['pin'] ?? ''}', locked: v),
-                title: Text(tr('Khoá bố cục'), style: const TextStyle(color: Colors.white)),
-                subtitle: Text(tr('Mọi người không tự đổi cách xem trên máy mình'), style: const TextStyle(color: _grey, fontSize: 12.5)),
-              ),
-              const SizedBox(height: 8),
-            ]),
-          );
-        },
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          child: MeetStageSection(call: call),
+        ),
       ),
     );
     _poke();
@@ -825,11 +812,12 @@ class _CallScreenState extends State<CallScreen> {
     final following = call.liveKit && (_followRoom || call.roomLayout['locked'] == true);
     var layout = _layout;
     var pinned = _pinned;
+    // "Chỉ cho lên sân khấu người chỉ định": chỉ màn hình / bài trình chiếu / camera của ngôi sao lên khung lớn.
+    final starIds = following && (call.roomLayout['mode'] == 'stars' || call.roomLayout['mode'] == 'pin') ? call.roomStars : null;
     if (following) {
       final mode = call.roomLayout['mode'];
-      final pinUser = '${call.roomLayout['pin'] ?? ''}'.split('~').first;
       layout = mode == 'grid' ? MeetLayout.grid : MeetLayout.auto;
-      pinned = mode == 'pin' ? tiles.where((t) => !t.screen && t.userId == pinUser).firstOrNull?.key : null;
+      pinned = null;
     }
     // Màn hình chia sẻ mới nhất (ai cũng chia sẻ được, nhiều màn hình cùng lúc).
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -837,7 +825,10 @@ class _CallScreenState extends State<CallScreen> {
       if (t.screen) _screenSeen.putIfAbsent(t.key, () => now);
     }
     _screenSeen.removeWhere((k, _) => !keys.contains(k));
-    final screens = [for (final t in tiles) if (t.screen && t.key != _dismissedScreen) t]
+    final screens = [
+      for (final t in tiles)
+        if (t.screen && t.key != _dismissedScreen && (starIds == null || starIds.contains(t.userId))) t
+    ]
       ..sort((a, b) => (_screenSeen[b.key] ?? 0).compareTo(_screenSeen[a.key] ?? 0));
     final star = _room?.star;
     var spot = pinned ??
@@ -857,12 +848,17 @@ class _CallScreenState extends State<CallScreen> {
     }
     // Bài trình chiếu tài liệu: lên khung lớn khi phòng chọn "bài trình chiếu", hoặc khi nó mới hơn màn hình chia sẻ mới nhất
     // (không ghim ai, không ở dạng lưới).
-    final pres = call.roomPresent;
+    final pres0 = call.roomPresent;
+    final pres = pres0 != null && (starIds == null || starIds.contains('${pres0['by']}')) ? pres0 : null;
     final newestScreenAt = screens.isEmpty ? 0 : (_screenSeen[screens.first.key] ?? 0);
     final presOn = pres != null &&
         pinned == null &&
         layout != MeetLayout.grid &&
         (call.roomLayout['mode'] == 'present' || screens.isEmpty || ((pres['at'] as num?)?.toInt() ?? 0) >= newestScreenAt);
+    // Chế độ ngôi sao, không ngôi sao nào đang trình chiếu: camera của ngôi sao đầu tiên lên khung lớn.
+    if (starIds != null && starIds.isNotEmpty && !presOn && screens.isEmpty && pinned == null) {
+      spot = tiles.where((t) => !t.screen && starIds.contains(t.userId)).firstOrNull?.key ?? spot;
+    }
     final room = _room;
     final staged = room != null && (room.stage != null || room.webUrl != null);
     final show = _controls;
@@ -917,6 +913,23 @@ class _CallScreenState extends State<CallScreen> {
               right: 0,
               child: _fade(show, _topBar(title, status, reserve: call.transcribing)),
             ),
+            // Dòng báo của phòng: khoá, im lặng / tắt cam toàn bộ, ngôi sao.
+            if (call.liveKit && _banners(app, call).isNotEmpty)
+              Positioned(
+                top: show ? 64 : 12,
+                left: 12,
+                right: 12,
+                child: IgnorePointer(
+                  child: Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6, children: [
+                    for (final t in _banners(app, call))
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(12)),
+                        child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+                      ),
+                  ]),
+                ),
+              ),
             // Đang phiên âm: luôn hiện (cả khi thanh nút ẩn) để mọi người biết lời nói đang được ghi thành chữ.
             if (call.transcribing) const Positioned(top: 12, right: 16, child: _ScribeChip()),
             // Phụ đề trực tiếp (module thêm): ngay trên thanh nút.
@@ -1755,7 +1768,10 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _runMore(String? a, AppState app, CallService call) async {
     if (a == 'scribe') return _toggleScribe(call);
     if (a == 'room_layout') return _roomLayoutSheet(call);
-    if (a == 'present') return startPresenting(context, call);
+    if (a == 'present') {
+      if (!call.mayPresent) return meetToast(context, tr('Chỉ ngôi sao của cuộc họp được trình chiếu'));
+      return startPresenting(context, call);
+    }
     if (a != null && a.startsWith('x:')) {
       final x = meetExtraActions(context, call).where((x) => 'x:${x.id}' == a).firstOrNull;
       if (x != null) await x.run(context, call);
@@ -1814,6 +1830,10 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (!meetPerm(call, 'share')) {
       meetToast(context, tr('Chủ trì đang tắt quyền chia sẻ màn hình'));
+      return;
+    }
+    if (!call.mayPresent) {
+      meetToast(context, tr('Chỉ ngôi sao của cuộc họp được trình chiếu'));
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
