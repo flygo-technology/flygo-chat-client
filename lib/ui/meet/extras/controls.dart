@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../../calls/call_service.dart';
 import '../../../i18n/i18n.dart';
+import '../meet_stage.dart';
 import 'fx_api.dart';
 
 // Khoá cuộc họp + quyền của người tham gia. Trạng thái đến từ metadata phòng (call.roomExtras: {lock, perms});
@@ -157,7 +158,10 @@ class _ControlsSheetState extends State<_ControlsSheet> {
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text(tr('Quản lý cuộc họp'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
+            // Sân khấu + ngôi sao + khoá bố cục (của livekit hop).
+            MeetStageSection(call: widget.call),
+            const Divider(height: 24, color: Colors.white12),
             _switch('🔒 ${tr('Khoá cuộc họp')}', tr('Không ai vào thêm được, kể cả người được mời. Người đến sau phải xin vào.'), _lock,
                 (v) => _save({'lock': v})),
             if (_knocks.isNotEmpty) ...[
@@ -212,12 +216,18 @@ class _ControlsSheetState extends State<_ControlsSheet> {
                 trailing: TextButton(onPressed: () => _guestCall('POST', '/remove', {'identity': g['identity']}), child: Text(tr('Mời ra'))),
               ),
             const Divider(height: 24, color: Colors.white12),
-            Text(tr('Mọi người được phép'), style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            for (final k in _permKeys)
-              _switch(labels[k]!, k == 'chat' ? tr('Ẩn ô chat của cuộc họp trên app') : null, _perms[k] != false,
-                  (v) => _save({'perms': {k: v}})),
+            // Buộc im lặng / tắt cam toàn bộ: BẬT = buộc (ngược với quyền); tắt ngay mọi người một lần, trừ chủ trì / phó phòng / ngôi sao.
+            _switch('🔇 ${tr('Buộc im lặng toàn bộ')}', tr('Tắt mic mọi người ngay và không cho tự bật lại. "Mời bật mic" vẫn mở được cho từng người.'),
+                _perms['unmute'] == false, (v) => _save({'perms': {'unmute': !v}})),
+            _switch('📷 ${tr('Buộc tắt cam toàn bộ')}', tr('Tắt camera mọi người ngay và không cho tự bật lại.'), _perms['camera'] == false,
+                (v) => _save({'perms': {'camera': !v}})),
             const SizedBox(height: 4),
-            Text(tr('Chủ trì và phó phòng luôn có đủ quyền.'), style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            Text(tr('Mọi người được phép'), style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            for (final k in const ['share', 'chat', 'react'])
+              _switch(labels[k]!, k == 'chat' ? tr('Ẩn ô chat của cuộc họp trên app') : k == 'share' ? tr('Khi có ngôi sao, chỉ ngôi sao được chia sẻ') : null,
+                  _perms[k] != false, (v) => _save({'perms': {k: v}})),
+            const SizedBox(height: 4),
+            Text(tr('Chủ trì, phó phòng và ngôi sao luôn có đủ quyền.'), style: const TextStyle(color: Colors.white38, fontSize: 12)),
           ]),
         ),
       ),
@@ -230,9 +240,6 @@ StreamSubscription<Map<String, dynamic>> listenControlNotices(BuildContext conte
   // Lấy ScaffoldMessenger lúc có sự kiện (attach có thể chạy trước khung hình đầu).
   ScaffoldMessengerState? messenger() => context.mounted ? ScaffoldMessenger.maybeOf(context) : null;
   return call.fxEvents.stream.listen((m) {
-      final by = (m['by_name'] as String?)?.trim();
-      final who = by?.isNotEmpty == true ? by! : tr('Chủ trì');
-      if (m['t'] == 'fx_lock') toast(m['lock'] == true ? tr('{0} đã khoá cuộc họp', [who]) : tr('{0} đã mở khoá cuộc họp', [who]));
       if (m['t'] == 'fx_lock_knock' && call.canModerate) {
         final req = '${m['req'] ?? ''}';
         messenger()?.showSnackBar(SnackBar(
