@@ -175,6 +175,8 @@ class CallService extends ChangeNotifier {
   Map<String, dynamic> roomLayout = const {'mode': 'speaker', 'locked': false};
   /// Chủ trì / phó phòng vừa mời mình bật mic (tên người mời) — màn hình cuộc gọi hỏi rồi xoá.
   String? unmuteAsk;
+  /// Khoá của các tính năng thêm trong metadata phòng (vd. lock, perms) — lib/ui/meet/extras đọc.
+  Map<String, dynamic> roomExtras = {};
   /// Bài đang trình chiếu (metadata phòng `present`: id, name, url, by, by_name, page, pages, at), null = không có.
   Map<String, dynamic>? roomPresent;
   /// Bút laser của người trình chiếu: (x, y tỉ lệ 0..1 trong trang, đang bật).
@@ -200,6 +202,14 @@ class CallService extends ChangeNotifier {
     if (lay != null && jsonEncode(lay) != jsonEncode(roomLayout)) {
       roomLayout = lay;
       changed = true;
+    }
+    // Khoá của tính năng thêm: metadata đầy đủ (có host) là nguồn đúng, khoá vắng mặt = đã bỏ.
+    if (m.containsKey('host') || m.containsKey('lock') || m.containsKey('perms')) {
+      final x = <String, dynamic>{for (final k in const ['lock', 'perms']) if (m.containsKey(k)) k: m[k]};
+      if (jsonEncode(x) != jsonEncode(roomExtras)) {
+        roomExtras = x;
+        changed = true;
+      }
     }
     // Metadata đầy đủ (có host) mà không có present = đã dừng trình chiếu.
     if (m.containsKey('present') || m.containsKey('host')) {
@@ -1817,6 +1827,7 @@ class CallService extends ChangeNotifier {
     unmuteAsk = null;
     myHandAt = 0;
     roomPresent = null;
+    roomExtras = {};
     callThreadId = null;
     muted = false;
     deafened = false;
