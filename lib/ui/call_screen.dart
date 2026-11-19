@@ -31,7 +31,6 @@ import 'package:provider/provider.dart';
 import '../calls/call_service.dart';
 import '../config.dart';
 import '../data/models.dart' show MmUser;
-import '../remote/rc_call_buttons.dart';
 import '../state/app_state.dart';
 import 'common.dart';
 import 'direct_call_screen.dart';
@@ -1341,6 +1340,10 @@ class _CallScreenState extends State<CallScreen> {
       context: context,
       backgroundColor: const Color(0xFF2D2E31),
       showDragHandle: true,
+      // Nhiều nút (chủ trì, tính năng thêm): bảng cao tới gần hết màn hình và cuộn được, không nút nào bị che.
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .92),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) {
         Widget tile(String v, IconData icon, String label, {bool on = false, String? badge}) => SizedBox(
@@ -1368,7 +1371,7 @@ class _CallScreenState extends State<CallScreen> {
               ),
             );
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               // Cảm xúc: bấm là thả luôn.
@@ -1388,8 +1391,6 @@ class _CallScreenState extends State<CallScreen> {
                     call.deafened ? tr('Bật tiếng cuộc họp') : tr('Tắt tiếng cuộc họp'), on: call.deafened),
                 tile('speaker', call.speaker ? Icons.volume_up : Icons.phone_in_talk, tr('Loa ngoài'), on: call.speaker),
                 if (call.camera) tile('switch', Icons.cameraswitch_outlined, tr('Đổi camera')),
-                // Điều khiển máy tính (lib/remote/rc_call_buttons.dart).
-                for (final r in rcCallActions(app, call)) tile(r.id, r.icon, r.label, on: r.on),
                 tile('people', Icons.people_outline, tr('Người tham gia'), badge: '$count'),
                 tile('layout', Icons.auto_awesome_mosaic_outlined, tr('Đổi bố cục')),
                 tile('info', Icons.info_outline_rounded, tr('Thông tin cuộc họp')),
@@ -1432,8 +1433,6 @@ class _CallScreenState extends State<CallScreen> {
         if (room != null) await showMeetComments(context, room);
       case 'poll':
         await _polls(app, call);
-      case 'rc_request' || 'rc_invite':
-        await runRcCallAction(context, app, call, a);
       default:
         await _runMore(a, app, call);
     }
@@ -1514,18 +1513,6 @@ class _CallScreenState extends State<CallScreen> {
               iconColor: call.localScreen != null ? _onText : Colors.white,
               tooltip: call.localScreen != null ? tr('Dừng trình bày') : tr('Trình bày màn hình'),
               onTap: () => _toggleShare(call),
-            ),
-          // Điều khiển máy tính (lib/remote/rc_call_buttons.dart).
-          for (final a in rcCallActions(app, call))
-            _MeetButton(
-              icon: a.icon,
-              color: a.on ? _on : _btnBg,
-              iconColor: a.on ? _onText : Colors.white,
-              tooltip: a.label,
-              onTap: () {
-                _poke();
-                runRcCallAction(context, app, call, a.id);
-              },
             ),
           // Giơ tay.
           _MeetButton(
