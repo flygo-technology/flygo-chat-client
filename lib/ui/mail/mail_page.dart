@@ -2,6 +2,7 @@
 // Máy tính: thanh tìm kiếm trên cùng, cột trái (Soạn thư, các hộp, nhãn), danh sách hoặc cuộc hội thoại bên phải,
 // khung soạn nổi góc dưới bên phải, phím tắt. Điện thoại: ô tìm kiếm dạng viên thuốc, menu trượt, danh sách có ảnh
 // đại diện, nút Soạn thư nổi; mở thư / soạn thư thành trang riêng; nhấn giữ (hoặc chạm ảnh đại diện) để chọn nhiều.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -175,19 +176,51 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
     store.addListener(_changed);
     if (widget.initialView != null) store.view = widget.initialView!;
     store.start();
-    if (widget.ownsStore) store.startLive();
     WidgetsBinding.instance.addObserver(this);
     _threadId = widget.openThreadId;
   }
 
+  // Kênh realtime chỉ nối khi Thư đang thật sự hiện trước mắt: tab Thư đang chọn (tab ẩn trong IndexedStack có
+  // Visibility.of = false; Offstage / TickerMode tắt) và app / cửa sổ đang được dùng. Máy chủ chỉ không nhắn "📩 thư mới" vào chat cho người đang có kênh
+  // nối, nên trước đây để tab Thư mở nền (máy tính) là không bao giờ nhận thông báo (Sếp, 19/11).
+  bool _foreground = true;
+  Timer? _liveOff;
+
+  bool get _liveWanted => widget.ownsStore && _foreground && Visibility.of(context) && TickerMode.valuesOf(context).enabled;
+
+  void _syncLive() {
+    if (!widget.ownsStore || !mounted) return;
+    if (_liveWanted) {
+      _liveOff?.cancel();
+      if (!store.liveStarted) {
+        store.startLive();
+        store.resumed();
+      }
+    } else if (store.liveStarted && !(_liveOff?.isActive ?? false)) {
+      // Rời Thư vài giây mới ngắt (chuyển tab qua lại nhanh không nối lại liên tục).
+      _liveOff = Timer(const Duration(seconds: 3), () {
+        if (mounted && !_liveWanted) store.stopLive();
+      });
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncLive();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) store.resumed();
+    _syncLive();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _liveOff?.cancel();
     store.removeListener(_changed);
     if (widget.ownsStore) store.dispose();
     for (final c in composers) {

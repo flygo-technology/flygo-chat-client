@@ -122,6 +122,8 @@ class MailStore extends ChangeNotifier {
     _live = MailLive(target: api.liveTarget, onEvent: onLive, connector: connector)..start();
   }
 
+  bool get liveStarted => _live != null;
+
   void stopLive() {
     _live?.stop();
     _live = null;
