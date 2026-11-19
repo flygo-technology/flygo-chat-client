@@ -9,6 +9,7 @@ import '../../../state/app_state.dart';
 import 'attendance.dart';
 import 'controls.dart';
 import 'hands.dart';
+import 'network.dart';
 import 'qa.dart';
 
 // Tính năng thêm của Họp (module riêng, vd. giơ tay xếp hàng, hỏi đáp, bảng trắng): mỗi tính năng thêm một mục vào menu
@@ -58,7 +59,7 @@ final _subs = Expando<List<StreamSubscription>>();
 /// Màn hình họp gọi khi mở / đóng: các tính năng thêm nghe sự kiện của cuộc họp (vd. báo "chủ trì đã hạ tay bạn").
 void meetExtrasAttach(BuildContext context, CallService call, void Function(String text) toast) {
   meetExtrasDetach(call);
-  _subs[call] = [listenHandNotices(call, toast), listenControlNotices(context, call, toast)];
+  _subs[call] = [listenHandNotices(call, toast), listenControlNotices(context, call, toast), listenNetworkNotices(call, toast)];
 }
 
 void meetExtrasDetach(CallService call) {
