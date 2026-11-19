@@ -30,14 +30,14 @@ class MeetPresentation {
   final String id, name, url, by, byName;
   final int page, pages, at;
   MeetPresentation(Map m)
-      : id = '${m['id'] ?? ''}',
-        name = '${m['name'] ?? ''}',
-        url = '${m['url'] ?? ''}',
-        by = '${m['by'] ?? ''}',
-        byName = '${m['by_name'] ?? ''}',
-        page = (m['page'] as num?)?.toInt() ?? 1,
-        pages = (m['pages'] as num?)?.toInt() ?? 0,
-        at = (m['at'] as num?)?.toInt() ?? 0;
+    : id = '${m['id'] ?? ''}',
+      name = '${m['name'] ?? ''}',
+      url = '${m['url'] ?? ''}',
+      by = '${m['by'] ?? ''}',
+      byName = '${m['by_name'] ?? ''}',
+      page = (m['page'] as num?)?.toInt() ?? 1,
+      pages = (m['pages'] as num?)?.toInt() ?? 0,
+      at = (m['at'] as num?)?.toInt() ?? 0;
 }
 
 /// "Trình chiếu tài liệu": chọn nguồn, đổi sang PDF, gửi lên cuộc họp.
@@ -49,30 +49,41 @@ Future<void> startPresenting(BuildContext context, CallService call) async {
     constraints: const BoxConstraints(maxWidth: 520),
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (ctx) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
-          child: Text(tr('Trình chiếu tài liệu'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: Text(tr('PowerPoint, PDF, Word, Excel. Mọi người, kể cả TV, xem cùng trang với bạn mà không cần chia sẻ màn hình.'),
-              style: const TextStyle(color: Color(0xFF9AA0A6), fontSize: 13)),
-        ),
-        ListTile(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+            child: Text(
+              tr('Trình chiếu tài liệu'),
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              tr('PowerPoint, PDF, Word, Excel. Mọi người, kể cả TV, xem cùng trang với bạn mà không cần chia sẻ màn hình.'),
+              style: const TextStyle(color: Color(0xFF9AA0A6), fontSize: 13),
+            ),
+          ),
+          ListTile(
             leading: const Icon(Icons.cloud_outlined, color: Colors.white),
             title: Text(tr('Từ Drive'), style: const TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(ctx, 'drive')),
-        ListTile(
+            onTap: () => Navigator.pop(ctx, 'drive'),
+          ),
+          ListTile(
             leading: const Icon(Icons.attach_file_rounded, color: Colors.white),
             title: Text(tr('Tệp trong nhóm của cuộc họp'), style: const TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(ctx, 'chat')),
-        ListTile(
+            onTap: () => Navigator.pop(ctx, 'chat'),
+          ),
+          ListTile(
             leading: const Icon(Icons.folder_open_rounded, color: Colors.white),
             title: Text(tr('Từ máy này'), style: const TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(ctx, 'device')),
-        const SizedBox(height: 8),
-      ]),
+            onTap: () => Navigator.pop(ctx, 'device'),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     ),
   );
   if (src == null || !context.mounted) return;
@@ -152,18 +163,25 @@ Future<MmFile?> _pickChatFile(BuildContext context, AppState app, String channel
       child: files.isEmpty
           ? Padding(
               padding: const EdgeInsets.all(24),
-              child: Text(tr('Nhóm của cuộc họp chưa có tài liệu nào (PDF, Word, Excel, PowerPoint).'),
-                  style: const TextStyle(color: Colors.white70)),
+              child: Text(tr('Nhóm của cuộc họp chưa có tài liệu nào (PDF, Word, Excel, PowerPoint).'), style: const TextStyle(color: Colors.white70)),
             )
-          : ListView(shrinkWrap: true, children: [
-              for (final f in files.take(60))
-                ListTile(
-                  leading: const Icon(Icons.description_outlined, color: Colors.white),
-                  title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text('${(f.size / 1024 / 1024).toStringAsFixed(1)} MB', style: const TextStyle(color: Color(0xFF9AA0A6))),
-                  onTap: () => Navigator.pop(ctx, f),
-                ),
-            ]),
+          : ListView(
+              shrinkWrap: true,
+              children: [
+                for (final f in files.take(60))
+                  ListTile(
+                    leading: const Icon(Icons.description_outlined, color: Colors.white),
+                    title: Text(
+                      f.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text('${(f.size / 1024 / 1024).toStringAsFixed(1)} MB', style: const TextStyle(color: Color(0xFF9AA0A6))),
+                    onTap: () => Navigator.pop(ctx, f),
+                  ),
+              ],
+            ),
     ),
   );
 }
@@ -171,22 +189,23 @@ Future<MmFile?> _pickChatFile(BuildContext context, AppState app, String channel
 /// Bản PDF đang chiếu, tải một lần cho mỗi bài (mọi màn xem dùng chung).
 final _pdfCache = <String, Future<File>>{};
 Future<File> _pdfFile(MeetPresentation p, String token) => _pdfCache.putIfAbsent(p.id, () async {
-      final dir = Directory('${(await getTemporaryDirectory()).path}/meet-present');
-      await dir.create(recursive: true);
-      final f = File('${dir.path}/${p.id}.pdf');
-      if (await f.exists() && await f.length() > 0) return f;
-      final r = await http.get(Uri.parse('$kPushUrl${p.url}'), headers: {'Authorization': 'Bearer $token', 'User-Agent': kUserAgent});
-      if (r.statusCode != 200) {
-        _pdfCache.remove(p.id);
-        throw Exception(tr('Tài liệu không còn được trình chiếu'));
-      }
-      return f.writeAsBytes(r.bodyBytes);
-    });
+  final dir = Directory('${(await getTemporaryDirectory()).path}/meet-present');
+  await dir.create(recursive: true);
+  final f = File('${dir.path}/${p.id}.pdf');
+  if (await f.exists() && await f.length() > 0) return f;
+  final r = await http.get(Uri.parse('$kPushUrl${p.url}'), headers: {'Authorization': 'Bearer $token', 'User-Agent': kUserAgent});
+  if (r.statusCode != 200) {
+    _pdfCache.remove(p.id);
+    throw Exception(tr('Tài liệu không còn được trình chiếu'));
+  }
+  return f.writeAsBytes(r.bodyBytes);
+});
 
 /// Màn xem bài trình chiếu (khung lớn của màn hình họp, hoặc toàn màn hình xoay ngang trên điện thoại).
 class MeetPresentView extends StatefulWidget {
   final CallService call;
   final bool fullscreen;
+
   /// Ô nhỏ (dải người / lưới): chỉ hiện trang, không có nút.
   final bool compact;
   const MeetPresentView({super.key, required this.call, this.fullscreen = false, this.compact = false});
@@ -220,8 +239,29 @@ class _MeetPresentViewState extends State<MeetPresentView> {
     }
   }
 
+  String? _docId;
+  Future<PdfDocument>? _docF;
+  PdfDocument? _doc;
+
+  /// Mở tài liệu của bài [p] một lần (đổi bài thì đóng bài cũ).
+  Future<PdfDocument> _open(MeetPresentation p, String token) {
+    if (_docId == p.id && _docF != null) return _docF!;
+    _doc?.dispose();
+    _doc = null;
+    _docId = p.id;
+    return _docF = _pdfFile(p, token).then((f) async {
+      final d = await PdfDocument.openFile(f.path);
+      if (!mounted || _docId != p.id) {
+        await d.dispose();
+        throw StateError('stale');
+      }
+      return _doc = d;
+    });
+  }
+
   @override
   void dispose() {
+    _doc?.dispose();
     _laserSub?.cancel();
     _laserHide?.cancel();
     if (widget.fullscreen) {
@@ -249,44 +289,52 @@ class _MeetPresentViewState extends State<MeetPresentView> {
     final control = presenter || call.canModerate;
     return ColoredBox(
       color: Colors.black,
-      child: FutureBuilder<File>(
-        future: _pdfFile(p, app.token),
+      // Tài liệu mở một lần cho mỗi bài và giữ nguyên qua các lần vẽ lại (màn hình họp vẽ lại mỗi giây, metadata, người
+      // nói…): mở lại mỗi lần làm trang PDF nháy trên app.
+      child: FutureBuilder<PdfDocument>(
+        future: _open(p, app.token),
         builder: (context, snap) {
-          if (snap.hasError) return Center(child: Text('${snap.error}', style: const TextStyle(color: Colors.white70)));
-          if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-          return PdfDocumentViewBuilder.file(
-            snap.data!.path,
-            builder: (context, doc) {
-              if (doc == null) return const Center(child: CircularProgressIndicator());
-              final n = doc.pages.length;
-              final page = (_free && !presenter ? _myPage : p.page).clamp(1, n);
-              final pg = doc.pages[page - 1];
-              return LayoutBuilder(builder: (context, box) {
-                // Khung trang vừa khít (giữ tỉ lệ), dùng cho cả bút laser.
-                final s = (box.maxWidth / pg.width) < (box.maxHeight / pg.height) ? box.maxWidth / pg.width : box.maxHeight / pg.height;
-                final w = pg.width * s, h = pg.height * s;
-                final rect = Rect.fromLTWH((box.maxWidth - w) / 2, (box.maxHeight - h) / 2, w, h);
-                void go(int to) {
-                  to = to.clamp(1, n);
-                  if (control && (!_free || presenter)) {
-                    call.presentPage(to);
-                  } else {
-                    setState(() {
-                      _free = true;
-                      _myPage = to;
-                    });
-                  }
+          if (snap.hasError) {
+            return Center(child: Text('${snap.error}', style: const TextStyle(color: Colors.white70)));
+          }
+          final doc = snap.data;
+          if (doc == null) return const Center(child: CircularProgressIndicator());
+          final n = doc.pages.length;
+          final page = (_free && !presenter ? _myPage : p.page).clamp(1, n);
+          final pg = doc.pages[page - 1];
+          return LayoutBuilder(
+            builder: (context, box) {
+              // Khung trang vừa khít (giữ tỉ lệ), dùng cho cả bút laser.
+              final s = (box.maxWidth / pg.width) < (box.maxHeight / pg.height) ? box.maxWidth / pg.width : box.maxHeight / pg.height;
+              final w = pg.width * s, h = pg.height * s;
+              final rect = Rect.fromLTWH((box.maxWidth - w) / 2, (box.maxHeight - h) / 2, w, h);
+              void go(int to) {
+                to = to.clamp(1, n);
+                if (control && (!_free || presenter)) {
+                  call.presentPage(to);
+                } else {
+                  setState(() {
+                    _free = true;
+                    _myPage = to;
+                  });
                 }
+              }
 
-                void point(Offset at) {
-                  if (!presenter || !_laserMode || !rect.contains(at)) return;
-                  final x = (at.dx - rect.left) / rect.width, y = (at.dy - rect.top) / rect.height;
-                  setState(() => _laser = Offset(x, y));
-                  call.sendLaser(x, y);
-                }
+              void point(Offset at) {
+                if (!presenter || !_laserMode || !rect.contains(at)) return;
+                final x = (at.dx - rect.left) / rect.width, y = (at.dy - rect.top) / rect.height;
+                setState(() => _laser = Offset(x, y));
+                call.sendLaser(x, y);
+              }
 
-                return Stack(children: [
-                  Positioned.fromRect(rect: rect, child: PdfPageView(document: doc, pageNumber: page, backgroundColor: Colors.white)),
+              return Stack(
+                children: [
+                  Positioned.fromRect(
+                    rect: rect,
+                    child: RepaintBoundary(
+                      child: PdfPageView(key: ValueKey('${p.id}:$page'), document: doc, pageNumber: page, backgroundColor: Colors.white),
+                    ),
+                  ),
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
@@ -310,53 +358,69 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                           width: 16,
                           height: 16,
                           decoration: const BoxDecoration(
-                              color: Color(0xFFFF2D2D), shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0xBBFF2D2D), blurRadius: 12, spreadRadius: 3)]),
+                            color: Color(0xFFFF2D2D),
+                            shape: BoxShape.circle,
+                            boxShadow: [BoxShadow(color: Color(0xBBFF2D2D), blurRadius: 12, spreadRadius: 3)],
+                          ),
                         ),
                       ),
                     ),
-                  if (widget.compact) const SizedBox.shrink() else
-                  // Tên bài, người trình chiếu, trang.
-                  Positioned(
-                    left: 10,
-                    top: 10,
-                    child: _chip('📄 ${p.name} · ${p.byName} · $page/$n'),
-                  ),
+                  if (widget.compact)
+                    const SizedBox.shrink()
+                  else
+                    // Tên bài, người trình chiếu, trang.
+                    Positioned(left: 10, top: 10, child: _chip('📄 ${p.name} · ${p.byName} · $page/$n')),
                   if (!widget.compact)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 10,
-                    child: Center(
-                      child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
-                        if (control) ...[
-                          _btn(Icons.chevron_left_rounded, tr('Trang trước'), page > 1 ? () => go(page - 1) : null),
-                          _btn(Icons.chevron_right_rounded, tr('Trang sau'), page < n ? () => go(page + 1) : null),
-                        ],
-                        if (presenter)
-                          _btn(Icons.highlight_alt_rounded, _laserMode ? tr('Tắt bút laser') : tr('Bút laser'), () => setState(() => _laserMode = !_laserMode),
-                              on: _laserMode),
-                        if (_free && !presenter)
-                          ActionChip(
-                            avatar: const Icon(Icons.undo_rounded, size: 18),
-                            label: Text(tr('Về trang người trình chiếu')),
-                            onPressed: () => setState(() => _free = false),
-                          ),
-                        if (!widget.fullscreen && (Platform.isAndroid || Platform.isIOS))
-                          _btn(Icons.fullscreen_rounded, tr('Toàn màn hình'), () {
-                            Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-                                builder: (_) => Scaffold(backgroundColor: Colors.black, body: MeetPresentView(call: call, fullscreen: true))));
-                          }),
-                        if (widget.fullscreen) _btn(Icons.fullscreen_exit_rounded, tr('Thoát toàn màn hình'), () => Navigator.of(context).maybePop()),
-                        if (control)
-                          _btn(Icons.stop_screen_share_outlined, tr('Dừng trình chiếu'), () async {
-                            final err = await call.presentStop();
-                            if (err != null && context.mounted) meetToast(context, err);
-                          }, danger: true),
-                      ]),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 10,
+                      child: Center(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            if (control) ...[
+                              _btn(Icons.chevron_left_rounded, tr('Trang trước'), page > 1 ? () => go(page - 1) : null),
+                              _btn(Icons.chevron_right_rounded, tr('Trang sau'), page < n ? () => go(page + 1) : null),
+                            ],
+                            if (presenter)
+                              _btn(
+                                Icons.highlight_alt_rounded,
+                                _laserMode ? tr('Tắt bút laser') : tr('Bút laser'),
+                                () => setState(() => _laserMode = !_laserMode),
+                                on: _laserMode,
+                              ),
+                            if (_free && !presenter)
+                              ActionChip(
+                                avatar: const Icon(Icons.undo_rounded, size: 18),
+                                label: Text(tr('Về trang người trình chiếu')),
+                                onPressed: () => setState(() => _free = false),
+                              ),
+                            if (!widget.fullscreen && (Platform.isAndroid || Platform.isIOS))
+                              _btn(Icons.fullscreen_rounded, tr('Toàn màn hình'), () {
+                                Navigator.of(context, rootNavigator: true).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => Scaffold(
+                                      backgroundColor: Colors.black,
+                                      body: MeetPresentView(call: call, fullscreen: true),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            if (widget.fullscreen) _btn(Icons.fullscreen_exit_rounded, tr('Thoát toàn màn hình'), () => Navigator.of(context).maybePop()),
+                            if (control)
+                              _btn(Icons.stop_screen_share_outlined, tr('Dừng trình chiếu'), () async {
+                                final err = await call.presentStop();
+                                if (err != null && context.mounted) meetToast(context, err);
+                              }, danger: true),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                ]);
-              });
+                ],
+              );
             },
           );
         },
@@ -365,21 +429,24 @@ class _MeetPresentViewState extends State<MeetPresentView> {
   }
 
   Widget _chip(String text) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(10)),
-        child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12.5)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(10)),
+    child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+  );
 
   Widget _btn(IconData icon, String tip, VoidCallback? onTap, {bool on = false, bool danger = false}) => Tooltip(
-        message: tip,
-        child: Material(
-          color: danger ? const Color(0xFFB3261E) : (on ? const Color(0xFF2BB3A3) : Colors.black.withValues(alpha: .6)),
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: Padding(padding: const EdgeInsets.all(10), child: Icon(icon, color: onTap == null ? Colors.white30 : Colors.white, size: 24)),
-          ),
+    message: tip,
+    child: Material(
+      color: danger ? const Color(0xFFB3261E) : (on ? const Color(0xFF2BB3A3) : Colors.black.withValues(alpha: .6)),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Icon(icon, color: onTap == null ? Colors.white30 : Colors.white, size: 24),
         ),
-      );
+      ),
+    ),
+  );
 }
