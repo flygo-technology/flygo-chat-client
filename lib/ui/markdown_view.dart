@@ -3,7 +3,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:markdown/markdown.dart' as md;
-import 'package:url_launcher/url_launcher.dart';
 
 import 'common.dart';
 import 'json_view.dart';
@@ -376,7 +375,7 @@ class MarkdownView extends StatelessWidget {
           out.add(TextSpan(
             text: '🖼 ${n.attributes['alt']?.isNotEmpty == true ? n.attributes['alt'] : 'ảnh'}',
             style: TextStyle(color: pal.tick),
-            recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(src), mode: LaunchMode.externalApplication),
+            recognizer: TapGestureRecognizer()..onTap = () => openInSystem(Uri.parse(src)),
           ));
         default:
           out.addAll(_inline(pal, kids, st));

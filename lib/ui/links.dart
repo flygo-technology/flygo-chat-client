@@ -32,8 +32,33 @@ class FoundLink {
   Future<void> open() async {
     // Link nội bộ của app (vd. thẻ Boards của máy chủ đang dùng): mở ngay trong app nếu có nơi nhận.
     if (internalLinkHook?.call(uri) == true) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    await openInSystem(uri);
   }
+}
+
+/// Mở link bằng ứng dụng mặc định của hệ thống (trình duyệt cho http/https). Nếu url_launcher không mở được
+/// (gặp trên một số máy Windows / Linux), gọi thẳng lệnh của hệ điều hành (Sếp, 2026-11-19: user không mở được link).
+Future<bool> openInSystem(Uri uri) async {
+  try {
+    if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return true;
+  } catch (_) {}
+  final s = uri.toString();
+  try {
+    if (Platform.isWindows) {
+      // rundll32 không qua cmd nên ký tự & trong link không bị cắt.
+      await Process.start('rundll32', ['url.dll,FileProtocolHandler', s], mode: ProcessStartMode.detached);
+      return true;
+    }
+    if (Platform.isLinux) {
+      await Process.start('xdg-open', [s], mode: ProcessStartMode.detached);
+      return true;
+    }
+    if (Platform.isMacOS) {
+      await Process.start('open', [s], mode: ProcessStartMode.detached);
+      return true;
+    }
+  } catch (_) {}
+  return false;
 }
 
 /// Màn hình chính đặt hook này: trả về true nếu đã tự mở link (không mở trình duyệt).
