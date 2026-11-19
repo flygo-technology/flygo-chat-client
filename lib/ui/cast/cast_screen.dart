@@ -297,7 +297,12 @@ class _CastRemotePageState extends State<CastRemotePage> {
     var room = _mirror;
     if (room == null) {
       final j = await s.mirror(c.name);
-      room = lk.Room();
+      // Máy LiveKit nhỏ: màn hình chiếu 15 khung / giây, tối đa ~1,5 Mbps, không simulcast.
+      room = lk.Room(
+        roomOptions: const lk.RoomOptions(
+          defaultVideoPublishOptions: lk.VideoPublishOptions(simulcast: false, screenShareEncoding: lk.VideoEncoding(maxBitrate: 1500 * 1000, maxFramerate: 15)),
+        ),
+      );
       await room.connect(j.url, j.token);
       _mirror = room;
     } else {
