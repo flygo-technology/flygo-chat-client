@@ -70,7 +70,11 @@ class LiveKitMedia implements CallMedia {
         dynacast: true,
         defaultCameraCaptureOptions: _camOpts,
         defaultAudioCaptureOptions: lk.AudioCaptureOptions(deviceId: CallsClient.audioInputId),
-        defaultVideoPublishOptions: const lk.VideoPublishOptions(simulcast: true),
+        // Màn hình chia sẻ: chữ trên slide / bảng tính cần nét (giữ độ phân giải là mặc định của LiveKit cho màn hình).
+        defaultVideoPublishOptions: const lk.VideoPublishOptions(
+          simulcast: true,
+          screenShareEncoding: lk.VideoEncoding(maxBitrate: 2500000, maxFramerate: 15),
+        ),
       ),
     );
     _room = room;
@@ -196,6 +200,15 @@ class LiveKitMedia implements CallMedia {
           case lk.TrackSource.camera:
             _emit('user_video_on', e.participant);
           default:
+        }
+      })
+      // Chất lượng mạng (excellent / good / poor / lost) của từng người, kể cả mình (session_id rỗng = mình).
+      ..on<lk.ParticipantConnectionQualityUpdatedEvent>((e) {
+        final q = e.connectionQuality.name;
+        if (e.participant is lk.RemoteParticipant) {
+          _emit('quality', e.participant, {'quality': q});
+        } else {
+          onEvent?.call('my_quality', {'quality': q});
         }
       })
       // Metadata phòng do relay đặt (vd. {"scribe": true}: chủ phòng bật phiên âm).

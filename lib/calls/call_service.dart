@@ -48,6 +48,8 @@ class CallParticipant {
   bool raisedHand = false;
   /// Lúc giơ tay (ms) để xếp hàng phát biểu; 0 = chưa rõ (app cũ) hoặc đã hạ.
   int raisedAt = 0;
+  /// Chất lượng mạng (LiveKit: excellent / good / poor / lost; '' = chưa biết).
+  String quality = '';
   MediaStream? videoStream;
   String? videoTrackId;
   MediaStream? screenStream;
@@ -1193,6 +1195,14 @@ class CallService extends ChangeNotifier {
       fxEvents.add(Map<String, dynamic>.from(data));
       return;
     }
+    if (ev == 'my_quality') {
+      final q = '${data['quality'] ?? ''}';
+      if (q != myQuality) {
+        myQuality = q;
+        notifyListeners();
+      }
+      return;
+    }
     if (ev == 'laser') {
       laser.add(((data['x'] as num?)?.toDouble() ?? 0, (data['y'] as num?)?.toDouble() ?? 0, data['on'] != false));
       return;
@@ -1254,6 +1264,14 @@ class CallService extends ChangeNotifier {
     final p = _people.putIfAbsent(sid, () => CallParticipant(sid, uid));
     if (uid.isNotEmpty) p.userId = uid;
     if ((data['kind'] as String?)?.isNotEmpty == true) p.kind = data['kind'] as String;
+    if (ev == 'quality') {
+      final q = '${data['quality'] ?? ''}';
+      if (q != p.quality) {
+        p.quality = q;
+        notifyListeners();
+      }
+      return;
+    }
     switch (ev) {
       case 'user_muted':
         p.unmuted = false;
@@ -1380,6 +1398,9 @@ class CallService extends ChangeNotifier {
 
   /// Lúc mình giơ tay (ms), 0 khi không giơ.
   int myHandAt = 0;
+
+  /// Chất lượng mạng của mình (excellent / good / poor / lost; '' = chưa biết).
+  String myQuality = '';
 
   /// Tin dữ liệu của các tính năng thêm (chủ đề `flygo`, t bắt đầu bằng `fx_`), kèm `from` = danh tính người gửi ('' = máy chủ).
   final fxEvents = StreamController<Map<String, dynamic>>.broadcast();
@@ -1844,6 +1865,7 @@ class CallService extends ChangeNotifier {
     myHandAt = 0;
     roomPresent = null;
     roomExtras = {};
+    myQuality = '';
     callThreadId = null;
     muted = false;
     deafened = false;
