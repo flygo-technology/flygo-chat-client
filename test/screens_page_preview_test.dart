@@ -117,9 +117,9 @@ void main() {
   final out = Platform.environment['SHOTS'];
   final client = MockClient((r) async {
     if (r.url.path == '/health') return http.Response('{"status":"OK"}', 200);
-    if (r.url.path == '/cast/screens')
-      return http.Response(jsonEncode({'screens': _screens}), 200, headers: {'content-type': 'application/json; charset=utf-8'});
-    if (r.url.path.startsWith('/cast/screens/')) return http.Response(jsonEncode(_detail), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+    const json = {'content-type': 'application/json; charset=utf-8'};
+    if (r.url.path == '/cast/screens') return http.Response(jsonEncode({'screens': _screens}), 200, headers: json);
+    if (r.url.path.startsWith('/cast/screens/')) return http.Response(jsonEncode(_detail), 200, headers: json);
     return http.Response('{}', 404);
   });
 
