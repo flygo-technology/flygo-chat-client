@@ -186,6 +186,8 @@ class CallService extends ChangeNotifier {
   Map<String, dynamic> roomExtras = {};
   /// Bài đang trình chiếu (metadata phòng `present`: id, name, url, by, by_name, page, pages, at), null = không có.
   Map<String, dynamic>? roomPresent;
+  /// Sân khấu của Họp (mới) (metadata phòng `stage`: presenter, queue, page, page_type, key, mode, ends_at, paused, idle…), null = chưa có.
+  Map<String, dynamic>? roomStage;
   /// Bút laser của người trình chiếu: (x, y tỉ lệ 0..1 trong trang, đang bật).
   final laser = StreamController<(double, double, bool)>.broadcast();
   bool get amHost => roomHost.isNotEmpty && roomHost == myId();
@@ -226,7 +228,43 @@ class CallService extends ChangeNotifier {
         changed = true;
       }
     }
+    if (m.containsKey('stage') || m.containsKey('host')) {
+      final st = m['stage'] is Map ? (m['stage'] as Map).cast<String, dynamic>() : null;
+      if (jsonEncode(st) != jsonEncode(roomStage)) {
+        roomStage = st;
+        changed = true;
+      }
+    }
     if (changed) notifyListeners();
+  }
+
+  /// Cuộc họp của trang họp: mã phòng, không thì id kênh (relay nhận cả hai).
+  String? get pagesMeeting {
+    final code = meetingInfo?.code;
+    if (code != null && code.isNotEmpty) return code;
+    return channelId;
+  }
+
+  /// Header gọi relay (trang họp, sân khấu).
+  Map<String, String> get pushHeaders => _pushHeaders;
+
+  /// Một thao tác sân khấu (request, cancel, grant, release, show, next, prev, mode, pause, resume, end, idle, lock).
+  Future<String?> stageAct(String action, [Map<String, dynamic> body = const {}]) async {
+    final m = pagesMeeting;
+    if (m == null) return tr('Không ở trong cuộc họp');
+    try {
+      final r = await http
+          .post(Uri.parse('$kPushUrl/meet/stage/$m'), headers: _pushHeaders, body: jsonEncode({...body, 'action': action}))
+          .timeout(const Duration(seconds: 10));
+      final j = jsonDecode(utf8.decode(r.bodyBytes));
+      if (r.statusCode == 200) {
+        if (j is Map && j['stage'] is Map) _applyRoomMeta({'stage': j['stage']});
+        return null;
+      }
+      return j is Map ? '${j['error']}' : 'HTTP ${r.statusCode}';
+    } catch (e) {
+      return '$e';
+    }
   }
 
   /// Chủ trì giao phó phòng / chuyển chủ trì.
@@ -1881,6 +1919,7 @@ class CallService extends ChangeNotifier {
     unmuteAsk = null;
     myHandAt = 0;
     roomPresent = null;
+    roomStage = null;
     roomExtras = {};
     myQuality = '';
     callThreadId = null;

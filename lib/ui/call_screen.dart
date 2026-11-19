@@ -34,6 +34,7 @@ import '../data/models.dart' show MmUser;
 import '../state/app_state.dart';
 import 'common.dart';
 import 'direct_call_screen.dart';
+import 'pages/pages_sheet.dart';
 import 'poll.dart';
 import 'self_view.dart';
 
@@ -856,6 +857,20 @@ class _CallScreenState extends State<CallScreen> {
             custom: (compact) => MeetPresentView(call: call, compact: compact),
           ));
     }
+    // Họp (mới): trang đang lên sân khấu (chào mừng, chương trình, biên bản, bình chọn…) cũng là một ô như bài trình chiếu.
+    final stageRaw = call.roomStage;
+    final stageOn = stageShowsPage(call);
+    if (stageOn) {
+      tiles.insert(
+          0,
+          _TileData(
+            key: 'stage',
+            userId: '${stageRaw?['presenter'] ?? ''}',
+            name: '${stageRaw?['page_title'] ?? ''}',
+            screen: true,
+            custom: (compact) => StagePageView(call: call, compact: compact),
+          ));
+    }
     final keys = {for (final t in tiles) t.key};
     if (_pinned != null && !keys.contains(_pinned)) _pinned = null;
     // Bố cục của phòng (LiveKit, chủ trì / phó phòng đặt): đổi thì máy này theo lại; khoá thì luôn theo.
@@ -883,7 +898,7 @@ class _CallScreenState extends State<CallScreen> {
     _screenSeen.removeWhere((k, _) => !keys.contains(k));
     final screens = [
       for (final t in tiles)
-        if (t.screen && t.key != 'present' && t.key != _dismissedScreen && (starIds == null || starIds.contains(t.userId))) t
+        if (t.screen && t.key != 'present' && t.key != 'stage' && t.key != _dismissedScreen && (starIds == null || starIds.contains(t.userId))) t
     ]
       ..sort((a, b) => (_screenSeen[b.key] ?? 0).compareTo(_screenSeen[a.key] ?? 0));
     final star = _room?.star;
@@ -912,6 +927,12 @@ class _CallScreenState extends State<CallScreen> {
         layout != MeetLayout.grid &&
         (lay['mode'] == 'present' || screens.isEmpty || ((pres['at'] as num?)?.toInt() ?? 0) >= newestScreenAt);
     if (presOn && _dismissedScreen != 'present') spot = 'present';
+    // Trang trên sân khấu: lên khung lớn khi mới hơn bài trình chiếu / màn hình chia sẻ (không ghim, không dạng lưới).
+    final stageAt = (stageRaw?['at'] as num?)?.toInt() ?? 0;
+    if (stageOn && pinned == null && layout != MeetLayout.grid && _dismissedScreen != 'stage' &&
+        (!presOn || stageAt >= ((pres['at'] as num?)?.toInt() ?? 0)) && (screens.isEmpty || stageAt >= newestScreenAt)) {
+      spot = 'stage';
+    }
     // Chế độ ngôi sao, không ngôi sao nào đang trình chiếu: camera của ngôi sao đầu tiên lên khung lớn.
     if (starIds != null && starIds.isNotEmpty && !presOn && screens.isEmpty && pinned == null) {
       spot = tiles.where((t) => !t.screen && starIds.contains(t.userId)).firstOrNull?.key ?? spot;
@@ -1401,6 +1422,7 @@ class _CallScreenState extends State<CallScreen> {
                 if (call.liveKit) tile('qr_invite', Icons.cast_rounded, tr('Thêm màn hình')),
                 if (call.meeting && call.scribeAvailable) tile('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
                 if (call.liveKit && call.scribeAvailable) tile('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu'), on: call.roomPresent != null),
+                if (call.liveKit && call.scribeAvailable) tile('pages', Icons.dashboard_customize_outlined, tr('Trang họp (mới)'), on: stageShowsPage(call)),
                 for (final x in meetExtraActions(context, call)) tile('x:${x.id}', x.icon, x.label, on: x.on),
                 if (call.isMeetingCreator && call.scribeAvailable)
                   tile('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
@@ -1793,6 +1815,7 @@ class _CallScreenState extends State<CallScreen> {
         if (call.liveKit) item('qr_invite', Icons.cast_rounded, tr('Thêm màn hình')),
         if (call.meeting && call.scribeAvailable) item('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
         if (call.liveKit && call.scribeAvailable) item('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu')),
+        if (call.liveKit && call.scribeAvailable) item('pages', Icons.dashboard_customize_outlined, tr('Trang họp (mới)')),
         for (final x in meetExtraActions(context, call)) item('x:${x.id}', x.icon, x.label),
         if (call.isMeetingCreator && call.scribeAvailable)
           item('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
@@ -1808,6 +1831,7 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _runMore(String? a, AppState app, CallService call) async {
     if (a == 'scribe') return _toggleScribe(call);
+    if (a == 'pages') return showPagesSheet(context, call);
     if (a == 'present') {
       if (!call.mayPresent) return meetToast(context, tr('Chỉ ngôi sao của cuộc họp được trình chiếu'));
       return startPresenting(context, call);
