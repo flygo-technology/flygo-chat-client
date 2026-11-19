@@ -19,6 +19,7 @@ import 'meet/extras/controls.dart';
 import 'meet/extras/network.dart' show MeetSignalBadge;
 import 'meet/extras/captions.dart';
 import 'meet/meet_present.dart';
+import 'meet/extras/guest_invite.dart' show meetGuestInvite;
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
 import 'home_page.dart' show ChatHost;
@@ -217,6 +218,40 @@ class _CallScreenState extends State<CallScreen> {
     // Sau khung hình này: tránh đổi notifier khi cây đang dựng lại.
     WidgetsBinding.instance.addPostFrameCallback((_) => CallScreen.visible.value = (CallScreen.visible.value - 1).clamp(0, 99));
     super.dispose();
+  }
+
+  /// Hai nút mời chính (LiveKit): 📺 Thêm màn hình (TV / máy dùng chung quét QR, theo bố cục màn hình phòng) và
+  /// 🔗 Thêm khách mời (link khách, theo bố cục ứng dụng & khách; chủ trì / phó phòng, cuộc họp có mã).
+  List<Widget> _inviteButtons(CallService call) {
+    if (!call.liveKit) return const [];
+    final guest = call.canModerate && (call.meetingInfo?.code ?? '').isNotEmpty;
+    final style = OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24), minimumSize: const Size(0, 40));
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              style: style,
+              onPressed: () => inviteDeviceByQr(context, call),
+              icon: const Icon(Icons.cast_rounded, size: 18),
+              label: Text(tr('Thêm màn hình')),
+            ),
+          ),
+          if (guest) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                style: style,
+                onPressed: () => meetGuestInvite(context, call),
+                icon: const Icon(Icons.link_rounded, size: 18),
+                label: Text(tr('Thêm khách mời')),
+              ),
+            ),
+          ],
+        ]),
+      ),
+    ];
   }
 
   List<String> _banners(AppState app, CallService call) {
@@ -1342,7 +1377,7 @@ class _CallScreenState extends State<CallScreen> {
                   tile('comments', Icons.chat_bubble_outline_rounded, tr('Bình luận'),
                       badge: room.comments.isEmpty ? null : '${room.comments.length}'),
                 if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
-                if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
+                if (call.liveKit) tile('qr_invite', Icons.cast_rounded, tr('Thêm màn hình')),
                 if (call.meeting && call.scribeAvailable) tile('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
                 if (call.liveKit && call.scribeAvailable) tile('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu'), on: call.roomPresent != null),
                 for (final x in meetExtraActions(context, call)) tile('x:${x.id}', x.icon, x.label, on: x.on),
@@ -1748,7 +1783,7 @@ class _CallScreenState extends State<CallScreen> {
       items: [
         item('layout', Icons.auto_awesome_mosaic_outlined, tr('Đổi bố cục')),
         item('poll', Icons.poll_outlined, tr('Bình chọn')),
-        if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
+        if (call.liveKit) item('qr_invite', Icons.cast_rounded, tr('Thêm màn hình')),
         if (call.meeting && call.scribeAvailable) item('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
         if (call.liveKit && call.scribeAvailable) item('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu')),
         for (final x in meetExtraActions(context, call)) item('x:${x.id}', x.icon, x.label),
@@ -1875,6 +1910,7 @@ class _CallScreenState extends State<CallScreen> {
                   label: Text(tr('Mời người khác')),
                 ),
               ),
+              ..._inviteButtons(call),
               if (room != null && room.knocks.isNotEmpty && _isHost(app, call)) ...[
                 _panelHead(tr('Đang xin tham gia')),
                 for (final k in room.knocks)
@@ -2245,6 +2281,7 @@ class _CallScreenState extends State<CallScreen> {
                       style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
                     ),
                   ),
+                  ..._inviteButtons(call),
                   Flexible(
                     child: ListView(
                       shrinkWrap: true,
