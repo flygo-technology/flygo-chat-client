@@ -192,8 +192,12 @@ class _CallScreenState extends State<CallScreen> {
     // Tính năng thêm (meet/extras): nghe sự kiện của cuộc họp để báo nhanh (vd. "X đã hạ tay bạn").
     final call = context.read<AppState>().calls;
     _extrasCall = call;
-    meetExtrasAttach(context, call, (t) {
-      if (mounted) meetToast(context, t);
+    // Sau khung hình đầu: module thêm đọc ScaffoldMessenger (không được gọi trong initState).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      meetExtrasAttach(context, call, (t) {
+        if (mounted) meetToast(context, t);
+      });
     });
   }
 
