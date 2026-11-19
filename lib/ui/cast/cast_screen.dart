@@ -245,7 +245,15 @@ class _ScreenListSheetState extends State<_ScreenListSheet> {
       _ when !x.approved => tr('⚠ chưa xác nhận: quét mã trên màn hình một lần'),
       'meeting' => tr('Cuộc họp «{0}» · chỉ thành viên', ['${(x.lock?['meeting'] as Map?)?['title'] ?? ''}']),
       'locked' => tr('Đang khoá bởi {0}', ['${x.lock?['by_name'] ?? ''}']),
-      'casting' => x.queue > 0 ? tr('Đang chiếu: {0} · {1} người chờ', [x.nowBy, '${x.queue}']) : tr('Đang chiếu: {0}', [x.nowBy]),
+      'casting' => [
+        tr('Đang chiếu: {0}', [
+          [x.nowBy, if (x.nowName.isNotEmpty) x.nowName].join(' · '),
+        ]),
+        if (x.queue > 0) tr('{0} người chờ', ['${x.queue}']),
+      ].join(' · '),
+      _ when x.endedName.isNotEmpty || x.endedBy.isNotEmpty => tr('Đã chiếu xong: {0}', [
+        [x.endedBy, if (x.endedName.isNotEmpty) x.endedName].join(' · '),
+      ]),
       _ => x.lock?['mine'] == true ? tr('Bạn đang khoá') : tr('Đang rảnh'),
     };
     Color dot(CastScreen x) => !x.online
@@ -565,8 +573,12 @@ class _CastRemotePageState extends State<CastRemotePage> {
 
   Future<void> _stop() async {
     _stopped = true;
+    final sent = _sent;
     await s.stop();
-    if (mounted) Navigator.of(context).pop();
+    if (!mounted) return;
+    // Sếp (509): báo "Đã chiếu xong" (màn hình cũng hiện vài giây rồi về màn hình chờ / phòng họp).
+    if (sent) ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text(tr('Đã chiếu xong «{0}» trên {1}', [c.name, st.screen]))));
+    Navigator.of(context).pop();
   }
 
   Future<bool> _confirmLeave() async {
@@ -619,7 +631,30 @@ class _CastRemotePageState extends State<CastRemotePage> {
                 children: [
                   const Icon(Icons.tv_rounded, size: 22),
                   const SizedBox(width: 8),
-                  Flexible(child: Text(st.screen.isEmpty ? tr('Màn hình') : st.screen, overflow: TextOverflow.ellipsis)),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(st.screen.isEmpty ? tr('Màn hình') : st.screen, overflow: TextOverflow.ellipsis),
+                        // Sếp (509): "Đang chiếu: <tên> · <nội dung>" ở cả trang điều khiển.
+                        if (st.presenting && _sent)
+                          Text(
+                            tr('Đang chiếu: {0}', [
+                              [tr('bạn'), c.name].join(' · '),
+                            ]),
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w400),
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        else if (st.role == 'queued' && st.nowBy.isNotEmpty)
+                          Text(
+                            tr('Đang chiếu: {0}', [st.nowBy]),
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w400),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
               actions: [
@@ -659,7 +694,14 @@ class _CastRemotePageState extends State<CastRemotePage> {
         children: [
           Icon(Icons.tv_off_rounded, size: 56, color: th.hintColor),
           const SizedBox(height: 12),
-          Text(st.why == 'timeout' ? tr('Mất kết nối quá lâu, màn hình đã chuyển cho người khác') : tr('Đã ngắt khỏi màn hình'), textAlign: TextAlign.center),
+          Text(
+            st.why == 'timeout'
+                ? tr('Mất kết nối quá lâu, màn hình đã chuyển cho người khác')
+                : _sent
+                ? tr('Đã chiếu xong «{0}»', [c.name])
+                : tr('Đã ngắt khỏi màn hình'),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: () {
