@@ -21,6 +21,7 @@ import 'call_media.dart';
 import 'calls_client.dart';
 import 'direct_call.dart';
 import 'livekit_media.dart';
+import '../ui/meet/extras/controls.dart' show knockLockedMeeting;
 
 enum CallPhase { idle, incoming, outgoing, connecting, active, ended }
 
@@ -175,6 +176,8 @@ class CallService extends ChangeNotifier {
   Map<String, dynamic> roomLayout = const {'mode': 'speaker', 'locked': false};
   /// Chủ trì / phó phòng vừa mời mình bật mic (tên người mời) — màn hình cuộc gọi hỏi rồi xoá.
   String? unmuteAsk;
+  /// Đang chờ chủ trì cho vào cuộc họp đã khoá.
+  bool lockWaiting = false;
   /// Khoá của các tính năng thêm trong metadata phòng (vd. lock, perms) — lib/ui/meet/extras đọc.
   Map<String, dynamic> roomExtras = {};
   /// Bài đang trình chiếu (metadata phòng `present`: id, name, url, by, by_name, page, pages, at), null = không có.
@@ -727,7 +730,20 @@ class CallService extends ChangeNotifier {
     final code = meeting ? meetingInfo?.code : null;
     final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/token' : '/meet/livekit/channel/$ch/token';
     final body = jsonEncode({'device': await _device(), 'kind': _deviceKind});
-    final r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: body).timeout(const Duration(seconds: 10));
+    var r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: body).timeout(const Duration(seconds: 10));
+    if (r.statusCode == 423 && code != null && code.isNotEmpty) {
+      // Cuộc họp đã khoá: xin vào, chờ chủ trì / phó phòng cho vào (tối đa ~100 giây) rồi xin token lại.
+      lockWaiting = true;
+      notifyListeners();
+      final res = await knockLockedMeeting(code, token: api.token).whenComplete(() {
+        lockWaiting = false;
+        notifyListeners();
+      });
+      if (res != 'admitted') {
+        throw CallJoinError(res == 'denied' ? tr('Chủ trì không cho vào cuộc họp') : tr('Cuộc họp đã khoá và chưa ai cho bạn vào'));
+      }
+      r = await http.post(Uri.parse('$kPushUrl$path'), headers: _pushHeaders, body: body).timeout(const Duration(seconds: 10));
+    }
     if (r.statusCode == 501 || r.statusCode == 404) return null;
     final j = (jsonDecode(r.body) as Map).cast<String, dynamic>();
     if (r.statusCode != 200) throw CallJoinError(j['error'] as String? ?? 'HTTP ${r.statusCode}');

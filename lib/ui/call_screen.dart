@@ -15,6 +15,7 @@ import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
 import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
+import 'meet/extras/controls.dart';
 import 'meet/meet_present.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
@@ -210,6 +211,23 @@ class _CallScreenState extends State<CallScreen> {
     super.dispose();
   }
 
+  /// Bật / tắt mic: chủ trì tắt quyền tự bật mic thì nhắc giơ tay (chủ trì "mời bật mic" sẽ mở lại).
+  void _micTap(CallService call) {
+    if (call.muted && !meetPerm(call, 'unmute')) {
+      meetToast(context, tr('Chủ trì đang tắt quyền tự bật mic – hãy giơ tay'));
+      return;
+    }
+    call.toggleMute();
+  }
+
+  void _camTap(CallService call) {
+    if (!call.camera && !meetPerm(call, 'camera')) {
+      meetToast(context, tr('Chủ trì đang tắt quyền bật camera'));
+      return;
+    }
+    call.toggleCamera();
+  }
+
   /// Về chat của cuộc họp, cuộc gọi chạy tiếp trong khung nổi (PiP).
   void _backToChat(AppState app, CallService call) {
     final ch = call.channelId;
@@ -339,7 +357,7 @@ class _CallScreenState extends State<CallScreen> {
           ? (call.incomingVideo ? tr('{0} đang gọi video nhóm', [caller]) : tr('{0} đang gọi thoại nhóm', [caller]))
           : (call.incomingVideo ? tr('Cuộc gọi video đến') : tr('Cuộc gọi thoại đến')),
       CallPhase.outgoing => call.reconnecting ? tr('Đang kết nối lại…') : tr('Đang đổ chuông...'),
-      CallPhase.connecting => tr('Đang kết nối...'),
+      CallPhase.connecting => call.lockWaiting ? tr('Cuộc họp đã khoá – đang chờ chủ trì cho vào…') : tr('Đang kết nối...'),
       CallPhase.active =>
         call.remoteUsers.isEmpty && ch?.isDirect == false
             ? tr('Đang chờ mọi người...')
@@ -1114,7 +1132,7 @@ class _CallScreenState extends State<CallScreen> {
               color: call.camera ? _btnBg : _red,
               tooltip: call.camera ? tr('Tắt camera') : tr('Bật camera'),
               onTap: () {
-                call.toggleCamera();
+                _camTap(call);
                 _poke();
               },
             ),
@@ -1144,7 +1162,7 @@ class _CallScreenState extends State<CallScreen> {
               color: call.muted ? _red : _btnBg,
               tooltip: call.muted ? tr('Bật micro') : tr('Tắt micro'),
               onTap: () {
-                call.toggleMute();
+                _micTap(call);
                 _poke();
               },
             ),
@@ -1183,7 +1201,7 @@ class _CallScreenState extends State<CallScreen> {
               color: call.muted ? _red : _btnBg,
               tooltip: call.muted ? tr('Bật micro') : tr('Tắt micro'),
               onTap: () {
-                call.toggleMute();
+                _micTap(call);
                 _poke();
               },
             ),
@@ -1192,11 +1210,11 @@ class _CallScreenState extends State<CallScreen> {
               color: call.camera ? _btnBg : _red,
               tooltip: call.camera ? tr('Tắt camera') : tr('Bật camera'),
               onTap: () {
-                call.toggleCamera();
+                _camTap(call);
                 _poke();
               },
             ),
-            _chatButton(app, call),
+            if (meetPerm(call, 'chat')) _chatButton(app, call),
             if (ai)
               _MeetButton(
                 icon: Icons.auto_awesome,
@@ -1273,6 +1291,7 @@ class _CallScreenState extends State<CallScreen> {
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               // Cảm xúc: bấm là thả luôn.
+              if (meetPerm(call, 'react'))
               Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                 for (final e in CallService.reactionNames.keys)
                   InkWell(
@@ -1365,7 +1384,7 @@ class _CallScreenState extends State<CallScreen> {
             color: call.muted ? _red : _btnBg,
             tooltip: call.muted ? tr('Bật micro') : tr('Tắt micro'),
             onTap: () {
-              call.toggleMute();
+              _micTap(call);
               _poke();
             },
           ),
@@ -1374,7 +1393,7 @@ class _CallScreenState extends State<CallScreen> {
             color: call.camera ? _btnBg : _red,
             tooltip: call.camera ? tr('Tắt camera') : tr('Bật camera'),
             onTap: () {
-              call.toggleCamera();
+              _camTap(call);
               _poke();
             },
           ),
@@ -1388,7 +1407,7 @@ class _CallScreenState extends State<CallScreen> {
               _poke();
             },
           ),
-          _chatButton(app, call),
+          if (meetPerm(call, 'chat')) _chatButton(app, call),
           // Phụ đề: lời trợ lý AI đọc cho cả phòng (phụ đề giọng nói của người họp: đợt sau).
           if (room != null)
             _MeetButton(
@@ -1398,7 +1417,8 @@ class _CallScreenState extends State<CallScreen> {
               tooltip: _captions ? tr('Ẩn phụ đề') : tr('Hiện phụ đề'),
               onTap: () => setState(() => _captions = !_captions),
             ),
-          // Thả cảm xúc.
+          // Thả cảm xúc (chủ trì có thể tắt quyền này).
+          if (meetPerm(call, 'react'))
           Builder(
             builder: (b) => _MeetButton(
               icon: Icons.add_reaction_outlined,
@@ -1407,7 +1427,7 @@ class _CallScreenState extends State<CallScreen> {
               onTap: () => _pickReaction(b, call),
             ),
           ),
-          if (CallService.canShareScreen)
+          if (CallService.canShareScreen && (call.localScreen != null || meetPerm(call, 'share')))
             _MeetButton(
               icon: call.localScreen != null ? Icons.stop_screen_share_outlined : Icons.present_to_all,
               color: call.localScreen != null ? _on : _btnBg,
@@ -1778,6 +1798,10 @@ class _CallScreenState extends State<CallScreen> {
     _poke();
     if (call.localScreen != null) {
       await call.stopScreenShare();
+      return;
+    }
+    if (!meetPerm(call, 'share')) {
+      meetToast(context, tr('Chủ trì đang tắt quyền chia sẻ màn hình'));
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
