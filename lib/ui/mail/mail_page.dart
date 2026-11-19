@@ -1133,6 +1133,24 @@ class MailHomeState extends State<MailHome> with WidgetsBindingObserver {
               // Điện thoại: nhãn ngắn để địa chỉ hộp thư không bị ép mất chỗ (nút bị đẩy ra ngoài màn hình).
               label: Text(wide ? 'Xem hòm thư khác' : 'Đổi hộp'),
             ),
+          // Báo thư mới qua tin nhắn của bot Thư (bật sẵn cho chủ hộp, Sếp 19/11): chuông bật / tắt ngay trên đầu Thư.
+          if (me.features['notify'] == true && !store.api.demo)
+            IconButton(
+              key: const ValueKey('mail-notify-bell'),
+              tooltip: me.notify ? 'Đang báo thư mới qua tin nhắn (bấm để tắt)' : 'Đang tắt báo thư mới (bấm để bật)',
+              visualDensity: VisualDensity.compact,
+              onPressed: () async {
+                final on = !me.notify;
+                final ms = ScaffoldMessenger.maybeOf(context);
+                try {
+                  await store.setNotify(on);
+                  ms?.showSnackBar(SnackBar(content: Text(on ? 'Đã bật báo thư mới: bot Thư nhắn riêng khi có thư (lúc không mở Thư)' : 'Đã tắt báo thư mới qua tin nhắn')));
+                } catch (e) {
+                  ms?.showSnackBar(SnackBar(content: Text('$e')));
+                }
+              },
+              icon: Icon(me.notify ? Icons.notifications_active_outlined : Icons.notifications_off_outlined, size: 20, color: me.notify ? mc.accentText : mc.muted),
+            ),
           if (me.has('ai') && !me.readOnly)
             wide
                 ? TextButton.icon(
