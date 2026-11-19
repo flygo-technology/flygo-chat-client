@@ -32,7 +32,7 @@ import { collectRange, pageEntries, parseAgyDb, parseClaudeJsonl, parseCodexRoll
 import { botHome, claudeSkillsDir, deleteSkill, listSkills, memoryPath, readRole, readSkill, roleLine, roleSlug, saveSkill, setRole, skillDoc, skillFilesOf, skillName, type SkillFile } from "./skills";
 import pkg from "../package.json";
 import { formatTeam, resultText, teamDescriptor, teamSummary, untrusted } from "./team";
-import { tagBridge, tagDenied, type TagBridge } from "./tag-bridge";
+import { tagBridge, tagDenied, type TagBridge, machinePost } from "./tag-bridge";
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { MM, defuseMentions, type Post } from "./mm";
@@ -1348,6 +1348,9 @@ async function askApprovalDM(req: ApprovalRequest, from: A2APeer, signal: AbortS
 /** Cầu nối người dùng mở trong tin (bot được @tag + phiên được gắn). Chỉ tin của người (không phải bot) mới mở cầu nối. */
 async function tagBridgeOf(post: Post): Promise<TagBridge | undefined> {
   if (!post?.id || !post.message && !post.props?.flygo_a2a_peers) return undefined;
+  // Tin máy đăng thay người (webhook, agent ngoài qua cầu nối MCP, tin hệ thống) không mở cầu nối, kể cả khi tài khoản đăng
+  // là người thường (relay kiểm lại: team.mjs bridgeAuth).
+  if (machinePost(post)) return undefined;
   const author = await mm.user(post.user_id).catch(() => null as any);
   if (!author || author.is_bot) return undefined;
   return tagBridge(post.id, await taggedAgents(post.message ?? ""), post.props, { id: BOT_ID, username: BOT_NAME });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { attachedSessions, tagBridge, tagDenied } from "./tag-bridge";
+import { attachedSessions, machinePost, tagBridge, tagDenied } from "./tag-bridge";
 
 const self = { id: "self0000000000000000000000", username: "ba-claude" };
 const codex = { id: "codex000000000000000000000", username: "ba-codex" };
@@ -57,4 +57,11 @@ describe("đã gỡ tool bot ↔ bot ngoài dự án và Remote Control (cc_*)",
     expect(runner).not.toContain('"sessions"), f)');
     expect(runner).not.toContain("--fork-session");
   });
+});
+
+test("machinePost: webhook / agent ngoài / tin hệ thống không mở cầu nối", () => {
+  expect(machinePost({ props: { from_webhook: "true", override_username: "🔗 Agent ngoài" } })).toBe(true);
+  expect(machinePost({ props: { flygo_bridge: { token_id: "x" } } })).toBe(true);
+  expect(machinePost({ type: "system_add_to_channel" })).toBe(true);
+  expect(machinePost({ type: "", props: { flygo_a2a_peers: [] } })).toBe(false);
 });

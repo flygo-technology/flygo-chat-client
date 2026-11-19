@@ -29,3 +29,9 @@ export function tagDenied(t: TagBridge | undefined, u: { id: string; username: s
   if (session) return t.sessions.some((x) => x.session === session && (x.bot === u.id || x.bot === u.username)) ? "" : `Phiên ${session} không được gắn vào tin này. ${hint}`;
   return t.bots.has(u.id) || t.bots.has(u.username) ? "" : `@${u.username} không được tag trong tin này. ${hint}`;
 }
+
+/** Tin máy đăng thay người (webhook, agent ngoài qua cầu nối MCP, tin hệ thống): không mở cầu nối dù tài khoản đăng là người. */
+export function machinePost(post: { type?: string; props?: any }): boolean {
+  const p = post?.props ?? {};
+  return String(p.from_webhook) === "true" || String(p.from_bot) === "true" || !!p.flygo_bridge || String(post?.type ?? "").startsWith("system_");
+}
