@@ -17,6 +17,7 @@ import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
 import 'meet/extras/controls.dart';
 import 'meet/extras/network.dart' show MeetSignalBadge;
+import 'meet/extras/captions.dart';
 import 'meet/meet_present.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
@@ -917,6 +918,8 @@ class _CallScreenState extends State<CallScreen> {
             ),
             // Đang phiên âm: luôn hiện (cả khi thanh nút ẩn) để mọi người biết lời nói đang được ghi thành chữ.
             if (call.transcribing) const Positioned(top: 12, right: 16, child: _ScribeChip()),
+            // Phụ đề trực tiếp (module thêm): ngay trên thanh nút.
+            MeetCaptionsOverlay(call: call, bottom: show ? 96 : 24),
             Positioned(
               bottom: 0,
               left: 0,

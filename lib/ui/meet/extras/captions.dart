@@ -92,7 +92,8 @@ class _MeetCaptionsOverlayState extends State<MeetCaptionsOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    if (!meetCaptionsOn.value || _lines.isEmpty) return const SizedBox.shrink();
+    // Luôn trả Positioned: một con không định vị trong Stack làm Stack co về cỡ của nó (vỡ bố cục màn hình họp).
+    if (!meetCaptionsOn.value || _lines.isEmpty) return const Positioned(left: 0, bottom: 0, child: SizedBox.shrink());
     final want = meetCaptionsLang.value;
     return Positioned(
       left: 0,
