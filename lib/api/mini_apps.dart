@@ -257,6 +257,10 @@ class MiniApps {
   /// Danh sách đã tải gần nhất của máy chủ đang dùng (không gọi mạng).
   static List<MiniApp> get cached => _apps[kServerUrl]?.$2 ?? const [];
 
+  /// Test: đặt sẵn danh sách app của máy chủ đang dùng.
+  @visibleForTesting
+  static void debugSetCached(List<MiniApp> apps) => _apps[kServerUrl] = (DateTime.now(), apps);
+
   /// Tăng mỗi khi danh sách app của máy chủ đang dùng đổi (vd vừa được cấp / thu hồi quyền): các mục Ứng dụng vẽ lại.
   static final changed = ValueNotifier<int>(0);
 

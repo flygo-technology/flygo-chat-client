@@ -101,6 +101,47 @@ Future<File> previewPdf(DriveSession s, DriveItem it, {void Function(int, int)? 
   return s.api.previewPdf(it.id, it.path, f, onProgress: onProgress);
 }
 
+/// Mã link chia sẻ công khai của Drive ([u] = `<drive>/s/<token>`, cả /index.php/s/… và …/download), null nếu không phải.
+String? driveShareToken(Uri u) {
+  final drive = MiniApps.cached.where((a) => a.id == kDriveApp).firstOrNull;
+  final host = Uri.tryParse(drive?.baseUrl ?? '')?.host;
+  if (host == null || host.isEmpty || u.host != host) return null;
+  return RegExp(r'^(?:/index\.php)?/s/([A-Za-z0-9]{6,64})(?:/download)?/?$').firstMatch(u.path)?.group(1);
+}
+
+/// Mở link chia sẻ Drive bằng trình xem trong app (ảnh, PDF, Word / Excel / PowerPoint); link có mật khẩu, thư mục
+/// hoặc máy chủ chưa có Drive thì mở trình duyệt như cũ.
+Future<void> openDriveShare(BuildContext context, Uri link, String token) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final nav = Navigator.of(context, rootNavigator: true);
+  final state = context.read<AppState>();
+  try {
+    final s = await DriveSession.current(state);
+    if (s == null) throw StateError('no drive');
+    final info = await s.api.shareInfo(token);
+    final item = DriveItem(path: '/${info.name}', name: info.name, dir: false, mime: info.mime, size: info.size);
+    if (!canPreview(item)) throw StateError('no preview');
+    final tmp = '${(await getTemporaryDirectory()).path}/drive_share/${token}_${info.etag}';
+    final file = PreviewFile(
+      key: token,
+      name: info.name,
+      mime: info.mime,
+      load: (p) async {
+        final pdf = File('$tmp.pdf'), raw = File('$tmp/${info.name}');
+        if (isOffice(item)) return await pdf.exists() ? pdf : s.api.sharePreview(token, pdf, onProgress: p);
+        return await raw.exists() ? raw : s.api.shareFile(token, raw, onProgress: p);
+      },
+    );
+    await nav.push(AppPageRoute(
+      builder: (_) => FilePreviewPage(files: [file], actions: (ctx, f) => [
+            IconButton(tooltip: tr('Mở trong trình duyệt'), icon: const Icon(Icons.open_in_browser_rounded), onPressed: () => launchUrl(link, mode: LaunchMode.externalApplication)),
+          ]),
+    ));
+  } catch (_) {
+    if (!await launchUrl(link, mode: LaunchMode.externalApplication)) messenger.showSnackBar(toast(Text(tr('Không mở được liên kết'))));
+  }
+}
+
 /// Bản trên máy của tệp: bản ghim offline nếu còn khớp, không thì tải vào thư mục tạm.
 Future<File> localCopy(DriveSession s, DriveItem it, {void Function(int, int)? onProgress}) async {
   final off = s.offline.localFile(it);
