@@ -238,6 +238,10 @@ class LiveKitMedia implements CallMedia {
             onEvent?.call('fx', {...m, 'from': p.identity});
             return;
           }
+          if (m['t'] == 'laser') {
+            onEvent?.call('laser', m);
+            return;
+          }
           if (m['t'] == 'react') {
             _emit('user_reacted', p, {'emoji': m['emoji'], 'timestamp': DateTime.now().microsecondsSinceEpoch});
           }
@@ -275,6 +279,11 @@ class LiveKitMedia implements CallMedia {
           debugPrint('[livekit] hand: $e');
           return false;
         });
+      case 'laser':
+        // Bút laser của người trình chiếu: gửi nhanh, mất vài tin cũng không sao.
+        me
+            .publishData(utf8.encode(jsonEncode({'t': 'laser', ...?data})), reliable: false, topic: _topic)
+            .catchError((Object e) => debugPrint('[livekit] laser: $e'));
       case 'react':
         Object? emoji;
         try {

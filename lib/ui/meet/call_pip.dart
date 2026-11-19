@@ -68,7 +68,21 @@ class _PipCard extends StatelessWidget {
     final talker = people.where((p) => p.speaking && p.hasVideo).firstOrNull ?? people.where((p) => p.hasVideo).firstOrNull;
     final title = call.channelId == null ? '' : (app.channels[call.channelId] == null ? '' : app.channelTitle(app.channels[call.channelId]!));
     Widget body;
-    if (screen != null) {
+    final pres = call.roomPresent;
+    if (pres != null && screen == null) {
+      body = Center(
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.slideshow_rounded, color: Colors.white70, size: 36),
+            const SizedBox(height: 6),
+            Text('${pres['name'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
+            Text('${pres['page'] ?? 1}/${pres['pages'] ?? '?'}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+          ]),
+        ),
+      );
+    } else if (screen != null) {
       body = CallVideo(stream: screen.screenStream!, trackId: screen.screenTrackId, contain: true);
     } else if (talker != null) {
       body = CallVideo(stream: talker.videoStream!, trackId: talker.videoTrackId);

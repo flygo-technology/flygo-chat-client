@@ -15,6 +15,7 @@ import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
 import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
+import 'meet/meet_present.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
 import 'home_page.dart' show ChatHost;
@@ -826,6 +827,14 @@ class _CallScreenState extends State<CallScreen> {
       case MeetLayout.auto:
         break;
     }
+    // Bài trình chiếu tài liệu: lên khung lớn khi phòng chọn "bài trình chiếu", hoặc khi nó mới hơn màn hình chia sẻ mới nhất
+    // (không ghim ai, không ở dạng lưới).
+    final pres = call.roomPresent;
+    final newestScreenAt = screens.isEmpty ? 0 : (_screenSeen[screens.first.key] ?? 0);
+    final presOn = pres != null &&
+        pinned == null &&
+        layout != MeetLayout.grid &&
+        (call.roomLayout['mode'] == 'present' || screens.isEmpty || ((pres['at'] as num?)?.toInt() ?? 0) >= newestScreenAt);
     final room = _room;
     final staged = room != null && (room.stage != null || room.webUrl != null);
     final show = _controls;
@@ -842,7 +851,9 @@ class _CallScreenState extends State<CallScreen> {
                   duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOut,
                   padding: EdgeInsets.fromLTRB(8, show ? 60 : 8, 8, show ? 88 : 8),
-                  child: staged
+                  child: presOn
+                      ? MeetPresentView(call: call)
+                      : staged
                       ? MeetStage(room: room)
                       // Màn hình chia sẻ đang lên khung lớn (bố cục tự động): phủ kín khung như trang TV.
                       : LayoutBuilder(
@@ -1288,6 +1299,7 @@ class _CallScreenState extends State<CallScreen> {
                 if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
                 if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
                 if (call.meeting && call.scribeAvailable) tile('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
+                if (call.liveKit && call.scribeAvailable) tile('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu'), on: call.roomPresent != null),
                 if (call.liveKit && call.canModerate) tile('room_layout', Icons.dashboard_customize_outlined, tr('Bố cục cho cả phòng')),
                 for (final x in meetExtraActions(context, call)) tile('x:${x.id}', x.icon, x.label, on: x.on),
                 if (call.isMeetingCreator && call.scribeAvailable)
@@ -1693,6 +1705,7 @@ class _CallScreenState extends State<CallScreen> {
         item('poll', Icons.poll_outlined, tr('Bình chọn')),
         if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
         if (call.meeting && call.scribeAvailable) item('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
+        if (call.liveKit && call.scribeAvailable) item('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu')),
         if (call.liveKit && call.canModerate) item('room_layout', Icons.dashboard_customize_outlined, tr('Bố cục cho cả phòng')),
         for (final x in meetExtraActions(context, call)) item('x:${x.id}', x.icon, x.label),
         if (call.isMeetingCreator && call.scribeAvailable)
@@ -1710,6 +1723,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _runMore(String? a, AppState app, CallService call) async {
     if (a == 'scribe') return _toggleScribe(call);
     if (a == 'room_layout') return _roomLayoutSheet(call);
+    if (a == 'present') return startPresenting(context, call);
     if (a != null && a.startsWith('x:')) {
       final x = meetExtraActions(context, call).where((x) => 'x:${x.id}' == a).firstOrNull;
       if (x != null) await x.run(context, call);

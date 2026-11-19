@@ -175,6 +175,10 @@ class CallService extends ChangeNotifier {
   Map<String, dynamic> roomLayout = const {'mode': 'speaker', 'locked': false};
   /// Chủ trì / phó phòng vừa mời mình bật mic (tên người mời) — màn hình cuộc gọi hỏi rồi xoá.
   String? unmuteAsk;
+  /// Bài đang trình chiếu (metadata phòng `present`: id, name, url, by, by_name, page, pages, at), null = không có.
+  Map<String, dynamic>? roomPresent;
+  /// Bút laser của người trình chiếu: (x, y tỉ lệ 0..1 trong trang, đang bật).
+  final laser = StreamController<(double, double, bool)>.broadcast();
   bool get amHost => roomHost.isNotEmpty && roomHost == myId();
   bool get amCohost => roomCohosts.contains(myId());
   /// Mình điều khiển được cuộc họp (chủ trì / phó phòng / quản trị — relay kiểm lại).
@@ -197,6 +201,14 @@ class CallService extends ChangeNotifier {
       roomLayout = lay;
       changed = true;
     }
+    // Metadata đầy đủ (có host) mà không có present = đã dừng trình chiếu.
+    if (m.containsKey('present') || m.containsKey('host')) {
+      final pr = m['present'] is Map ? (m['present'] as Map).cast<String, dynamic>() : null;
+      if (jsonEncode(pr) != jsonEncode(roomPresent)) {
+        roomPresent = pr;
+        changed = true;
+      }
+    }
     if (changed) notifyListeners();
   }
 
@@ -206,6 +218,49 @@ class CallService extends ChangeNotifier {
   /// Bố cục cho cả phòng (chủ trì / phó phòng).
   Future<String?> setRoomLayout(String mode, {String? pin, bool? locked}) =>
       _meetPost('layout', {'mode': mode, 'pin': ?pin, 'locked': ?locked});
+  /// Trình chiếu tài liệu: gửi bản PDF lên cuộc họp (mọi máy hiện cùng trang).
+  Future<String?> presentUpload(File pdf, String name, int pages) async {
+    final ch = channelId;
+    if (ch == null) return tr('Không ở trong cuộc họp');
+    final code = meetingInfo?.code;
+    final path = code != null && code.isNotEmpty ? '/meet/rooms/$code/present' : '/meet/livekit/channel/$ch/present';
+    try {
+      final r = await http
+          .post(Uri.parse('$kPushUrl$path').replace(queryParameters: {'name': name, 'pages': '$pages'}),
+              headers: {..._pushHeaders, 'Content-Type': 'application/pdf'}, body: await pdf.readAsBytes())
+          .timeout(const Duration(minutes: 3));
+      if (r.statusCode == 200) {
+        final j = jsonDecode(utf8.decode(r.bodyBytes));
+        if (j is Map) {
+          roomPresent = j.cast<String, dynamic>();
+          notifyListeners();
+        }
+        return null;
+      }
+      try {
+        return '${(jsonDecode(utf8.decode(r.bodyBytes)) as Map)['error']}';
+      } catch (_) {
+        return 'HTTP ${r.statusCode}';
+      }
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  /// Người trình chiếu (chủ trì / phó phòng) chuyển trang cho cả phòng.
+  Future<String?> presentPage(int page) {
+    final p = roomPresent;
+    if (p != null) {
+      roomPresent = {...p, 'page': page}; // đổi ngay trên máy mình, metadata về sau
+      notifyListeners();
+    }
+    return _meetPost('present/page', {'page': page});
+  }
+
+  Future<String?> presentStop() => _meetPost('present/stop', {});
+
+  void sendLaser(double x, double y, {bool on = true}) => _client?.action('laser', {'x': x, 'y': y, 'on': on});
+
   /// Tắt mic / mời bật mic / dừng chia sẻ / mời ra một người (mọi máy của họ), hoặc tắt mic tất cả.
   Future<String?> moderate(String action, [String? userId]) => _meetPost('moderate', {'action': action, 'user_id': ?userId});
 
@@ -1112,6 +1167,10 @@ class CallService extends ChangeNotifier {
       fxEvents.add(Map<String, dynamic>.from(data));
       return;
     }
+    if (ev == 'laser') {
+      laser.add(((data['x'] as num?)?.toDouble() ?? 0, (data['y'] as num?)?.toDouble() ?? 0, data['on'] != false));
+      return;
+    }
     if (ev == 'ask_unmute') {
       if (muted) {
         unmuteAsk = (data['by_name'] as String?)?.trim().isNotEmpty == true ? data['by_name'] as String : tr('Chủ trì');
@@ -1757,6 +1816,7 @@ class CallService extends ChangeNotifier {
     roomLayout = const {'mode': 'speaker', 'locked': false};
     unmuteAsk = null;
     myHandAt = 0;
+    roomPresent = null;
     callThreadId = null;
     muted = false;
     deafened = false;
