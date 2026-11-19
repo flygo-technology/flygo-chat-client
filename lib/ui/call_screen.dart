@@ -13,6 +13,7 @@ import '../calls/meet_room.dart';
 import '../calls/meet_rooms.dart';
 import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
 import 'meet/meet_qr_invite.dart';
+import 'meet/meet_summary.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
@@ -1060,6 +1061,7 @@ class _CallScreenState extends State<CallScreen> {
                       badge: room.comments.isEmpty ? null : '${room.comments.length}'),
                 if (room != null) tile('poll', Icons.poll_outlined, tr('Bình chọn')),
                 if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
+                if (call.meeting && call.scribeAvailable) tile('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
                 if (call.isMeetingCreator && call.scribeAvailable)
                   tile('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
                       call.transcribing ? tr('Phiên âm: Bật') : tr('Phiên âm: Tắt'), on: call.transcribing),
@@ -1461,6 +1463,7 @@ class _CallScreenState extends State<CallScreen> {
         item('layout', Icons.auto_awesome_mosaic_outlined, tr('Đổi bố cục')),
         item('poll', Icons.poll_outlined, tr('Bình chọn')),
         if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
+        if (call.meeting && call.scribeAvailable) item('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
         if (call.isMeetingCreator && call.scribeAvailable)
           item('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
               call.transcribing ? tr('Phiên âm: Bật') : tr('Phiên âm: Tắt')),
@@ -1475,6 +1478,11 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _runMore(String? a, AppState app, CallService call) async {
     if (a == 'scribe') return _toggleScribe(call);
+    if (a == 'summary') {
+      final ch = call.channelId;
+      if (ch != null) await summarizeMeeting(context, channelId: ch, code: call.meetingInfo?.code);
+      return;
+    }
     final room = _room;
     if (room == null) return;
     switch (a) {

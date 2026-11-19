@@ -8,6 +8,7 @@ import '../calls/call_kind.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'common.dart';
+import 'meet/meet_summary.dart';
 import 'theme.dart';
 
 // Cuộc họp hẹn trước (bảng đính kèm → "Cuộc họp"): tin mang props.flygo_meeting =
@@ -260,12 +261,15 @@ class _MeetingCardState extends State<MeetingCard> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              // Luôn vào được trước giờ (Sếp 2026-11-18); giờ bắt đầu chỉ để hiện và nhắc.
-              onPressed: !app.calls.busy
-                  ? () => app.calls.startCall(widget.post.channelId, meeting: true, meetingPost: widget.post.id)
-                  : null,
-              icon: const Icon(Icons.groups_rounded, size: 19),
-              label: Text(inThis ? tr('Đang tham gia') : tr('Tham gia')),
+              // Luôn vào được trước giờ (Sếp 2026-11-18); giờ bắt đầu chỉ để hiện và nhắc. Đang ở trong cuộc họp này (đã rời
+              // màn hình cuộc gọi): mở lại màn hình cuộc gọi.
+              onPressed: inThis
+                  ? app.calls.showCallScreen
+                  : !app.calls.busy
+                      ? () => app.calls.startCall(widget.post.channelId, meeting: true, meetingPost: widget.post.id)
+                      : null,
+              icon: Icon(inThis ? Icons.open_in_full_rounded : Icons.groups_rounded, size: 19),
+              label: Text(inThis ? tr('Mở cuộc họp') : tr('Tham gia')),
             ),
           ),
           // Chỉ người tạo kết thúc được cuộc họp (người khác vào ra tự do).
@@ -280,6 +284,16 @@ class _MeetingCardState extends State<MeetingCard> {
               ),
             ),
         ],
+        // ✨ Tóm tắt cuộc họp (ai trong cuộc họp cũng bấm được) khi đã có phiên âm hoặc tin nhắn.
+        if (meetingV2(m) && meetingHasContent(app, widget.post))
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              onPressed: () => summarizeMeeting(context, channelId: widget.post.channelId, code: m['code'] as String?),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: Text(tr('Tóm tắt cuộc họp')),
+            ),
+          ),
       ]),
     );
   }
