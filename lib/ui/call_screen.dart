@@ -616,7 +616,7 @@ class _CallScreenState extends State<CallScreen> {
     PopupMenuItem<String> it(String v, IconData i, String t, {Color color = Colors.white}) => PopupMenuItem(
         value: v, child: Row(children: [Icon(i, color: color, size: 19), const SizedBox(width: 12), Text(t, style: TextStyle(color: color))]));
     final co = call.roomCohosts.contains(userId);
-    final device = userId.startsWith('device:');
+    final device = userId.startsWith('device:') || userId.startsWith('guest:');
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
       color: _panelBg,
@@ -718,6 +718,8 @@ class _CallScreenState extends State<CallScreen> {
 
   String _nameOf(AppState app, String userId) {
     if (userId.startsWith('device:')) return app.calls.deviceNames[userId] ?? tr('Thiết bị phòng họp');
+    // Khách vào bằng link (tên do khách nhập, kèm "(khách)").
+    if (userId.startsWith('guest:')) return app.calls.deviceNames[userId] ?? tr('Khách');
     final n = app.users[userId]?.displayName ?? '';
     if (n.isEmpty && userId.isNotEmpty && _fetching.add(userId)) {
       // Người trong cuộc gọi chưa có trong danh bạ của app (vd. ngoài nhóm): tải tên về rồi vẽ lại.

@@ -313,6 +313,7 @@ const Map<String, String> en = {
   'Sửa tin nhắn': 'Edit message',
   'Tham gia': 'Join',
   'Tham gia cuộc họp': 'Join meeting',
+  'Khách': 'Guest',
   'Chủ trì đang tắt quyền tự bật mic – hãy giơ tay': 'The host has turned off self-unmute – raise your hand',
   'Chủ trì đang tắt quyền bật camera': 'The host has turned off cameras',
   'Chủ trì đang tắt quyền chia sẻ màn hình': 'The host has turned off screen sharing',

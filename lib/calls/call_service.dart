@@ -1216,7 +1216,7 @@ class CallService extends ChangeNotifier {
     final sid = data['session_id'] as String? ?? '';
     final uid = (data['user_id'] ?? data['userID']) as String? ?? '';
     // Thiết bị mời bằng mã QR (TV phòng họp): không phải người dùng chat, tên lấy từ phòng LiveKit.
-    if (uid.startsWith('device:') && data['name'] is String && (data['name'] as String).isNotEmpty) deviceNames[uid] = data['name'] as String;
+    if ((uid.startsWith('device:') || uid.startsWith('guest:')) && data['name'] is String && (data['name'] as String).isNotEmpty) deviceNames[uid] = data['name'] as String;
     if (ev == 'call_state') {
       final ch = data['channel_id'] as String? ?? data['channelID'] as String?;
       if (ch != null && ch != channelId) return;
