@@ -92,14 +92,22 @@ class PagesApi {
     return [for (final x in (j['pages'] as List? ?? const [])) MeetPage(x as Map)];
   }
 
+  /// Trang của app riêng theo loại: của tôi / được mời / toàn công ty.
+  Future<List<MeetPage>> listApp(String type, String scope) async {
+    final j = await _req('GET', '/meet/pages', query: {'app': type, 'scope': scope});
+    return [for (final p in (j['pages'] as List? ?? const [])) MeetPage(p as Map)];
+  }
+
   Future<PageData> get(String id) async => PageData.from(await _req('GET', '/meet/pages/$id'));
 
   /// Trang đang lên sân khấu, đọc bằng khoá sân khấu (khi mình không có quyền đọc theo id).
   Future<PageData> byKey(String key) async => PageData.from(await _req('GET', '/meet/pages/stage/$key'));
 
-  Future<PageData> create({required String type, required String title, String visibility = 'private', Map<String, dynamic> content = const {}, int seconds = 0, Map<String, dynamic> init = const {}}) async {
+  /// [appPage]: tạo trang của app riêng (Bình chọn, Hỏi đáp…) không gắn cuộc họp, kể cả khi đang họp. [audience]: id người được mời.
+  Future<PageData> create({required String type, required String title, String visibility = 'private', Map<String, dynamic> content = const {}, int seconds = 0, Map<String, dynamic> init = const {}, bool appPage = false, List<String> audience = const []}) async {
     final j = await _req('POST', '/meet/pages', body: {
-      'type': type, 'title': title, 'meeting': call.pagesMeeting, 'visibility': visibility, 'content': content, 'seconds': seconds, 'init': init,
+      'type': type, 'title': title, 'meeting': appPage ? null : call.pagesMeeting, 'visibility': visibility, 'content': content, 'seconds': seconds, 'init': init,
+      if (audience.isNotEmpty) 'audience': audience,
     });
     return PageData.from({...j, 'role': 'owner'});
   }

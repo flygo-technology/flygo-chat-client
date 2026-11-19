@@ -27,6 +27,7 @@ import 'drive/session.dart' show officeLinkOf, openOfficeLink;
 import 'drive/drive_page.dart' show openDrive;
 import 'reports/reports_page.dart' show openReports;
 import 'calendar/calendar_page.dart' show openCalendar;
+import 'apps/page_app.dart' show kBinhChonScreen, kHoiDapScreen, openPageApp;
 import 'dich/dich_page.dart' show kDichScreen, openDich;
 import 'teamwork/api.dart' show kTwScreen;
 import 'teamwork/teamwork_page.dart' show openTeamwork;
@@ -125,6 +126,10 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
         projectKey: path == null ? null : RegExp(r'^/p/([A-Z][A-Z0-9]{1,5})(?:[/?#]|$)').firstMatch(path)?.group(1));
     return;
   }
+  if (app.nativeScreen == kBinhChonScreen || app.nativeScreen == kHoiDapScreen) {
+    await openPageApp(context, app);
+    return;
+  }
   if (app.nativeScreen == kDichScreen) {
     await openDich(context, app);
     return;
@@ -198,6 +203,8 @@ Future<bool> openScannedMiniApp(BuildContext context, String raw) async {
 /// Biểu tượng mini app: ảnh https hoặc emoji.
 /// Biểu tượng theo tên trong manifest "tile.icon" (bộ nhỏ, thêm khi cần).
 const _tileIcons = <String, IconData>{
+  'poll': Icons.poll_rounded,
+  'forum': Icons.forum_rounded,
   'table': Icons.table_chart_rounded,
   'tasks': Icons.task_alt_rounded,
   'network': Icons.hub_rounded,
