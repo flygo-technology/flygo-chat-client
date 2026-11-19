@@ -2815,6 +2815,12 @@ class _Bubble extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 4, top: 2),
           child: ChatMedia(post: post, images: images, sending: sendingMedia, maxWidth: maxW - 22),
         ),
+      // Tin có tệp mà chưa có thông tin tệp (app đang hỏi lại máy chủ): khung chờ cỡ ảnh, không để bong bóng trống.
+      if (!hidden && images.isEmpty && post.filesPending)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4, top: 2),
+          child: ChatMediaPlaceholder(width: (maxW - 22).clamp(160.0, 280.0)),
+        ),
       if (!hidden)
         if (mcpAdd) McpAddCard(post: post),
         if (artifact)
@@ -5901,7 +5907,8 @@ class _ComposerState extends State<_Composer> {
       final r = desc.width / desc.height;
       desc.dispose();
       buf.dispose();
-      return r;
+      // Không đọc được cỡ (0 × 0, ảnh hỏng): dùng 4:3 thay vì tỉ lệ 0 / vô cực.
+      return r.isFinite && r > 0 ? r : 4 / 3;
     } catch (_) {
       return 4 / 3;
     }

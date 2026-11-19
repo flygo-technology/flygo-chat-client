@@ -303,6 +303,14 @@ class MmPost {
         _ => SendState.sent,
       };
 
+  /// Có file_ids mà chưa có thông tin tệp (metadata.files): app đang hỏi lại máy chủ, hiện khung chờ thay vì bong bóng trống.
+  bool get filesPending {
+    final ids = raw['file_ids'];
+    if (ids is! List || ids.isEmpty || localFiles.isNotEmpty) return false;
+    final f = (raw['metadata'] as Map?)?['files'];
+    return f is! List || f.isEmpty;
+  }
+
   List<MmFile> get files {
     final m = raw['metadata'] as Map?;
     final f = m?['files'] as List?;

@@ -653,6 +653,13 @@ class _ReviewPageState extends State<_ReviewPage> {
   }
 }
 
+/// Chỉ cho kiểm thử: trang xem trước một ảnh của bộ chọn ảnh; trả về (chọn, đường dẫn ảnh đã sửa).
+@visibleForTesting
+Widget debugAssetPreview(String path, {bool selected = false}) => _AssetPreview(path: path, isVideo: false, selected: selected);
+
+@visibleForTesting
+(bool, String?) debugPreviewResult(Object? r) => r is _PreviewResult ? (r.select, r.editedPath) : (false, null);
+
 class _PreviewResult {
   final bool select;
   final String? editedPath;
@@ -693,13 +700,36 @@ class _AssetPreviewState extends State<_AssetPreview> {
     super.dispose();
   }
 
+  /// Nút "Xong" sau khi sửa: nhận ảnh đã sửa và chọn ảnh đó, về danh sách ảnh.
+  void _done() => Navigator.pop(context, _PreviewResult(true, _edited));
+
+  /// Quay lại: đã sửa mà chưa bấm "Xong" thì hỏi bỏ thay đổi (giữ ảnh gốc, lựa chọn như trước khi mở).
+  Future<void> _back() async {
+    if (_edited == null) {
+      Navigator.pop(context, _PreviewResult(_selected, null));
+      return;
+    }
+    final drop = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('Bỏ các thay đổi?')),
+        content: Text(tr('Ảnh đã sửa sẽ không được dùng.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Tiếp tục sửa'))),
+          TextButton(key: const ValueKey('preview-discard'), onPressed: () => Navigator.pop(d, true), child: Text(tr('Bỏ'))),
+        ],
+      ),
+    );
+    if (drop == true && mounted) Navigator.pop(context, _PreviewResult(widget.selected, null));
+  }
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) Navigator.pop(context, _PreviewResult(_selected, _edited));
+        if (!didPop) _back();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -723,7 +753,7 @@ class _AssetPreviewState extends State<_AssetPreview> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-                        onPressed: () => Navigator.pop(context, _PreviewResult(_selected, _edited)),
+                        onPressed: _back,
                       ),
                       const Spacer(),
                       GestureDetector(
@@ -771,6 +801,16 @@ class _AssetPreviewState extends State<_AssetPreview> {
                             label: Text(tr('Sửa'), style: TextStyle(fontSize: 16)),
                           ),
                         const Spacer(),
+                        // Vừa sửa ảnh: "Xong" nhận ảnh đã sửa (Sếp, bản 510: trước phải bấm quay lại).
+                        if (_edited != null)
+                          FilledButton.icon(
+                            key: const ValueKey('preview-done'),
+                            style: FilledButton.styleFrom(backgroundColor: pal.accent, foregroundColor: Colors.white),
+                            onPressed: _done,
+                            icon: const Icon(Icons.check_rounded),
+                            label: Text(tr('Xong'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          )
+                        else
                         FilledButton.icon(
                           style: FilledButton.styleFrom(
                             backgroundColor: _selected ? Colors.white24 : pal.accent,

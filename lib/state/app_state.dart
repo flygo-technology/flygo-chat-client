@@ -1304,6 +1304,10 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugSetStore(LocalStore store) => _store = store;
 
+  /// Chỉ cho test: gộp tin mới về như khi nhận từ websocket / API.
+  @visibleForTesting
+  void debugMerge(String channelId, List<MmPost> posts) => _merge(channelId, posts);
+
   @visibleForTesting
   void debugPutPosts(String channelId, List<MmPost> posts) {
     _posts[channelId] = posts;
@@ -1481,9 +1485,22 @@ class AppState extends ChangeNotifier {
     _windows[channelId]?.update(incoming);
     final list = _posts[channelId];
     if (list == null) return;
-    for (final p in incoming) {
+    for (var p in incoming) {
       if (p.isEditHistory) continue;
       final had = list.any((x) => x.id == p.id);
+      // Tin có tệp mà bản mới về thiếu metadata.files (vd post_edited khi plugin / bot sửa props, hoặc trả lời tạo tin
+      // chưa kèm metadata): giữ ảnh của bản cũ (hoặc ảnh trên máy đang gửi), rồi hỏi lại máy chủ. Trước đây ảnh biến mất,
+      // bong bóng trống chỉ còn một vạch mảnh (Sếp, bản 510).
+      if (p.deleteAt == 0 && _missingFiles(p)) {
+        final old = list.where((x) => x.id == p.id || (p.pendingId.isNotEmpty && x.pendingId == p.pendingId)).firstOrNull;
+        final oldFiles = (old?.raw['metadata'] as Map?)?['files'];
+        if (oldFiles is List && oldFiles.isNotEmpty) {
+          p = MmPost({...p.raw, 'metadata': {...?(p.raw['metadata'] as Map?)?.cast<String, dynamic>(), 'files': oldFiles}});
+        } else {
+          if (old != null && old.localFiles.isNotEmpty) p = MmPost({...p.raw, '_local_files': old.raw['_local_files']});
+          _fillFiles(channelId, p.id);
+        }
+      }
       list.removeWhere((x) => x.id == p.id || (p.pendingId.isNotEmpty && x.pendingId == p.pendingId));
       if (p.deleteAt == 0) {
         list.add(p);
@@ -1493,6 +1510,40 @@ class AppState extends ChangeNotifier {
       }
     }
     list.sort((a, b) => b.createAt.compareTo(a.createAt));
+  }
+
+  /// Tin có file_ids nhưng chưa có thông tin tệp (metadata.files), kể cả khi còn ảnh trên máy đang gửi.
+  static bool _missingFiles(MmPost p) {
+    final ids = p.raw['file_ids'];
+    if (ids is! List || ids.isEmpty) return false;
+    final f = (p.raw['metadata'] as Map?)?['files'];
+    return f is! List || f.isEmpty;
+  }
+
+  final Set<String> _fillingFiles = {};
+
+  /// Lấy thông tin tệp của tin [postId] (GET /posts/{id}/files/info) rồi gắn vào tin đang hiện.
+  Future<void> _fillFiles(String channelId, String postId) async {
+    if (postId.isEmpty || postId.contains(':') || !_fillingFiles.add(postId)) return;
+    try {
+      final infos = await api.get('/posts/$postId/files/info');
+      if (infos is! List || infos.isEmpty) return;
+      final list = _posts[channelId];
+      final i = list?.indexWhere((x) => x.id == postId) ?? -1;
+      if (list == null || i < 0 || !_missingFiles(list[i])) return;
+      final cur = list[i];
+      final next = MmPost({
+        ...cur.raw,
+        'metadata': {...?(cur.raw['metadata'] as Map?)?.cast<String, dynamic>(), 'files': infos},
+      }..remove('_local_files'));
+      list[i] = next;
+      _windows[channelId]?.update([next]);
+      await _store.putPosts([next]);
+      notifyListeners();
+    } catch (_) {
+    } finally {
+      _fillingFiles.remove(postId);
+    }
   }
 
   MmPost? findPost(String channelId, String id) =>

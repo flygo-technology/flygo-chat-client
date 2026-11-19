@@ -63,11 +63,35 @@ class ChatImage {
 }
 
 
+/// Tỉ lệ khung hợp lệ: 0, âm, vô cực hay NaN (thiếu cỡ ảnh) thì 4:3.
+double sanitizeAspect(double? a) => a != null && a.isFinite && a > 0 ? a : 4 / 3;
+
+/// Khung chờ cỡ một ảnh (4:3) khi tin có tệp mà chưa có thông tin tệp.
+class ChatMediaPlaceholder extends StatelessWidget {
+  final double width;
+  const ChatMediaPlaceholder({super.key, this.width = 240});
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    return ClipRRect(
+      key: const ValueKey('chat-media-placeholder'),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: width,
+        height: width * 3 / 4,
+        color: pal.surface2,
+        alignment: Alignment.center,
+        child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.2, color: pal.sub)),
+      ),
+    );
+  }
+}
+
 /// Danh sách ảnh của một tin (ảnh đang gửi lấy từ máy, ảnh đã gửi lấy từ máy chủ).
 List<ChatImage> imagesOf(MmPost p) {
   final local = p.localFiles.where((f) => (f['mime'] as String? ?? '').startsWith('image/')).toList();
   if (local.isNotEmpty) {
-    return [for (final f in local) ChatImage(localPath: f['path'] as String, aspect: (f['aspect'] as num?)?.toDouble() ?? 4 / 3)];
+    return [for (final f in local) ChatImage(localPath: f['path'] as String, aspect: sanitizeAspect((f['aspect'] as num?)?.toDouble()))];
   }
   return [
     for (final f in p.files.where((f) => f.isImage))
