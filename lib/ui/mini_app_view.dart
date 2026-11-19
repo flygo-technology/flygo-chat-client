@@ -27,6 +27,7 @@ import 'drive/session.dart' show officeLinkOf, openOfficeLink;
 import 'drive/drive_page.dart' show openDrive;
 import 'reports/reports_page.dart' show openReports;
 import 'calendar/calendar_page.dart' show openCalendar;
+import 'apps/page_app.dart' show kBinhChonScreen, kHoiDapScreen, openPageApp;
 import 'dich/dich_page.dart' show kDichScreen, openDich;
 import 'teamwork/api.dart' show kTwScreen;
 import 'teamwork/teamwork_page.dart' show openTeamwork;
@@ -123,6 +124,10 @@ Future<void> openMiniApp(BuildContext context, MiniApp app, {String? path}) asyn
     await openTeamwork(context, app,
         taskKey: path == null ? null : RegExp(r'^/t/([A-Z][A-Z0-9]{1,5}-\d{1,7})').firstMatch(path)?.group(1),
         projectKey: path == null ? null : RegExp(r'^/p/([A-Z][A-Z0-9]{1,5})(?:[/?#]|$)').firstMatch(path)?.group(1));
+    return;
+  }
+  if (app.nativeScreen == kBinhChonScreen || app.nativeScreen == kHoiDapScreen) {
+    await openPageApp(context, app);
     return;
   }
   if (app.nativeScreen == kDichScreen) {
