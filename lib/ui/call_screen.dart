@@ -20,6 +20,7 @@ import 'meet/extras/network.dart' show MeetSignalBadge;
 import 'meet/extras/captions.dart';
 import 'meet/meet_present.dart';
 import 'meet/extras/guest_invite.dart' show meetGuestInvite;
+import 'cast/cast_screen.dart' show addScreenToMeeting;
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
 import 'home_page.dart' show ChatHost;
@@ -233,7 +234,7 @@ class _CallScreenState extends State<CallScreen> {
           Expanded(
             child: OutlinedButton.icon(
               style: style,
-              onPressed: () => inviteDeviceByQr(context, call),
+              onPressed: () => _addScreen(call),
               icon: const Icon(Icons.cast_rounded, size: 18),
               label: Text(tr('Thêm màn hình')),
             ),
@@ -252,6 +253,25 @@ class _CallScreenState extends State<CallScreen> {
         ]),
       ),
     ];
+  }
+
+  /// 📺 Thêm màn hình: màn hình hello (danh sách màn hình của công ty, quét / gõ mã). TV còn mở trang meet. cũ (mã 12 ký
+  /// tự) thì dùng "Mã cũ" ở cuối danh sách.
+  Future<void> _addScreen(CallService call) async {
+    final ok = await addScreenToMeeting(context, code: call.meetingInfo?.code, channelId: call.channelId);
+    if (ok || !mounted) return;
+    final old = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('TV đang hiện mã QR kiểu cũ?')),
+        content: Text(tr('TV mở trang meet. (mã 12 ký tự) thì dùng cách mời cũ.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Đóng'))),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Quét mã cũ'))),
+        ],
+      ),
+    );
+    if (old == true && mounted) await inviteDeviceByQr(context, call);
   }
 
   List<String> _banners(AppState app, CallService call) {
@@ -1821,7 +1841,7 @@ class _CallScreenState extends State<CallScreen> {
       case 'layout':
         await _pickLayout();
       case 'qr_invite':
-        if (mounted) await inviteDeviceByQr(context, call);
+        if (mounted) await _addScreen(call);
       case 'info':
         await _infoSheet(app, call);
       case 'poll':
