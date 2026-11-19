@@ -15,6 +15,7 @@ import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
 import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
+import 'meet/extras/hands.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
@@ -2018,7 +2019,7 @@ class _CallScreenState extends State<CallScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (hand) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.back_hand, color: Color(0xFFFDD663), size: 20)),
+              if (hand) Padding(padding: const EdgeInsets.only(right: 10), child: MeetHandBadge(order: userId == null ? null : meetHandOrder(call, userId), size: 20)),
               if (screen) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.present_to_all, color: _blue, size: 20)),
               Icon(video ? Icons.videocam : Icons.videocam_off, color: video ? Colors.white : _grey, size: 20),
               const SizedBox(width: 10),
@@ -2254,7 +2255,7 @@ class _Tile extends StatelessWidget {
                     child: Row(
                       children: [
                         if (pinned) const Icon(Icons.push_pin, color: Colors.white, size: 18),
-                        if (d.raisedHand) const Icon(Icons.back_hand, color: Color(0xFFFDD663), size: 18),
+                        if (d.raisedHand) MeetHandBadge(order: d.userId == null ? null : meetHandOrder(context.read<AppState>().calls, d.userId!), size: 18),
                       ],
                     ),
                   ),
