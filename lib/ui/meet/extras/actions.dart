@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import '../../../calls/call_service.dart';
 import '../../../i18n/i18n.dart';
 import '../../../state/app_state.dart';
+import 'attendance.dart';
 import 'hands.dart';
+import 'qa.dart';
 
 // Tính năng thêm của Họp (module riêng, vd. giơ tay xếp hàng, hỏi đáp, bảng trắng): mỗi tính năng thêm một mục vào menu
 // của màn hình họp ở đây; màn hình họp chỉ đọc danh sách này, không cần sửa call_screen.dart.
@@ -32,7 +34,11 @@ String meetNameOf(BuildContext context, String userId) {
 List<MeetExtraAction> meetExtraActions(BuildContext context, CallService call) {
   if (!call.liveKit) return const [];
   final hands = handQueue(call).length;
+  final hasCode = call.meeting && (call.meetingInfo?.code ?? '').isNotEmpty;
   return [
+    MeetExtraAction(id: 'qa', icon: Icons.question_answer_outlined, label: tr('Hỏi đáp'), run: showQa),
+    if (hasCode && call.canModerate)
+      MeetExtraAction(id: 'attendance', icon: Icons.fact_check_outlined, label: tr('Báo cáo tham dự'), run: showAttendance),
     if (hands > 0)
       MeetExtraAction(
         id: 'hands',
