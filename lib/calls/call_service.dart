@@ -209,8 +209,8 @@ class CallService extends ChangeNotifier {
       changed = true;
     }
     // Khoá của tính năng thêm: metadata đầy đủ (có host) là nguồn đúng, khoá vắng mặt = đã bỏ.
-    if (m.containsKey('host') || m.containsKey('lock') || m.containsKey('perms') || m.containsKey('breakout')) {
-      final x = <String, dynamic>{for (final k in const ['lock', 'perms', 'breakout']) if (m.containsKey(k)) k: m[k]};
+    if (m.containsKey('host') || m.containsKey('lock') || m.containsKey('perms') || m.containsKey('breakout') || m.containsKey('board')) {
+      final x = <String, dynamic>{for (final k in const ['lock', 'perms', 'breakout', 'board']) if (m.containsKey(k)) k: m[k]};
       if (jsonEncode(x) != jsonEncode(roomExtras)) {
         roomExtras = x;
         changed = true;
