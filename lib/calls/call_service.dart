@@ -50,6 +50,8 @@ class CallParticipant {
   int raisedAt = 0;
   /// Chất lượng mạng (LiveKit: excellent / good / poor / lost; '' = chưa biết).
   String quality = '';
+  /// Lúc bắt đầu chia sẻ màn hình (ms) — màn hình / bài trình chiếu mới nhất lên khung lớn.
+  int screenAt = 0;
   MediaStream? videoStream;
   String? videoTrackId;
   MediaStream? screenStream;
@@ -1288,6 +1290,7 @@ class CallService extends ChangeNotifier {
         // Giữ track: bật lại camera người gửi dùng lại luồng cũ (không có track mới).
         p.video = false;
       case 'user_screen_on':
+        if (!p.screen) p.screenAt = DateTime.now().millisecondsSinceEpoch;
         p.screen = true;
       case 'user_screen_off':
         p.screen = false;

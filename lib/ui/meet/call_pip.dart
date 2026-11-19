@@ -64,11 +64,14 @@ class _PipCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final people = call.participants;
     // Màn hình chia sẻ (mới nhất trước) > người đang nói có camera > ai đó có camera.
-    final screen = people.where((p) => p.hasScreen).lastOrNull;
+    final screens = [for (final p in people) if (p.hasScreen) p]..sort((a, b) => b.screenAt.compareTo(a.screenAt));
+    var screen = screens.firstOrNull;
     final talker = people.where((p) => p.speaking && p.hasVideo).firstOrNull ?? people.where((p) => p.hasVideo).firstOrNull;
     final title = call.channelId == null ? '' : (app.channels[call.channelId] == null ? '' : app.channelTitle(app.channels[call.channelId]!));
     Widget body;
     final pres = call.roomPresent;
+    // Ai trình chiếu mới nhất lên khung: tài liệu mới hơn màn hình chia sẻ thì hiện tài liệu.
+    if (pres != null && screen != null && ((pres['at'] as num?)?.toInt() ?? 0) >= screen.screenAt) screen = null;
     if (pres != null && screen == null) {
       body = Center(
         child: Padding(

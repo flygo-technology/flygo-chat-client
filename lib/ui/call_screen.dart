@@ -53,7 +53,7 @@ enum _MeetPanel { none, people, chat, info, ai }
 
 /// Bố cục ô video của cuộc họp.
 enum MeetLayout {
-  auto(Icons.auto_awesome_mosaic_outlined, 'Tự động', 'Tự chọn: có người trình bày thì ô lớn, còn lại lưới.'),
+  auto(Icons.auto_awesome_mosaic_outlined, 'Ai trình chiếu lên đầu (mặc định)', 'Có người chia sẻ màn hình / trình chiếu tài liệu thì lên khung lớn (mới nhất trước); không ai trình chiếu thì lưới.'),
   grid(Icons.grid_view_rounded, 'Lưới', 'Mọi người bằng nhau.'),
   sidebar(Icons.view_sidebar_outlined, 'Thanh bên', 'Người đang nói ở ô lớn, người khác ở dải bên cạnh.'),
   spotlight(Icons.crop_square_rounded, 'Tiêu điểm', 'Chỉ người đang nói / đang trình bày.');
@@ -699,7 +699,8 @@ class _CallScreenState extends State<CallScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
                 child: Text(tr('Bố cục cho cả phòng'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
               ),
-              opt('speaker', Icons.auto_awesome_motion_outlined, tr('Theo người trình bày'), tr('Tự phóng to bài trình chiếu / màn hình chia sẻ mới nhất')),
+              opt('speaker', Icons.auto_awesome_motion_outlined, tr('Ai trình chiếu lên đầu (mặc định)'),
+                  tr('Màn hình chia sẻ / tài liệu trình chiếu mới nhất lên khung lớn; không ai trình chiếu thì lưới')),
               opt('grid', Icons.grid_view, tr('Lưới'), tr('Mọi người bằng nhau')),
               if (mode == 'pin')
                 opt('pin', Icons.push_pin, tr('Đang ghim một người'), tr('Chọn "Ghim cho mọi người" ở danh sách người tham gia để đổi')),
