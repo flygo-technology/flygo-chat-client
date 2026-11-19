@@ -17,11 +17,39 @@ import '../mini_app_view.dart' show ScanOncePage;
 import '../theme.dart' show toast;
 import 'cast_api.dart';
 
-/// Tải bản PDF để chiếu (vd Drive: đổi Office sang PDF). [onProgress]: đã tải / tổng số byte.
-typedef CastPdfLoader = Future<File> Function(void Function(int got, int total)? onProgress);
+/// Tải tệp để chiếu (vd Drive: đổi Office sang PDF). [onProgress]: đã tải / tổng số byte.
+typedef CastLoader = Future<File> Function(void Function(int got, int total)? onProgress);
 
-/// Chiếu một tài liệu PDF lên màn hình: hỏi mã màn hình, ghép, mở trang điều khiển.
-Future<void> castPdfToScreen(BuildContext context, {required String name, required CastPdfLoader load, String app = ''}) async {
+/// Nội dung đưa lên màn hình: [type] pdf | image | video, [mime] loại tệp gửi lên trạm.
+class CastContent {
+  final String type, mime, name, app;
+  final CastLoader load;
+  const CastContent({required this.type, required this.mime, required this.name, required this.load, this.app = ''});
+  const CastContent.pdf({required this.name, required this.load, this.app = ''}) : type = 'pdf', mime = 'application/pdf';
+}
+
+/// Loại tệp chiếu được theo đuôi tệp (ảnh / video trình duyệt TV mở được). Null: không chiếu được.
+({String type, String mime})? castableByExt(String fileName) {
+  final e = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+  return switch (e) {
+    'pdf' => (type: 'pdf', mime: 'application/pdf'),
+    'jpg' || 'jpeg' => (type: 'image', mime: 'image/jpeg'),
+    'png' => (type: 'image', mime: 'image/png'),
+    'webp' => (type: 'image', mime: 'image/webp'),
+    'gif' => (type: 'image', mime: 'image/gif'),
+    'mp4' || 'm4v' => (type: 'video', mime: 'video/mp4'),
+    'webm' => (type: 'video', mime: 'video/webm'),
+    'mov' => (type: 'video', mime: 'video/quicktime'),
+    _ => null,
+  };
+}
+
+/// Chiếu một tài liệu PDF lên màn hình.
+Future<void> castPdfToScreen(BuildContext context, {required String name, required CastLoader load, String app = ''}) =>
+    castToScreen(context, CastContent.pdf(name: name, load: load, app: app));
+
+/// Đưa [c] lên màn hình: hỏi mã màn hình, ghép, mở trang điều khiển.
+Future<void> castToScreen(BuildContext context, CastContent c) async {
   AppState? app0;
   try {
     app0 = context.read<AppState>();
@@ -41,7 +69,11 @@ Future<void> castPdfToScreen(BuildContext context, {required String name, requir
     return;
   }
   if (!context.mounted) return;
-  await Navigator.of(context, rootNavigator: true).push(AppPageRoute(builder: (_) => CastRemotePage(session: s, name: name, load: load, app: app)));
+  await Navigator.of(context, rootNavigator: true).push(
+    AppPageRoute(
+      builder: (_) => CastRemotePage(session: s, content: c),
+    ),
+  );
 }
 
 /// Mã màn hình: điện thoại quét QR (hoặc gõ), máy tính gõ mã hiện dưới QR. Null nếu huỷ.
@@ -55,15 +87,23 @@ Future<String?> askScreenCode(BuildContext context) async {
       builder: (sh) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text(tr('Đưa lên màn hình'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            Text(tr('Mở hello.flygo.vn trên TV / máy chiếu rồi quét mã QR trên đó.'), style: TextStyle(color: Theme.of(sh).hintColor)),
-            const SizedBox(height: 16),
-            FilledButton.icon(onPressed: () => Navigator.pop(sh, 'scan'), icon: const Icon(Icons.qr_code_scanner_rounded), label: Text(tr('Quét mã trên màn hình'))),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(onPressed: () => Navigator.pop(sh, 'type'), icon: const Icon(Icons.keyboard_rounded), label: Text(tr('Nhập mã'))),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(tr('Đưa lên màn hình'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Text(tr('Mở hello.flygo.vn trên TV / máy chiếu rồi quét mã QR trên đó.'), style: TextStyle(color: Theme.of(sh).hintColor)),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(sh, 'scan'),
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: Text(tr('Quét mã trên màn hình')),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(onPressed: () => Navigator.pop(sh, 'type'), icon: const Icon(Icons.keyboard_rounded), label: Text(tr('Nhập mã'))),
+            ],
+          ),
         ),
       ),
     );
@@ -75,9 +115,13 @@ Future<String?> askScreenCode(BuildContext context) async {
   final other = foreignScreenHost(raw, kServerUrl);
   final code = parseScreenCode(raw);
   if (other != null || code == null) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text(other != null
-        ? tr('Màn hình {0} thuộc máy chủ khác, hãy đăng nhập máy chủ đó', [other])
-        : tr('Đây không phải mã màn hình (8 ký tự, vd K7QM-2XPR)'))));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      toast(
+        Text(
+          other != null ? tr('Màn hình {0} thuộc máy chủ khác, hãy đăng nhập máy chủ đó', [other]) : tr('Đây không phải mã màn hình (8 ký tự, vd K7QM-2XPR)'),
+        ),
+      ),
+    );
     return null;
   }
   return code;
@@ -111,9 +155,8 @@ Future<String?> _typeCode(BuildContext context) {
 // ---------------------------------------------------------------- trang điều khiển
 class CastRemotePage extends StatefulWidget {
   final CastSession session;
-  final String name, app;
-  final CastPdfLoader load;
-  const CastRemotePage({super.key, required this.session, required this.name, required this.load, this.app = ''});
+  final CastContent content;
+  const CastRemotePage({super.key, required this.session, required this.content});
   @override
   State<CastRemotePage> createState() => _CastRemotePageState();
 }
@@ -130,6 +173,8 @@ class _CastRemotePageState extends State<CastRemotePage> {
   Offset? _laser; // vị trí laser trên ảnh trang (0..1)
 
   CastSession get s => widget.session;
+  CastContent get c => widget.content;
+  Timer? _clock; // video: cập nhật vị trí mỗi giây
   int get _pages => _doc?.pages.length ?? 0;
 
   @override
@@ -148,6 +193,7 @@ class _CastRemotePageState extends State<CastRemotePage> {
   @override
   void dispose() {
     _sub?.cancel();
+    _clock?.cancel();
     if (!_stopped) s.stop();
     _doc?.dispose();
     super.dispose();
@@ -156,19 +202,33 @@ class _CastRemotePageState extends State<CastRemotePage> {
   /// Đến lượt chiếu: tải PDF (nếu chưa) rồi đẩy lên màn hình.
   Future<void> _maybeSend() async {
     if (!st.presenting || _sent || _sending) return;
-    setState(() { _sending = true; _error = null; });
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
     try {
-      _pdf ??= await widget.load((got, total) {
+      _pdf ??= await c.load((got, total) {
         if (mounted) setState(() => _progress = total > 0 ? got / total : null);
       });
-      _doc ??= await PdfDocument.openFile(_pdf!.path);
-      await s.showPdf(_pdf!, name: widget.name, pages: _pages, app: widget.app);
+      if (c.type == 'pdf') _doc ??= await PdfDocument.openFile(_pdf!.path);
+      if (mounted) setState(() => _progress = null);
+      await s.showFile(_pdf!, type: c.type, mime: c.mime, name: c.name, pages: _pages, app: c.app);
+      if (c.type == 'video') {
+        _clock ??= Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) setState(() {});
+        });
+      }
       _page = 1;
       _sent = true;
     } catch (e) {
       _error = '$e';
     } finally {
-      if (mounted) setState(() { _sending = false; _progress = null; });
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _progress = null;
+        });
+      }
     }
   }
 
@@ -196,7 +256,9 @@ class _CastRemotePageState extends State<CastRemotePage> {
       context: context,
       builder: (d) => AlertDialog(
         title: Text(st.presenting ? tr('Dừng chiếu?') : tr('Rời hàng chờ?')),
-        content: Text(st.presenting ? tr('Màn hình sẽ về lại mã QR (hoặc chuyển cho người đang chờ).') : tr('Bạn sẽ không còn trong hàng chờ của màn hình này.')),
+        content: Text(
+          st.presenting ? tr('Màn hình sẽ về lại mã QR (hoặc chuyển cho người đang chờ).') : tr('Bạn sẽ không còn trong hàng chờ của màn hình này.'),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Ở lại'))),
           FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(st.presenting ? tr('Dừng chiếu') : tr('Rời'))),
@@ -234,24 +296,36 @@ class _CastRemotePageState extends State<CastRemotePage> {
           autofocus: true,
           child: Scaffold(
             appBar: AppBar(
-              title: Row(children: [
-                const Icon(Icons.tv_rounded, size: 22),
-                const SizedBox(width: 8),
-                Flexible(child: Text(st.screen.isEmpty ? tr('Màn hình') : st.screen, overflow: TextOverflow.ellipsis)),
-              ]),
+              title: Row(
+                children: [
+                  const Icon(Icons.tv_rounded, size: 22),
+                  const SizedBox(width: 8),
+                  Flexible(child: Text(st.screen.isEmpty ? tr('Màn hình') : st.screen, overflow: TextOverflow.ellipsis)),
+                ],
+              ),
               actions: [
                 Padding(
                   padding: const EdgeInsets.only(right: 14),
                   child: Center(
                     child: Text(
-                      st.ended ? tr('Đã ngắt') : st.presenting ? tr('● Đang chiếu') : tr('Đang chờ'),
+                      st.ended
+                          ? tr('Đã ngắt')
+                          : st.presenting
+                          ? tr('● Đang chiếu')
+                          : tr('Đang chờ'),
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: st.presenting ? Colors.green.shade600 : th.hintColor),
                     ),
                   ),
                 ),
               ],
             ),
-            body: SafeArea(child: st.ended ? _ended(th) : st.presenting ? _remote(th, cs) : _queued(th, cs)),
+            body: SafeArea(
+              child: st.ended
+                  ? _ended(th)
+                  : st.presenting
+                  ? _remote(th, cs)
+                  : _queued(th, cs),
+            ),
           ),
         ),
       ),
@@ -259,143 +333,275 @@ class _CastRemotePageState extends State<CastRemotePage> {
   }
 
   Widget _ended(ThemeData th) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.tv_off_rounded, size: 56, color: th.hintColor),
-            const SizedBox(height: 12),
-            Text(st.why == 'timeout' ? tr('Mất kết nối quá lâu, màn hình đã chuyển cho người khác') : tr('Đã ngắt khỏi màn hình'), textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: () { _stopped = true; Navigator.of(context).pop(); }, child: Text(tr('Đóng'))),
-          ]),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.tv_off_rounded, size: 56, color: th.hintColor),
+          const SizedBox(height: 12),
+          Text(st.why == 'timeout' ? tr('Mất kết nối quá lâu, màn hình đã chuyển cho người khác') : tr('Đã ngắt khỏi màn hình'), textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () {
+              _stopped = true;
+              Navigator.of(context).pop();
+            },
+            child: Text(tr('Đóng')),
+          ),
+        ],
+      ),
+    ),
+  );
 
-  Widget _queued(ThemeData th, ColorScheme cs) => ListView(padding: const EdgeInsets.all(20), children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(color: cs.surfaceContainerHighest.withValues(alpha: .5), borderRadius: BorderRadius.circular(16)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _queued(ThemeData th, ColorScheme cs) => ListView(
+    padding: const EdgeInsets.all(20),
+    children: [
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(color: cs.surfaceContainerHighest.withValues(alpha: .5), borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(tr('Đang chiếu: {0}', [st.nowBy]), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
-            Text(tr('Bạn đứng thứ {0} trong hàng chờ', ['${st.position}']), style: TextStyle(fontSize: 16, color: cs.primary, fontWeight: FontWeight.w600)),
+            Text(
+              tr('Bạn đứng thứ {0} trong hàng chờ', ['${st.position}']),
+              style: TextStyle(fontSize: 16, color: cs.primary, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 10),
-            Text(tr('Khi {0} dừng hoặc nhường, “{1}” sẽ tự lên màn hình. Giữ trang này mở.', [st.nowBy, widget.name]), style: TextStyle(color: th.hintColor)),
-          ]),
+            Text(tr('Khi {0} dừng hoặc nhường, “{1}” sẽ tự lên màn hình. Giữ trang này mở.', [st.nowBy, c.name]), style: TextStyle(color: th.hintColor)),
+          ],
         ),
-        const SizedBox(height: 20),
-        OutlinedButton(onPressed: () async { if (await _confirmLeave()) _stop(); }, child: Text(tr('Rời hàng chờ'))),
-      ]);
+      ),
+      const SizedBox(height: 20),
+      OutlinedButton(
+        onPressed: () async {
+          if (await _confirmLeave()) _stop();
+        },
+        child: Text(tr('Rời hàng chờ')),
+      ),
+    ],
+  );
 
   Widget _remote(ThemeData th, ColorScheme cs) {
     if (_error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(tr('Không chiếu được: {0}', [_error!]), textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: _maybeSend, child: Text(tr('Thử lại'))),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(tr('Không chiếu được: {0}', [_error!]), textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: _maybeSend, child: Text(tr('Thử lại'))),
+            ],
+          ),
         ),
       );
     }
-    if (!_sent || _doc == null) {
+    if (!_sent || (c.type == 'pdf' && _doc == null)) {
       return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          SizedBox(width: 220, child: LinearProgressIndicator(value: _progress)),
-          const SizedBox(height: 12),
-          Text(tr('Đang chuẩn bị “{0}”…', [widget.name]), textAlign: TextAlign.center),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 220, child: LinearProgressIndicator(value: _progress)),
+            const SizedBox(height: 12),
+            Text(tr('Đang chuẩn bị “{0}”…', [c.name]), textAlign: TextAlign.center),
+          ],
+        ),
       );
     }
-    final pg = _doc!.pages[(_page - 1).clamp(0, _pages - 1)];
-    final waiting = st.queueNames;
-    return Column(children: [
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: pg.width / pg.height,
-              child: LayoutBuilder(
-                builder: (_, box) => GestureDetector(
-                  onPanStart: (d) => _laserAt(d.localPosition, box.biggest),
-                  onPanUpdate: (d) => _laserAt(d.localPosition, box.biggest),
-                  onPanEnd: (_) => _laserAt(Offset.zero, box.biggest, on: false),
-                  onTapUp: (d) => _go(d.localPosition.dx > box.maxWidth / 2 ? _page + 1 : _page - 1),
-                  child: Stack(children: [
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(blurRadius: 8, color: Color(0x33000000))]),
-                        child: ClipRRect(borderRadius: BorderRadius.circular(8), child: PdfPageView(document: _doc, pageNumber: _page)),
-                      ),
+    if (c.type == 'video') return _videoRemote(th, cs);
+    final pg = c.type == 'pdf' ? _doc!.pages[(_page - 1).clamp(0, _pages - 1)] : null;
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: pg != null ? pg.width / pg.height : 16 / 9,
+                child: LayoutBuilder(
+                  builder: (_, box) => GestureDetector(
+                    onPanStart: (d) => _laserAt(d.localPosition, box.biggest),
+                    onPanUpdate: (d) => _laserAt(d.localPosition, box.biggest),
+                    onPanEnd: (_) => _laserAt(Offset.zero, box.biggest, on: false),
+                    onTapUp: pg == null ? null : (d) => _go(d.localPosition.dx > box.maxWidth / 2 ? _page + 1 : _page - 1),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: const [BoxShadow(blurRadius: 8, color: Color(0x33000000))],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: pg != null
+                                  ? PdfPageView(document: _doc, pageNumber: _page)
+                                  : ColoredBox(
+                                      color: Colors.black,
+                                      child: Image.file(_pdf!, fit: BoxFit.contain),
+                                    ),
+                            ),
+                          ),
+                        ),
+                        if (st.blank)
+                          Positioned.fill(
+                            child: Container(
+                              color: Colors.black87,
+                              alignment: Alignment.center,
+                              child: Text(tr('Màn đen'), style: const TextStyle(color: Colors.white70)),
+                            ),
+                          ),
+                        if (_laser != null)
+                          Positioned(
+                            left: _laser!.dx * box.maxWidth - 8,
+                            top: _laser!.dy * box.maxHeight - 8,
+                            child: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                                boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: .6), blurRadius: 10, spreadRadius: 3)],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                    if (st.blank) Positioned.fill(child: Container(color: Colors.black87, alignment: Alignment.center, child: Text(tr('Màn đen'), style: const TextStyle(color: Colors.white70)))),
-                    if (_laser != null)
-                      Positioned(
-                        left: _laser!.dx * box.maxWidth - 8,
-                        top: _laser!.dy * box.maxHeight - 8,
-                        child: Container(width: 16, height: 16, decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: .6), blurRadius: 10, spreadRadius: 3)])),
-                      ),
-                  ]),
+                  ),
                 ),
               ),
             ),
           ),
         ),
-      ),
-      Text(tr('{0} · trang {1}/{2} · giữ và kéo trên trang để trỏ laser', [widget.name, '$_page', '$_pages']),
-          style: TextStyle(fontSize: 12.5, color: th.hintColor), maxLines: 1, overflow: TextOverflow.ellipsis),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-        child: Row(children: [
-          Expanded(child: _bigBtn(Icons.chevron_left_rounded, _page > 1 ? () => _go(_page - 1) : null)),
-          const SizedBox(width: 12),
-          Expanded(child: _bigBtn(Icons.chevron_right_rounded, _page < _pages ? () => _go(_page + 1) : null)),
-        ]),
-      ),
+        Text(
+          pg != null
+              ? tr('{0} · trang {1}/{2} · giữ và kéo trên trang để trỏ laser', [c.name, '$_page', '$_pages'])
+              : tr('{0} · giữ và kéo trên ảnh để trỏ laser', [c.name]),
+          style: TextStyle(fontSize: 12.5, color: th.hintColor),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (pg != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(
+              children: [
+                Expanded(child: _bigBtn(Icons.chevron_left_rounded, _page > 1 ? () => _go(_page - 1) : null)),
+                const SizedBox(width: 12),
+                Expanded(child: _bigBtn(Icons.chevron_right_rounded, _page < _pages ? () => _go(_page + 1) : null)),
+              ],
+            ),
+          ),
+        ..._bottom(cs),
+      ],
+    );
+  }
+
+  /// Phần dưới chung: người đang chờ (nút Nhường), màn đen, dừng chiếu.
+  List<Widget> _bottom(ColorScheme cs) {
+    final waiting = st.queueNames;
+    return [
       if (waiting.isNotEmpty)
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-          decoration: BoxDecoration(color: Colors.orange.withValues(alpha: .12), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange.withValues(alpha: .4))),
-          child: Row(children: [
-            const Text('✋ '),
-            Expanded(child: Text(tr('{0} đang chờ chiếu', [waiting.length > 1 ? '${waiting.first} (+${waiting.length - 1})' : waiting.first]))),
-            TextButton(onPressed: _stop, child: Text(tr('Nhường'))),
-          ]),
+          decoration: BoxDecoration(
+            color: Colors.orange.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.orange.withValues(alpha: .4)),
+          ),
+          child: Row(
+            children: [
+              const Text('✋ '),
+              Expanded(child: Text(tr('{0} đang chờ chiếu', [waiting.length > 1 ? '${waiting.first} (+${waiting.length - 1})' : waiting.first]))),
+              TextButton(onPressed: _stop, child: Text(tr('Nhường'))),
+            ],
+          ),
         ),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => s.blank(!st.blank).catchError((_) {}),
-              icon: Icon(st.blank ? Icons.visibility_rounded : Icons.square_rounded),
-              label: Text(st.blank ? tr('Hiện lại') : tr('Màn đen')),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => s.blank(!st.blank).catchError((_) {}),
+                icon: Icon(st.blank ? Icons.visibility_rounded : Icons.square_rounded),
+                label: Text(st.blank ? tr('Hiện lại') : tr('Màn đen')),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer),
-              onPressed: _stop,
-              icon: const Icon(Icons.stop_rounded),
-              label: Text(tr('Dừng chiếu')),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer),
+                onPressed: _stop,
+                icon: const Icon(Icons.stop_rounded),
+                label: Text(tr('Dừng chiếu')),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
-    ]);
+    ];
+  }
+
+  Widget _videoRemote(ThemeData th, ColorScheme cs) {
+    final playing = st.media?['playing'] == true;
+    final pos = st.videoPos();
+    String fmt(double x) => '${(x ~/ 60).toString().padLeft(2, '0')}:${(x.toInt() % 60).toString().padLeft(2, '0')}';
+    return Column(
+      children: [
+        Expanded(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.movie_rounded, size: 72, color: cs.primary),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    c.name,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  fmt(pos),
+                  style: TextStyle(fontSize: 28, fontFeatures: const [FontFeature.tabularFigures()], color: th.hintColor),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(child: _bigBtn(Icons.replay_10_rounded, () => s.media(t: (pos - 10).clamp(0, double.infinity)).catchError((_) {}))),
+              const SizedBox(width: 12),
+              Expanded(child: _bigBtn(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, () => s.media(playing: !playing).catchError((_) {}))),
+              const SizedBox(width: 12),
+              Expanded(child: _bigBtn(Icons.forward_10_rounded, () => s.media(t: pos + 10).catchError((_) {}))),
+            ],
+          ),
+        ),
+        ..._bottom(cs),
+      ],
+    );
   }
 
   Widget _bigBtn(IconData icon, VoidCallback? onTap) => SizedBox(
-        height: 76,
-        child: OutlinedButton(
-          onPressed: onTap,
-          style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
-          child: Icon(icon, size: 40),
-        ),
-      );
+    height: 76,
+    child: OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+      child: Icon(icon, size: 40),
+    ),
+  );
 }

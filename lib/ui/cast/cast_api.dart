@@ -42,22 +42,45 @@ class CastState {
   final List<String> queueNames;
   final Map<String, dynamic>? content;
   final bool blank;
-  CastState(this.role, {this.screen = '', this.nowBy = '', this.why = '', this.position = 0, this.queue = 0, this.queueNames = const [], this.content, this.blank = false});
+  CastState(
+    this.role, {
+    this.screen = '',
+    this.nowBy = '',
+    this.why = '',
+    this.position = 0,
+    this.queue = 0,
+    this.queueNames = const [],
+    this.content,
+    this.blank = false,
+  });
   factory CastState.fromJson(Map j) {
     final now = j['now'] as Map?;
-    return CastState('${j['role'] ?? 'ended'}',
-        screen: '${j['screen'] ?? ''}',
-        nowBy: '${now?['by_name'] ?? j['now_by'] ?? ''}',
-        why: '${j['why'] ?? ''}',
-        position: (j['position'] as num?)?.toInt() ?? 0,
-        queue: (j['queue'] as num?)?.toInt() ?? 0,
-        queueNames: [for (final x in (j['queue_names'] as List? ?? const [])) '$x'],
-        content: (now?['content'] as Map?)?.cast<String, dynamic>(),
-        blank: now?['blank'] == true);
+    return CastState(
+      '${j['role'] ?? 'ended'}',
+      screen: '${j['screen'] ?? ''}',
+      nowBy: '${now?['by_name'] ?? j['now_by'] ?? ''}',
+      why: '${j['why'] ?? ''}',
+      position: (j['position'] as num?)?.toInt() ?? 0,
+      queue: (j['queue'] as num?)?.toInt() ?? 0,
+      queueNames: [for (final x in (j['queue_names'] as List? ?? const [])) '$x'],
+      content: (now?['content'] as Map?)?.cast<String, dynamic>(),
+      blank: now?['blank'] == true,
+    );
   }
   bool get presenting => role == 'presenter';
   bool get ended => role == 'ended';
   int get page => (content?['page'] as num?)?.toInt() ?? 1;
+  Map? get media => content?['media'] as Map?;
+
+  /// Vị trí video hiện tại (giây) theo lệnh gần nhất.
+  double videoPos([int? serverSkewMs]) {
+    final m = media;
+    if (m == null) return 0;
+    final t = (m['t'] as num?)?.toDouble() ?? 0;
+    if (m['playing'] != true) return t;
+    final at = (m['at'] as num?)?.toInt() ?? 0;
+    return t + (DateTime.now().millisecondsSinceEpoch + (serverSkewMs ?? 0) - at) / 1000;
+  }
 }
 
 class CastSession {
@@ -82,29 +105,39 @@ class CastSession {
     await discoverPush(server);
     if (pushUrlFor(server).isEmpty) throw CastError(0, 'Máy chủ này chưa có cổng màn hình');
     final r = await http
-        .post(Uri.parse('${_base(server)}/pair'),
-            headers: {'Authorization': 'Bearer $token', 'X-MM-Server': server, 'User-Agent': kUserAgent, 'Content-Type': 'application/json'},
-            body: jsonEncode({'code': code}))
+        .post(
+          Uri.parse('${_base(server)}/pair'),
+          headers: {'Authorization': 'Bearer $token', 'X-MM-Server': server, 'User-Agent': kUserAgent, 'Content-Type': 'application/json'},
+          body: jsonEncode({'code': code}),
+        )
         .timeout(const Duration(seconds: 15));
     final j = await _check(r);
     return CastSession._(server, token, '${j['ctl']}', CastState.fromJson(j));
   }
 
-  Future<Map> _post(String act, Object body) async =>
-      _check(await http.post(Uri.parse('${_base(server)}/c/$ctl/$act'), headers: {..._h, 'Content-Type': 'application/json'}, body: jsonEncode(body)).timeout(const Duration(seconds: 15)));
+  Future<Map> _post(String act, Object body) async => _check(
+    await http
+        .post(Uri.parse('${_base(server)}/c/$ctl/$act'), headers: {..._h, 'Content-Type': 'application/json'}, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 15)),
+  );
 
-  /// Chiếu tệp PDF (người đang chiếu).
-  Future<void> showPdf(File pdf, {required String name, int pages = 0, String app = ''}) async {
-    final q = Uri(queryParameters: {'type': 'pdf', 'name': name, 'pages': '$pages', 'app': app}).query;
-    final r = await http
-        .post(Uri.parse('${_base(server)}/c/$ctl/content?$q'), headers: {..._h, 'Content-Type': 'application/pdf'}, body: await pdf.readAsBytes())
-        .timeout(const Duration(minutes: 3));
+  /// Chiếu tệp (người đang chiếu): [type] pdf | image | video, [mime] đúng loại tệp (vd image/png, video/mp4).
+  Future<void> showFile(File f, {required String type, required String mime, required String name, int pages = 0, String app = ''}) async {
+    final q = Uri(queryParameters: {'type': type, 'name': name, if (type == 'pdf') 'pages': '$pages', 'app': app}).query;
+    final req = http.StreamedRequest('POST', Uri.parse('${_base(server)}/c/$ctl/content?$q'))
+      ..headers.addAll({..._h, 'Content-Type': mime})
+      ..contentLength = await f.length();
+    f.openRead().listen(req.sink.add, onDone: req.sink.close, onError: req.sink.addError);
+    final r = await http.Response.fromStream(await req.send().timeout(const Duration(minutes: 10)));
     await _check(r);
   }
 
   Future<void> showUrl(String type, String url, {String name = '', String app = ''}) => _post('content', {'type': type, 'url': url, 'name': name, 'app': app});
   Future<int> page(int n) async => ((await _post('page', {'page': n}))['page'] as num?)?.toInt() ?? n;
   Future<void> blank(bool on) => _post('blank', {'on': on});
+
+  /// Video: phát / dừng ([playing]), tua tới giây [t].
+  Future<void> media({bool? playing, double? t}) => _post('media', {'playing': ?playing, 't': ?t});
   Future<void> stop() => _post('stop', {}).then((_) {}, onError: (_) {});
 
   DateTime _lastLaser = DateTime(2000);
@@ -158,10 +191,13 @@ class CastSession {
       await out.close();
     }
 
-    out = StreamController<CastState>(onListen: run, onCancel: () {
-      stopped = true;
-      client?.close();
-    });
+    out = StreamController<CastState>(
+      onListen: run,
+      onCancel: () {
+        stopped = true;
+        client?.close();
+      },
+    );
     return out.stream;
   }
 }
