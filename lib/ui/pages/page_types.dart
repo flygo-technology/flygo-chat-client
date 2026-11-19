@@ -100,8 +100,21 @@ class _PageHostState extends State<PageHost> {
   late final api = PagesApi(widget.call);
   PageData? _d;
   String? _err;
-  StreamSubscription? _sub;
+  StreamSubscription? _sub, _sse;
   Timer? _debounce;
+
+  void _changed(int rev) {
+    if (_d != null && rev <= _d!.rev) return;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), _load);
+  }
+
+  /// Ngoài cuộc họp của trang (app Bình chọn / Hỏi đáp, cuộc họp khác): theo dõi qua SSE thay cho tin fx_page.
+  void _watch(MeetPage p) {
+    final here = p.meeting != null && widget.call.channelId != null && p.meeting == widget.call.pagesMeeting;
+    if (here || _sse != null || widget.call.myId().isEmpty) return;
+    _sse = api.events(widget.id).listen(_changed);
+  }
 
   @override
   void initState() {
@@ -109,10 +122,7 @@ class _PageHostState extends State<PageHost> {
     _load();
     _sub = widget.call.fxEvents.stream.listen((m) {
       if (m['t'] != 'fx_page' || m['page'] != widget.id) return;
-      final rev = (m['rev'] as num?)?.toInt() ?? 0;
-      if (_d != null && rev <= _d!.rev) return;
-      _debounce?.cancel();
-      _debounce = Timer(const Duration(milliseconds: 250), _load);
+      _changed((m['rev'] as num?)?.toInt() ?? 0);
     });
   }
 
@@ -121,6 +131,8 @@ class _PageHostState extends State<PageHost> {
     super.didUpdateWidget(old);
     if (old.id != widget.id) {
       _d = null;
+      _sse?.cancel();
+      _sse = null;
       _load();
     }
   }
@@ -128,6 +140,7 @@ class _PageHostState extends State<PageHost> {
   @override
   void dispose() {
     _sub?.cancel();
+    _sse?.cancel();
     _debounce?.cancel();
     super.dispose();
   }
@@ -146,6 +159,7 @@ class _PageHostState extends State<PageHost> {
           _d = d;
           _err = null;
         });
+        if (widget.stageKey == null) _watch(d.page);
       }
     } catch (e) {
       if (mounted) setState(() => _err = '$e');

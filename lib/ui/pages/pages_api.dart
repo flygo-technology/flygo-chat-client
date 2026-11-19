@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -111,6 +112,39 @@ class PagesApi {
   Future<(Map<String, dynamic>, int)> act(String id, String action, [Map<String, dynamic> body = const {}]) async {
     final j = await _req('POST', '/meet/pages/$id/act/$action', body: body);
     return ((j['view'] as Map? ?? const {}).cast<String, dynamic>(), (j['rev'] as num?)?.toInt() ?? 0);
+  }
+
+  /// Số rev mới của trang qua SSE `/meet/pages/<id>/events` (dùng khi không ở trong cuộc họp của trang: không có tin fx_page).
+  /// Mất kết nối thì tự nối lại sau 5 giây; huỷ đăng ký là đóng kết nối.
+  Stream<int> events(String id) {
+    late StreamController<int> out;
+    http.Client? client;
+    var closed = false;
+    Future<void> run() async {
+      while (!closed) {
+        client = http.Client();
+        try {
+          final req = http.Request('GET', Uri.parse('$kPushUrl/meet/pages/$id/events'))..headers.addAll(call.pushHeaders);
+          final r = await client!.send(req);
+          if (r.statusCode != 200) throw PagesError(r.statusCode, 'HTTP ${r.statusCode}');
+          await for (final line in r.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              final j = jsonDecode(line.substring(6));
+              if (j is Map && !closed) out.add((j['rev'] as num?)?.toInt() ?? 0);
+            } catch (_) {}
+          }
+        } catch (_) {}
+        client?.close();
+        if (!closed) await Future<void>.delayed(const Duration(seconds: 5));
+      }
+    }
+
+    out = StreamController<int>(onListen: run, onCancel: () {
+      closed = true;
+      client?.close();
+    });
+    return out.stream;
   }
 
   Future<void> export(String id) => _req('POST', '/meet/pages/$id/export');
