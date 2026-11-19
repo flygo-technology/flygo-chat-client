@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../../i18n/i18n.dart';
 import '../forward_page.dart';
 import '../app_route.dart';
+import '../cast/cast_screen.dart';
 import '../theme.dart' show toast;
 import 'api.dart';
 import 'look.dart';
@@ -72,7 +73,7 @@ Future<bool> confirmDrive(BuildContext context, String title, String body, {Stri
     ) ==
     true;
 
-enum ItemAction { open, office, share, link, chat, offline, star, rename, move, copy, download, details, trash, restore, purge }
+enum ItemAction { open, office, cast, share, link, chat, offline, star, rename, move, copy, download, details, trash, restore, purge }
 
 /// Các thao tác cho [items] (một hoặc nhiều mục). [trash]: đang ở thùng rác.
 List<(ItemAction, IconData, String)> actionsFor(DriveSession s, List<DriveItem> items, {bool trash = false}) {
@@ -87,6 +88,7 @@ List<(ItemAction, IconData, String)> actionsFor(DriveSession s, List<DriveItem> 
   final allPinned = items.every((i) => s.offline.pinned(i.path));
   return [
     if (one != null && isOffice(one) && canEditOffice) (ItemAction.office, Icons.edit_document, tr('Chỉnh sửa bằng OnlyOffice')),
+    if (one != null && (isOffice(one) || castableByExt(one.name) != null)) (ItemAction.cast, Icons.cast_rounded, tr('Đưa lên màn hình')),
     if (one != null && one.canShare) (ItemAction.share, Icons.person_add_alt_1_rounded, tr('Chia sẻ')),
     if (one != null) (ItemAction.link, Icons.link_rounded, tr('Sao chép liên kết')),
     if (items.every((i) => !i.dir)) (ItemAction.chat, Icons.chat_bubble_outline_rounded, tr('Gửi vào cuộc trò chuyện')),
@@ -169,6 +171,13 @@ Future<void> runItemAction(BuildContext context, DriveSession s, ItemAction a, L
       await openDriveFile(context, s, one);
     case ItemAction.office:
       await openOffice(context, s, one);
+    case ItemAction.cast:
+      final f = castableByExt(one.name);
+      await castToScreen(
+          context,
+          f == null
+              ? CastContent.pdf(name: one.name, app: 'drive', load: (p) => previewPdf(s, one, onProgress: p))
+              : CastContent(type: f.type, mime: f.mime, name: one.name, app: 'drive', load: (p) => localCopy(s, one, onProgress: p)));
     case ItemAction.share:
       await showShareDialog(context, s, one);
       onChanged?.call();

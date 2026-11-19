@@ -39,6 +39,7 @@ import 'agent_page.dart';
 import 'mcp_page.dart';
 import 'agents_view.dart';
 import 'qr_login.dart';
+import 'cast/cast_screen.dart' show castFromDevice;
 import 'mini_app_view.dart';
 import 'drive/session.dart' show driveShareToken, kOfficeTabPrefix, officeLinkOf, officeTabInfo, openDriveShare, openOfficeLink, restoreOfficeTab;
 import 'drive/api.dart' show kDriveApp;
@@ -104,7 +105,7 @@ List<(String, List<String>)> youAppGroups({required bool desktop}) => [
           'kyso',
       ]),
       (youWorkGroupTitle(), [
-        'contacts', 'org', 'delegations', 'calls', 'computers',
+        'contacts', 'org', 'delegations', 'calls', 'computers', 'cast',
       ]),
       (tr('Cá nhân'), [
         'settings',
@@ -1191,6 +1192,8 @@ class _HomePageState extends State<HomePage> {
       // Máy tính đang đăng nhập bằng tài khoản này: bấm để điều khiển (lib/remote/rc_ui.dart).
       'computers': (Icons.computer_rounded, const Color(0xFF5B6CFF), tr('Máy tính'), 0,
           () => _push(nav, tr('Máy tính'), (ctx) => const RcDevicesPage())),
+      // Đưa lên màn hình (hello.<tên miền>): chọn tệp trên máy hoặc chia sẻ màn hình máy tính (lib/ui/cast).
+      'cast': (Icons.cast_rounded, const Color(0xFF2563EB), tr('Đưa lên màn hình'), 0, () => castFromDevice(context)),
       'kyso': (Icons.draw_rounded, const Color(0xFF7B61FF), tr('Ký số'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const KysoHomePage()))),
       for (final s in KysoApi.spaces)

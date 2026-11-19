@@ -13,6 +13,8 @@ import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../app_shell.dart';
 import '../app_route.dart';
+import '../cast/cast_screen.dart';
+import '../cast/cast_slides.dart';
 import '../open_file.dart' show openLocalFile;
 import '../theme.dart';
 import 'acl.dart';
@@ -1134,11 +1136,13 @@ class _WikiPageViewState extends State<WikiPageView> {
   Widget _pageMenu(WPage p) => PopupMenuButton<String>(
     tooltip: tr('Thêm'),
     onSelected: (v) {
+      if (v == 'cast') castWikiPage(context, p.title, p.body);
       if (v == 'rename') widget.home.renamePage(p);
       if (v == 'move') widget.home.movePage(p);
       if (v == 'delete') widget.home.deletePage(p);
     },
     itemBuilder: (_) => [
+      PopupMenuItem(value: 'cast', child: Text(tr('Đưa lên màn hình'))),
       PopupMenuItem(value: 'rename', child: Text(tr('Đổi tên'))),
       PopupMenuItem(value: 'move', child: Text(tr('Chuyển tới…'))),
       const PopupMenuDivider(),
@@ -1196,12 +1200,14 @@ class _PageScreenState extends State<_PageScreen> {
               if (v == 'history') home.openHistory(widget.pageId);
               if (v == 'link') home.copyLink(widget.pageId);
               if (p == null) return;
+              if (v == 'cast' && context.mounted) return castWikiPage(context, p.title, p.body);
               if (v == 'rename') await home.renamePage(p);
               if (v == 'move') await home.movePage(p);
               if (v == 'delete' && await home.deletePage(p) && context.mounted) Navigator.of(context).pop();
               setState(() => _nonce++);
             },
             itemBuilder: (_) => [
+              PopupMenuItem(value: 'cast', child: Text(tr('Đưa lên màn hình'))),
               PopupMenuItem(value: 'history', child: Text(tr('Lịch sử'))),
               PopupMenuItem(value: 'link', child: Text(tr('Sao chép link'))),
               if (canEdit) ...[
@@ -1926,3 +1932,7 @@ class _ImageScreen extends StatelessWidget {
     body: InteractiveViewer(maxScale: 6, child: Center(child: Image.memory(data))),
   );
 }
+
+/// Chiếu trang Wiki lên màn hình lớn: dựng slide 16:9 (chữ to, tự sang trang) rồi đưa lên như tài liệu PDF.
+Future<void> castWikiPage(BuildContext context, String title, String body) =>
+    castPdfToScreen(context, name: title.isEmpty ? tr('Trang wiki') : title, app: 'wiki', load: (_) => buildCastSlides(title: title, body: body, fileName: title));
