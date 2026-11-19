@@ -133,6 +133,15 @@ class CastSession {
     await _check(r);
   }
 
+  /// Chiếu màn hình máy tính: trạm trả token LiveKit chỉ được phát màn hình vào phòng của màn hình này.
+  Future<({String url, String token})> mirror(String name) async {
+    final r = await http
+        .post(Uri.parse('${_base(server)}/c/$ctl/mirror?${Uri(queryParameters: {'name': name}).query}'), headers: _h)
+        .timeout(const Duration(seconds: 15));
+    final j = await _check(r);
+    return (url: '${j['url']}', token: '${j['token']}');
+  }
+
   Future<void> showUrl(String type, String url, {String name = '', String app = ''}) => _post('content', {'type': type, 'url': url, 'name': name, 'app': app});
   Future<int> page(int n) async => ((await _post('page', {'page': n}))['page'] as num?)?.toInt() ?? n;
   Future<void> blank(bool on) => _post('blank', {'on': on});

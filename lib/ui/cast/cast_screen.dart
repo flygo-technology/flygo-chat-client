@@ -5,7 +5,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:provider/provider.dart';
 
@@ -13,6 +15,7 @@ import '../../config.dart';
 import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../app_route.dart';
+import '../call_screen.dart' show ScreenPicker;
 import '../mini_app_view.dart' show ScanOncePage;
 import '../theme.dart' show toast;
 import 'cast_api.dart';
@@ -29,6 +32,51 @@ class CastContent {
   final int auto;
   const CastContent({required this.type, required this.mime, required this.name, required this.load, this.app = '', this.auto = 0});
   const CastContent.pdf({required this.name, required this.load, this.app = '', this.auto = 0}) : type = 'pdf', mime = 'application/pdf';
+
+  /// Chiếu màn hình máy tính (chọn màn hình / cửa sổ sau khi ghép).
+  CastContent.mirror({this.name = 'Màn hình máy tính'}) : type = 'mirror', mime = '', app = 'mirror', auto = 0, load = _noLoad;
+  static Future<File> _noLoad(void Function(int, int)? _) => throw UnsupportedError('mirror');
+}
+
+bool get _desktop => !(Platform.isAndroid || Platform.isIOS);
+
+/// Ô "Đưa lên màn hình" (Trang chủ): chọn tệp trên máy (PDF, ảnh, video) hoặc chia sẻ màn hình máy tính.
+Future<void> castFromDevice(BuildContext context) async {
+  final how = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    builder: (sh) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            title: Text(tr('Đưa lên màn hình'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            subtitle: Text(tr('Mở hello.flygo.vn trên TV / máy chiếu, rồi chọn nội dung.')),
+          ),
+          if (_desktop)
+            ListTile(leading: const Icon(Icons.screen_share_rounded), title: Text(tr('Chia sẻ màn hình máy tính')), onTap: () => Navigator.pop(sh, 'screen')),
+          ListTile(leading: const Icon(Icons.file_open_rounded), title: Text(tr('Chọn tệp (PDF, ảnh, video)')), onTap: () => Navigator.pop(sh, 'file')),
+          ListTile(
+            leading: const Icon(Icons.folder_open_rounded),
+            title: Text(tr('Tài liệu Office, slide: mở trong Drive rồi bấm ⋯ → Đưa lên màn hình')),
+            enabled: false,
+          ),
+        ],
+      ),
+    ),
+  );
+  if (how == null || !context.mounted) return;
+  if (how == 'screen') return castToScreen(context, CastContent.mirror(name: tr('Màn hình máy tính')));
+  final r = await FilePicker.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'm4v', 'webm', 'mov'],
+  );
+  final f = r.firstOrNull;
+  if (f?.path == null || !context.mounted) return;
+  final k = castableByExt(f!.name);
+  if (k == null) return;
+  final file = File(f.path!);
+  await castToScreen(context, CastContent(type: k.type, mime: k.mime, name: f.name, app: 'device', load: (_) async => file));
 }
 
 /// Loại tệp chiếu được theo đuôi tệp (ảnh / video trình duyệt TV mở được). Null: không chiếu được.
@@ -178,6 +226,7 @@ class _CastRemotePageState extends State<CastRemotePage> {
   CastSession get s => widget.session;
   CastContent get c => widget.content;
   Timer? _clock; // video: cập nhật vị trí mỗi giây
+  lk.Room? _mirror; // chiếu màn hình máy tính
   int get _pages => _doc?.pages.length ?? 0;
 
   @override
@@ -197,6 +246,7 @@ class _CastRemotePageState extends State<CastRemotePage> {
   void dispose() {
     _sub?.cancel();
     _clock?.cancel();
+    _mirror?.disconnect();
     if (!_stopped) s.stop();
     _doc?.dispose();
     super.dispose();
@@ -210,6 +260,11 @@ class _CastRemotePageState extends State<CastRemotePage> {
       _error = null;
     });
     try {
+      if (c.type == 'mirror') {
+        await _startMirror();
+        _sent = true;
+        return;
+      }
       _pdf ??= await c.load((got, total) {
         if (mounted) setState(() => _progress = total > 0 ? got / total : null);
       });
@@ -233,6 +288,22 @@ class _CastRemotePageState extends State<CastRemotePage> {
         });
       }
     }
+  }
+
+  /// Chọn màn hình / cửa sổ rồi phát vào phòng LiveKit của màn hình (chọn lại thì đổi nguồn).
+  Future<void> _startMirror() async {
+    final id = await showDialog<String>(context: context, builder: (_) => const ScreenPicker());
+    if (id == null) throw tr('Chưa chọn màn hình để chia sẻ');
+    var room = _mirror;
+    if (room == null) {
+      final j = await s.mirror(c.name);
+      room = lk.Room();
+      await room.connect(j.url, j.token);
+      _mirror = room;
+    } else {
+      await room.localParticipant?.setScreenShareEnabled(false);
+    }
+    await room.localParticipant?.setScreenShareEnabled(true, screenShareCaptureOptions: lk.ScreenShareCaptureOptions(sourceId: id, maxFrameRate: 15));
   }
 
   Future<void> _go(int p) async {
@@ -416,6 +487,37 @@ class _CastRemotePageState extends State<CastRemotePage> {
       );
     }
     if (c.type == 'video') return _videoRemote(th, cs);
+    if (c.type == 'mirror') {
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.screen_share_rounded, size: 72, color: cs.primary),
+                  const SizedBox(height: 10),
+                  Text(
+                    tr('Đang chiếu màn hình máy tính lên {0}', [st.screen]),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => _startMirror().catchError((Object e) {
+                      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text('$e')));
+                    }),
+                    icon: const Icon(Icons.swap_horiz_rounded),
+                    label: Text(tr('Đổi màn hình / cửa sổ')),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          ..._bottom(cs),
+        ],
+      );
+    }
     final pg = c.type == 'pdf' ? _doc!.pages[(_page - 1).clamp(0, _pages - 1)] : null;
     return Column(
       children: [

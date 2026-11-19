@@ -46,7 +46,16 @@ List<_Line> _parse(String md) {
     if (t.isEmpty) {
       out.add(const _Line('blank', ''));
     } else if (h != null) {
-      out.add(_Line(h[1]!.length == 1 ? 'h1' : h[1]!.length == 2 ? 'h2' : 'h3', plainInline(h[2]!)));
+      out.add(
+        _Line(
+          h[1]!.length == 1
+              ? 'h1'
+              : h[1]!.length == 2
+              ? 'h2'
+              : 'h3',
+          plainInline(h[2]!),
+        ),
+      );
     } else if (li != null) {
       out.add(_Line('li', plainInline(li[2]!)));
     } else if (RegExp(r'^(-{3,}|\*{3,}|_{3,})$').hasMatch(t)) {
@@ -83,26 +92,63 @@ Future<Uint8List> castSlidesPdf(List<CastSection> sections, {String docTitle = '
   final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Regular.ttf'));
   final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Bold.ttf'));
   final mono = pw.Font.ttf(await rootBundle.load('assets/fonts/JetBrainsMono-Regular.ttf'));
-  final doc = pw.Document(theme: pw.ThemeData.withFont(base: regular, bold: bold), title: docTitle);
+  final doc = pw.Document(
+    theme: pw.ThemeData.withFont(base: regular, bold: bold),
+    title: docTitle,
+  );
 
   pw.Widget line(_Line l) => switch (l.kind) {
-    'h1' => pw.Padding(padding: const pw.EdgeInsets.only(top: 18, bottom: 8), child: pw.Text(l.text, style: pw.TextStyle(font: bold, fontSize: 38, color: _ink))),
-    'h2' => pw.Padding(padding: const pw.EdgeInsets.only(top: 14, bottom: 6), child: pw.Text(l.text, style: pw.TextStyle(font: bold, fontSize: 32, color: _ink))),
-    'h3' => pw.Padding(padding: const pw.EdgeInsets.only(top: 10, bottom: 4), child: pw.Text(l.text, style: pw.TextStyle(font: bold, fontSize: 28, color: _ink))),
+    'h1' => pw.Padding(
+      padding: const pw.EdgeInsets.only(top: 18, bottom: 8),
+      child: pw.Text(
+        l.text,
+        style: pw.TextStyle(font: bold, fontSize: 38, color: _ink),
+      ),
+    ),
+    'h2' => pw.Padding(
+      padding: const pw.EdgeInsets.only(top: 14, bottom: 6),
+      child: pw.Text(
+        l.text,
+        style: pw.TextStyle(font: bold, fontSize: 32, color: _ink),
+      ),
+    ),
+    'h3' => pw.Padding(
+      padding: const pw.EdgeInsets.only(top: 10, bottom: 4),
+      child: pw.Text(
+        l.text,
+        style: pw.TextStyle(font: bold, fontSize: 28, color: _ink),
+      ),
+    ),
     'li' => pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 6, left: 8),
-      child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.Container(width: 10, height: 10, margin: const pw.EdgeInsets.only(top: 12, right: 16), decoration: const pw.BoxDecoration(color: _accent, shape: pw.BoxShape.circle)),
-        pw.Expanded(child: pw.Text(l.text, style: const pw.TextStyle(fontSize: 26, color: _ink, lineSpacing: 6))),
-      ]),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Container(
+            width: 10,
+            height: 10,
+            margin: const pw.EdgeInsets.only(top: 12, right: 16),
+            decoration: const pw.BoxDecoration(color: _accent, shape: pw.BoxShape.circle),
+          ),
+          pw.Expanded(
+            child: pw.Text(l.text, style: const pw.TextStyle(fontSize: 26, color: _ink, lineSpacing: 6)),
+          ),
+        ],
+      ),
     ),
     'code' => pw.Container(
       color: const PdfColor.fromInt(0xFFF1F5F9),
       padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: pw.Text(l.text.isEmpty ? ' ' : l.text, style: pw.TextStyle(font: mono, fontSize: 20, color: _ink)),
+      child: pw.Text(
+        l.text.isEmpty ? ' ' : l.text,
+        style: pw.TextStyle(font: mono, fontSize: 20, color: _ink),
+      ),
     ),
     'blank' => pw.SizedBox(height: 10),
-    _ => pw.Padding(padding: const pw.EdgeInsets.only(bottom: 8), child: pw.Text(l.text, style: const pw.TextStyle(fontSize: 26, color: _ink, lineSpacing: 6))),
+    _ => pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 8),
+      child: pw.Text(l.text, style: const pw.TextStyle(fontSize: 26, color: _ink, lineSpacing: 6)),
+    ),
   };
 
   for (final sec in sections) {
@@ -122,21 +168,33 @@ Future<Uint8List> castSlidesPdf(List<CastSection> sections, {String docTitle = '
       }
       lines = kept;
     }
-    doc.addPage(pw.MultiPage(
-      pageFormat: _fmt,
-      margin: const pw.EdgeInsets.fromLTRB(72, 56, 72, 48),
-      maxPages: maxPagesEach,
-      header: (ctx) => ctx.pageNumber == 1
-          ? pw.SizedBox()
-          : pw.Padding(padding: const pw.EdgeInsets.only(bottom: 16), child: pw.Text(title, style: const pw.TextStyle(fontSize: 16, color: _sub))),
-      build: (ctx) => [
-        pw.Container(width: 96, height: 8, margin: const pw.EdgeInsets.only(bottom: 22), color: _accent),
-        pw.Text(title, style: pw.TextStyle(font: bold, fontSize: hasText ? 48 : 64, color: _ink, lineSpacing: 4)),
-        if (sec.subtitle.isNotEmpty) pw.Padding(padding: const pw.EdgeInsets.only(top: 14), child: pw.Text(sec.subtitle, style: const pw.TextStyle(fontSize: 22, color: _sub))),
-        pw.SizedBox(height: 28),
-        for (final l in lines) line(l),
-      ],
-    ));
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: _fmt,
+        margin: const pw.EdgeInsets.fromLTRB(72, 56, 72, 48),
+        maxPages: maxPagesEach,
+        header: (ctx) => ctx.pageNumber == 1
+            ? pw.SizedBox()
+            : pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 16),
+                child: pw.Text(title, style: const pw.TextStyle(fontSize: 16, color: _sub)),
+              ),
+        build: (ctx) => [
+          pw.Container(width: 96, height: 8, margin: const pw.EdgeInsets.only(bottom: 22), color: _accent),
+          pw.Text(
+            title,
+            style: pw.TextStyle(font: bold, fontSize: hasText ? 48 : 64, color: _ink, lineSpacing: 4),
+          ),
+          if (sec.subtitle.isNotEmpty)
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 14),
+              child: pw.Text(sec.subtitle, style: const pw.TextStyle(fontSize: 22, color: _sub)),
+            ),
+          pw.SizedBox(height: 28),
+          for (final l in lines) line(l),
+        ],
+      ),
+    );
     for (final b in sec.images) {
       pw.MemoryImage img;
       try {
@@ -144,10 +202,16 @@ Future<Uint8List> castSlidesPdf(List<CastSection> sections, {String docTitle = '
       } catch (_) {
         continue; // ảnh hỏng / định dạng PDF không đọc được: bỏ qua
       }
-      doc.addPage(pw.Page(
-        pageFormat: _fmt,
-        build: (_) => pw.Container(color: PdfColors.black, alignment: pw.Alignment.center, child: pw.Image(img, fit: pw.BoxFit.contain)),
-      ));
+      doc.addPage(
+        pw.Page(
+          pageFormat: _fmt,
+          build: (_) => pw.Container(
+            color: PdfColors.black,
+            alignment: pw.Alignment.center,
+            child: pw.Image(img, fit: pw.BoxFit.contain),
+          ),
+        ),
+      );
     }
   }
   return doc.save();

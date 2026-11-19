@@ -236,7 +236,7 @@ void main() {
       expect(personal.last, 'appearance');
       expect(youAppGroups(desktop: false)[1].$2.last, 'appearance');
       // Máy tính của chính mình (điều khiển từ xa) nằm trong nhóm Công việc.
-      expect(g[0].$2, ['contacts', 'org', 'delegations', 'calls', 'computers']);
+      expect(g[0].$2, ['contacts', 'org', 'delegations', 'calls', 'computers', 'cast']);
     });
   });
 }
