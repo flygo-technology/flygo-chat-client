@@ -10,6 +10,7 @@ import '../config.dart';
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'agent_detail_page.dart';
+import 'agent_dlp_page.dart';
 import 'ai_consent.dart' show showAiConsentSettings;
 import 'ai_gate/ai_gate_api.dart';
 import 'ai_gate/ai_quota_page.dart' show AiUsageCard;
@@ -466,8 +467,18 @@ class _AgentPageState extends State<AgentPage> {
                       tr('Gọi trợ lý trong chat bằng @tên-trợ-lý kèm việc cần làm. Trợ lý chạy trên máy đang bật công tắc, dùng tài khoản Codex / Claude / Antigravity đã đăng nhập trên máy đó.'),
                       style: TextStyle(color: pal.sub, fontSize: 13),
                     ),
+                    // Cài đặt chung cho mọi trợ lý của mình (Sếp, 2026-11-19).
+                    const SizedBox(height: 22),
+                    _section(pal, tr('Cài đặt trợ lý')),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      leading: Icon(Icons.shield_outlined, color: pal.sub),
+                      title: Text(tr('Chặn từ khoá nhạy cảm giữa agent'), style: TextStyle(color: pal.text)),
+                      subtitle: Text(tr('Tin giữa các agent có từ khoá cấm sẽ bị chặn'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
+                      trailing: Icon(Icons.chevron_right_rounded, color: pal.sub),
+                      onTap: () => Navigator.of(context).push(AppPageRoute(builder: (_) => const AgentDlpPage())),
+                    ),
                     // Đồng ý gửi dữ liệu cho AI (trước ở ô "AI" của Cá nhân, Sếp bỏ ô đó 2026-11-17).
-                    const SizedBox(height: 10),
                     ListTile(
                       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                       leading: Icon(Icons.privacy_tip_outlined, color: pal.sub),
