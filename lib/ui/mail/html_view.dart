@@ -6,7 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as hp;
-import 'package:url_launcher/url_launcher.dart';
+import '../links.dart' show openInSystem;
 
 /// Chữ thuần của HTML (đoạn trích, trích dẫn khi trả lời).
 String htmlToText(String html) {
@@ -47,6 +47,16 @@ bool _viewable(dom.Element e) {
   return !((w != null && w <= 48) || (h != null && h <= 48));
 }
 
+/// href của link trong thư thành Uri mở được: http(s), mailto, tel; "www.…" không có giao thức thì thêm https.
+/// Link khác (javascript:, file:, đường dẫn tương đối…) bỏ qua.
+Uri? mailLinkUri(String href) {
+  var h = href.trim();
+  if (h.toLowerCase().startsWith('www.')) h = 'https://$h';
+  final u = Uri.tryParse(h);
+  if (u == null || !(u.isScheme('http') || u.isScheme('https') || u.isScheme('mailto') || u.isScheme('tel'))) return null;
+  return u;
+}
+
 bool _isQuote(dom.Element e) =>
     e.classes.contains('gq') || e.classes.contains('gmail_quote') || (e.localName == 'blockquote' && e.attributes['type'] == 'cite');
 
@@ -80,12 +90,12 @@ class _MailHtmlState extends State<MailHtml> {
   }
 
   void _open(String href) {
-    final u = Uri.tryParse(href);
-    if (u == null || !(u.isScheme('http') || u.isScheme('https') || u.isScheme('mailto') || u.isScheme('tel'))) return;
+    final u = mailLinkUri(href);
+    if (u == null) return;
     if (widget.onLink != null) {
       widget.onLink!(u);
     } else {
-      launchUrl(u, mode: LaunchMode.externalApplication);
+      openInSystem(u);
     }
   }
 
@@ -141,6 +151,12 @@ class _Builder {
   final TextStyle base;
   final void Function(String href) open;
   final List<TapGestureRecognizer> recognizers;
+
+  /// Link đang bao quanh (thẻ <a>): mọi chữ bên trong mang recognizer này (Flutter chỉ nhận chạm ở đoạn chữ lá,
+  /// recognizer đặt ở TextSpan cha thì chữ con không bấm được, nên trước đây bấm link trong thư không làm gì);
+  /// ảnh bên trong mở link thay vì trình xem ảnh.
+  TapGestureRecognizer? _rec;
+  String? _href;
   final bool loadImages;
 
   static const _blockTags = {'p', 'div', 'section', 'article', 'header', 'footer', 'main', 'center', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote', 'table', 'hr', 'pre', 'img', 'tbody', 'thead', 'tr'};
@@ -274,7 +290,7 @@ class _Builder {
   InlineSpan? span(dom.Node n, TextStyle st) {
     if (n is dom.Text) {
       final t = n.text.replaceAll(RegExp(r'\s+'), ' ');
-      return t.isEmpty ? null : TextSpan(text: t);
+      return t.isEmpty ? null : TextSpan(text: t, recognizer: _rec, mouseCursor: _rec == null ? null : SystemMouseCursors.click);
     }
     if (n is! dom.Element) return null;
     final tag = n.localName;
@@ -301,13 +317,22 @@ class _Builder {
         s = s.copyWith(fontSize: (st.fontSize ?? 14) * .85);
       case 'a':
         final href = n.attributes['href'];
-        if (href != null && href.isNotEmpty) {
+        if (href != null && href.trim().isNotEmpty && mailLinkUri(href) != null) {
           s = s.copyWith(color: _link, decoration: TextDecoration.underline, decorationColor: _link);
           rec = TapGestureRecognizer()..onTap = () => open(href);
           recognizers.add(rec);
         }
     }
-    return TextSpan(style: s, recognizer: rec, children: [for (final c in n.nodes) ?span(c, st)]);
+    if (rec == null) return TextSpan(style: s, children: [for (final c in n.nodes) ?span(c, st)]);
+    final (prevRec, prevHref) = (_rec, _href);
+    _rec = rec;
+    _href = n.attributes['href'];
+    try {
+      return TextSpan(style: s, recognizer: rec, mouseCursor: SystemMouseCursors.click, children: [for (final c in n.nodes) ?span(c, st)]);
+    } finally {
+      _rec = prevRec;
+      _href = prevHref;
+    }
   }
 
   static bool _hairline(dom.Element c) {
@@ -321,14 +346,19 @@ class _Builder {
     final alt = e.attributes['alt'] ?? '';
     final w = double.tryParse(e.attributes['width'] ?? '');
     if (w != null && w <= 2) return null; // ảnh theo dõi 1x1
-    final tap = onImageTap;
-    // Ảnh đã hiện, không phải biểu tượng nhỏ: bấm để xem phóng to.
-    Widget tappable(Widget img) => tap == null || !_viewable(e)
-        ? img
-        : MouseRegion(
-            cursor: SystemMouseCursors.zoomIn,
-            child: GestureDetector(key: ValueKey('mail-img-$src'), behavior: HitTestBehavior.opaque, onTap: () => tap(src), child: img),
-          );
+    final tap = onImageTap, href = _href;
+    // Ảnh nằm trong link (banner, nút bản tin): bấm mở link. Ảnh thường, không phải biểu tượng nhỏ: bấm để xem phóng to.
+    Widget tappable(Widget img) => href != null
+        ? MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(key: ValueKey('mail-img-link-$src'), behavior: HitTestBehavior.opaque, onTap: () => open(href), child: img),
+          )
+        : tap == null || !_viewable(e)
+            ? img
+            : MouseRegion(
+                cursor: SystemMouseCursors.zoomIn,
+                child: GestureDetector(key: ValueKey('mail-img-$src'), behavior: HitTestBehavior.opaque, onTap: () => tap(src), child: img),
+              );
     final load = inlineImage;
     if (load != null && src.startsWith('/mail/api/attachments/')) {
       return tappable(Padding(

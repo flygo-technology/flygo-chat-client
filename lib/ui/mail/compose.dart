@@ -19,6 +19,16 @@ import 'when.dart';
 import 'widgets.dart';
 
 /// Dữ liệu mở khung soạn (thư mới, trả lời, chuyển tiếp, mở bản nháp).
+/// Link mailto:a@x,b@y?cc=…&subject=…&body=… thành thư mới có sẵn người nhận, tiêu đề, nội dung.
+ComposeArgs mailtoArgs(Uri u) {
+  List<MailPerson> people(String? v) => [
+        for (final e in Uri.decodeComponent(v ?? '').split(RegExp(r'[,;]')).map((x) => x.trim()))
+          if (e.contains('@')) MailPerson(e),
+      ];
+  final q = u.queryParameters.map((k, v) => MapEntry(k.toLowerCase(), v));
+  return ComposeArgs(to: [...people(u.path), ...people(q['to'])], cc: people(q['cc']), subject: q['subject'] ?? '', body: q['body'] ?? '');
+}
+
 class ComposeArgs {
   const ComposeArgs({this.to = const [], this.cc = const [], this.subject = '', this.body = '', this.quote, this.threadId, this.draftId, this.attachments = const [], this.kind = 'new', this.runs, this.targets = const {}});
   final List<MailPerson> to, cc;

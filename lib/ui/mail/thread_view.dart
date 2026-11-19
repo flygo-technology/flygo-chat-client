@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../data/image_disk_cache.dart' show fetchImageBytes;
 
+import '../links.dart' show internalLinkHook, openInSystem;
 import '../open_file.dart' show openLocalFile;
 import 'attachments.dart';
 import 'compose.dart';
@@ -373,6 +374,19 @@ class ThreadViewState extends State<ThreadView> {
     } catch (e) {
       _snack('Không lưu được vào Drive: $e');
     }
+  }
+
+  /// Bấm link trong thư: mailto mở khung soạn thư trong app; link nội bộ (Drive, phòng họp…) mở trong app nếu màn
+  /// hình chính nhận; còn lại mở bằng trình duyệt / ứng dụng mặc định của máy (có dự phòng khi url_launcher hỏng).
+  void _openLink(Uri u) {
+    if (u.isScheme('mailto')) {
+      widget.onCompose(mailtoArgs(u));
+      return;
+    }
+    if (internalLinkHook?.call(u) == true) return;
+    openInSystem(u).then((ok) {
+      if (!ok) _snack('Không mở được link: $u');
+    });
   }
 
   Future<void> _openAttachment(MailAttachment a) async {
@@ -842,6 +856,7 @@ class ThreadViewState extends State<ThreadView> {
                     inlineImage: _inlineImage,
                     loadImages: _imagesOn(m),
                     onImageTap: (src) => _viewImage(m, src),
+                    onLink: _openLink,
                   ),
                   if (m.attachments.isNotEmpty) ...[
                     Divider(color: mc.line, height: 24),
