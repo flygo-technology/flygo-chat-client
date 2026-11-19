@@ -30,7 +30,12 @@ String? foreignScreenHost(String raw, String server) {
 class CastError implements Exception {
   final int status;
   final String message;
-  CastError(this.status, this.message);
+
+  /// 423 (màn hình đang khoá): id màn hình + thông tin khoá, để hỏi "Xin dùng".
+  final Map? body;
+  CastError(this.status, this.message, [this.body]);
+  bool get locked => status == 423;
+  String? get screenId => body?['screen_id'] as String?;
   @override
   String toString() => message;
 }
@@ -42,8 +47,18 @@ class CastState {
   final List<String> queueNames;
   final Map<String, dynamic>? content;
   final bool blank;
+
+  /// Khoá màn hình {by_name, until, mine, meeting?}; null = không khoá.
+  final Map? lock;
+  final String screenId;
+
+  /// role == 'request': ai đó xin dùng màn hình (chỉ là thông báo, không đổi trạng thái).
+  final String requestFrom;
   CastState(
     this.role, {
+    this.lock,
+    this.screenId = '',
+    this.requestFrom = '',
     this.screen = '',
     this.nowBy = '',
     this.why = '',
@@ -65,6 +80,8 @@ class CastState {
       queueNames: [for (final x in (j['queue_names'] as List? ?? const [])) '$x'],
       content: (now?['content'] as Map?)?.cast<String, dynamic>(),
       blank: now?['blank'] == true,
+      lock: j['lock'] as Map?,
+      screenId: '${j['screen_id'] ?? ''}',
     );
   }
   bool get presenting => role == 'presenter';
@@ -96,24 +113,52 @@ class CastSession {
     try {
       j = jsonDecode(utf8.decode(r.bodyBytes)) as Map;
     } catch (_) {}
-    if (r.statusCode != 200) throw CastError(r.statusCode, '${j['error'] ?? 'lỗi ${r.statusCode}'}');
+    if (r.statusCode != 200) throw CastError(r.statusCode, '${j['error'] ?? 'lỗi ${r.statusCode}'}', j);
     return j;
   }
 
   /// Ghép với màn hình có [code]. Màn hình đang có người chiếu thì vào hàng chờ.
-  static Future<CastSession> pair(String server, String token, String code) async {
+  /// Ghép theo [code] (quét / gõ) hoặc chọn thẳng [screenId] trong danh sách màn hình của công ty.
+  static Future<CastSession> pair(String server, String token, {String? code, String? screenId}) async {
     await discoverPush(server);
     if (pushUrlFor(server).isEmpty) throw CastError(0, 'Máy chủ này chưa có cổng màn hình');
     final r = await http
-        .post(
-          Uri.parse('${_base(server)}/pair'),
-          headers: {'Authorization': 'Bearer $token', 'X-MM-Server': server, 'User-Agent': kUserAgent, 'Content-Type': 'application/json'},
-          body: jsonEncode({'code': code}),
-        )
+        .post(Uri.parse('${_base(server)}/pair'), headers: _hdr(server, token), body: jsonEncode({'code': ?code, 'screen_id': ?screenId}))
         .timeout(const Duration(seconds: 15));
     final j = await _check(r);
     return CastSession._(server, token, '${j['ctl']}', CastState.fromJson(j));
   }
+
+  static Map<String, String> _hdr(String server, String token) => {
+    'Authorization': 'Bearer $token',
+    'X-MM-Server': server,
+    'User-Agent': kUserAgent,
+    'Content-Type': 'application/json',
+  };
+
+  /// Màn hình của công ty (đang mở hello) + màn hình mình dùng gần đây.
+  static Future<List<CastScreen>> screens(String server, String token) async {
+    await discoverPush(server);
+    if (pushUrlFor(server).isEmpty) return const [];
+    final r = await http.get(Uri.parse('${_base(server)}/screens'), headers: _hdr(server, token)).timeout(const Duration(seconds: 10));
+    final j = await _check(r);
+    return [for (final x in (j['screens'] as List? ?? const [])) CastScreen.fromJson(x as Map)];
+  }
+
+  /// Màn hình: đổi tên (name) / mở khoá (unlock) / xin dùng (request: báo người khoá hoặc người đang chiếu).
+  static Future<Map> screenAction(String server, String token, String screenId, String act, [Map body = const {}]) async => _check(
+    await http
+        .post(Uri.parse('${_base(server)}/screens/$screenId/$act'), headers: _hdr(server, token), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 10)),
+  );
+
+  /// Thêm màn hình vào cuộc họp ([code] phòng họp có mã, hoặc [channelId] cuộc họp trong nhóm): màn hình vào phòng,
+  /// khoá cho thành viên cuộc họp; phiên điều khiển này kết thúc. Trả về tiêu đề cuộc họp.
+  Future<String> joinMeeting({String? code, String? channelId}) async =>
+      '${(await _post('meeting', {'code': ?code, 'channel_id': ?channelId}))['title'] ?? ''}';
+
+  /// Khoá màn hình từ xa (chỉ mình và admin chiếu được; tự mở sau 2 giờ không dùng hoặc cuối ngày).
+  Future<void> lock(bool on) => _post('lock', {'on': on});
 
   Future<Map> _post(String act, Object body) async => _check(
     await http
@@ -183,6 +228,10 @@ class CastSession {
           var ev = '';
           await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
             if (line.startsWith('event: ')) ev = line.substring(7);
+            if (line.startsWith('data: ') && ev == 'request') {
+              final d = jsonDecode(line.substring(6)) as Map;
+              out.add(CastState('request', requestFrom: '${d['from'] ?? ''}'));
+            }
             if (line.startsWith('data: ') && ev == 'state') {
               final st = CastState.fromJson(jsonDecode(line.substring(6)) as Map);
               out.add(st);
@@ -210,4 +259,22 @@ class CastSession {
     );
     return out.stream;
   }
+}
+
+/// Một màn hình trong danh sách của công ty.
+class CastScreen {
+  final String id, name, status, nowBy;
+  final bool online, approved, recent;
+  final int queue;
+  final Map? lock;
+  CastScreen.fromJson(Map j)
+    : id = '${j['id']}',
+      name = '${j['name'] ?? ''}',
+      status = '${j['status'] ?? 'idle'}',
+      nowBy = '${j['now_by'] ?? ''}',
+      online = j['online'] == true,
+      approved = j['approved'] == true,
+      recent = j['recent'] == true,
+      queue = (j['queue'] as num?)?.toInt() ?? 0,
+      lock = j['lock'] as Map?;
 }

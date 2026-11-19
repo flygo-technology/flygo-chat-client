@@ -110,16 +110,9 @@ Future<void> castToScreen(BuildContext context, CastContent c) async {
     m?.showSnackBar(toast(Text(tr('Mở Flygo Chat để đưa lên màn hình'))));
     return;
   }
-  final code = await askScreenCode(context);
-  if (code == null || !context.mounted) return;
-  CastSession s;
-  try {
-    s = await CastSession.pair(kServerUrl, app0.token, code);
-  } catch (e) {
-    m?.showSnackBar(toast(Text(tr('Không ghép được với màn hình: {0}', ['$e']))));
-    return;
-  }
-  if (!context.mounted) return;
+  final token = app0.token;
+  final s = await pickAndPair(context, token);
+  if (s == null || !context.mounted) return;
   await Navigator.of(context, rootNavigator: true).push(
     AppPageRoute(
       builder: (_) => CastRemotePage(session: s, content: c),
@@ -127,11 +120,247 @@ Future<void> castToScreen(BuildContext context, CastContent c) async {
   );
 }
 
+/// "Thêm màn hình" trong cuộc họp: chọn màn hình hello (danh sách / quét mã) rồi đưa vào cuộc họp [code] / [channelId].
+/// Màn hình khoá cho thành viên cuộc họp, không chiếu gì thì hiện giao diện phòng họp; cuộc họp kết thúc thì tự mở.
+/// Trả về true nếu đã thêm.
+Future<bool> addScreenToMeeting(BuildContext context, {String? code, String? channelId}) async {
+  AppState? app0;
+  try {
+    app0 = context.read<AppState>();
+  } catch (_) {}
+  if (app0 == null || (code == null && channelId == null)) return false;
+  final m = ScaffoldMessenger.maybeOf(context);
+  final s = await pickAndPair(context, app0.token);
+  if (s == null) return false;
+  try {
+    await s.joinMeeting(code: code, channelId: channelId);
+    m?.showSnackBar(toast(Text(tr('Đã thêm «{0}» vào cuộc họp', [s.first.screen]))));
+    return true;
+  } catch (e) {
+    await s.stop();
+    m?.showSnackBar(toast(Text(tr('Không thêm được màn hình: {0}', ['$e']))));
+    return false;
+  }
+}
+
+/// Chọn màn hình (danh sách màn hình của công ty, hoặc quét / gõ mã) rồi ghép. Màn hình đang khoá: hỏi "Xin dùng".
+Future<CastSession?> pickAndPair(BuildContext context, String token) async {
+  final m = ScaffoldMessenger.maybeOf(context);
+  final pick = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sh) => _ScreenListSheet(token: token),
+  );
+  if (pick == null || !context.mounted) return null;
+  String? code, screenId;
+  if (pick == '#code') {
+    code = await askScreenCode(context, direct: true);
+    if (code == null) return null;
+  } else {
+    screenId = pick;
+  }
+  try {
+    return await CastSession.pair(kServerUrl, token, code: code, screenId: screenId);
+  } on CastError catch (e) {
+    if (!context.mounted) return null;
+    if (e.locked && e.screenId != null) {
+      final ask = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          icon: const Icon(Icons.lock_rounded, size: 36),
+          title: Text(tr('Màn hình đang được dùng')),
+          content: Text(e.message),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Đóng'))),
+            if ((e.body?['lock'] as Map?)?['meeting'] == null) FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Xin dùng'))),
+          ],
+        ),
+      );
+      if (ask == true) {
+        try {
+          final r = await CastSession.screenAction(kServerUrl, token, e.screenId!, 'request');
+          m?.showSnackBar(toast(Text(r['notified'] == true ? tr('Đã báo người đang dùng màn hình') : tr('Người khoá không mở app lúc này, thử lại sau'))));
+        } catch (x) {
+          m?.showSnackBar(toast(Text('$x')));
+        }
+      }
+      return null;
+    }
+    if (e.status == 428) {
+      // Màn hình chưa xác nhận (mở ngoài văn phòng): quét mã một lần.
+      m?.showSnackBar(toast(Text(e.message)));
+      final c2 = await askScreenCode(context, direct: true);
+      if (c2 == null || !context.mounted) return null;
+      try {
+        return await CastSession.pair(kServerUrl, token, code: c2);
+      } catch (x) {
+        m?.showSnackBar(toast(Text(tr('Không ghép được với màn hình: {0}', ['$x']))));
+        return null;
+      }
+    }
+    m?.showSnackBar(toast(Text(tr('Không ghép được với màn hình: {0}', ['$e']))));
+    return null;
+  } catch (e) {
+    m?.showSnackBar(toast(Text(tr('Không ghép được với màn hình: {0}', ['$e']))));
+    return null;
+  }
+}
+
+/// Danh sách màn hình của công ty: rảnh / đang dùng / đang khoá / trong cuộc họp / chưa xác nhận. Trả về id màn hình
+/// hoặc '#code' (quét / nhập mã).
+class _ScreenListSheet extends StatefulWidget {
+  final String token;
+  const _ScreenListSheet({required this.token});
+  @override
+  State<_ScreenListSheet> createState() => _ScreenListSheetState();
+}
+
+class _ScreenListSheetState extends State<_ScreenListSheet> {
+  List<CastScreen>? _list;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final l = await CastSession.screens(kServerUrl, widget.token);
+      if (mounted) setState(() => _list = l);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final th = Theme.of(context);
+    final l = _list;
+    final online = l?.where((x) => x.online).toList() ?? const <CastScreen>[];
+    String sub(CastScreen x) => switch (x.status) {
+      _ when !x.online => tr('đang tắt'),
+      _ when !x.approved => tr('⚠ chưa xác nhận: quét mã trên màn hình một lần'),
+      'meeting' => tr('Cuộc họp «{0}» · chỉ thành viên', ['${(x.lock?['meeting'] as Map?)?['title'] ?? ''}']),
+      'locked' => tr('Đang khoá bởi {0}', ['${x.lock?['by_name'] ?? ''}']),
+      'casting' => x.queue > 0 ? tr('Đang chiếu: {0} · {1} người chờ', [x.nowBy, '${x.queue}']) : tr('Đang chiếu: {0}', [x.nowBy]),
+      _ => x.lock?['mine'] == true ? tr('Bạn đang khoá') : tr('Đang rảnh'),
+    };
+    Color dot(CastScreen x) => !x.online
+        ? Colors.grey
+        : !x.approved
+        ? Colors.amber
+        : switch (x.status) {
+            'meeting' => Colors.indigo,
+            'locked' => Colors.red,
+            'casting' => Colors.orange,
+            _ => Colors.green,
+          };
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text(tr('Đưa lên màn hình'), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                tr('Màn hình của công ty đang mở {0}', ['hello.${Uri.parse(kServerUrl).host.split('.').skip(1).join('.')}']),
+                style: TextStyle(color: th.hintColor, fontSize: 13),
+              ),
+            ),
+            if (l == null && _error == null)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_error!, style: TextStyle(color: th.colorScheme.error)),
+              ),
+            if (l != null && l.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text(tr('Chưa có màn hình nào online. Mở hello trên TV / máy chiếu.'), style: TextStyle(color: th.hintColor)),
+              ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final x in [...online, ...?l?.where((x) => !x.online)])
+                    ListTile(
+                      leading: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          const Icon(Icons.tv_rounded, size: 30),
+                          Positioned(
+                            right: -2,
+                            bottom: -2,
+                            child: Container(
+                              width: 11,
+                              height: 11,
+                              decoration: BoxDecoration(
+                                color: dot(x),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: th.colorScheme.surface, width: 2),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      title: Text(x.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(sub(x)),
+                      enabled: x.online,
+                      trailing: x.online
+                          ? Text(
+                              !x.approved
+                                  ? tr('Quét')
+                                  : x.status == 'locked'
+                                  ? tr('Xin dùng')
+                                  : x.status == 'casting'
+                                  ? tr('Xếp hàng')
+                                  : x.status == 'meeting'
+                                  ? tr('Chiếu')
+                                  : tr('Chiếu'),
+                              style: TextStyle(color: th.colorScheme.primary, fontWeight: FontWeight.w600),
+                            )
+                          : null,
+                      onTap: () => Navigator.pop(context, x.approved ? x.id : '#code'),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.pop(context, '#code'),
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: Text(tr('Quét mã / nhập mã màn hình')),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Mã màn hình: điện thoại quét QR (hoặc gõ), máy tính gõ mã hiện dưới QR. Null nếu huỷ.
-Future<String?> askScreenCode(BuildContext context) async {
+Future<String?> askScreenCode(BuildContext context, {bool direct = false}) async {
   final phone = Platform.isAndroid || Platform.isIOS;
   String? raw;
-  if (phone) {
+  if (phone && direct) {
+    raw = await Navigator.of(context, rootNavigator: true).push<String>(MaterialPageRoute(builder: (_) => const ScanOncePage()));
+    if (raw == null && context.mounted) raw = await _typeCode(context);
+  } else if (phone) {
     final how = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -227,6 +456,8 @@ class _CastRemotePageState extends State<CastRemotePage> {
   CastContent get c => widget.content;
   Timer? _clock; // video: cập nhật vị trí mỗi giây
   lk.Room? _mirror; // chiếu màn hình máy tính
+  String _requestFrom = ''; // người vừa bấm "Xin dùng"
+  bool _locking = false;
   int get _pages => _doc?.pages.length ?? 0;
 
   @override
@@ -234,6 +465,12 @@ class _CastRemotePageState extends State<CastRemotePage> {
     super.initState();
     _sub = s.events().listen((v) {
       if (!mounted) return;
+      if (v.role == 'request') {
+        // Ai đó xin dùng màn hình: hiện dải báo (nút Nhường), không đổi trạng thái.
+        HapticFeedback.mediumImpact();
+        setState(() => _requestFrom = v.requestFrom);
+        return;
+      }
       final wasPresenting = st.presenting;
       setState(() => st = v);
       if (v.presenting && !wasPresenting) HapticFeedback.mediumImpact();
@@ -300,7 +537,10 @@ class _CastRemotePageState extends State<CastRemotePage> {
       // Máy LiveKit nhỏ: màn hình chiếu 15 khung / giây, tối đa ~1,5 Mbps, không simulcast.
       room = lk.Room(
         roomOptions: const lk.RoomOptions(
-          defaultVideoPublishOptions: lk.VideoPublishOptions(simulcast: false, screenShareEncoding: lk.VideoEncoding(maxBitrate: 1500 * 1000, maxFramerate: 15)),
+          defaultVideoPublishOptions: lk.VideoPublishOptions(
+            simulcast: false,
+            screenShareEncoding: lk.VideoEncoding(maxBitrate: 1500 * 1000, maxFramerate: 15),
+          ),
         ),
       );
       await room.connect(j.url, j.token);
@@ -613,9 +853,91 @@ class _CastRemotePageState extends State<CastRemotePage> {
   }
 
   /// Phần dưới chung: người đang chờ (nút Nhường), màn đen, dừng chiếu.
+  Future<void> _toggleLock(bool on) async {
+    setState(() => _locking = true);
+    try {
+      await s.lock(on);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text('$e')));
+    } finally {
+      if (mounted) setState(() => _locking = false);
+    }
+  }
+
+  Future<void> _rename() async {
+    final ctl = TextEditingController(text: st.screen);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('Tên màn hình')),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: InputDecoration(hintText: tr('vd Phòng họp 3F-A')),
+          onSubmitted: (v) => Navigator.pop(d, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Hủy'))),
+          FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: Text(tr('Lưu'))),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty || st.screenId.isEmpty) return;
+    try {
+      await CastSession.screenAction(s.server, s.token, st.screenId, 'name', {'name': name.trim()});
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(toast(Text('$e')));
+    }
+  }
+
   List<Widget> _bottom(ColorScheme cs) {
     final waiting = st.queueNames;
+    final lock = st.lock;
+    final mine = lock?['mine'] == true, meeting = lock?['meeting'] != null;
     return [
+      if (_requestFrom.isNotEmpty && waiting.isEmpty)
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+          decoration: BoxDecoration(
+            color: Colors.orange.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.orange.withValues(alpha: .4)),
+          ),
+          child: Row(
+            children: [
+              const Text('✋ '),
+              Expanded(child: Text(tr('{0} xin dùng màn hình này', [_requestFrom]))),
+              TextButton(
+                onPressed: () async {
+                  if (mine) await _toggleLock(false);
+                  await _stop();
+                },
+                child: Text(tr('Nhường')),
+              ),
+              IconButton(onPressed: () => setState(() => _requestFrom = ''), icon: const Icon(Icons.close_rounded, size: 18)),
+            ],
+          ),
+        ),
+      if (!meeting)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+          child: SwitchListTile(
+            dense: true,
+            secondary: const Icon(Icons.lock_rounded),
+            title: Text(tr('Khoá màn hình từ xa')),
+            subtitle: Text(mine ? tr('Chỉ bạn (và admin) chiếu được · tự mở sau 2 giờ không dùng') : tr('Người khác không chen vào được')),
+            value: mine,
+            onChanged: _locking ? null : _toggleLock,
+          ),
+        ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: TextButton.icon(onPressed: _rename, icon: const Icon(Icons.edit_rounded, size: 18), label: Text(tr('Đổi tên màn hình'))),
+        ),
+      ),
       if (waiting.isNotEmpty)
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
