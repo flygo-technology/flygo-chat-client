@@ -19,7 +19,6 @@ import 'meet/extras/controls.dart';
 import 'meet/extras/network.dart' show MeetSignalBadge;
 import 'meet/extras/captions.dart';
 import 'meet/meet_present.dart';
-import 'meet/meet_stage.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
 import 'home_page.dart' show ChatHost;
@@ -687,25 +686,6 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  /// Sân khấu cho cả phòng (chủ trì / phó phòng). Cùng phần đầu của bảng "Quản lý cuộc họp" (meet/extras/controls.dart).
-  Future<void> _roomLayoutSheet(CallService call) async {
-    _hide?.cancel();
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF2D2E31),
-      isScrollControlled: true,
-      constraints: const BoxConstraints(maxWidth: 520),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-          child: MeetStageSection(call: call),
-        ),
-      ),
-    );
-    _poke();
-  }
-
   String _nameOf(AppState app, String userId) {
     if (userId.startsWith('device:')) return app.calls.deviceNames[userId] ?? tr('Thiết bị phòng họp');
     // Khách vào bằng link (tên do khách nhập, kèm "(khách)").
@@ -1344,7 +1324,6 @@ class _CallScreenState extends State<CallScreen> {
                 if (call.liveKit) tile('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
                 if (call.meeting && call.scribeAvailable) tile('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
                 if (call.liveKit && call.scribeAvailable) tile('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu'), on: call.roomPresent != null),
-                if (call.liveKit && call.canModerate) tile('room_layout', Icons.dashboard_customize_outlined, tr('Bố cục cho cả phòng')),
                 for (final x in meetExtraActions(context, call)) tile('x:${x.id}', x.icon, x.label, on: x.on),
                 if (call.isMeetingCreator && call.scribeAvailable)
                   tile('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
@@ -1751,7 +1730,6 @@ class _CallScreenState extends State<CallScreen> {
         if (call.liveKit) item('qr_invite', Icons.qr_code_scanner_rounded, tr('Mời bằng QR code')),
         if (call.meeting && call.scribeAvailable) item('summary', Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp')),
         if (call.liveKit && call.scribeAvailable) item('present', Icons.slideshow_rounded, tr('Trình chiếu tài liệu')),
-        if (call.liveKit && call.canModerate) item('room_layout', Icons.dashboard_customize_outlined, tr('Bố cục cho cả phòng')),
         for (final x in meetExtraActions(context, call)) item('x:${x.id}', x.icon, x.label),
         if (call.isMeetingCreator && call.scribeAvailable)
           item('scribe', call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined,
@@ -1767,7 +1745,6 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _runMore(String? a, AppState app, CallService call) async {
     if (a == 'scribe') return _toggleScribe(call);
-    if (a == 'room_layout') return _roomLayoutSheet(call);
     if (a == 'present') {
       if (!call.mayPresent) return meetToast(context, tr('Chỉ ngôi sao của cuộc họp được trình chiếu'));
       return startPresenting(context, call);
