@@ -7,6 +7,7 @@ import '../../../calls/call_service.dart';
 import '../../../i18n/i18n.dart';
 import '../../../state/app_state.dart';
 import 'attendance.dart';
+import 'controls.dart';
 import 'hands.dart';
 import 'qa.dart';
 
@@ -38,6 +39,8 @@ List<MeetExtraAction> meetExtraActions(BuildContext context, CallService call) {
   return [
     MeetExtraAction(id: 'qa', icon: Icons.question_answer_outlined, label: tr('Hỏi đáp'), run: showQa),
     if (hasCode && call.canModerate)
+      MeetExtraAction(id: 'controls', icon: Icons.admin_panel_settings_outlined, label: tr('Quản lý cuộc họp'), on: meetLocked(call), run: showControls),
+    if (hasCode && call.canModerate)
       MeetExtraAction(id: 'attendance', icon: Icons.fact_check_outlined, label: tr('Báo cáo tham dự'), run: showAttendance),
     if (hands > 0)
       MeetExtraAction(
@@ -55,7 +58,7 @@ final _subs = Expando<List<StreamSubscription>>();
 /// Màn hình họp gọi khi mở / đóng: các tính năng thêm nghe sự kiện của cuộc họp (vd. báo "chủ trì đã hạ tay bạn").
 void meetExtrasAttach(BuildContext context, CallService call, void Function(String text) toast) {
   meetExtrasDetach(call);
-  _subs[call] = [listenHandNotices(call, toast)];
+  _subs[call] = [listenHandNotices(call, toast), listenControlNotices(context, call, toast)];
 }
 
 void meetExtrasDetach(CallService call) {

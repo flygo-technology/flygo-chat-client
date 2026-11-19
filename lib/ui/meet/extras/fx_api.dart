@@ -15,6 +15,8 @@ class FxError implements Exception {
   String toString() => message;
 }
 
+String fxRoomUrl(String code) => '$kPushUrl/meet/extras/rooms/$code';
+
 String? _base(CallService call) {
   final code = call.meeting ? call.meetingInfo?.code : null;
   if (code != null && code.isNotEmpty) return '$kPushUrl/meet/extras/rooms/$code';
@@ -25,15 +27,20 @@ String? _base(CallService call) {
 Future<Map<String, dynamic>> fxRequest(CallService call, String method, String path, [Map<String, dynamic>? body]) async {
   final base = _base(call);
   if (base == null) throw FxError(400, 'Chưa ở trong cuộc họp');
-  final req = http.Request(method, Uri.parse('$base$path'))
+  return fxSend(method, '$base$path', call.api.token, body);
+}
+
+/// Gọi thẳng một URL của API tính năng thêm (vd. trước khi vào cuộc họp, chưa có CallService).
+Future<Map<String, dynamic>> fxSend(String method, String url, String token, [Map<String, dynamic>? body, Duration timeout = const Duration(seconds: 10)]) async {
+  final req = http.Request(method, Uri.parse(url))
     ..headers.addAll({
-      'Authorization': 'Bearer ${call.api.token}',
+      'Authorization': 'Bearer $token',
       'X-MM-Server': kServerUrl,
       'Content-Type': 'application/json',
       'User-Agent': kUserAgent,
     });
   if (body != null) req.body = jsonEncode(body);
-  final r = await http.Response.fromStream(await req.send().timeout(const Duration(seconds: 10)));
+  final r = await http.Response.fromStream(await req.send().timeout(timeout));
   Map<String, dynamic> j;
   try {
     j = (jsonDecode(r.body) as Map).cast<String, dynamic>();
