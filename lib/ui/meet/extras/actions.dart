@@ -7,6 +7,7 @@ import '../../../calls/call_service.dart';
 import '../../../i18n/i18n.dart';
 import '../../../state/app_state.dart';
 import 'attendance.dart';
+import 'captions.dart';
 import 'controls.dart';
 import 'hands.dart';
 import 'network.dart';
@@ -38,6 +39,7 @@ List<MeetExtraAction> meetExtraActions(BuildContext context, CallService call) {
   final hands = handQueue(call).length;
   final hasCode = call.meeting && (call.meetingInfo?.code ?? '').isNotEmpty;
   return [
+    MeetExtraAction(id: 'captions', icon: Icons.closed_caption_outlined, label: tr('Phụ đề'), on: meetCaptionsOn.value, run: showCaptions),
     MeetExtraAction(id: 'qa', icon: Icons.question_answer_outlined, label: tr('Hỏi đáp'), run: showQa),
     if (hasCode && call.canModerate)
       MeetExtraAction(id: 'controls', icon: Icons.admin_panel_settings_outlined, label: tr('Quản lý cuộc họp'), on: meetLocked(call), run: showControls),
