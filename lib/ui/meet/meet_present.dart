@@ -42,6 +42,19 @@ class MeetPresentation {
 
 /// "Trình chiếu tài liệu": chọn nguồn, đổi sang PDF, gửi lên cuộc họp.
 Future<void> startPresenting(BuildContext context, CallService call) async {
+  try {
+    final r = await pickPresentPdf(context, call);
+    if (r == null) return;
+    final err = await call.presentUpload(r.$1, r.$2, r.$3);
+    if (err != null && context.mounted) meetToast(context, tr('Không trình chiếu được: {0}', [err]));
+  } catch (e) {
+    if (context.mounted) meetToast(context, tr('Không trình chiếu được: {0}', [e]));
+  }
+}
+
+/// Chọn tài liệu (Drive, tệp trong nhóm, tệp trên máy) và đổi sang PDF: (tệp PDF, tên, số trang), null = bỏ.
+/// Dùng chung cho trình chiếu nhanh và trang "Tài liệu" của Họp (mới).
+Future<(File, String, int)?> pickPresentPdf(BuildContext context, CallService call) async {
   final app = context.read<AppState>();
   final src = await showModalBottomSheet<String>(
     context: context,
@@ -86,66 +99,61 @@ Future<void> startPresenting(BuildContext context, CallService call) async {
       ),
     ),
   );
-  if (src == null || !context.mounted) return;
+  if (src == null || !context.mounted) return null;
   final tmp = Directory('${(await getTemporaryDirectory()).path}/meet-present');
   await tmp.create(recursive: true);
   File? local;
   String name = '';
   File? pdf;
-  try {
-    switch (src) {
-      case 'drive':
-        if (!context.mounted) return;
-        final r = await pickFromDrive(context, remoteOnly: true, extensions: _exts, single: true);
-        final it = r?.remote.firstOrNull;
-        final s = r?.session;
-        if (it == null || s == null) return;
-        name = it.name;
-        pdf = File('${tmp.path}/d_${DateTime.now().millisecondsSinceEpoch}.pdf');
-        if (context.mounted) meetToast(context, tr('Đang chuẩn bị tài liệu…'));
-        if (name.toLowerCase().endsWith('.pdf')) {
-          await s.api.download(it.path, pdf);
-        } else {
-          await s.api.previewPdf(it.id, it.path, pdf);
-        }
-      case 'chat':
-        final ch = call.channelId;
-        if (ch == null || !context.mounted) return;
-        final f = await _pickChatFile(context, app, ch);
-        if (f == null) return;
-        name = f.name;
-        if (context.mounted) meetToast(context, tr('Đang chuẩn bị tài liệu…'));
-        local = await app.api.downloadFile(f, tmp);
-      case 'device':
-        final r = (await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _exts)).firstOrNull;
-        final path = r?.path;
-        if (r == null || path == null) return;
-        name = r.name;
-        local = File(path);
-        if (context.mounted) meetToast(context, tr('Đang chuẩn bị tài liệu…'));
-    }
-    if (pdf == null && local != null) {
+  switch (src) {
+    case 'drive':
+      if (!context.mounted) return null;
+      final r = await pickFromDrive(context, remoteOnly: true, extensions: _exts, single: true);
+      final it = r?.remote.firstOrNull;
+      final s = r?.session;
+      if (it == null || s == null) return null;
+      name = it.name;
+      pdf = File('${tmp.path}/d_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      if (context.mounted) meetToast(context, tr('Đang chuẩn bị tài liệu…'));
       if (name.toLowerCase().endsWith('.pdf')) {
-        pdf = local;
+        await s.api.download(it.path, pdf);
       } else {
-        // Word / Excel / PowerPoint: Drive đổi sang PDF (OnlyOffice, có cache).
-        final s = await DriveSession.current(app);
-        if (s == null) throw Exception(tr('Cần Drive để đổi tài liệu sang dạng trình chiếu. Hãy chọn tệp PDF.'));
-        pdf = await s.api.previewUpload(local, name, File('${tmp.path}/u_${DateTime.now().millisecondsSinceEpoch}.pdf'));
+        await s.api.previewPdf(it.id, it.path, pdf);
       }
-    }
-    if (pdf == null) return;
-    var pages = 0;
-    try {
-      final doc = await PdfDocument.openFile(pdf.path);
-      pages = doc.pages.length;
-      await doc.dispose();
-    } catch (_) {}
-    final err = await call.presentUpload(pdf, name, pages);
-    if (err != null && context.mounted) meetToast(context, tr('Không trình chiếu được: {0}', [err]));
-  } catch (e) {
-    if (context.mounted) meetToast(context, tr('Không trình chiếu được: {0}', [e]));
+    case 'chat':
+      final ch = call.channelId;
+      if (ch == null || !context.mounted) return null;
+      final f = await _pickChatFile(context, app, ch);
+      if (f == null) return null;
+      name = f.name;
+      if (context.mounted) meetToast(context, tr('Đang chuẩn bị tài liệu…'));
+      local = await app.api.downloadFile(f, tmp);
+    case 'device':
+      final r = (await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _exts)).firstOrNull;
+      final path = r?.path;
+      if (r == null || path == null) return null;
+      name = r.name;
+      local = File(path);
+      if (context.mounted) meetToast(context, tr('Đang chuẩn bị tài liệu…'));
   }
+  if (pdf == null && local != null) {
+    if (name.toLowerCase().endsWith('.pdf')) {
+      pdf = local;
+    } else {
+      // Word / Excel / PowerPoint: Drive đổi sang PDF (OnlyOffice, có cache).
+      final s = await DriveSession.current(app);
+      if (s == null) throw Exception(tr('Cần Drive để đổi tài liệu sang dạng trình chiếu. Hãy chọn tệp PDF.'));
+      pdf = await s.api.previewUpload(local, name, File('${tmp.path}/u_${DateTime.now().millisecondsSinceEpoch}.pdf'));
+    }
+  }
+  if (pdf == null) return null;
+  var pages = 0;
+  try {
+    final doc = await PdfDocument.openFile(pdf.path);
+    pages = doc.pages.length;
+    await doc.dispose();
+  } catch (_) {}
+  return (pdf, name, pages);
 }
 
 Future<MmFile?> _pickChatFile(BuildContext context, AppState app, String channelId) {
