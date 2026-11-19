@@ -348,6 +348,8 @@ void main() {
     await save(t, 'agent-usage-phone');
     await app(t, const Size(390, 844), Brightness.dark, agent());
     expect(find.text('Dung lượng AI công ty'), findsNothing);
+    // Mục đồng ý nằm dưới "Cài đặt trợ lý" (2026-11-19), ngoài màn hình đầu: cuộn tới.
+    await t.scrollUntilVisible(find.text('Dữ liệu gửi cho AI'), 300, scrollable: find.byType(Scrollable).first);
     expect(find.text('Dữ liệu gửi cho AI'), findsOneWidget);
   });
 
