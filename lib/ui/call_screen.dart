@@ -90,6 +90,8 @@ class _CallScreenState extends State<CallScreen> {
   /// Cuộc họp LiveKit: máy này đang theo bố cục của phòng (chủ trì / phó phòng đặt); tự đổi cách xem thì thôi theo.
   bool _followRoom = true;
   String _roomLayoutSeen = '';
+  /// Khung lớn đang phóng to (ẩn dải người) — bấm khung lớn để bật / tắt.
+  bool _stageFull = false;
   /// Lúc thấy mỗi màn hình chia sẻ lần đầu: màn hình mới nhất lên khung lớn.
   final Map<String, int> _screenSeen = {};
   bool _controls = true;
@@ -754,7 +756,7 @@ class _CallScreenState extends State<CallScreen> {
 
   /// Máy này tự đổi cách xem: phòng khoá bố cục thì không được; không khoá thì thôi theo bố cục của phòng.
   bool _localChange(CallService call) {
-    if (call.liveKit && call.roomLayout['locked'] == true) {
+    if (call.liveKit && call.appLayout['locked'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Chủ trì đã khoá bố cục của cuộc họp'))));
       return false;
     }
@@ -763,6 +765,12 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _tapTile(String key, String? spot) {
+    // Bấm khung lớn: phóng to (ẩn dải người) / thu lại — không đổi bố cục của phòng.
+    if (key == spot) {
+      setState(() => _stageFull = !_stageFull);
+      _poke();
+      return;
+    }
     if (!_localChange(context.read<AppState>().calls)) return;
     setState(() {
       if (key == spot) {
@@ -781,6 +789,19 @@ class _CallScreenState extends State<CallScreen> {
 
   Widget _meet(AppState app, CallService call, String title, String status) {
     final tiles = _tiles(app, call);
+    // Bài trình chiếu tài liệu là một ô như màn hình chia sẻ: lên khung lớn (kèm dải người) hoặc một ô trong lưới.
+    final presRaw = call.roomPresent;
+    if (presRaw != null) {
+      tiles.insert(
+          0,
+          _TileData(
+            key: 'present',
+            userId: '${presRaw['by'] ?? ''}',
+            name: tr('{0} đang trình chiếu', ['${presRaw['name'] ?? ''}']),
+            screen: true,
+            custom: (compact) => MeetPresentView(call: call, compact: compact),
+          ));
+    }
     final keys = {for (final t in tiles) t.key};
     if (_pinned != null && !keys.contains(_pinned)) _pinned = null;
     // Bố cục của phòng (LiveKit, chủ trì / phó phòng đặt): đổi thì máy này theo lại; khoá thì luôn theo.
@@ -789,13 +810,14 @@ class _CallScreenState extends State<CallScreen> {
       _roomLayoutSeen = rl;
       _followRoom = true;
     }
-    final following = call.liveKit && (_followRoom || call.roomLayout['locked'] == true);
+    final lay = call.appLayout;
+    final following = call.liveKit && (_followRoom || lay['locked'] == true);
     var layout = _layout;
     var pinned = _pinned;
     // "Chỉ cho lên sân khấu người chỉ định": chỉ màn hình / bài trình chiếu / camera của ngôi sao lên khung lớn.
-    final starIds = following && (call.roomLayout['mode'] == 'stars' || call.roomLayout['mode'] == 'pin') ? call.roomStars : null;
+    final starIds = following && (lay['mode'] == 'stars' || lay['mode'] == 'pin') ? call.roomStars : null;
     if (following) {
-      final mode = call.roomLayout['mode'];
+      final mode = lay['mode'];
       layout = mode == 'grid' ? MeetLayout.grid : MeetLayout.auto;
       pinned = null;
     }
@@ -807,7 +829,7 @@ class _CallScreenState extends State<CallScreen> {
     _screenSeen.removeWhere((k, _) => !keys.contains(k));
     final screens = [
       for (final t in tiles)
-        if (t.screen && t.key != _dismissedScreen && (starIds == null || starIds.contains(t.userId))) t
+        if (t.screen && t.key != 'present' && t.key != _dismissedScreen && (starIds == null || starIds.contains(t.userId))) t
     ]
       ..sort((a, b) => (_screenSeen[b.key] ?? 0).compareTo(_screenSeen[a.key] ?? 0));
     final star = _room?.star;
@@ -834,11 +856,14 @@ class _CallScreenState extends State<CallScreen> {
     final presOn = pres != null &&
         pinned == null &&
         layout != MeetLayout.grid &&
-        (call.roomLayout['mode'] == 'present' || screens.isEmpty || ((pres['at'] as num?)?.toInt() ?? 0) >= newestScreenAt);
+        (lay['mode'] == 'present' || screens.isEmpty || ((pres['at'] as num?)?.toInt() ?? 0) >= newestScreenAt);
+    if (presOn && _dismissedScreen != 'present') spot = 'present';
     // Chế độ ngôi sao, không ngôi sao nào đang trình chiếu: camera của ngôi sao đầu tiên lên khung lớn.
     if (starIds != null && starIds.isNotEmpty && !presOn && screens.isEmpty && pinned == null) {
       spot = tiles.where((t) => !t.screen && starIds.contains(t.userId)).firstOrNull?.key ?? spot;
     }
+    // Phạm vi app không buộc toàn màn hình: khung lớn kèm dải người; bấm khung lớn để phóng to / thu lại.
+    if (spot == null) _stageFull = false;
     final room = _room;
     final staged = room != null && (room.stage != null || room.webUrl != null);
     final show = _controls;
@@ -855,15 +880,11 @@ class _CallScreenState extends State<CallScreen> {
                   duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOut,
                   padding: EdgeInsets.fromLTRB(8, show ? 60 : 8, 8, show ? 88 : 8),
-                  child: presOn
-                      ? MeetPresentView(call: call)
-                      : staged
+                  child: staged
                       ? MeetStage(room: room)
-                      // Màn hình chia sẻ đang lên khung lớn (bố cục tự động): phủ kín khung như trang TV.
                       : LayoutBuilder(
-                          builder: (context, box) => _stage(tiles, spot, box, call,
-                              onlyMain: layout == MeetLayout.spotlight ||
-                                  (layout == MeetLayout.auto && tiles.any((t) => t.key == spot && t.screen)))),
+                          builder: (context, box) =>
+                              _stage(tiles, spot, box, call, onlyMain: layout == MeetLayout.spotlight || (_stageFull && spot != null))),
                 ),
               ),
             ),
@@ -2257,6 +2278,8 @@ class _TileData {
   final bool raisedHand;
   /// Chất lượng mạng của người này (LiveKit), '' = không hiện.
   final String quality;
+  /// Ô không phải video (vd. bài trình chiếu tài liệu): [compact] = ô nhỏ trong dải.
+  final Widget Function(bool compact)? custom;
   const _TileData({
     required this.key,
     required this.userId,
@@ -2269,6 +2292,7 @@ class _TileData {
     this.screen = false,
     this.raisedHand = false,
     this.quality = '',
+    this.custom,
   });
 }
 
@@ -2298,7 +2322,9 @@ class _Tile extends StatelessWidget {
             builder: (context, box) => Stack(
               fit: StackFit.expand,
               children: [
-                if (d.stream != null)
+                if (d.custom != null)
+                  d.custom!(small)
+                else if (d.stream != null)
                   CallVideo(stream: d.stream!, trackId: d.trackId, mirror: d.mirror, contain: d.screen)
                 else
                   Center(

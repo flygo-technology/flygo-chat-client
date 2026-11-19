@@ -234,8 +234,15 @@ class CallService extends ChangeNotifier {
       _meetPost('roles', {'host': ?host, 'cohosts': ?cohosts});
   /// Bố cục cho cả phòng (chủ trì / phó phòng).
   /// [stars]: danh sách ngôi sao mới (đặt ngôi sao đầu tiên tự chuyển sang "chỉ ngôi sao", bỏ hết thì về chế độ trước).
-  Future<String?> setRoomLayout({String? mode, List<String>? stars, bool? locked}) =>
-      _meetPost('layout', {'mode': ?mode, 'stars': ?stars, 'locked': ?locked});
+  Future<String?> setRoomLayout({String? mode, List<String>? stars, bool? locked, String scope = 'app', Map<String, dynamic>? app, Map<String, dynamic>? tv}) =>
+      _meetPost('layout', {'scope': scope, 'mode': ?mode, 'stars': ?stars, 'locked': ?locked, 'app': ?app, 'tv': ?tv});
+
+  /// Bố cục của phạm vi "app" (app + khách web); máy chủ cũ chưa tách thì là bố cục chung.
+  Map<String, dynamic> get appLayout =>
+      roomLayout['app'] is Map ? (roomLayout['app'] as Map).cast<String, dynamic>() : roomLayout;
+  /// Bố cục của phạm vi "tv" (TV / thiết bị QR / màn hình hello).
+  Map<String, dynamic> get tvLayout =>
+      roomLayout['tv'] is Map ? (roomLayout['tv'] as Map).cast<String, dynamic>() : const {'mode': 'content', 'locked': false};
 
   /// Ngôi sao của cuộc họp (chủ trì / phó phòng chọn).
   List<String> get roomStars => [for (final x in (roomLayout['stars'] as List? ?? const [])) '$x'];

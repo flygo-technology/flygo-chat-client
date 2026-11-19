@@ -10,18 +10,28 @@ import '../../state/app_state.dart';
 //   speaker = Tự động đưa lên sân khấu người trình chiếu (mặc định) · stars = Chỉ cho lên sân khấu người chỉ định ·
 //   grid = Lưới. Đặt ngôi sao đầu tiên tự chuyển sang "chỉ người chỉ định" và chỉ ngôi sao được trình chiếu.
 
-class MeetStageSection extends StatelessWidget {
+class MeetStageSection extends StatefulWidget {
   final CallService call;
   const MeetStageSection({super.key, required this.call});
+  @override
+  State<MeetStageSection> createState() => _MeetStageSectionState();
+}
+
+class _MeetStageSectionState extends State<MeetStageSection> {
+  /// Phạm vi đang chỉnh: tv = màn hình phòng (TV / QR / hello), app = ứng dụng & khách.
+  String _scope = 'tv';
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final call = widget.call;
     return ListenableBuilder(
       listenable: call,
       builder: (context, _) {
-        final mode = '${call.roomLayout['mode'] ?? 'speaker'}';
-        final locked = call.roomLayout['locked'] == true;
+        final tv = _scope == 'tv';
+        final lay = tv ? call.tvLayout : call.appLayout;
+        final mode = '${lay['mode'] ?? (tv ? 'content' : 'speaker')}';
+        final locked = lay['locked'] == true;
         final stars = call.roomStars;
         Future<void> run(Future<String?> f) async {
           final messenger = ScaffoldMessenger.maybeOf(context);
@@ -42,9 +52,19 @@ class MeetStageSection extends StatelessWidget {
 
         return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Padding(
-            padding: const EdgeInsets.only(top: 6, bottom: 2),
+            padding: const EdgeInsets.only(top: 6, bottom: 6),
             child: Text(tr('SÂN KHẤU (CHỌN MỘT)'), style: const TextStyle(color: Color(0xFF9AA0A6), fontSize: 12, fontWeight: FontWeight.w600)),
           ),
+          // TV có thể chiếu kín màn hình; app / khách không phải lúc nào cũng muốn toàn màn hình: chỉnh riêng từng nơi.
+          SegmentedButton<String>(
+            segments: [
+              ButtonSegment(value: 'tv', icon: const Icon(Icons.tv_rounded, size: 18), label: Text(tr('Màn hình phòng'))),
+              ButtonSegment(value: 'app', icon: const Icon(Icons.phone_iphone_rounded, size: 18), label: Text(tr('Ứng dụng & khách'))),
+            ],
+            selected: {_scope},
+            onSelectionChanged: (v) => setState(() => _scope = v.first),
+          ),
+          const SizedBox(height: 4),
           RadioGroup<String>(
             groupValue: mode == 'pin' ? 'stars' : mode,
             onChanged: (v) {
@@ -56,13 +76,18 @@ class MeetStageSection extends StatelessWidget {
                 });
                 return;
               }
-              run(call.setRoomLayout(mode: v));
+              run(call.setRoomLayout(scope: _scope, mode: v));
             },
             child: Column(children: [
-              opt('speaker', tr('Tự động đưa lên sân khấu người trình chiếu (mặc định)'),
-                  tr('Ai chia sẻ màn hình / trình chiếu tài liệu thì lên đầu (mới nhất trước)')),
+              if (tv) ...[
+                opt('content', tr('Chỉ chiếu nội dung (mặc định)'),
+                    tr('Màn hình chia sẻ / tài liệu / ngôi sao kín màn hình, không hiện ô người; không ai trình chiếu thì người đang nói')),
+                opt('speaker', tr('Tự đưa người trình chiếu lên'), tr('Khung lớn kèm dải người')),
+              ] else
+                opt('speaker', tr('Tự đưa người trình chiếu lên (mặc định)'),
+                    tr('Bài trình chiếu ở khung lớn, vẫn thấy dải người; mỗi người bấm để phóng to')),
               opt('stars', tr('Chỉ cho lên sân khấu người chỉ định'), tr('Chỉ ngôi sao lên sân khấu; người khác ở dải dưới, kể cả khi chia sẻ màn hình')),
-              opt('grid', tr('Lưới'), tr('Mọi người bằng nhau')),
+              opt('grid', tr('Lưới'), tv ? tr('Mọi người bằng nhau') : tr('Mọi người bằng nhau, bài trình chiếu là một ô')),
             ]),
           ),
           Padding(
@@ -93,9 +118,17 @@ class MeetStageSection extends StatelessWidget {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: locked,
-            onChanged: (v) => run(call.setRoomLayout(locked: v)),
-            title: Text(tr('Khoá bố cục'), style: const TextStyle(color: Colors.white)),
-            subtitle: Text(tr('Mọi người không tự đổi cách xem trên máy mình'), style: const TextStyle(color: Color(0xFF9AA0A6), fontSize: 12.5)),
+            onChanged: (v) => run(call.setRoomLayout(scope: _scope, locked: v)),
+            title: Text(tv ? tr('Khoá bố cục màn hình phòng') : tr('Khoá bố cục ứng dụng & khách'), style: const TextStyle(color: Colors.white)),
+            subtitle: Text(tr('Không tự đổi cách xem trên máy'), style: const TextStyle(color: Color(0xFF9AA0A6), fontSize: 12.5)),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+              label: Text(tr('TV chỉ chiếu nội dung, app hiện mọi người')),
+              onPressed: () => run(call.setRoomLayout(stars: const [], tv: {'mode': 'content'}, app: {'mode': 'speaker'})),
+            ),
           ),
         ]);
       },

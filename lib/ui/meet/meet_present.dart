@@ -187,7 +187,9 @@ Future<File> _pdfFile(MeetPresentation p, String token) => _pdfCache.putIfAbsent
 class MeetPresentView extends StatefulWidget {
   final CallService call;
   final bool fullscreen;
-  const MeetPresentView({super.key, required this.call, this.fullscreen = false});
+  /// Ô nhỏ (dải người / lưới): chỉ hiện trang, không có nút.
+  final bool compact;
+  const MeetPresentView({super.key, required this.call, this.fullscreen = false, this.compact = false});
   @override
   State<MeetPresentView> createState() => _MeetPresentViewState();
 }
@@ -312,12 +314,14 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                         ),
                       ),
                     ),
+                  if (widget.compact) const SizedBox.shrink() else
                   // Tên bài, người trình chiếu, trang.
                   Positioned(
                     left: 10,
                     top: 10,
                     child: _chip('📄 ${p.name} · ${p.byName} · $page/$n'),
                   ),
+                  if (!widget.compact)
                   Positioned(
                     left: 0,
                     right: 0,
