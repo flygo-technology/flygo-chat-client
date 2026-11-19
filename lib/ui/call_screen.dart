@@ -16,6 +16,7 @@ import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
 import 'meet/extras/controls.dart';
+import 'meet/extras/network.dart' show MeetSignalBadge;
 import 'meet/meet_present.dart';
 import 'app_route.dart';
 import 'chat_page.dart' show ChatPage;
@@ -767,6 +768,7 @@ class _CallScreenState extends State<CallScreen> {
         muted: !p.unmuted,
         speaking: p.speaking && p.unmuted,
         raisedHand: p.raisedHand,
+        quality: p.quality,
       ));
     }
     final me = _TileData(
@@ -2100,6 +2102,7 @@ class _CallScreenState extends State<CallScreen> {
       required bool video,
       bool screen = false,
       bool hand = false,
+      String quality = '',
     }) =>
         ListTile(
           leading: _Face(userId: userId, name: name, size: 40),
@@ -2112,6 +2115,7 @@ class _CallScreenState extends State<CallScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (quality.isNotEmpty) Padding(padding: const EdgeInsets.only(right: 8), child: MeetSignalBadge(quality: quality, size: 14)),
               if (hand) Padding(padding: const EdgeInsets.only(right: 10), child: MeetHandBadge(order: userId == null ? null : meetHandOrder(call, userId), size: 20)),
               if (screen) const Padding(padding: EdgeInsets.only(right: 10), child: Icon(Icons.present_to_all, color: _blue, size: 20)),
               Icon(video ? Icons.videocam : Icons.videocam_off, color: video ? Colors.white : _grey, size: 20),
@@ -2176,6 +2180,7 @@ class _CallScreenState extends State<CallScreen> {
           video: p.video,
           screen: p.screen,
           hand: p.raisedHand,
+          quality: p.quality,
         ),
       // Gọi nhóm: thành viên chưa vào (kiểu WhatsApp: "Đang gọi…" / "Chưa tham gia").
       if (call.groupCall)
@@ -2249,6 +2254,8 @@ class _TileData {
   final bool speaking;
   final bool screen;
   final bool raisedHand;
+  /// Chất lượng mạng của người này (LiveKit), '' = không hiện.
+  final String quality;
   const _TileData({
     required this.key,
     required this.userId,
@@ -2260,6 +2267,7 @@ class _TileData {
     this.speaking = false,
     this.screen = false,
     this.raisedHand = false,
+    this.quality = '',
   });
 }
 
@@ -2341,12 +2349,13 @@ class _Tile extends StatelessWidget {
                       child: const Icon(Icons.graphic_eq, color: Colors.white, size: 14),
                     ),
                   ),
-                if (pinned || d.raisedHand)
+                if (pinned || d.raisedHand || d.quality.isNotEmpty)
                   Positioned(
                     top: 6,
                     left: 6,
                     child: Row(
                       children: [
+                        MeetSignalBadge(quality: d.quality, size: 14),
                         if (pinned) const Icon(Icons.push_pin, color: Colors.white, size: 18),
                         if (d.raisedHand) MeetHandBadge(order: d.userId == null ? null : meetHandOrder(context.read<AppState>().calls, d.userId!), size: 18),
                       ],
