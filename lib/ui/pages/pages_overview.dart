@@ -9,6 +9,7 @@ import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../common.dart' show Avatar;
 import '../meet/meet_home.dart' show meetToast;
+import 'page_thumb.dart';
 import 'page_types.dart';
 import 'pages_api.dart';
 import 'pages_sheet.dart' show fmtLeft;
@@ -245,24 +246,21 @@ class _PagesOverviewState extends State<PagesOverview> {
         ),
         SizedBox(
           height: h,
-          child: ListView(
+          // Dựng dần khi cuộn: chỉ thẻ đang hiện mới tải ảnh xem trước.
+          child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.symmetric(horizontal: pad),
-            children: [
-              for (final p in r.pages) _card(p, mine: mine, wide: wide),
-              if (!mine && private > 0 && host) _privateCard(private, wide),
-              if (mine) _addCard(wide),
-            ],
+            itemCount: r.pages.length + ((!mine && private > 0 && host) || mine ? 1 : 0),
+            itemBuilder: (context, i) => i < r.pages.length
+                ? KeyedSubtree(key: ValueKey(r.pages[i].id), child: _card(r.pages[i], mine: mine, wide: wide))
+                : mine
+                    ? _addCard(wide)
+                    : _privateCard(private, wide),
           ),
         ),
       ]),
     );
   }
-
-  Widget _thumb(PageTypeSpec? s, {required Widget child}) => Container(
-        decoration: BoxDecoration(color: (s?.color ?? Colors.grey).withValues(alpha: .28)),
-        child: child,
-      );
 
   Widget _badge(String t) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 5),
@@ -293,15 +291,31 @@ class _PagesOverviewState extends State<PagesOverview> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               AspectRatio(
                 aspectRatio: 16 / 9,
-                child: _thumb(
-                  s,
-                  child: Stack(children: [
-                    Center(child: Icon(s?.icon ?? Icons.help_outline, color: s?.color ?? Colors.grey, size: wide ? 30 : 22)),
-                    if (mine) Positioned(left: 4, top: 4, child: Icon(p.public ? Icons.public_rounded : Icons.lock_rounded, size: 13, color: Colors.white70)),
-                    if (live && pr != null && pr['page_id'] == p.id) Positioned(left: 4, bottom: 3, child: _badge('${pr['page']}/${pr['pages']}')),
-                    if (p.seconds > 0) Positioned(right: 4, bottom: 3, child: _badge(fmtLeft(p.seconds * 1000))),
-                  ]),
-                ),
+                child: Stack(fit: StackFit.expand, children: [
+                  PageThumb(call: call, page: p),
+                  // Loại trang (góc trái), công khai / riêng của mình (góc phải), trang đang chiếu, thời lượng.
+                  Positioned(
+                    left: 4,
+                    top: 4,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(6)),
+                      child: Icon(s?.icon ?? Icons.help_outline, color: s?.color ?? Colors.grey, size: 12),
+                    ),
+                  ),
+                  if (mine)
+                    Positioned(
+                      right: 4,
+                      top: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(6)),
+                        child: Icon(p.public ? Icons.public_rounded : Icons.lock_rounded, size: 12, color: Colors.white70),
+                      ),
+                    ),
+                  if (live && pr != null && pr['page_id'] == p.id) Positioned(left: 4, bottom: 3, child: _badge('${pr['page']}/${pr['pages']}')),
+                  if (p.seconds > 0) Positioned(right: 4, bottom: 3, child: _badge(fmtLeft(p.seconds * 1000))),
+                ]),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(7, 5, 7, 0),
