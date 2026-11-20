@@ -1,7 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
+
+import '../../../state/app_state.dart';
+import '../system_pages.dart' show pageBackground, pageBackgrounds;
 
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
@@ -81,10 +86,7 @@ void registerBuiltinPageTypes() {
     color: const Color(0xFF0E9F8E),
     create: (context, call) async => PageDraft(title: tr('Chào mừng'), content: {'heading': call.meetingInfo?.title ?? tr('Chào mừng'), 'subtitle': ''}),
     view: (context, ctx) => _Welcome(ctx),
-    editor: (context, ctx) => Column(children: [
-      PageContentField(ctx, 'heading', tr('Dòng chữ lớn')),
-      PageContentField(ctx, 'subtitle', tr('Lời chào / ghi chú'), maxLines: 3),
-    ]),
+    editor: (context, ctx) => _WelcomeEditor(ctx),
   ));
   registerPageType(PageTypeSpec(
     type: 'video',
@@ -137,14 +139,82 @@ void registerBuiltinPageTypes() {
 }
 
 // ------------------------------------------------------------------ Chào mừng
-class _Welcome extends StatelessWidget {
+// content: heading, subtitle (mô tả), icon, bg (màu / chuyển màu có sẵn), bg_image, show_online, countdown, countdown_to (ms; 0 =
+// giờ bắt đầu cuộc họp), music (đường dẫn), music_volume (0..100), music_devices (phát cả trên máy cá nhân; mặc định chỉ TV).
+class _Welcome extends StatefulWidget {
   final PageCtx ctx;
   const _Welcome(this.ctx);
   @override
+  State<_Welcome> createState() => _WelcomeState();
+}
+
+class _WelcomeState extends State<_Welcome> {
+  Timer? _tick;
+  AudioPlayer? _player;
+  String _playing = '';
+
+  Map<String, dynamic> get c => widget.ctx.page.content;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+      _music();
+    });
+    _music();
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  /// Nhạc nền: chỉ khi trang đang trên sân khấu và cho phát trên máy cá nhân; nhỏ lại khi có người nói (tiếng họp không bị át).
+  void _music() {
+    final url = '${c['music'] ?? ''}';
+    final want = widget.ctx.onStage && c['music_devices'] == true && url.startsWith('http');
+    if (!want) {
+      if (_playing.isNotEmpty) {
+        _player?.stop();
+        _playing = '';
+      }
+      return;
+    }
+    final p = _player ??= AudioPlayer()..setReleaseMode(ReleaseMode.loop);
+    if (_playing != url) {
+      _playing = url;
+      p.play(UrlSource(url)).catchError((_) {});
+    }
+    final vol = (((c['music_volume'] as num?)?.toDouble() ?? 40) / 100).clamp(0.0, 1.0);
+    final talking = widget.ctx.call.participants.any((x) => x.speaking && x.unmuted) || (!widget.ctx.call.muted && widget.ctx.call.participants.isEmpty);
+    p.setVolume(talking ? vol * .25 : vol).catchError((_) {});
+  }
+
+  String _left() {
+    int to = (c['countdown_to'] as num?)?.toInt() ?? 0;
+    if (to == 0) to = (widget.ctx.call.roomMeeting['start'] as num?)?.toInt() ?? 0;
+    final ms = to - DateTime.now().millisecondsSinceEpoch;
+    if (ms <= 0) return '';
+    final s = (ms / 1000).ceil(), h = s ~/ 3600;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return h > 0 ? '$h:${two(s ~/ 60 % 60)}:${two(s % 60)}' : '${two(s ~/ 60)}:${two(s % 60)}';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final c = ctx.page.content;
+    final bg = '${c['bg'] ?? ''}';
+    final light = bg == '#F7F8FA';
+    final fg = light ? const Color(0xFF1B2430) : Colors.white;
+    final sub = light ? const Color(0xFF5C6670) : const Color(0xFFB7E4DD);
+    final left = c['countdown'] == true ? _left() : '';
+    final call = widget.ctx.call;
+    final people = c['show_online'] == true ? [tr('Bạn'), for (final p in call.participants) if (!p.userId.contains(':')) p.userId] : const <String>[];
     return Container(
-      decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF0E5C55), Color(0xFF173431)], begin: Alignment.topLeft, end: Alignment.bottomRight)),
+      decoration: pageBackground(bg, '${c['bg_image'] ?? ''}'),
       alignment: Alignment.center,
       padding: const EdgeInsets.all(24),
       child: FittedBox(
@@ -152,15 +222,117 @@ class _Welcome extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('${c['heading'] ?? ctx.page.title}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w700)),
+            if ('${c['icon'] ?? ''}'.isNotEmpty) Text('${c['icon']}', style: const TextStyle(fontSize: 64)),
+            Text('${c['heading'] ?? widget.ctx.page.title}', textAlign: TextAlign.center, style: TextStyle(color: fg, fontSize: 40, fontWeight: FontWeight.w700)),
             if ('${c['subtitle'] ?? ''}'.isNotEmpty) ...[
               const SizedBox(height: 14),
-              Text('${c['subtitle']}', textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFB7E4DD), fontSize: 20)),
+              Text('${c['subtitle']}', textAlign: TextAlign.center, style: TextStyle(color: sub, fontSize: 20)),
+            ],
+            if (left.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              Text(tr('Bắt đầu sau'), style: TextStyle(color: sub, fontSize: 16)),
+              Text(left, style: TextStyle(color: fg, fontSize: 56, fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
+            ],
+            if (people.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              Text(tr('{0} người đã vào', [people.length]), style: TextStyle(color: sub, fontSize: 15)),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 700),
+                child: Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+                  for (final id in people.take(24))
+                    Chip(
+                      backgroundColor: Colors.black26,
+                      side: BorderSide.none,
+                      label: Text(id == tr('Bạn') ? id : _nameOf(context, id), style: TextStyle(color: fg, fontSize: 13)),
+                    ),
+                ]),
+              ),
             ],
           ]),
         ),
       ),
     );
+  }
+
+  String _nameOf(BuildContext context, String uid) {
+    final n = context.read<AppState>().users[uid]?.displayName ?? '';
+    return n.isEmpty ? tr('Người tham gia') : n;
+  }
+}
+
+/// Trình soạn trang Chào mừng (xem trước ở trên, trong bảng soạn trang).
+class _WelcomeEditor extends StatelessWidget {
+  final PageCtx ctx;
+  const _WelcomeEditor(this.ctx);
+
+  Future<void> _set(BuildContext context, Map<String, dynamic> v) async {
+    try {
+      await ctx.api.patch(ctx.page.id, {'content': {...ctx.page.content, ...v}});
+      await ctx.reload();
+    } catch (e) {
+      if (context.mounted) meetToast(context, '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ctx.page.content;
+    Widget sw(String k, String label, {String? sub}) => SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: c[k] == true,
+          title: Text(label, style: const TextStyle(color: Colors.white)),
+          subtitle: sub == null ? null : Text(sub, style: const TextStyle(color: _sub, fontSize: 12)),
+          onChanged: (v) => _set(context, {k: v}),
+        );
+    final vol = ((c['music_volume'] as num?)?.toDouble() ?? 40).clamp(0.0, 100.0);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      PageContentField(ctx, 'heading', tr('Dòng chữ lớn trên màn hình')),
+      PageContentField(ctx, 'subtitle', tr('Mô tả'), maxLines: 3),
+      Row(children: [
+        SizedBox(width: 110, child: PageContentField(ctx, 'icon', tr('Biểu tượng'))),
+        const SizedBox(width: 8),
+        Expanded(child: PageContentField(ctx, 'bg_image', tr('Ảnh nền (đường dẫn)'))),
+      ]),
+      Text(tr('Màu nền'), style: const TextStyle(color: _sub, fontSize: 12.5)),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final e in pageBackgrounds.entries)
+          InkWell(
+            onTap: () => _set(context, {'bg': e.key}),
+            child: Container(
+              width: 44,
+              height: 30,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: e.value),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: c['bg'] == e.key ? Colors.white : Colors.white24, width: c['bg'] == e.key ? 2 : 1),
+              ),
+            ),
+          ),
+      ]),
+      const SizedBox(height: 6),
+      sw('show_online', tr('Hiện danh sách người đã vào')),
+      sw('countdown', tr('Đếm ngược'), sub: tr('Tới giờ bắt đầu cuộc họp')),
+      const Divider(color: Colors.white12),
+      PageContentField(ctx, 'music', tr('Nhạc nền (đường dẫn mp3, tuỳ chọn)')),
+      Row(children: [
+        const Icon(Icons.volume_down_rounded, color: _sub, size: 20),
+        Expanded(
+          child: Slider(
+            value: vol,
+            max: 100,
+            divisions: 20,
+            label: '${vol.round()}%',
+            onChanged: (_) {},
+            onChangeEnd: (v) => _set(context, {'music_volume': v.round()}),
+          ),
+        ),
+        Text('${vol.round()}%', style: const TextStyle(color: _sub)),
+      ]),
+      sw('music_devices', tr('Phát nhạc cả trên máy của mọi người'), sub: tr('Mặc định chỉ phát trên TV / màn hình phòng; nhạc nhỏ lại khi có người nói')),
+    ]);
   }
 }
 
@@ -175,10 +347,13 @@ class _Video extends StatefulWidget {
 class _VideoState extends State<_Video> {
   VideoPlayerController? _v;
   String? _err;
+  /// Kiểm lại mỗi giây: theo vị trí chung, nhỏ tiếng khi có người nói.
+  Timer? _tick;
 
   @override
   void initState() {
     super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => _sync());
     final url = '${widget.ctx.page.content['url'] ?? ''}';
     if (url.isEmpty) return;
     _v = VideoPlayerController.networkUrl(Uri.parse(url))
@@ -208,10 +383,14 @@ class _VideoState extends State<_Video> {
     if ((cur - want).abs() > 1.5) v.seekTo(Duration(milliseconds: (want * 1000).round()));
     if (playing && !v.value.isPlaying) v.play();
     if (!playing && v.value.isPlaying) v.pause();
+    // Tiếng video nhỏ lại khi có người nói: tiếng họp luôn nghe rõ.
+    final talking = widget.ctx.call.participants.any((x) => x.speaking && x.unmuted);
+    v.setVolume(talking ? .25 : 1);
   }
 
   @override
   void dispose() {
+    _tick?.cancel();
     _v?.dispose();
     super.dispose();
   }

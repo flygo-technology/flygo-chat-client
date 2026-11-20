@@ -326,4 +326,60 @@ void main() {
       CallScreen.debugRoom = null;
     });
   }
+
+  testWidgets('trang hệ thống: hàng Hệ thống, Chờ lượt trình chiếu, Chào mừng nhiều tuỳ chọn', (t) async {
+    debugIsDesktop = true;
+    MeetPanelPrefs.debugSet(width: 460, tab: 'pages');
+    CallScreen.debugRoom = (_) => _room();
+    await http.runWithClient(() async {
+      final app = _app();
+      app.calls.roomStage = {
+        ...app.calls.roomStage!,
+        'presenter': 'kim', 'presenter_name': 'Mai Kim', 'queue': [{'id': 'minh', 'name': 'Lê Minh'}],
+        'page': 'sys:handover', 'page_type': 'system', 'page_title': 'Chờ lượt trình chiếu', 'ends_at': _now + 9000,
+        'handover': {'name': 'Mai Kim', 'uid': 'kim', 'pages': 2, 'seconds': 480, 'next': 'Lê Minh'},
+        'handover_cfg': {'title': 'Mời {name} trình bày', 'desc': 'Hợp đồng và báo giá tháng 11', 'icon': '🎤', 'bg': 'linear-gradient(135deg,#1A3A6B,#101826)', 'show_avatar': true, 'show_pages': true, 'show_next': true, 'auto_seconds': 10},
+      };
+      _pages.firstWhere((p) => p['id'] == 'p6')['content'] = {
+        'heading': 'Giao ban tháng 12', 'subtitle': 'Chào mừng mọi người, 9:00 bắt đầu', 'icon': '☕', 'bg': 'linear-gradient(135deg,#5B2A86,#1C1230)',
+        'show_online': true, 'countdown': true, 'countdown_to': _now + 754000,
+      };
+      t.view.physicalSize = const Size(1440, 900);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.dark),
+          builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+          home: const CallScreen(),
+        ),
+      ));
+      Future<void> settle() async {
+        for (var i = 0; i < 8; i++) {
+          await t.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      await settle();
+      expect(find.text('Hệ thống'), findsOneWidget);
+      expect(find.textContaining('Mời Mai Kim trình bày'), findsOneWidget);
+      await snap(t, 's1-he-thong-cho-luot');
+      await t.tap(find.byTooltip('Chỉnh màn hình chờ lượt').first);
+      await settle();
+      await snap(t, 's2-chinh-cho-luot');
+      Navigator.of(t.element(find.text('Tự sang trang đầu của người trình bày'))).pop();
+      await settle();
+      await t.tap(find.text('Chào mừng').last);
+      await settle();
+      expect(find.text('Đếm ngược'), findsOneWidget);
+      await snap(t, 's3-chao-mung');
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 3));
+      app.calls.debugMeeting(_ch, const []);
+    }, () => _relay(host: true));
+    debugIsDesktop = null;
+    CallScreen.debugRoom = null;
+  });
 }

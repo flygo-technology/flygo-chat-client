@@ -106,6 +106,11 @@ class _CallScreenState extends State<CallScreen> {
   _MeetPanel _panel = _MeetPanel.none;
   /// Độ rộng panel bên phải (kéo mép trái để đổi; nhớ qua các lần họp, xem meet_panel_prefs.dart).
   double _panelW = MeetPanelPrefs.width;
+  /// Trang hệ thống "Video tự động": người đang nói đang lên lớn và lúc lên (giữ ít nhất 3 giây, không nhảy liên tục).
+  String? _sysSpeaker;
+  int _sysSpeakerAt = 0;
+  /// Lúc từng ô bắt đầu có hình (trang "Chủ phòng": ai mới bật camera đứng đầu dải).
+  final Map<String, int> _camOnAt = {};
   /// Bề rộng thật của màn họp (có thể nhỏ hơn cửa sổ khi app có thanh bên).
   double _screenW = 0;
   /// Bề rộng thanh nút (vùng họp bên trái panel), ghi lại khi dựng thanh nút; quyết định một hay hai hàng nút.
@@ -946,6 +951,39 @@ class _CallScreenState extends State<CallScreen> {
     // Chế độ ngôi sao, không ngôi sao nào đang trình chiếu: camera của ngôi sao đầu tiên lên khung lớn.
     if (starIds != null && starIds.isNotEmpty && !presOn && screens.isEmpty && pinned == null) {
       spot = tiles.where((t) => !t.screen && starIds.contains(t.userId)).firstOrNull?.key ?? spot;
+    }
+    // Trang hệ thống trên sân khấu (Họp mới): lưới video / người đang nói / chủ phòng, thay cho "Đổi bố cục".
+    final sysp = '${call.roomStage?['page'] ?? ''}';
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    for (final t in tiles) {
+      if (t.stream != null && !t.screen) {
+        _camOnAt.putIfAbsent(t.key, () => nowMs);
+      } else {
+        _camOnAt.remove(t.key);
+      }
+    }
+    if (call.meeting && sysp.startsWith('sys:') && sysp != 'sys:handover' && _pinned == null) {
+      final video = [for (final t in tiles) if (!t.screen && t.custom == null && t.stream != null) t];
+      switch (sysp) {
+        case 'sys:grid':
+          layout = MeetLayout.grid;
+          spot = null;
+          if (video.isNotEmpty) tiles.removeWhere((t) => !t.screen && t.custom == null && t.stream == null);
+        case 'sys:auto':
+          final talk = video.where((t) => t.speaking && t.key != 'me').firstOrNull;
+          if (talk != null && talk.key != _sysSpeaker && nowMs - _sysSpeakerAt > 3000) {
+            _sysSpeaker = talk.key;
+            _sysSpeakerAt = nowMs;
+          }
+          if (!video.any((t) => t.key == _sysSpeaker)) _sysSpeaker = video.where((t) => t.key != 'me').firstOrNull?.key ?? video.firstOrNull?.key;
+          layout = MeetLayout.auto;
+          spot = _sysSpeaker;
+        case 'sys:host':
+          spot = (video.where((t) => t.userId == call.roomHost).firstOrNull ?? video.firstOrNull)?.key;
+          layout = MeetLayout.auto;
+          // Dải bên dưới: ai mới bật camera đứng đầu.
+          tiles.sort((a, b) => (_camOnAt[b.key] ?? 0).compareTo(_camOnAt[a.key] ?? 0));
+      }
     }
     // Phạm vi app không buộc toàn màn hình: khung lớn kèm dải người; bấm khung lớn để phóng to / thu lại.
     if (spot == null) _stageFull = false;
