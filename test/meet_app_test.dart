@@ -12,9 +12,11 @@ import 'package:flygo_chat/calls/call_service.dart';
 import 'package:flygo_chat/calls/meet_room.dart';
 import 'package:flygo_chat/calls/meet_rooms.dart';
 import 'package:flygo_chat/config.dart';
+import 'package:flygo_chat/data/local_store.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
+import 'package:flygo_chat/ui/chat_page.dart' show ChatPage;
 import 'package:flygo_chat/ui/desk_tabs.dart';
 import 'package:flygo_chat/ui/meet/meet_home.dart';
 import 'package:flygo_chat/ui/meet/meet_lobby.dart';
@@ -100,6 +102,7 @@ void main() {
 
   setUpAll(() async {
     await _fonts();
+    app.debugSetStore(await LocalStore.memory('meet-app-test'));
     // Phòng họp phát âm thanh qua audioplayers: kiểm thử không có plugin.
     for (final ch in ['xyz.luan/audioplayers', 'xyz.luan/audioplayers.global', 'xyz.luan/audioplayers.global/events']) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(MethodChannel(ch), (_) async => null);
@@ -489,7 +492,8 @@ void main() {
       // Tin nhắn trong cuộc họp.
       await t.tap(find.byTooltip('Tin nhắn trong cuộc họp'));
       await t.pump(const Duration(milliseconds: 300));
-      expect(find.text('Gửi tin nhắn cho mọi người'), findsOneWidget);
+      // Tab Chat là trang chat của nhóm cuộc họp (lịch sử + ô nhắn), nhúng ở cột phải.
+      expect(find.byType(ChatPage), findsOneWidget);
       // Cài đặt: hai tab Thành viên / Màn hình; Mời thành viên mở lời mời (mã, liên kết, liên kết xem cho khách).
       await t.tap(find.byTooltip('Cài đặt'));
       await t.pump(const Duration(milliseconds: 300));

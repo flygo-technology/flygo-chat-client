@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/calls/call_service.dart';
 import 'package:flygo_chat/calls/meet_room.dart';
 import 'package:flygo_chat/config.dart';
+import 'package:flygo_chat/data/local_store.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
@@ -204,6 +205,8 @@ void main() {
     }
     await http.runWithClient(() async {
       final app = _app();
+      // Tab Chat nhúng trang chat thật: cần kho tin trên máy (trong bộ nhớ khi test).
+      await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('panel-chat')));
       t.view.physicalSize = const Size(1440, 900);
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.reset);
@@ -240,7 +243,7 @@ void main() {
 
       await t.tap(find.byTooltip('Thành viên').first);
       await settle();
-      expect(find.text('LƯỢT TRÌNH CHIẾU'), findsOneWidget);
+      expect(find.textContaining('TRONG CUỘC HỌP'), findsOneWidget);
       await snap(t, 'd4-tab-thanh-vien');
 
       await t.tap(find.byTooltip('Cài đặt'));
@@ -287,7 +290,7 @@ void main() {
         await t.tap(find.byTooltip('Cài đặt'));
         await settle();
         expect(find.text('Mời thành viên'), findsOneWidget);
-        expect(find.text('Mời khách (không cần cài phần mềm)'), findsOneWidget);
+        expect(find.textContaining('Mời khách'), findsOneWidget);
         await snap(t, '$name-2-cai-dat');
         await t.tap(find.textContaining('Màn hình').last);
         await settle();
