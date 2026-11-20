@@ -301,9 +301,11 @@ class _StartDialogState extends State<_StartDialog> {
                     ? null
                     : () async {
                         setState(() => (_busy = true, _error = null));
+                        final nav = Navigator.of(context);
                         try {
                           final pid = await showToHelloScreen(context, widget.client, widget.open, widget.subtitle);
-                          if (mounted) pid != null ? Navigator.pop(context, pid) : setState(() => _busy = false);
+                          if (!mounted) return;
+                          pid != null ? nav.pop(pid) : setState(() => _busy = false);
                         } catch (e) {
                           if (mounted) setState(() => (_busy = false, _error = _err(e)));
                         }
