@@ -319,7 +319,8 @@ class _Agenda extends StatelessWidget {
     final cur = (ctx.view['current'] as num?)?.toInt() ?? 0;
     return Container(
       color: const Color(0xFF17191C),
-      padding: const EdgeInsets.all(20),
+      // Trên sân khấu: chừa chỗ cho dải điều khiển ở góc trên.
+      padding: EdgeInsets.fromLTRB(20, ctx.onStage ? 52 : 20, 20, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(ctx.page.title, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
         const SizedBox(height: 12),

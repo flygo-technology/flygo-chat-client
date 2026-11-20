@@ -490,17 +490,12 @@ void main() {
       await t.tap(find.byTooltip('Tin nhắn trong cuộc họp'));
       await t.pump(const Duration(milliseconds: 300));
       expect(find.text('Gửi tin nhắn cho mọi người'), findsOneWidget);
-      // Bố cục Thanh bên (Cài đặt → Bố cục, chủ trì).
+      // Cài đặt: hai tab Thành viên / Màn hình; Mời thành viên mở lời mời (mã, liên kết, liên kết xem cho khách).
       await t.tap(find.byTooltip('Cài đặt'));
       await t.pump(const Duration(milliseconds: 300));
-      await t.tap(find.text('Bố cục'));
+      expect(find.text('Màn hình'), findsOneWidget);
+      await t.tap(find.text('Mời thành viên'));
       await t.pumpAndSettle();
-      await t.tap(find.text('Thanh bên'));
-      await t.pumpAndSettle();
-      await t.pump(const Duration(milliseconds: 300));
-      await snap(t, 'd4-call-sidebar-chat');
-      // Thông tin cuộc họp: mã, link, liên kết xem.
-      // Cài đặt vẫn đang mở (từ bước Bố cục): mã, liên kết, liên kết xem cho khách.
       expect(find.text('Sao chép liên kết xem'), findsOneWidget);
       expect(find.textContaining('abc-mnop-xyz'), findsWidgets);
       await t.pump(const Duration(milliseconds: 300));
@@ -559,8 +554,8 @@ void main() {
       expect(find.textContaining('Giao ban kỹ thuật'), findsWidgets);
       await t.tap(find.byTooltip('Cài đặt'));
       await t.pumpAndSettle();
-      expect(find.text('Thêm thành viên'), findsOneWidget);
-      expect(find.text('Mời khách'), findsOneWidget);
+      expect(find.text('Mời thành viên'), findsOneWidget);
+      expect(find.text('Mời khách (không cần cài phần mềm)'), findsOneWidget);
       await t.pump(const Duration(milliseconds: 300));
       await snap(t, 'p4-call-more');
       await t.pumpWidget(const SizedBox.shrink());
