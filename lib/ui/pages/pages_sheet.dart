@@ -334,15 +334,16 @@ class _PagesPaneState extends State<PagesPane> {
               for (final (g, title) in [(0, tr('Trình bày')), (1, tr('Tương tác')), (2, tr('Ghi chép'))])
                 if (items.any((x) => x.$1 == g)) ...[
                   Padding(padding: const EdgeInsets.fromLTRB(2, 14, 2, 8), child: Text(title.toUpperCase(), style: const TextStyle(color: _sub, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: .5))),
-                  GridView.count(
-                    crossAxisCount: cols,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    mainAxisExtent: 74,
-                    children: [for (final it in items.where((x) => x.$1 == g)) tile(ctx, it)],
-                  ),
+                  // Thẻ lẻ một mình ở hàng cuối (khi không tránh được bằng số cột) trải hết hàng.
+                  Builder(builder: (_) {
+                    final list = items.where((x) => x.$1 == g).toList();
+                    final w = (box.maxWidth - 28 - 8 * (cols - 1)) / cols;
+                    final lone = list.length > cols && list.length % cols == 1;
+                    return Wrap(spacing: 8, runSpacing: 8, children: [
+                      for (final (i, it) in list.indexed)
+                        SizedBox(width: lone && i == list.length - 1 ? box.maxWidth - 28 : w, height: 74, child: tile(ctx, it)),
+                    ]);
+                  }),
                 ],
             ]),
           );
