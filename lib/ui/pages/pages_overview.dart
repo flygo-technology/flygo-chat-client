@@ -11,6 +11,7 @@ import '../common.dart' show Avatar;
 import '../meet/meet_home.dart' show meetToast;
 import 'page_thumb.dart';
 import 'page_types.dart';
+import 'system_pages.dart';
 import 'pages_api.dart';
 import 'pages_sheet.dart' show fmtLeft;
 
@@ -167,6 +168,7 @@ class _PagesOverviewState extends State<PagesOverview> {
     }..removeWhere((x) => x.isEmpty);
     const pad = 12.0;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _sysRow(wide, pad),
       if (!_loaded)
         Padding(padding: const EdgeInsets.all(24), child: Center(child: _err != null ? Text(_err!, style: const TextStyle(color: Colors.white70)) : const CircularProgressIndicator()))
       else ...[
@@ -182,6 +184,72 @@ class _PagesOverviewState extends State<PagesOverview> {
       ],
     ]);
   }
+
+  /// Hàng "Hệ thống": bố cục video của cả phòng và màn hình chờ lượt (người trình chiếu / chủ trì đưa lên sân khấu).
+  Widget _sysRow(bool wide, double pad) {
+    final st = call.roomStage ?? const {};
+    final can = st['presenter'] == call.myId() || call.canModerate || ('${st['presenter'] ?? ''}'.isEmpty && st['locked'] != true);
+    final w = wide ? 150.0 : 104.0;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(pad, 0, pad, 6),
+          child: Text(tr('Hệ thống'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+        ),
+        SizedBox(
+          height: wide ? 118 : 92,
+          child: ListView(scrollDirection: Axis.horizontal, padding: EdgeInsets.symmetric(horizontal: pad), children: [
+            for (final p in sysPages)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Material(
+                  color: _cardBg,
+                  borderRadius: BorderRadius.circular(10),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: can ? () => _toast(call.stageAct('show', {'page': p.id})) : () => meetToast(context, tr('Chỉ người trình chiếu / chủ trì chọn bố cục sân khấu')),
+                    onLongPress: p.id == 'sys:handover' && call.canModerate ? () => showHandoverEditor(context, call, canCompany: _sysAdmin) : null,
+                    onSecondaryTap: p.id == 'sys:handover' && call.canModerate ? () => showHandoverEditor(context, call, canCompany: _sysAdmin) : null,
+                    child: Container(
+                      width: w,
+                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: st['page'] == p.id ? _acc : Colors.transparent)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        Expanded(
+                          child: Container(
+                            color: p.color.withValues(alpha: .22),
+                            child: Stack(children: [
+                              Center(child: Icon(p.icon, color: p.color, size: wide ? 30 : 24)),
+                              if (p.id == 'sys:handover' && call.canModerate)
+                                Positioned(
+                                  right: 2,
+                                  top: 2,
+                                  child: IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: tr('Chỉnh màn hình chờ lượt'),
+                                    icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white70),
+                                    onPressed: () => showHandoverEditor(context, call, canCompany: _sysAdmin),
+                                  ),
+                                ),
+                            ]),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(7, 5, 7, 6),
+                          child: Text(p.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontSize: wide ? 12.5 : 11.5, fontWeight: FontWeight.w600)),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  bool get _sysAdmin => '${context.read<AppState>().me?.raw['roles'] ?? ''}'.contains('system_admin');
 
   Widget _pill(String text, Color fg, Color bg) => Container(
         margin: const EdgeInsets.only(left: 6),

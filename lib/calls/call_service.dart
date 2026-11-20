@@ -188,6 +188,8 @@ class CallService extends ChangeNotifier {
   Map<String, dynamic>? roomPresent;
   /// Sân khấu của Họp (mới) (metadata phòng `stage`: presenter, queue, page, page_type, key, mode, ends_at, paused, idle…), null = chưa có.
   Map<String, dynamic>? roomStage;
+  /// Giờ của cuộc họp (metadata `meeting`: title, start, end tính bằng ms; 0 = không đặt).
+  Map<String, dynamic> roomMeeting = const {};
   /// Bút laser của người trình chiếu: (x, y tỉ lệ 0..1 trong trang, đang bật).
   final laser = StreamController<(double, double, bool)>.broadcast();
   bool get amHost => roomHost.isNotEmpty && roomHost == myId();
@@ -227,6 +229,10 @@ class CallService extends ChangeNotifier {
         roomPresent = pr;
         changed = true;
       }
+    }
+    if (m['meeting'] is Map && jsonEncode(m['meeting']) != jsonEncode(roomMeeting)) {
+      roomMeeting = (m['meeting'] as Map).cast<String, dynamic>();
+      changed = true;
     }
     if (m.containsKey('stage') || m.containsKey('host')) {
       final st = m['stage'] is Map ? (m['stage'] as Map).cast<String, dynamic>() : null;

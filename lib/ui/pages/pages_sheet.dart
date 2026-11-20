@@ -9,6 +9,7 @@ import 'page_types.dart';
 import 'pages_api.dart';
 import '../meet/meet_present.dart' show pickPresentPdf;
 import 'pages_overview.dart';
+import 'system_pages.dart';
 import 'types/builtin.dart' show pageField;
 
 // Họp (mới): bảng kéo lên (thấp: vẫn thấy sân khấu · vừa · cao hết; kéo xuống là đóng) với "▦ Tất cả" (mỗi người một
@@ -24,7 +25,10 @@ const _acc = Color(0xFF8AB4F8);
 bool stageShowsPage(CallService call) {
   final st = call.roomStage;
   if (st == null) return false;
-  if ('${st['page'] ?? ''}'.isNotEmpty) return st['page_type'] != 'doc' || call.roomPresent?['page_id'] != st['page'];
+  final page = '${st['page'] ?? ''}';
+  // Trang hệ thống: bố cục video là của màn họp; chỉ "Chờ lượt trình chiếu" là một ô trên sân khấu.
+  if (page.startsWith('sys:')) return page == 'sys:handover';
+  if (page.isNotEmpty) return st['page_type'] != 'doc' || call.roomPresent?['page_id'] != st['page'];
   return '${st['idle_page'] ?? ''}'.isNotEmpty && call.roomPresent == null;
 }
 
@@ -66,6 +70,28 @@ class _StagePageViewState extends State<StagePageView> {
     final id = shown.isNotEmpty ? shown : '${st['idle_page'] ?? ''}';
     final key = shown.isNotEmpty ? '${st['key'] ?? ''}' : '${st['idle_key'] ?? ''}';
     if (id.isEmpty) return const SizedBox.shrink();
+    if (id == 'sys:handover') {
+      final mine = st['presenter'] == call.myId();
+      return Stack(children: [
+        Positioned.fill(child: HandoverView(stage: st)),
+        // Người được mời trình bày: bắt đầu ngay (trang đầu của mình); chủ trì chỉnh màn hình chờ.
+        if (!widget.compact && (mine || call.canModerate))
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (call.canModerate)
+                IconButton.filledTonal(
+                  tooltip: tr('Chỉnh màn hình chờ lượt'),
+                  onPressed: () => showHandoverEditor(context, call),
+                  icon: const Icon(Icons.tune_rounded),
+                ),
+              const SizedBox(width: 8),
+              if (mine) FilledButton.icon(onPressed: () => call.stageAct('next'), icon: const Icon(Icons.play_arrow_rounded), label: Text(tr('Bắt đầu trình bày'))),
+            ]),
+          ),
+      ]);
+    }
     final mine = st['presenter'] == call.myId();
     final control = shown.isNotEmpty && (mine || call.canModerate);
     final ends = (st['ends_at'] as num?)?.toInt() ?? 0;
