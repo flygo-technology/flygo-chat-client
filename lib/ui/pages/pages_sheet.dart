@@ -145,6 +145,8 @@ class _StagePageViewState extends State<StagePageView> {
                   _btn(st['paused'] == true ? Icons.play_arrow_rounded : Icons.pause_rounded, () => call.stageAct(st['paused'] == true ? 'resume' : 'pause')),
                 _btn(Icons.skip_next_rounded, () => call.stageAct('next')),
                 _btn(Icons.stop_rounded, () => call.stageAct('end')),
+                // Kết thúc lượt của mình (chủ trì: của người đang trình chiếu); tới lượt người kế tiếp.
+                _btn(Icons.logout_rounded, () => call.stageAct('release')),
               ],
             ]),
           ),
@@ -200,7 +202,7 @@ class PagesPane extends StatefulWidget {
 class _PagesPaneState extends State<PagesPane> {
   late final api = PagesApi(widget.call);
   final _sheet = DraggableScrollableController();
-  List<MeetPage> _mine = const [], _public = const [];
+  List<MeetPage> _mine = const [];
   String? _err;
   String? _editing; // id trang đang soạn
   String? _viewing; // id trang công khai đang xem
@@ -234,11 +236,10 @@ class _PagesPaneState extends State<PagesPane> {
 
   Future<void> _load() async {
     try {
-      final r = await Future.wait([api.list('mine'), api.list('public')]);
+      final r = await Future.wait([api.list('mine')]);
       if (mounted) {
         setState(() {
           _mine = r[0];
-          _public = r[1];
           _err = null;
         });
       }
@@ -424,136 +425,18 @@ class _PagesPaneState extends State<PagesPane> {
 
   /// Đầu danh sách (Sếp: không còn tab / bộ lọc): dải "Lượt" gọn (ai đang chiếu, hàng đợi, xin / trả lượt, ⚙ chỉnh lượt)
   /// và nút ＋ (Apps: thêm trang, trình chiếu).
-  Widget _tabs() {
-    final st = call.roomStage ?? const {};
-    final pres = '${st['presenter'] ?? ''}';
-    final queue = [for (final x in (st['queue'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
-    final inQueue = queue.any((x) => x['id'] == call.myId());
-    final text = [
-      if (pres.isNotEmpty) tr('Đang chiếu: {0}', ['${st['presenter_name'] ?? ''}']) else tr('Chưa ai trình chiếu'),
-      if (queue.isNotEmpty) tr('chờ: {0}', [queue.map((q) => q['name']).join(', ')]),
-    ].join(' · ');
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 8, 8),
-      child: Row(children: [
-        Expanded(
-          child: Material(
-            color: _card,
-            borderRadius: BorderRadius.circular(10),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: _turnsSheet,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
-                child: Row(children: [
-                  Icon(pres.isEmpty ? Icons.co_present_outlined : Icons.cast_connected_rounded, size: 18, color: pres.isEmpty ? _sub : const Color(0xFFFFB4AE)),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 12.5))),
-                  if (_myTurn)
-                    TextButton(onPressed: () => _toast(call.stageAct('release')), child: Text(tr('Trả lượt')))
-                  else
-                    TextButton(
-                      onPressed: () => _toast(call.stageAct(inQueue ? 'cancel' : 'request')),
-                      child: Text(inQueue ? tr('Huỷ xin') : pres.isEmpty ? tr('Trình chiếu') : tr('Xin lượt')),
-                    ),
-                ]),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        IconButton.filled(onPressed: _new, icon: const Icon(Icons.add_rounded), tooltip: tr('Apps: thêm trang, trình chiếu')),
-      ]),
-    );
-  }
-
-  /// Chỉnh lượt (hàng đợi, trao lượt, tự chạy, khoá, màn hình chờ) trong bảng nhỏ.
-  Future<void> _turnsSheet() => showModalBottomSheet<void>(
-        context: context,
-        backgroundColor: _bg,
-        isScrollControlled: true,
-        constraints: const BoxConstraints(maxWidth: 560),
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-        builder: (ctx) => SafeArea(
-          child: ListenableBuilder(
-            listenable: call,
-            builder: (_, _) => SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [const SizedBox(height: 12), ..._turns()])),
-          ),
-        ),
+  Widget _tabs() => Padding(
+        // Đầu danh sách: chỉ nút ＋ (Apps). Lượt trình chiếu hiện trên sân khấu (Chờ lượt, "Đang chiếu…"); chủ trì trao lượt
+        // ở hàng của từng người, người khác xin lượt bằng menu thẻ trang ("Xin lượt và chiếu").
+        padding: const EdgeInsets.fromLTRB(12, 0, 8, 4),
+        child: Row(children: [
+          const Spacer(),
+          IconButton.filled(onPressed: _new, icon: const Icon(Icons.add_rounded), tooltip: tr('Apps: thêm trang, trình chiếu')),
+        ]),
       );
 
   bool get _myTurn => call.roomStage?['presenter'] == call.myId();
   bool get _canShow => _myTurn || call.canModerate || '${call.roomStage?['presenter'] ?? ''}'.isEmpty;
-
-  List<Widget> _turns() {
-    final st = call.roomStage ?? const {};
-    final pres = '${st['presenter'] ?? ''}';
-    final queue = [for (final x in (st['queue'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
-    final inQueue = queue.any((x) => x['id'] == call.myId());
-    final host = call.canModerate;
-    return [
-      ListTile(
-        leading: const Icon(Icons.co_present_outlined, color: Colors.white),
-        title: Text(pres.isEmpty ? tr('Chưa ai trình chiếu') : tr('Đang trình chiếu: {0}', ['${st['presenter_name'] ?? ''}']), style: const TextStyle(color: Colors.white)),
-        trailing: pres.isNotEmpty && (_myTurn || host) ? TextButton(onPressed: () => _toast(call.stageAct('release')), child: Text(_myTurn ? tr('Trả lượt') : tr('Kết thúc lượt'))) : null,
-      ),
-      if (!_myTurn)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: FilledButton.tonal(
-            onPressed: () => _toast(call.stageAct(inQueue ? 'cancel' : 'request')),
-            child: Text(inQueue ? tr('Huỷ xin lượt') : pres.isEmpty ? tr('Trình chiếu') : tr('Xin lượt trình chiếu')),
-          ),
-        ),
-      if (queue.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text(tr('Hàng đợi'), style: const TextStyle(color: _sub))),
-      for (final (i, q) in queue.indexed)
-        ListTile(
-          dense: true,
-          leading: CircleAvatar(radius: 13, child: Text('${i + 1}')),
-          title: Text('${q['name'] ?? ''}', style: const TextStyle(color: Colors.white)),
-          trailing: host ? TextButton(onPressed: () => _toast(call.stageAct('grant', {'user': q['id']})), child: Text(tr('Trao lượt'))) : null,
-        ),
-      if (_myTurn || host) ...[
-        const Divider(color: Colors.white12),
-        ListTile(
-          title: Text(tr('Chạy trang'), style: const TextStyle(color: Colors.white)),
-          subtitle: Text(tr('Tự chạy: hết thời lượng của trang thì sang trang kế'), style: const TextStyle(color: _sub, fontSize: 12)),
-          trailing: SegmentedButton<String>(
-            showSelectedIcon: false,
-            style: SegmentedButton.styleFrom(foregroundColor: Colors.white70, selectedForegroundColor: const Color(0xFF041E49), selectedBackgroundColor: _acc, visualDensity: VisualDensity.compact),
-            segments: [ButtonSegment(value: 'manual', label: Text(tr('Bấm tay'))), ButtonSegment(value: 'auto', label: Text(tr('Tự chạy')))],
-            selected: {'${st['mode'] ?? 'manual'}'},
-            onSelectionChanged: (s) => _toast(call.stageAct('mode', {'mode': s.first})),
-          ),
-        ),
-      ],
-      if (host) ...[
-        SwitchListTile(
-          value: st['locked'] == true,
-          title: Text(tr('Chỉ chủ trì trao lượt'), style: const TextStyle(color: Colors.white)),
-          subtitle: Text(tr('Tắt: ai cũng tự lên trình chiếu khi sân khấu trống'), style: const TextStyle(color: _sub, fontSize: 12)),
-          onChanged: (v) => _toast(call.stageAct('lock', {'locked': v})),
-        ),
-        ListTile(
-          title: Text(tr('Màn hình chờ'), style: const TextStyle(color: Colors.white)),
-          subtitle: Text(tr('Hiện khi không ai trình chiếu'), style: const TextStyle(color: _sub, fontSize: 12)),
-          trailing: DropdownButton<String>(
-            dropdownColor: _card,
-            value: [..._mine, ..._public].any((p) => p.id == st['idle_page']) ? '${st['idle_page']}' : '',
-            items: [
-              DropdownMenuItem(value: '', child: Text(tr('Không'), style: const TextStyle(color: Colors.white))),
-              for (final p in [..._mine, ..._public].where((p) => p.type == 'welcome' || p.type == 'video'))
-                DropdownMenuItem(value: p.id, child: Text(p.title, style: const TextStyle(color: Colors.white))),
-            ],
-            onChanged: (v) {
-              final p = [..._mine, ..._public].where((x) => x.id == v).firstOrNull;
-              _toast(call.stageAct('idle', p == null ? {'idle': ''} : {'idle': p.type, 'page': p.id}));
-            },
-          ),
-        ),
-      ],
-    ];
-  }
 
   Widget _back(String title, {List<Widget> actions = const []}) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 0, 8, 4),
