@@ -1414,6 +1414,7 @@ class _CallScreenState extends State<CallScreen> {
             _poke();
           },
         );
+    final summary = call.meeting && call.scribeAvailable;
     final aiUnread = ai ? app.aiUnreadFor(call.channelId!, thread: _room?.threadRoot ?? call.callThreadId) : 0;
     final media = <Widget>[
       btn(call.muted ? Icons.mic_off : Icons.mic, call.muted ? tr('Bật micro') : tr('Tắt micro'), () => _micTap(call), off: call.muted),
@@ -1439,9 +1440,9 @@ class _CallScreenState extends State<CallScreen> {
       if (room != null && meetPerm(call, 'chat'))
         btn(Icons.chat_outlined, tr('Tin nhắn trong cuộc họp'), () => isDesktop ? _openPanel(_MeetPanel.chat) : showMeetComments(context, room),
             on: _panel == _MeetPanel.chat, badge: room.comments.isEmpty ? null : '${room.comments.length}'),
-      if (ai)
-        btn(Icons.auto_awesome_outlined, tr('Trợ lý AI'),
-            () => isDesktop ? _openPanel(_MeetPanel.ai) : openAiPanel(context, call.channelId!, thread: _room?.threadRoot ?? call.callThreadId),
+      if (ai || summary)
+        btn(Icons.auto_awesome_outlined, tr('Trợ lý AI, tóm tắt cuộc họp'),
+            () => isDesktop ? _openPanel(_MeetPanel.ai) : _aiSheet(app, call, ai),
             on: _panel == _MeetPanel.ai, badge: aiUnread > 0 ? '$aiUnread' : null),
       if (apps)
         btn(Icons.apps_rounded, tr('Apps: trang họp, trình chiếu, bình chọn, hỏi đáp, bảng trắng'),
@@ -1520,6 +1521,66 @@ class _CallScreenState extends State<CallScreen> {
           run: (c, call) => _runMore(room.webUrl == null ? 'web' : 'web_close', app, call),
         ),
     ];
+  }
+
+  /// Tab AI (máy tính): Thư ký Họp (đang phiên âm, tóm tắt cuộc họp) ở trên, trợ lý AI của nhóm bên dưới.
+  Widget _aiBody(AppState app, CallService call) {
+    final ai = call.channelId != null && app.channels[call.channelId] != null && app.showsAiFor(app.channels[call.channelId]!);
+    final summary = call.meeting && call.scribeAvailable;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (summary)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Row(children: [
+            if (call.transcribing) const _ScribeChip() else Text(tr('Chưa phiên âm'), style: const TextStyle(color: _grey, fontSize: 12.5)),
+            const Spacer(),
+            FilledButton.tonalIcon(
+              onPressed: () => _runMore('summary', app, call),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: Text(tr('Tóm tắt cuộc họp')),
+            ),
+          ]),
+        ),
+      if (ai)
+        Expanded(child: AiPanel(groupId: call.channelId!, thread: _room?.threadRoot ?? call.callThreadId))
+      else
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(tr('Nhóm này chưa bật trợ lý AI. Tóm tắt cuộc họp dùng phiên âm của Thư ký Họp.'), style: const TextStyle(color: _grey)),
+        ),
+    ]);
+  }
+
+  /// Nút AI trên điện thoại: tóm tắt cuộc họp hoặc mở trợ lý AI của nhóm.
+  Future<void> _aiSheet(AppState app, CallService call, bool ai) async {
+    final summary = call.meeting && call.scribeAvailable;
+    if (!summary && ai) return openAiPanel(context, call.channelId!, thread: _room?.threadRoot ?? call.callThreadId);
+    final a = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: _panelBg,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (summary)
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_rounded, color: Colors.white),
+              title: Text(tr('Tóm tắt cuộc họp'), style: const TextStyle(color: Colors.white)),
+              subtitle: Text(call.transcribing ? tr('Đang phiên âm') : tr('Dùng phiên âm của Thư ký Họp'), style: const TextStyle(color: _grey)),
+              onTap: () => Navigator.pop(ctx, 'summary'),
+            ),
+          if (ai)
+            ListTile(
+              leading: const Icon(Icons.forum_outlined, color: Colors.white),
+              title: Text(tr('Trợ lý AI'), style: const TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(ctx, 'ai'),
+            ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (!mounted || a == null) return;
+    if (a == 'summary') return _runMore('summary', app, call);
+    return openAiPanel(context, call.channelId!, thread: _room?.threadRoot ?? call.callThreadId);
   }
 
   /// Giơ tay + cảm xúc: một hàng nổi phía trên nút, giữ mở để bấm liên tục; bấm ra ngoài thì đóng.
@@ -1691,6 +1752,31 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ]),
           ),
+          // Chủ trì: khoá cuộc họp (quyền, xin vào) và báo cáo tham dự.
+          if (x['controls'] != null || x['attendance'] != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Wrap(spacing: 8, runSpacing: 8, children: [
+                if (x['controls'] != null)
+                  ActionChip(
+                    avatar: Icon(meetLocked(call) ? Icons.lock_rounded : Icons.lock_open_rounded, size: 18, color: Colors.white),
+                    label: Text(meetLocked(call) ? tr('Đang khoá') : tr('Khoá cuộc họp')),
+                    onPressed: () {
+                      close?.call();
+                      x['controls']!.run(context, call);
+                    },
+                  ),
+                if (x['attendance'] != null)
+                  ActionChip(
+                    avatar: const Icon(Icons.fact_check_outlined, size: 18, color: Colors.white),
+                    label: Text(tr('Báo cáo tham dự')),
+                    onPressed: () {
+                      close?.call();
+                      x['attendance']!.run(context, call);
+                    },
+                  ),
+              ]),
+            ),
           ..._turnRows(app, call),
           if (room != null && room.knocks.isNotEmpty && _isHost(app, call)) ...[
             _panelHead(tr('Đang xin tham gia')),
@@ -2043,7 +2129,7 @@ class _CallScreenState extends State<CallScreen> {
           shareScreen: CallService.canShareScreen && (call.localScreen != null || meetPerm(call, 'share')) ? () => _toggleShare(call) : null,
         ),
       // Trợ lý của cuộc họp = phiên AI của luồng bình luận cuộc họp (cùng phiên với nút ✨ trong luồng).
-      _MeetPanel.ai => AiPanel(groupId: call.channelId!, thread: _room?.threadRoot ?? call.callThreadId),
+      _MeetPanel.ai => _aiBody(app, call),
       _ => _sideBody(app, call),
     };
     return Material(

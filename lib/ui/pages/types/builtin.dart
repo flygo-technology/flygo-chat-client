@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../state/app_state.dart';
+import '../page_media.dart';
+import '../pages_api.dart' show pageAssetUrl;
 import '../system_pages.dart' show pageBackground, pageBackgrounds;
 
 import '../../../i18n/i18n.dart';
@@ -97,11 +99,30 @@ void registerBuiltinPageTypes() {
     view: (context, ctx) => _Video(ctx, key: ValueKey('v:${ctx.page.id}:${ctx.page.content['url']}')),
     // Ảnh xem trước: không mở video (nặng), chỉ khung đen + nút phát.
     thumb: (context, call, page, data) => Container(
-      color: Colors.black,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        image: '${page.content['poster'] ?? ''}'.isEmpty ? null : DecorationImage(image: NetworkImage(pageAssetUrl('${page.content['poster']}')), fit: BoxFit.cover),
+      ),
       alignment: Alignment.center,
       child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white70, size: 34),
     ),
-    editor: (context, ctx) => PageContentField(ctx, 'url', tr('Đường dẫn video (mp4, m3u8)')),
+    editor: (context, ctx) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      PageContentField(ctx, 'url', tr('Đường dẫn video (mp4, m3u8)')),
+      // Ảnh đại diện (thẻ trang, màn hình chờ trước khi phát).
+      Row(children: [
+        Expanded(child: PageContentField(ctx, 'poster', tr('Ảnh đại diện (tuỳ chọn)'), key: ValueKey('po:${ctx.page.content['poster']}'))),
+        IconButton(
+          tooltip: tr('Chọn ảnh đại diện'),
+          icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
+          onPressed: () async {
+            final u = await pickPageMedia(context, ctx.call, image: true);
+            if (u == null || !context.mounted) return;
+            await ctx.api.patch(ctx.page.id, {'content': {...ctx.page.content, 'poster': u}});
+            await ctx.reload();
+          },
+        ),
+      ]),
+    ]),
   ));
   registerPageType(PageTypeSpec(
     type: 'doc',
@@ -175,7 +196,7 @@ class _WelcomeState extends State<_Welcome> {
 
   /// Nhạc nền: chỉ khi trang đang trên sân khấu và cho phát trên máy cá nhân; nhỏ lại khi có người nói (tiếng họp không bị át).
   void _music() {
-    final url = '${c['music'] ?? ''}';
+    final url = pageAssetUrl('${c['music'] ?? ''}');
     final want = widget.ctx.onStage && c['music_devices'] == true && url.startsWith('http');
     if (!want) {
       if (_playing.isNotEmpty) {
@@ -293,7 +314,15 @@ class _WelcomeEditor extends StatelessWidget {
       Row(children: [
         SizedBox(width: 110, child: PageContentField(ctx, 'icon', tr('Biểu tượng'))),
         const SizedBox(width: 8),
-        Expanded(child: PageContentField(ctx, 'bg_image', tr('Ảnh nền (đường dẫn)'))),
+        Expanded(child: PageContentField(ctx, 'bg_image', tr('Ảnh nền (tuỳ chọn)'), key: ValueKey('bg:${c['bg_image']}'))),
+        IconButton(
+          tooltip: tr('Chọn ảnh nền'),
+          icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
+          onPressed: () async {
+            final u = await pickPageMedia(context, ctx.call, image: true);
+            if (u != null && context.mounted) await _set(context, {'bg_image': u});
+          },
+        ),
       ]),
       Text(tr('Màu nền'), style: const TextStyle(color: _sub, fontSize: 12.5)),
       const SizedBox(height: 6),
@@ -316,7 +345,17 @@ class _WelcomeEditor extends StatelessWidget {
       sw('show_online', tr('Hiện danh sách người đã vào')),
       sw('countdown', tr('Đếm ngược'), sub: tr('Tới giờ bắt đầu cuộc họp')),
       const Divider(color: Colors.white12),
-      PageContentField(ctx, 'music', tr('Nhạc nền (đường dẫn mp3, tuỳ chọn)')),
+      Row(children: [
+        Expanded(child: PageContentField(ctx, 'music', tr('Nhạc nền (tuỳ chọn)'), key: ValueKey('mu:${c['music']}'))),
+        IconButton(
+          tooltip: tr('Chọn nhạc'),
+          icon: const Icon(Icons.library_music_outlined, color: Colors.white),
+          onPressed: () async {
+            final u = await pickPageMedia(context, ctx.call, image: false);
+            if (u != null && context.mounted) await _set(context, {'music': u});
+          },
+        ),
+      ]),
       Row(children: [
         const Icon(Icons.volume_down_rounded, color: _sub, size: 20),
         Expanded(

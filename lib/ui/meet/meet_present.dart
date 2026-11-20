@@ -16,7 +16,9 @@ import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../drive/pickers.dart' show pickFromDrive;
 import '../drive/session.dart' show DriveSession;
+import '../pages/pages_api.dart' show PagesApi;
 import 'meet_home.dart' show meetToast;
+import 'meet_ink.dart';
 
 // Trình chiếu tài liệu trong cuộc họp, không cần chia sẻ màn hình. Người trình chiếu chọn tệp (Drive, tệp trong nhóm của
 // cuộc họp, tệp trên máy); Word / Excel / PowerPoint được Drive đổi sang PDF; bản PDF gửi lên relay. Mọi máy (app: pdfrx,
@@ -229,10 +231,62 @@ class _MeetPresentViewState extends State<MeetPresentView> {
   Offset? _laser; // tỉ lệ 0..1 trong trang
   Timer? _laserHide;
   StreamSubscription? _laserSub;
+  // Nét vẽ chú thích (tài liệu là trang của Họp mới: present.page_id): {"<số trang>": [nét…]}.
+  String? _pageId;
+  Map _ink = const {};
+  StreamSubscription? _fx;
+  bool _inkMode = false;
+  String _tool = 'pen';
+  String _color = inkColors.first;
+  Map<String, dynamic>? _cur;
+  bool _saving = false;
+
+  Future<void> _loadInk() async {
+    final id = _pageId;
+    if (id == null) return setState(() => _ink = const {});
+    try {
+      final d = await PagesApi(widget.call).get(id);
+      if (mounted && _pageId == id) setState(() => _ink = (d.view['ink'] as Map?) ?? const {});
+    } catch (_) {}
+  }
+
+  Future<void> _inkAct(String action, int page, [Map<String, dynamic>? stroke]) async {
+    final id = _pageId;
+    if (id == null) return;
+    try {
+      final (v, _) = await PagesApi(widget.call).act(id, action, {'page': page, 'stroke': ?stroke});
+      if (mounted) setState(() => _ink = (v['ink'] as Map?) ?? const {});
+    } catch (e) {
+      if (mounted) meetToast(context, '$e');
+    }
+  }
+
+  /// Lưu bản PDF mới có nét chú thích vào nhóm chat của cuộc họp (bản gốc giữ nguyên).
+  Future<void> _saveAnnotated(AppState app, PdfDocument doc, MeetPresentation p) async {
+    final ch = widget.call.channelId;
+    if (ch == null) return;
+    setState(() => _saving = true);
+    meetToast(context, tr('Đang tạo bản PDF có chú thích…'));
+    try {
+      final bytes = await annotatedPdf(doc, _ink);
+      final base = p.name.replaceFirst(RegExp(r'\.[A-Za-z0-9]{2,5}$'), '');
+      final name = '$base (chú thích).pdf';
+      final ids = await app.api.uploadFile(ch, name, bytes);
+      await app.api.createPost({'channel_id': ch, 'message': tr('📝 Bản có chú thích: {0}', [base]), 'file_ids': ids});
+      if (mounted) meetToast(context, tr('Đã gửi "{0}" vào nhóm chat', [name]));
+    } catch (e) {
+      if (mounted) meetToast(context, tr('Không lưu được: {0}', [e]));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _fx = widget.call.fxEvents.stream.listen((m) {
+      if (m['t'] == 'fx_page' && m['page'] == _pageId && _cur == null) _loadInk();
+    });
     _laserSub = widget.call.laser.stream.listen((l) {
       if (!mounted) return;
       _laserHide?.cancel();
@@ -270,6 +324,7 @@ class _MeetPresentViewState extends State<MeetPresentView> {
   @override
   void dispose() {
     _doc?.dispose();
+    _fx?.cancel();
     _laserSub?.cancel();
     _laserHide?.cancel();
     if (widget.fullscreen) {
@@ -295,6 +350,12 @@ class _MeetPresentViewState extends State<MeetPresentView> {
     final p = MeetPresentation(raw);
     final presenter = p.by == app.me?.id;
     final control = presenter || call.canModerate;
+    final pageId = raw['page_id'] as String?;
+    if (pageId != _pageId) {
+      _pageId = pageId;
+      _inkMode = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _loadInk() : null);
+    }
     return ColoredBox(
       color: Colors.black,
       // Tài liệu mở một lần cho mỗi bài và giữ nguyên qua các lần vẽ lại (màn hình họp vẽ lại mỗi giây, metadata, người
@@ -328,6 +389,61 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                 }
               }
 
+              Offset norm(Offset at) => Offset(((at.dx - rect.left) / rect.width).clamp(0.0, 1.0), ((at.dy - rect.top) / rect.height).clamp(0.0, 1.0));
+              List<double> pt(Offset at) {
+                final o = norm(at);
+                return [o.dx, o.dy];
+              }
+
+              void inkStart(Offset at) {
+                if (_tool == 'text' || !rect.contains(at)) return;
+                setState(() => _cur = {'t': _tool, 'c': _color, 'w': _tool == 'pen' ? .004 : .003, 'p': [pt(at)]});
+              }
+
+              void inkMove(Offset at) {
+                final c = _cur;
+                if (c == null) return;
+                setState(() {
+                  final ps = c['p'] as List;
+                  if (_tool == 'pen') {
+                    if (ps.length < 600) ps.add(pt(at));
+                  } else {
+                    c['p'] = [ps.first, pt(at)];
+                  }
+                });
+              }
+
+              void inkEnd() {
+                final c = _cur;
+                if (c == null) return;
+                // Hiện ngay trên máy mình, gửi lên relay (mọi máy, TV nhận qua tin fx_page).
+                setState(() {
+                  _ink = {..._ink, '$page': [...((_ink['$page'] as List?) ?? const []), c]};
+                  _cur = null;
+                });
+                _inkAct('ink', page, c);
+              }
+
+              Future<void> inkText(Offset at) async {
+                if (!rect.contains(at)) return;
+                final ctl = TextEditingController();
+                final t = await showDialog<String>(
+                  context: context,
+                  builder: (d) => AlertDialog(
+                    title: Text(tr('Thêm chữ')),
+                    content: TextField(controller: ctl, autofocus: true, onSubmitted: (v) => Navigator.pop(d, v)),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Hủy'))),
+                      FilledButton(onPressed: () => Navigator.pop(d, ctl.text), child: Text(tr('Thêm'))),
+                    ],
+                  ),
+                );
+                if ((t ?? '').trim().isEmpty) return;
+                final c = {'t': 'text', 'c': _color, 'w': .004, 's': t!.trim(), 'p': [pt(at)]};
+                setState(() => _ink = {..._ink, '$page': [...((_ink['$page'] as List?) ?? const []), c]});
+                await _inkAct('ink', page, c);
+              }
+
               void point(Offset at) {
                 if (!presenter || !_laserMode || !rect.contains(at)) return;
                 final x = (at.dx - rect.left) / rect.width, y = (at.dy - rect.top) / rect.height;
@@ -352,10 +468,17 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                               final v = d.primaryVelocity ?? 0;
                               if (v.abs() > 200) go(page + (v < 0 ? 1 : -1));
                             },
-                      onPanStart: _laserMode ? (d) => point(d.localPosition) : null,
-                      onPanUpdate: _laserMode ? (d) => point(d.localPosition) : null,
-                      onTapDown: _laserMode ? (d) => point(d.localPosition) : null,
+                      onPanStart: _inkMode ? (d) => inkStart(d.localPosition) : _laserMode ? (d) => point(d.localPosition) : null,
+                      onPanUpdate: _inkMode ? (d) => inkMove(d.localPosition) : _laserMode ? (d) => point(d.localPosition) : null,
+                      onPanEnd: _inkMode ? (_) => inkEnd() : null,
+                      onTapUp: _inkMode && _tool == 'text' ? (d) => inkText(d.localPosition) : null,
+                      onTapDown: _laserMode && !_inkMode ? (d) => point(d.localPosition) : null,
                     ),
+                  ),
+                  // Nét chú thích của trang (mọi người thấy).
+                  Positioned.fromRect(
+                    rect: rect,
+                    child: IgnorePointer(child: CustomPaint(painter: InkPainter((_ink['$page'] as List?) ?? const [], _cur))),
                   ),
                   if (_laser != null)
                     Positioned(
@@ -393,6 +516,19 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                               _btn(Icons.chevron_left_rounded, tr('Trang trước'), page > 1 ? () => go(page - 1) : null),
                               _btn(Icons.chevron_right_rounded, tr('Trang sau'), page < n ? () => go(page + 1) : null),
                             ],
+                            if (control && pageId != null)
+                              _btn(
+                                Icons.draw_rounded,
+                                _inkMode ? tr('Thôi vẽ') : tr('Vẽ chú thích'),
+                                () => setState(() {
+                                  _inkMode = !_inkMode;
+                                  if (_inkMode) {
+                                    _laserMode = false;
+                                    _laser = null;
+                                  }
+                                }),
+                                on: _inkMode,
+                              ),
                             if (presenter)
                               _btn(
                                 Icons.highlight_alt_rounded,
@@ -434,6 +570,67 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                                 if (err != null && context.mounted) meetToast(context, err);
                               }, danger: true),
                           ],
+                        ),
+                      ),
+                    ),
+                  // Công cụ vẽ: bút / hình / chữ, màu, hoàn tác, xoá trang, lưu bản PDF có chú thích vào nhóm chat.
+                  if (_inkMode && !widget.compact)
+                    Positioned(
+                      top: 46,
+                      left: 8,
+                      right: 8,
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Material(
+                            color: Colors.black.withValues(alpha: .7),
+                            borderRadius: BorderRadius.circular(24),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                for (final e in inkTools.entries)
+                                  IconButton(
+                                    tooltip: switch (e.key) {
+                                      'pen' => tr('Bút'),
+                                      'rect' => tr('Hình chữ nhật'),
+                                      'circle' => tr('Hình tròn'),
+                                      'arrow' => tr('Mũi tên'),
+                                      _ => tr('Chữ'),
+                                    },
+                                    isSelected: _tool == e.key,
+                                    style: IconButton.styleFrom(backgroundColor: _tool == e.key ? Colors.white24 : null),
+                                    icon: Icon(e.value, color: Colors.white),
+                                    onPressed: () => setState(() => _tool = e.key),
+                                  ),
+                                Container(width: 1, height: 24, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 4)),
+                                for (final c in inkColors)
+                                  InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => setState(() => _color = c),
+                                    child: Container(
+                                      width: 24,
+                                      height: 24,
+                                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                                      decoration: BoxDecoration(
+                                        color: inkColor(c),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: _color == c ? Colors.white : Colors.white30, width: _color == c ? 3 : 1),
+                                      ),
+                                    ),
+                                  ),
+                                Container(width: 1, height: 24, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 4)),
+                                IconButton(tooltip: tr('Hoàn tác'), icon: const Icon(Icons.undo_rounded, color: Colors.white), onPressed: () => _inkAct('ink_undo', page)),
+                                IconButton(tooltip: tr('Xoá nét trên trang này'), icon: const Icon(Icons.layers_clear_rounded, color: Colors.white), onPressed: () => _inkAct('ink_clear', page)),
+                                IconButton(
+                                  tooltip: tr('Lưu thành PDF mới vào nhóm chat'),
+                                  icon: _saving
+                                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                      : const Icon(Icons.save_alt_rounded, color: Colors.white),
+                                  onPressed: _saving ? null : () => _saveAnnotated(app, doc, p),
+                                ),
+                              ]),
+                            ),
+                          ),
                         ),
                       ),
                     ),
