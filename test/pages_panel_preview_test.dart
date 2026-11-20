@@ -17,6 +17,7 @@ import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
 import 'package:flygo_chat/ui/meet/meet_panel_prefs.dart';
 import 'package:flygo_chat/ui/pages/page_thumb.dart';
+import 'package:flygo_chat/ui/pages/pages_sheet.dart' show PagesPane;
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -285,11 +286,14 @@ void main() {
         await snap(t, '$name-1-thanh-nut');
         await t.tap(find.byTooltip('Cài đặt'));
         await settle();
-        expect(find.text('Thêm màn hình'), findsOneWidget);
-        expect(find.text('Mời khách'), findsOneWidget);
+        expect(find.text('Mời thành viên'), findsOneWidget);
+        expect(find.text('Mời khách (không cần cài phần mềm)'), findsOneWidget);
         await snap(t, '$name-2-cai-dat');
+        await t.tap(find.textContaining('Màn hình').last);
+        await settle();
+        await snap(t, '$name-2b-cai-dat-man-hinh');
         if (!desktop) {
-          Navigator.of(t.element(find.text('Mời khách'))).pop();
+          Navigator.of(t.element(find.byType(TabBar))).pop();
           await settle();
           await t.tap(find.byTooltip('Apps: trang họp, trình chiếu, bình chọn, hỏi đáp, bảng trắng'));
           await settle();
@@ -297,6 +301,22 @@ void main() {
           await settle();
           expect(find.text('Trình chiếu'), findsWidgets);
           await snap(t, '$name-3-apps');
+          Navigator.of(t.element(find.text('Trình chiếu').first)).pop();
+          await settle();
+          Navigator.of(t.element(find.byType(PagesPane))).pop();
+          await settle();
+          await t.tap(find.byTooltip('Giơ tay, thả cảm xúc'));
+          await settle();
+          expect(find.text('✋'), findsWidgets);
+          await snap(t, '$name-4-cam-xuc');
+          await t.tapAt(const Offset(195, 300));
+          await settle();
+          await t.tap(find.byTooltip('Tắt mic mọi người'));
+          await settle();
+          expect(find.text('Tắt hẳn'), findsOneWidget);
+          await snap(t, '$name-5-mute');
+          await t.tap(find.text('Giữ nguyên'));
+          await settle();
         }
         await t.pumpWidget(const SizedBox());
         await t.pump(const Duration(seconds: 3));

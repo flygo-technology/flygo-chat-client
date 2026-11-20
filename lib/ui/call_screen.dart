@@ -16,6 +16,7 @@ import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
 import 'meet/extras/controls.dart';
+import 'meet/extras/fx_api.dart' show fxRequest;
 import 'meet/extras/network.dart' show MeetSignalBadge;
 import 'meet/extras/captions.dart';
 import 'meet/meet_present.dart';
@@ -1072,9 +1073,18 @@ class _CallScreenState extends State<CallScreen> {
       );
 
   Widget _topBar(String title, String status, {bool reserve = false}) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        padding: const EdgeInsets.fromLTRB(4, 10, 16, 0),
         child: Row(
           children: [
+            // Về nhóm chat của cuộc họp (cuộc họp thu nhỏ thành khung nổi).
+            Builder(builder: (context) {
+              final app = context.read<AppState>();
+              return IconButton(
+                tooltip: tr('Về nhóm chat'),
+                icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 28),
+                onPressed: () => _backToChat(app, app.calls),
+              );
+            }),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1103,7 +1113,7 @@ class _CallScreenState extends State<CallScreen> {
                   shape: const StadiumBorder(),
                   child: InkWell(
                     customBorder: const StadiumBorder(),
-                    onTap: () => isDesktop ? _openPanel(_MeetPanel.people) : _showPeople(app, call),
+                    onTap: () => isDesktop ? _openPanel(_MeetPanel.info) : _infoSheet(app, call),
                     child: Tooltip(
                       message: tr('Thành viên'),
                       child: Padding(
@@ -1380,11 +1390,13 @@ class _CallScreenState extends State<CallScreen> {
       if (room != null)
         btn(_captions ? Icons.closed_caption_rounded : Icons.closed_caption_off_outlined, _captions ? tr('Ẩn phụ đề') : tr('Hiện phụ đề'),
             () => setState(() => _captions = !_captions), on: _captions),
-      btn(Icons.back_hand_outlined, call.handRaised ? tr('Hạ tay') : tr('Giơ tay'), call.toggleHand,
-          on: call.handRaised, onColor: const Color(0xFFF5C451), onIcon: const Color(0xFF3C2A00)),
-      if (meetPerm(call, 'react'))
-        Builder(builder: (b) => btn(Icons.add_reaction_outlined, tr('Thả cảm xúc'), () => _pickReaction(b, call))),
+      // Giơ tay + thả cảm xúc chung một nút: mở một hàng ✋ và các cảm xúc, bấm liên tục được, bấm ra ngoài để đóng.
+      Builder(
+        builder: (b) => btn(Icons.add_reaction_outlined, tr('Giơ tay, thả cảm xúc'), () => _reactPopover(b, call),
+            on: call.handRaised, onColor: const Color(0xFFF5C451), onIcon: const Color(0xFF3C2A00), badge: call.handRaised ? '✋' : null),
+      ),
     ];
+    final forced = meetPerms(call)['unmute'] == false;
     final panels = <Widget>[
       if (room != null && meetPerm(call, 'chat'))
         btn(Icons.chat_outlined, tr('Tin nhắn trong cuộc họp'), () => isDesktop ? _openPanel(_MeetPanel.chat) : showMeetComments(context, room),
@@ -1397,6 +1409,10 @@ class _CallScreenState extends State<CallScreen> {
         btn(Icons.apps_rounded, tr('Apps: trang họp, trình chiếu, bình chọn, hỏi đáp, bảng trắng'),
             () => isDesktop ? _openPanel(_MeetPanel.pages) : showPagesSheet(context, call, apps: _pageApps(app, call)),
             on: _panel == _MeetPanel.pages || stageShowsPage(call)),
+      // Chủ trì / phó phòng: tắt mic mọi người (tạm / hẳn / cho bật lại).
+      if (call.canModerate && room != null)
+        btn(forced ? Icons.mic_off_rounded : Icons.mic_off_outlined, forced ? tr('Đang tắt hẳn mic mọi người') : tr('Tắt mic mọi người'),
+            () => _muteDialog(app, call), off: forced),
       btn(Icons.settings_outlined, tr('Cài đặt'), () => isDesktop ? _openPanel(_MeetPanel.info) : _infoSheet(app, call),
           on: _panel == _MeetPanel.info || _panel == _MeetPanel.people, badge: room != null && room.knocks.isNotEmpty && host ? '!' : null),
     ];
@@ -1468,75 +1484,247 @@ class _CallScreenState extends State<CallScreen> {
     ];
   }
 
-  /// Nội dung Cài đặt (panel máy tính / bảng dưới điện thoại): thêm màn hình, thêm thành viên, mời khách, rồi mã / liên kết
-  /// và phần dành cho chủ trì. [close]: đóng bảng dưới trước khi làm (điện thoại).
+  /// Giơ tay + cảm xúc: một hàng nổi phía trên nút, giữ mở để bấm liên tục; bấm ra ngoài thì đóng.
+  Future<void> _reactPopover(BuildContext anchor, CallService call) async {
+    final box = anchor.findRenderObject() as RenderBox;
+    final top = box.localToGlobal(Offset.zero).dy;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: tr('Đóng'),
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 120),
+      pageBuilder: (ctx, _, _) {
+        final h = MediaQuery.sizeOf(ctx).height;
+        return Stack(children: [
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: h - top + 10,
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Material(
+                  color: const Color(0xFF2D2E31),
+                  elevation: 10,
+                  borderRadius: BorderRadius.circular(32),
+                  child: ListenableBuilder(
+                    listenable: call,
+                    builder: (_, _) => Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Tooltip(
+                          message: call.handRaised ? tr('Hạ tay') : tr('Giơ tay'),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: call.toggleHand,
+                            child: Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(shape: BoxShape.circle, color: call.handRaised ? const Color(0xFFF5C451) : Colors.transparent),
+                              alignment: Alignment.center,
+                              child: const Text('✋', style: TextStyle(fontSize: 28)),
+                            ),
+                          ),
+                        ),
+                        if (meetPerm(call, 'react')) ...[
+                          Container(width: 1, height: 30, margin: const EdgeInsets.symmetric(horizontal: 6), color: Colors.white24),
+                          for (final e in CallService.reactionNames.keys)
+                            InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () => call.react(e),
+                              child: Padding(padding: const EdgeInsets.all(8), child: Text(e, style: const TextStyle(fontSize: 30))),
+                            ),
+                        ],
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]);
+      },
+    );
+  }
+
+  /// Nút Mute (chủ trì / phó phòng): tắt tạm (mọi người tự bật lại được), tắt hẳn (không cho bật lại), cho bật lại.
+  Future<void> _muteDialog(AppState app, CallService call) async {
+    final forced = meetPerms(call)['unmute'] == false;
+    final a = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('Tắt mic mọi người')),
+        content: Text(forced
+            ? tr('Mic mọi người đang bị tắt hẳn (không tự bật lại được). Bạn muốn làm gì?')
+            : tr('Nút này sẽ tắt mic mọi người, bạn có muốn không?')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Giữ nguyên'))),
+          TextButton(onPressed: () => Navigator.pop(d, 'temp'), child: Text(tr('Tắt tạm'))),
+          if (forced)
+            FilledButton(onPressed: () => Navigator.pop(d, 'lift'), child: Text(tr('Cho bật lại')))
+          else
+            FilledButton(onPressed: () => Navigator.pop(d, 'force'), child: Text(tr('Tắt hẳn'))),
+        ],
+      ),
+    );
+    if (a == null || !mounted) return;
+    try {
+      switch (a) {
+        case 'temp':
+          await _runMore('mute_all', app, call);
+          if (mounted) meetToast(context, tr('Đã tắt mic mọi người. Ai cần nói có thể tự bật lại.'));
+        case 'force':
+          await fxRequest(call, 'POST', '/controls', {'perms': {'unmute': false}});
+          if (mounted) meetToast(context, tr('Đã tắt hẳn mic mọi người. Bấm lại nút này để cho bật lại.'));
+        case 'lift':
+          await fxRequest(call, 'POST', '/controls', {'perms': {'unmute': true}});
+          if (mounted) meetToast(context, tr('Mọi người đã có thể bật mic lại.'));
+      }
+    } catch (e) {
+      if (mounted) meetToast(context, '$e');
+    }
+  }
+
+  /// Cài đặt (panel máy tính / bảng dưới điện thoại), Sếp 2026-11-20: hai tab Thành viên / Màn hình.
+  /// [close]: đóng bảng dưới trước khi làm (điện thoại).
   Widget _settingsView(AppState app, CallService call, {VoidCallback? close}) {
-    final room = _room;
-    final host = _isHost(app, call) || call.canModerate;
+    final screens = call.participants.where((p) => p.userId.startsWith('device:')).length;
+    return DefaultTabController(
+      length: 2,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TabBar(
+          labelColor: Colors.white,
+          unselectedLabelColor: _grey,
+          indicatorColor: const Color(0xFF2BB3A3),
+          dividerColor: Colors.white12,
+          labelStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+          tabs: [
+            Tab(height: 48, text: tr('Thành viên · {0}', [call.participants.length + 1 - screens])),
+            Tab(height: 48, text: screens > 0 ? tr('Màn hình · {0}', [screens]) : tr('Màn hình')),
+          ],
+        ),
+        Expanded(child: TabBarView(children: [_membersTab(app, call, close), _screensTab(app, call, close)])),
+      ]),
+    );
+  }
+
+  Widget _membersTab(AppState app, CallService call, VoidCallback? close) {
     final x = {for (final a in meetExtraActions(context, call)) a.id: a};
     final hasCode = call.meeting && (call.meetingInfo?.code ?? '').isNotEmpty;
-    void run(Future<void> Function() f) {
-      close?.call();
-      f();
-    }
-
-    Widget tile(IconData icon, String label, VoidCallback onTap, {String? sub, Widget? trailing}) => ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          leading: Icon(icon, color: Colors.white),
-          title: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          subtitle: sub == null ? null : Text(sub, style: const TextStyle(color: _grey, fontSize: 12.5)),
-          trailing: trailing,
-          onTap: onTap,
-        );
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-      if (call.liveKit) tile(Icons.cast_rounded, tr('Thêm màn hình'), () => run(() => _addScreen(call)), sub: tr('Quét mã QR trên TV / màn hình phòng họp')),
-      tile(Icons.person_add_alt_1_outlined, tr('Thêm thành viên'), () {
-        if (isDesktop) {
-          setState(() => _panel = _MeetPanel.people);
-        } else {
-          run(() async => _showPeople(app, call));
-        }
-      }, sub: tr('Mời người trong công ty, xem ai đang trong cuộc họp'), trailing: Text('${call.participants.length + 1}', style: const TextStyle(color: _grey))),
-      tile(Icons.link_rounded, tr('Mời khách'), () {
-        if (hasCode && call.canModerate && x['guest_invite'] != null) {
-          run(() => x['guest_invite']!.run(context, call));
-        } else {
-          run(() => _copyLiveLink(app, call));
-        }
-      }, sub: tr('Người ngoài công ty vào bằng liên kết')),
-      // Về nhóm chat của cuộc họp, cuộc họp thu nhỏ thành khung nổi (trước là nút chat trên thanh nút).
-      tile(Icons.forum_outlined, tr('Về nhóm chat'), () {
-        close?.call();
-        _backToChat(app, call);
-      }, sub: tr('Cuộc họp thu nhỏ thành khung nổi')),
-      const Divider(color: Colors.white12),
-      _infoView(app, call),
-      if (call.meeting && call.scribeAvailable) ...[
-        const Divider(color: Colors.white12),
-        tile(Icons.auto_awesome_rounded, tr('Tóm tắt cuộc họp'), () => run(() => _runMore('summary', app, call))),
-      ],
-      if (!isDesktop) ...[
-        tile(call.deafened ? Icons.volume_off_rounded : Icons.volume_up_rounded, call.deafened ? tr('Bật tiếng cuộc họp') : tr('Tắt tiếng cuộc họp'), () {
-          close?.call();
-          _toggleDeafen(call);
-        }),
-        if (call.camera) tile(Icons.cameraswitch_outlined, tr('Đổi camera'), () => run(() => call.switchCamera())),
-      ],
-      if (host) ...[
-        _panelHead(tr('Chủ trì')),
-        tile(Icons.auto_awesome_mosaic_outlined, tr('Bố cục'), () => run(_pickLayout)),
-        if (call.isMeetingCreator && call.scribeAvailable)
-          tile(call.transcribing ? Icons.subtitles_rounded : Icons.subtitles_off_outlined, tr('Phiên âm (Thư ký Họp)'), () => run(() => _toggleScribe(call)),
-              trailing: Text(call.transcribing ? tr('Bật') : tr('Tắt'), style: const TextStyle(color: _grey))),
-        if (room != null) tile(Icons.mic_off_outlined, tr('Tắt mic tất cả'), () => run(() => _runMore('mute_all', app, call))),
-        for (final id in const ['controls', 'attendance', 'hands'])
-          if (x[id] != null) tile(x[id]!.icon, x[id]!.label, () => run(() => x[id]!.run(context, call))),
-        if (room != null && room.stage != null) tile(Icons.layers_clear_outlined, tr('Tắt màn trình chiếu'), () => run(() => _runMore('clear', app, call))),
-        if (room != null && room.star != null) tile(Icons.star_outline, tr('Bỏ ngôi sao'), () => run(() => _runMore('unstar', app, call))),
-      ] else if (x['hands'] != null)
-        tile(x['hands']!.icon, x['hands']!.label, () => run(() => x['hands']!.run(context, call))),
-    ]);
+    final style = OutlinedButton.styleFrom(
+      foregroundColor: Colors.white,
+      side: const BorderSide(color: Colors.white24),
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+    );
+    return ListenableBuilder(
+      listenable: call,
+      builder: (_, _) {
+        final room = _room;
+        return ListView(padding: const EdgeInsets.only(top: 10, bottom: 16), children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            // Hai nút lớn, mỗi nút một dòng (dễ bấm, không cắt chữ trên điện thoại).
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              SizedBox(
+                child: OutlinedButton.icon(
+                  style: style,
+                  icon: const Icon(Icons.link_rounded, size: 20),
+                  label: Text(tr('Mời khách (không cần cài phần mềm)')),
+                  onPressed: () {
+                    close?.call();
+                    if (hasCode && call.canModerate && x['guest_invite'] != null) {
+                      x['guest_invite']!.run(context, call);
+                    } else {
+                      _copyLiveLink(app, call);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                child: OutlinedButton.icon(
+                  style: style,
+                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 20),
+                  label: Text(tr('Mời thành viên'), textAlign: TextAlign.center),
+                  onPressed: () => _inviteSheet(app, call),
+                ),
+              ),
+            ]),
+          ),
+          ..._turnRows(app, call),
+          if (room != null && room.knocks.isNotEmpty && _isHost(app, call)) ...[
+            _panelHead(tr('Đang xin tham gia')),
+            for (final k in room.knocks)
+              ListTile(
+                leading: _Face(userId: k.userId, name: k.name, size: 36),
+                title: Text(k.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  TextButton(onPressed: () => _admit(app, room, k, false), child: Text(tr('Từ chối'), style: const TextStyle(color: _grey))),
+                  TextButton(onPressed: () => _admit(app, room, k, true), child: Text(tr('Cho vào'), style: const TextStyle(color: _blue))),
+                ]),
+              ),
+          ],
+          _panelHead(tr('Trong cuộc họp · {0}', [call.participants.length + 1])),
+          ..._peopleRows(app, call),
+        ]);
+      },
+    );
   }
+
+  /// Màn hình: màn hình / TV đang trong cuộc họp và nút thêm màn hình bằng mã QR.
+  Widget _screensTab(AppState app, CallService call, VoidCallback? close) => ListenableBuilder(
+        listenable: call,
+        builder: (_, _) {
+          final list = call.participants.where((p) => p.userId.startsWith('device:')).toList();
+          return ListView(padding: const EdgeInsets.fromLTRB(12, 10, 12, 16), children: [
+            if (call.liveKit)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: Text(tr('Thêm màn hình (quét mã QR trên TV)')),
+                onPressed: () {
+                  close?.call();
+                  _addScreen(call);
+                },
+              ),
+            const SizedBox(height: 12),
+            if (list.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(tr('Chưa có màn hình nào trong cuộc họp. Mở trang hello trên TV / màn hình phòng họp rồi quét mã QR.'),
+                    style: const TextStyle(color: _grey)),
+              ),
+            for (final p in list)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                leading: const Icon(Icons.tv_rounded, color: Colors.white),
+                title: Text(call.deviceNames[p.userId] ?? tr('Màn hình phòng họp'), style: const TextStyle(color: Colors.white)),
+                subtitle: Text(tr('Đang chiếu cuộc họp'), style: const TextStyle(color: _grey, fontSize: 12.5)),
+              ),
+          ]);
+        },
+      );
+
+  /// Mời thành viên: lời mời, liên kết, mã QR, chia sẻ.
+  Future<void> _inviteSheet(AppState app, CallService call) => showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: _panelBg,
+        showDragHandle: true,
+        isScrollControlled: true,
+        constraints: const BoxConstraints(maxWidth: 520),
+        builder: (ctx) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(tr('Mời thành viên'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              _infoView(app, call),
+            ]),
+          ),
+        ),
+      );
 
   /// Gác máy. Người tạo cuộc họp: chọn rời (cuộc họp vẫn tiếp tục) hoặc kết thúc cuộc họp cho mọi người.
   Future<void> _leave(CallService call) async {
@@ -1688,29 +1876,6 @@ class _CallScreenState extends State<CallScreen> {
   bool _isHost(AppState app, CallService call) =>
       (_room?.host ?? false) || call.callerId == app.me?.id || (call.channelId != null && app.canManage(call.channelId!));
 
-  Future<void> _pickReaction(BuildContext anchor, CallService call) async {
-    _poke();
-    final box = anchor.findRenderObject() as RenderBox;
-    final pos = box.localToGlobal(Offset.zero);
-    final e = await showMenu<String>(
-      context: context,
-      color: _panelBg,
-      position: RelativeRect.fromLTRB(pos.dx - 80, pos.dy - 70, pos.dx + 200, pos.dy),
-      items: [
-        PopupMenuItem<String>(
-          enabled: false,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            for (final e in CallService.reactionNames.keys)
-              InkWell(
-                onTap: () => Navigator.pop(context, e),
-                child: Padding(padding: const EdgeInsets.all(6), child: Text(e, style: const TextStyle(fontSize: 28))),
-              ),
-          ]),
-        ),
-      ],
-    );
-    if (e != null) call.react(e);
-  }
 
 
   Future<void> _runMore(String? a, AppState app, CallService call) async {
@@ -1816,12 +1981,11 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _sidePanel(AppState app, CallService call) {
-    final count = call.participants.length + 1;
     final title = switch (_panel) {
       _MeetPanel.pages => tr('Trang họp'),
       _MeetPanel.chat => tr('Tin nhắn trong cuộc họp'),
       _MeetPanel.ai => tr('Trợ lý AI'),
-      _MeetPanel.people => tr('Thành viên · {0}', [count]),
+      _MeetPanel.people => tr('Cài đặt'),
       _ => tr('Cài đặt'),
     };
     // Tab chọn ở thanh điều khiển dưới cùng; ở đây chỉ tiêu đề nhỏ + nút đóng, phần còn lại cho nội dung.
@@ -1858,54 +2022,8 @@ class _CallScreenState extends State<CallScreen> {
   Widget _sideBody(AppState app, CallService call) {
     final room = _room;
     final (_, body) = switch (_panel) {
-      _MeetPanel.people => (
-          tr('Mọi người'),
-          ListenableBuilder(
-            listenable: call,
-            builder: (_, _) => ListView(padding: const EdgeInsets.only(bottom: 12), children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(foregroundColor: _blue, side: const BorderSide(color: Colors.white24), minimumSize: const Size(0, 42)),
-                  onPressed: () => setState(() => _panel = _MeetPanel.info),
-                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 20),
-                  label: Text(tr('Mời người khác')),
-                ),
-              ),
-              ..._inviteButtons(call),
-              ..._turnRows(app, call),
-              if (room != null && room.knocks.isNotEmpty && _isHost(app, call)) ...[
-                _panelHead(tr('Đang xin tham gia')),
-                for (final k in room.knocks)
-                  ListTile(
-                    leading: _Face(userId: k.userId, name: k.name, size: 36),
-                    title: Text(k.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      TextButton(onPressed: () => _admit(app, room, k, false), child: Text(tr('Từ chối'), style: const TextStyle(color: _grey))),
-                      TextButton(onPressed: () => _admit(app, room, k, true), child: Text(tr('Cho vào'), style: const TextStyle(color: _blue))),
-                    ]),
-                  ),
-              ],
-              _panelHead(tr('Trong cuộc họp · {0}', [call.participants.length + 1])),
-              ..._peopleRows(app, call),
-              if (room != null && _isHost(app, call))
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),
-                      onPressed: () => _runMore('mute_all', app, call),
-                      icon: const Icon(Icons.mic_off_outlined, size: 18),
-                      label: Text(tr('Tắt mic tất cả')),
-                    ),
-                  ),
-                ),
-            ]),
-          ),
-        ),
       _MeetPanel.chat => (tr('Tin nhắn trong cuộc họp'), room == null ? const SizedBox.shrink() : MeetCommentsView(room: room)),
-      _ => (tr('Cài đặt'), SingleChildScrollView(padding: const EdgeInsets.fromLTRB(12, 0, 12, 16), child: _settingsView(app, call))),
+      _ => (tr('Cài đặt'), _settingsView(app, call)),
     };
     return body;
   }
@@ -2016,7 +2134,7 @@ class _CallScreenState extends State<CallScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(tr('Cài đặt'), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            _settingsView(app, call, close: () => Navigator.pop(ctx)),
+            SizedBox(height: MediaQuery.sizeOf(ctx).height * .72, child: _settingsView(app, call, close: () => Navigator.pop(ctx))),
           ]),
         ),
       ),
