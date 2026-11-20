@@ -168,6 +168,13 @@ class PagesApi {
     return out.stream;
   }
 
+  /// Tải ảnh / nhạc của cuộc họp (ảnh nền, nhạc nền, ảnh đại diện video) -> đường dẫn tương đối trên relay.
+  Future<String> uploadAsset(File f, String name) async {
+    final j = await _req('POST', '/meet/pages/asset',
+        query: {'meeting': call.pagesMeeting ?? '', 'name': name}, headers: {'Content-Type': 'application/octet-stream'}, body: await f.readAsBytes(), timeout: const Duration(minutes: 3));
+    return '${j['url']}';
+  }
+
   Future<void> export(String id) => _req('POST', '/meet/pages/$id/export');
 
   /// Gửi bản PDF cho trang tài liệu.
@@ -177,3 +184,6 @@ class PagesApi {
     return (j['file'] as Map).cast<String, dynamic>();
   }
 }
+
+/// Đường dẫn đầy đủ của tệp trên relay (relay trả đường dẫn tương đối, vd. /meet/livekit/pagefile/…).
+String pageAssetUrl(String u) => u.startsWith('/') ? '$kPushUrl$u' : u;

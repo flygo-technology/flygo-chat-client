@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../calls/call_service.dart';
 import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
+import 'page_media.dart';
+import 'pages_api.dart' show pageAssetUrl;
 import 'types/builtin.dart' show pageField;
 
 // Trang hệ thống của Họp (mới): không thuộc ai, người trình chiếu / chủ trì đưa lên sân khấu (metadata.stage.page = sys:…).
@@ -39,8 +41,8 @@ const pageBackgrounds = <String, List<Color>>{
 
 /// Nền của một trang từ cấu hình (ảnh > màu có sẵn > mặc định).
 BoxDecoration pageBackground(String bg, String image) {
-  if (image.startsWith('http')) {
-    return BoxDecoration(color: Colors.black, image: DecorationImage(image: NetworkImage(image), fit: BoxFit.cover, opacity: .85));
+  if (image.startsWith('http') || image.startsWith('/')) {
+    return BoxDecoration(color: Colors.black, image: DecorationImage(image: NetworkImage(pageAssetUrl(image)), fit: BoxFit.cover, opacity: .85));
   }
   final c = pageBackgrounds[bg] ?? pageBackgrounds.values.first;
   return BoxDecoration(gradient: LinearGradient(colors: c, begin: Alignment.topLeft, end: Alignment.bottomRight));
@@ -188,7 +190,15 @@ class _HandoverEditorState extends State<_HandoverEditor> {
         Row(children: [
           SizedBox(width: 110, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
           const SizedBox(width: 8),
-          Expanded(child: TextField(controller: _image, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Ảnh nền (đường dẫn, tuỳ chọn)')), onChanged: (_) => setState(() {}))),
+          Expanded(child: TextField(controller: _image, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Ảnh nền (tuỳ chọn)')), onChanged: (_) => setState(() {}))),
+          IconButton(
+            tooltip: tr('Chọn ảnh nền'),
+            icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
+            onPressed: () async {
+              final u = await pickPageMedia(context, widget.call, image: true);
+              if (u != null && mounted) setState(() => _image.text = u);
+            },
+          ),
         ]),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: [
