@@ -397,7 +397,17 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                               _btn(
                                 Icons.highlight_alt_rounded,
                                 _laserMode ? tr('Tắt bút laser') : tr('Bút laser'),
-                                () => setState(() => _laserMode = !_laserMode),
+                                () {
+                                  // Tắt bút: xoá chấm trên máy mình và báo mọi máy (TV, người xem) tắt ngay.
+                                  if (_laserMode) {
+                                    call.sendLaser(_laser?.dx ?? 0, _laser?.dy ?? 0, on: false);
+                                    _laserHide?.cancel();
+                                  }
+                                  setState(() {
+                                    _laserMode = !_laserMode;
+                                    if (!_laserMode) _laser = null;
+                                  });
+                                },
                                 on: _laserMode,
                               ),
                             if (_free && !presenter)

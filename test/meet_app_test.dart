@@ -490,18 +490,17 @@ void main() {
       await t.tap(find.byTooltip('Tin nhắn trong cuộc họp'));
       await t.pump(const Duration(milliseconds: 300));
       expect(find.text('Gửi tin nhắn cho mọi người'), findsOneWidget);
-      // Bố cục Thanh bên.
-      await t.tap(find.byTooltip('Tùy chọn khác'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('Đổi bố cục'));
+      // Bố cục Thanh bên (Cài đặt → Bố cục, chủ trì).
+      await t.tap(find.byTooltip('Cài đặt'));
+      await t.pump(const Duration(milliseconds: 300));
+      await t.tap(find.text('Bố cục'));
       await t.pumpAndSettle();
       await t.tap(find.text('Thanh bên'));
       await t.pumpAndSettle();
       await t.pump(const Duration(milliseconds: 300));
       await snap(t, 'd4-call-sidebar-chat');
       // Thông tin cuộc họp: mã, link, liên kết xem.
-      await t.tap(find.byTooltip('Thông tin cuộc họp'));
-      await t.pump(const Duration(milliseconds: 300));
+      // Cài đặt vẫn đang mở (từ bước Bố cục): mã, liên kết, liên kết xem cho khách.
       expect(find.text('Sao chép liên kết xem'), findsOneWidget);
       expect(find.textContaining('abc-mnop-xyz'), findsWidgets);
       await t.pump(const Duration(milliseconds: 300));
@@ -520,14 +519,8 @@ void main() {
           info: const MeetingInfo(postId: 'p', creatorId: _me, title: 'Giao ban kỹ thuật', code: 'abc-mnop-xyz'),
         );
         await show(t, name, size, CallScreen(key: ValueKey(name)));
-        // Cửa sổ hẹp: các tab gom vào nút "Bảng bên phải" (menu).
-        if (size.width < 900) {
-          await t.tap(find.byTooltip('Bảng bên phải').first);
-          await t.pumpAndSettle();
-          await t.tap(find.text('Thành viên').last);
-        } else {
-          await t.tap(find.byTooltip('Thành viên'));
-        }
+        // Số người trên đầu màn hình mở Thành viên.
+        await t.tap(find.byTooltip('Thành viên'));
         await t.pump(const Duration(milliseconds: 300));
         expect(find.text('TRONG CUỘC HỌP · 5'), findsOneWidget);
         await t.pump(const Duration(milliseconds: 300));
@@ -554,7 +547,7 @@ void main() {
       app.calls.debugMeeting(_ch, const []);
     });
 
-    testWidgets('điện thoại: lưới + bảng ⋯', (t) async {
+    testWidgets('điện thoại: lưới + bảng Cài đặt', (t) async {
       debugIsDesktop = false;
       CallScreen.debugRoom = (_) => room();
       app.calls.debugMeeting(
@@ -564,10 +557,10 @@ void main() {
       );
       await show(t, 'p3-call', const Size(390, 844), const CallScreen());
       expect(find.textContaining('Giao ban kỹ thuật'), findsWidgets);
-      await t.tap(find.byIcon(Icons.more_horiz_rounded).last);
+      await t.tap(find.byTooltip('Cài đặt'));
       await t.pumpAndSettle();
-      expect(find.text('Đổi bố cục'), findsOneWidget);
-      expect(find.text('Thông tin cuộc họp'), findsOneWidget);
+      expect(find.text('Thêm thành viên'), findsOneWidget);
+      expect(find.text('Mời khách'), findsOneWidget);
       await t.pump(const Duration(milliseconds: 300));
       await snap(t, 'p4-call-more');
       await t.pumpWidget(const SizedBox.shrink());

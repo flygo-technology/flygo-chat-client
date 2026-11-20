@@ -7,6 +7,7 @@ import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
 import 'page_types.dart';
 import 'pages_api.dart';
+import '../meet/meet_present.dart' show pickPresentPdf;
 import 'pages_overview.dart';
 import 'types/builtin.dart' show pageField;
 
@@ -69,6 +70,11 @@ class _StagePageViewState extends State<StagePageView> {
     final control = shown.isNotEmpty && (mine || call.canModerate);
     final ends = (st['ends_at'] as num?)?.toInt() ?? 0;
     final left = ends == 0 ? 0 : ends - DateTime.now().millisecondsSinceEpoch;
+    return LayoutBuilder(builder: (context, box) => _build(context, box.maxWidth < 560, st, shown, id, key, control, left));
+  }
+
+  Widget _build(BuildContext context, bool narrow, Map st, String shown, String id, String key, bool control, int left) {
+    final call = widget.call;
     return Stack(children: [
       Positioned.fill(
         child: PageHost(
@@ -77,7 +83,12 @@ class _StagePageViewState extends State<StagePageView> {
           id: id,
           stageKey: key.isEmpty ? null : key,
           onStage: true,
-          builder: (context, ctx, spec) => spec == null ? unknownPageView(ctx) : spec.view(context, ctx),
+          // Khung sân khấu quá hẹp (cửa sổ nhỏ, cột bên phải đang mở): dựng ở 360 px rồi thu nhỏ cho vừa, không tràn.
+          builder: (context, ctx, spec) => LayoutBuilder(builder: (context, box) {
+            final view = spec == null ? unknownPageView(ctx) : spec.view(context, ctx);
+            if (box.maxWidth >= 360 || !box.maxHeight.isFinite || box.maxWidth <= 0) return view;
+            return FittedBox(fit: BoxFit.contain, child: SizedBox(width: 360, height: 360 * box.maxHeight / box.maxWidth, child: view));
+          }),
         ),
       ),
       // Một dải ở góc phải: ai đang chiếu, thời gian còn lại, nút điều khiển (người trình chiếu / chủ trì); không đè lên nội dung trang.
@@ -85,12 +96,13 @@ class _StagePageViewState extends State<StagePageView> {
         Positioned(
           right: 8,
           top: 8,
+          // Khung hẹp: chỉ nút điều khiển (chữ "Đang chiếu…" che mất tiêu đề trang).
           child: Container(
             padding: const EdgeInsets.only(left: 12),
             decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(20)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 260),
+              if (!narrow || !control) ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: narrow ? 160 : 260),
                 child: Padding(
                   padding: EdgeInsets.symmetric(vertical: control ? 0 : 6).copyWith(right: control ? 4 : 12),
                   child: Text(
@@ -125,14 +137,23 @@ class _StagePageViewState extends State<StagePageView> {
 }
 
 /// Mở bảng kéo lên Trang họp. [edit]: mở thẳng trình soạn trang đó; [create]: mở ngay bảng chọn loại trang mới.
-Future<void> showPagesSheet(BuildContext context, CallService call, {String? edit, bool create = false}) => showModalBottomSheet<void>(
+Future<void> showPagesSheet(BuildContext context, CallService call, {String? edit, bool create = false, List<PageApp> apps = const []}) => showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black26,
-      builder: (ctx) => PagesPane(call: call, edit: edit, create: create),
+      builder: (ctx) => PagesPane(call: call, edit: edit, create: create, apps: apps),
     );
+
+/// Một app của màn họp đặt trong ô Apps (vd. Bảng trắng): không phải loại trang, chỉ mở chức năng có sẵn.
+class PageApp {
+  final String id, label, desc;
+  final IconData icon;
+  final Color color;
+  final Future<void> Function(BuildContext context, CallService call) run;
+  const PageApp({required this.id, required this.label, this.desc = '', required this.icon, required this.color, required this.run});
+}
 
 /// Nội dung Trang họp: tab Tất cả / Lượt, xem trang, soạn trang. Điện thoại: trong bảng kéo lên ([panel] = false);
 /// máy tính: trong panel bên phải của cuộc họp ([panel] = true).
@@ -141,7 +162,11 @@ class PagesPane extends StatefulWidget {
   final String? edit;
   final bool create;
   final bool panel;
-  const PagesPane({super.key, required this.call, this.edit, this.create = false, this.panel = false});
+  /// App của màn họp trong ô Apps (bảng trắng…).
+  final List<PageApp> apps;
+  /// Trình chiếu màn hình của mình (máy tính); null = không có (điện thoại).
+  final Future<void> Function()? shareScreen;
+  const PagesPane({super.key, required this.call, this.edit, this.create = false, this.panel = false, this.apps = const [], this.shareScreen});
   @override
   State<PagesPane> createState() => _PagesPaneState();
 }
@@ -149,7 +174,6 @@ class PagesPane extends StatefulWidget {
 class _PagesPaneState extends State<PagesPane> {
   late final api = PagesApi(widget.call);
   final _sheet = DraggableScrollableController();
-  int _tab = 0;
   List<MeetPage> _mine = const [], _public = const [];
   String? _err;
   String? _editing; // id trang đang soạn
@@ -206,45 +230,62 @@ class _PagesPaneState extends State<PagesPane> {
     if (e != null && mounted) meetToast(context, e);
   }
 
+  /// Ô "Apps": Trình chiếu (màn hình / tài liệu), app của màn họp (bảng trắng…) và mọi loại trang.
   Future<void> _new() async {
-    final spec = await showModalBottomSheet<PageTypeSpec>(
+    Widget tile(BuildContext ctx, Object v, IconData icon, Color color, String label, String desc) => SizedBox(
+          width: 168,
+          child: Material(
+            color: _card,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.pop(ctx, v),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Row(children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(color: color.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
+                    child: Icon(icon, color: color, size: 19),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      if (desc.isNotEmpty) Text(desc, maxLines: 2, style: const TextStyle(color: _sub, fontSize: 11)),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+    final pick = await showModalBottomSheet<Object>(
       context: context,
       backgroundColor: _bg,
+      isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: 560),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(12),
-          child: Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final s in pageTypes)
-              SizedBox(
-                width: 160,
-                child: Material(
-                  color: _card,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => Navigator.pop(ctx, s),
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Row(children: [
-                        _typeIcon(s),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(s.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                            if (s.desc.isNotEmpty) Text(s.desc, maxLines: 2, style: const TextStyle(color: _sub, fontSize: 11)),
-                          ]),
-                        ),
-                      ]),
-                    ),
-                  ),
-                ),
-              ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 10), child: Text(tr('Apps'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700))),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              tile(ctx, 'present', Icons.present_to_all_rounded, const Color(0xFFF29900), tr('Trình chiếu'), tr('Màn hình của bạn, hoặc tài liệu')),
+              for (final a in widget.apps) tile(ctx, a, a.icon, a.color, a.label, a.desc),
+              for (final s in pageTypes)
+                if (s.type != 'doc') tile(ctx, s, s.icon, s.color, s.label, s.desc),
+            ]),
           ]),
         ),
       ),
     );
-    if (spec == null || !mounted) return;
+    if (pick == null || !mounted) return;
+    if (pick is PageApp) return pick.run(context, call);
+    if (pick == 'present') return _present();
+    final spec = pick as PageTypeSpec;
     try {
       final d = spec.create == null ? PageDraft(title: spec.label) : await spec.create!(context, call);
       if (d == null) return;
@@ -253,6 +294,51 @@ class _PagesPaneState extends State<PagesPane> {
       if (!mounted) return;
       setState(() => _editing = p.page.id);
       _size(.72);
+    } catch (e) {
+      if (mounted) meetToast(context, '$e');
+    }
+  }
+
+  /// App "Trình chiếu": màn hình của mình (máy tính) hoặc tài liệu (thành trang Tài liệu rồi lên sân khấu).
+  Future<void> _present() async {
+    final screen = widget.shareScreen;
+    final src = screen == null
+        ? 'doc'
+        : await showModalBottomSheet<String>(
+            context: context,
+            backgroundColor: _bg,
+            constraints: const BoxConstraints(maxWidth: 520),
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+            builder: (ctx) => SafeArea(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 6), child: Text(tr('Trình chiếu'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700))),
+                ListTile(
+                  leading: const Icon(Icons.desktop_windows_outlined, color: Colors.white),
+                  title: Text(tr('Màn hình của tôi'), style: const TextStyle(color: Colors.white)),
+                  subtitle: Text(tr('Chia sẻ cả màn hình hoặc một cửa sổ'), style: const TextStyle(color: _sub)),
+                  onTap: () => Navigator.pop(ctx, 'screen'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.slideshow_rounded, color: Colors.white),
+                  title: Text(tr('Tài liệu'), style: const TextStyle(color: Colors.white)),
+                  subtitle: Text(tr('PowerPoint, PDF, Word, Excel: mọi người xem cùng trang'), style: const TextStyle(color: _sub)),
+                  onTap: () => Navigator.pop(ctx, 'doc'),
+                ),
+                const SizedBox(height: 8),
+              ]),
+            ),
+          );
+    if (src == null || !mounted) return;
+    if (src == 'screen') return screen!();
+    try {
+      final r = await pickPresentPdf(context, call);
+      if (r == null || !mounted) return;
+      final name = r.$2.replaceFirst(RegExp(r'\.[A-Za-z0-9]{2,5}$'), '');
+      final d = await api.create(type: 'doc', title: name.isEmpty ? tr('Tài liệu') : name);
+      await api.upload(d.page.id, r.$1, r.$2, r.$3);
+      await _load();
+      if (_canShow) await _toast(call.stageAct('show', {'page': d.page.id}));
+      if (mounted) meetToast(context, _canShow ? tr('Đang trình chiếu {0}', [r.$2]) : tr('Đã thêm "{0}" vào trang của bạn', [r.$2]));
     } catch (e) {
       if (mounted) meetToast(context, '$e');
     }
@@ -292,7 +378,7 @@ class _PagesPaneState extends State<PagesPane> {
           SliverToBoxAdapter(child: _viewer(_viewing!))
         else if (_err != null)
           SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(16), child: Text(_err!, style: const TextStyle(color: Colors.white70))))
-        else if (_tab == 0)
+        else
           SliverToBoxAdapter(
             child: PagesOverview(
               call: call,
@@ -306,39 +392,68 @@ class _PagesPaneState extends State<PagesPane> {
               },
               onNew: _new,
             ),
-          )
-        else
-          SliverList.list(children: _turns()),
+          ),
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
       ];
 
+  /// Đầu danh sách (Sếp: không còn tab / bộ lọc): dải "Lượt" gọn (ai đang chiếu, hàng đợi, xin / trả lượt, ⚙ chỉnh lượt)
+  /// và nút ＋ (Apps: thêm trang, trình chiếu).
   Widget _tabs() {
-    final q = (call.roomStage?['queue'] as List? ?? const []).length;
+    final st = call.roomStage ?? const {};
+    final pres = '${st['presenter'] ?? ''}';
+    final queue = [for (final x in (st['queue'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
+    final inQueue = queue.any((x) => x['id'] == call.myId());
+    final text = [
+      if (pres.isNotEmpty) tr('Đang chiếu: {0}', ['${st['presenter_name'] ?? ''}']) else tr('Chưa ai trình chiếu'),
+      if (queue.isNotEmpty) tr('chờ: {0}', [queue.map((q) => q['name']).join(', ')]),
+    ].join(' · ');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      padding: const EdgeInsets.fromLTRB(12, 0, 8, 8),
       child: Row(children: [
         Expanded(
-          child: SegmentedButton<int>(
-            showSelectedIcon: false,
-            style: SegmentedButton.styleFrom(foregroundColor: Colors.white70, selectedForegroundColor: const Color(0xFF041E49), selectedBackgroundColor: _acc, visualDensity: VisualDensity.compact),
-            segments: [
-              ButtonSegment(value: 0, icon: const Icon(Icons.grid_view_rounded, size: 16), label: Text(tr('Tất cả'))),
-              ButtonSegment(value: 1, label: Text(q > 0 ? tr('Lượt ({0})', [q]) : tr('Lượt'))),
-            ],
-            selected: {_tab},
-            onSelectionChanged: (s) => setState(() => _tab = s.first),
+          child: Material(
+            color: _card,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: _turnsSheet,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                child: Row(children: [
+                  Icon(pres.isEmpty ? Icons.co_present_outlined : Icons.cast_connected_rounded, size: 18, color: pres.isEmpty ? _sub : const Color(0xFFFFB4AE)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 12.5))),
+                  if (_myTurn)
+                    TextButton(onPressed: () => _toast(call.stageAct('release')), child: Text(tr('Trả lượt')))
+                  else
+                    TextButton(
+                      onPressed: () => _toast(call.stageAct(inQueue ? 'cancel' : 'request')),
+                      child: Text(inQueue ? tr('Huỷ xin') : pres.isEmpty ? tr('Trình chiếu') : tr('Xin lượt')),
+                    ),
+                ]),
+              ),
+            ),
           ),
         ),
-        IconButton.filled(onPressed: _new, icon: const Icon(Icons.add_rounded), tooltip: tr('Trang mới')),
+        const SizedBox(width: 6),
+        IconButton.filled(onPressed: _new, icon: const Icon(Icons.add_rounded), tooltip: tr('Apps: thêm trang, trình chiếu')),
       ]),
     );
   }
 
-  Widget _typeIcon(PageTypeSpec? s, [double size = 34]) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(color: (s?.color ?? Colors.grey).withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
-        child: Icon(s?.icon ?? Icons.help_outline, color: s?.color ?? Colors.grey, size: size * .55),
+  /// Chỉnh lượt (hàng đợi, trao lượt, tự chạy, khoá, màn hình chờ) trong bảng nhỏ.
+  Future<void> _turnsSheet() => showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: _bg,
+        isScrollControlled: true,
+        constraints: const BoxConstraints(maxWidth: 560),
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+        builder: (ctx) => SafeArea(
+          child: ListenableBuilder(
+            listenable: call,
+            builder: (_, _) => SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [const SizedBox(height: 12), ..._turns()])),
+          ),
+        ),
       );
 
   bool get _myTurn => call.roomStage?['presenter'] == call.myId();
