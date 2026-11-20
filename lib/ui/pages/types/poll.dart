@@ -58,7 +58,10 @@ class PollComposer extends StatefulWidget {
 }
 
 class _PollComposerState extends State<PollComposer> {
-  late bool _quiz = widget.quiz;
+  late String _kind = widget.quiz ? 'quiz' : 'poll'; // poll | quiz | vote
+  bool get _quiz => _kind == 'quiz';
+  bool get _vote => _kind == 'vote';
+  int _quorum = 0, _threshold = 50;
   final _title = TextEditingController();
   final _qs = <_Q>[_Q()];
   bool _anon = false, _live = true;
@@ -74,6 +77,11 @@ class _PollComposerState extends State<PollComposer> {
   }
 
   PageDraft? _draft() {
+    if (_vote) {
+      final t = _qs.first.text.text.trim();
+      if (t.isEmpty) return _fail(tr('Hãy nhập nội dung cần biểu quyết'));
+      return PageDraft(title: _title.text.trim().isEmpty ? t : _title.text.trim(), init: {'kind': 'vote', 'text': t, 'anon': _anon, 'quorum': _quorum, 'threshold': _threshold});
+    }
     final qs = <Map<String, dynamic>>[];
     for (final (i, q) in _qs.indexed) {
       final opts = [for (final o in q.opts) o.text.trim()];
@@ -180,15 +188,17 @@ class _PollComposerState extends State<PollComposer> {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .88),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              SegmentedButton<bool>(
+              SegmentedButton<String>(
+                showSelectedIcon: false,
                 segments: [
-                  ButtonSegment(value: false, label: Text(tr('Bình chọn')), icon: const Icon(Icons.how_to_vote_outlined)),
-                  ButtonSegment(value: true, label: Text(tr('Trắc nghiệm')), icon: const Icon(Icons.quiz_outlined)),
+                  ButtonSegment(value: 'poll', label: Text(tr('Bình chọn')), icon: const Icon(Icons.how_to_vote_outlined)),
+                  ButtonSegment(value: 'quiz', label: Text(tr('Trắc nghiệm')), icon: const Icon(Icons.quiz_outlined)),
+                  ButtonSegment(value: 'vote', label: Text(tr('Biểu quyết')), icon: const Icon(Icons.gavel_outlined)),
                 ],
-                selected: {_quiz},
+                selected: {_kind},
                 onSelectionChanged: (v) => setState(() {
-                  _quiz = v.first;
-                  _live = !_quiz;
+                  _kind = v.first;
+                  _live = _kind == 'poll';
                 }),
               ),
               const SizedBox(height: 12),
@@ -196,17 +206,38 @@ class _PollComposerState extends State<PollComposer> {
                 child: ListView(shrinkWrap: true, children: [
                   TextField(controller: _title, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Tiêu đề (không bắt buộc)'))),
                   const SizedBox(height: 12),
-                  for (final (i, q) in _qs.indexed) _question(i, q),
+                  if (_vote) ...[
+                    TextField(controller: _qs.first.text, style: const TextStyle(color: Colors.white), maxLines: 4, minLines: 2, decoration: pageField(tr('Nội dung biểu quyết'))),
+                    const SizedBox(height: 8),
+                    Text(tr('Lựa chọn: Đồng ý · Không đồng ý · Phiếu trắng. Mỗi người một phiếu, không đổi.'), style: const TextStyle(color: _sub, fontSize: 12)),
+                    Row(children: [
+                      Expanded(child: Text(tr('Thông qua khi Đồng ý trên'), style: const TextStyle(color: Colors.white))),
+                      DropdownButton<int>(
+                        value: _threshold,
+                        dropdownColor: const Color(0xFF3A3B3F),
+                        style: const TextStyle(color: Colors.white),
+                        items: [for (final t in [50, 66, 75]) DropdownMenuItem(value: t, child: Text('$t%'))],
+                        onChanged: (v) => setState(() => _threshold = v ?? 50),
+                      ),
+                    ]),
+                    Row(children: [
+                      Expanded(child: Text(tr('Số phiếu tối thiểu'), style: const TextStyle(color: Colors.white))),
+                      IconButton(onPressed: _quorum > 0 ? () => setState(() => _quorum--) : null, icon: const Icon(Icons.remove_circle_outline, color: Colors.white70)),
+                      Text(_quorum == 0 ? tr('không') : '$_quorum', style: const TextStyle(color: Colors.white)),
+                      IconButton(onPressed: () => setState(() => _quorum++), icon: const Icon(Icons.add_circle_outline, color: Colors.white70)),
+                    ]),
+                  ] else
+                    for (final (i, q) in _qs.indexed) _question(i, q),
                   if (_quiz)
                     OutlinedButton.icon(onPressed: () => setState(() => _qs.add(_Q())), icon: const Icon(Icons.add), label: Text(tr('Thêm câu hỏi'))),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(tr('Ẩn danh'), style: const TextStyle(color: Colors.white)),
+                    title: Text(_vote ? tr('Bỏ phiếu kín') : tr('Ẩn danh'), style: const TextStyle(color: Colors.white)),
                     subtitle: Text(tr('Không ai biết ai chọn gì, kể cả người tạo'), style: const TextStyle(color: _sub, fontSize: 12)),
                     value: _anon,
                     onChanged: (v) => setState(() => _anon = v),
                   ),
-                  if (!_quiz)
+                  if (_kind == 'poll')
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(tr('Mọi người thấy kết quả ngay'), style: const TextStyle(color: Colors.white)),
@@ -223,7 +254,7 @@ class _PollComposerState extends State<PollComposer> {
                   final d = _draft();
                   if (d != null) Navigator.pop(context, d);
                 },
-                child: Text(_quiz ? tr('Tạo trắc nghiệm') : tr('Tạo bình chọn')),
+                child: Text(_vote ? tr('Tạo biểu quyết') : _quiz ? tr('Tạo trắc nghiệm') : tr('Tạo bình chọn')),
               ),
             ]),
           ),
@@ -247,6 +278,9 @@ class _PollViewState extends State<PollView> {
   PageCtx get ctx => widget.ctx;
   Map<String, dynamic> get v => ctx.view;
   bool get quiz => v['kind'] == 'quiz';
+  bool get vote => v['kind'] == 'vote';
+  /// Trắc nghiệm / biểu quyết: một lần, không đổi.
+  bool get oneShot => quiz || vote;
   List<Map<String, dynamic>> get qs => [for (final q in (v['questions'] as List? ?? const [])) (q as Map).cast<String, dynamic>()];
   Map<String, dynamic>? resultOf(String q) => ((v['results'] as Map?)?[q] as Map?)?.cast<String, dynamic>();
   List<String> mineOf(String q) => [for (final x in ((v['mine'] as Map?)?[q] as List? ?? const [])) '$x'];
@@ -269,9 +303,9 @@ class _PollViewState extends State<PollView> {
     final correct = [for (final x in (q['correct'] as List? ?? const [])) '$x'];
     final mine = mineOf('${q['id']}').contains(id);
     final picking = _pick['${q['id']}']?.contains(id) ?? false;
-    final answeredQuiz = quiz && mineOf('${q['id']}').isNotEmpty;
-    final canTap = !big && !_busy && v['closed'] != true && ctx.data.role != 'viewer' && !answeredQuiz && !(quiz && v['reveal'] == true);
-    final color = _optColors[i % _optColors.length];
+    final answeredQuiz = oneShot && mineOf('${q['id']}').isNotEmpty;
+    final canTap = !big && !_busy && v['closed'] != true && ctx.data.role != 'viewer' && !(vote && ctx.data.role == 'guest') && !answeredQuiz && !(quiz && v['reveal'] == true);
+    final color = vote ? const [Color(0xFF4CC38A), Color(0xFFF28B82), Color(0xFF9AA0A6)][i % 3] : _optColors[i % _optColors.length];
     return Padding(
       padding: EdgeInsets.only(bottom: big ? 12 : 8),
       child: Material(
@@ -334,15 +368,32 @@ class _PollViewState extends State<PollView> {
           OutlinedButton(
               onPressed: _busy || (v['current'] ?? 0) >= qs.length - 1 ? null : () => _act('goto', {'index': (v['current'] as int) + 1}), child: const Icon(Icons.chevron_right)),
         ],
-        if (quiz || v['live'] != true)
+        if (quiz || (!vote && v['live'] != true))
           FilledButton.icon(
             style: FilledButton.styleFrom(backgroundColor: _gold, foregroundColor: const Color(0xFF2B2000)),
             onPressed: _busy ? null : () => _act(v['reveal'] == true ? 'hide' : 'reveal'),
             icon: Icon(v['reveal'] == true ? Icons.visibility_off_outlined : Icons.campaign_outlined),
             label: Text(v['reveal'] == true ? tr('Ẩn kết quả') : tr('Công bố')),
           ),
-        OutlinedButton(onPressed: _busy ? null : () => _act(v['closed'] == true ? 'reopen' : 'close'), child: Text(v['closed'] == true ? tr('Mở lại') : tr('Đóng'))),
+        OutlinedButton(
+            onPressed: _busy ? null : () => _act(v['closed'] == true ? 'reopen' : 'close'),
+            child: Text(v['closed'] == true ? tr('Mở lại') : vote ? tr('Kết thúc biểu quyết') : tr('Đóng'))),
       ]);
+
+  /// Biểu quyết đã kết thúc: THÔNG QUA / KHÔNG THÔNG QUA.
+  Widget? _outcome({required bool big}) {
+    final o = (v['outcome'] as Map?)?.cast<String, dynamic>();
+    if (!vote || o == null || v['closed'] != true) return null;
+    final ok = o['passed'] == true;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: big ? 28 : 14, vertical: big ? 14 : 8),
+      decoration: BoxDecoration(color: ok ? const Color(0xFF1F4A35) : const Color(0xFF4A1F1F), borderRadius: BorderRadius.circular(12)),
+      child: Text(
+        '${ok ? tr('✅ THÔNG QUA') : tr('❌ KHÔNG THÔNG QUA')} · ${tr('{0}/{1} đồng ý', [o['yes'], o['voters']])}${o['quorum_met'] == false ? ' · ${tr('chưa đủ số phiếu tối thiểu')}' : ''}',
+        style: TextStyle(color: ok ? _ok : const Color(0xFFF28B82), fontSize: big ? 30 : 15, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
 
   // Sân khấu: câu hiện tại (trắc nghiệm) hoặc câu đầu (bình chọn), chữ to, số người đã trả lời.
   Widget _stage() {
@@ -360,17 +411,18 @@ class _PollViewState extends State<PollView> {
             padding: const EdgeInsets.fromLTRB(64, 48, 64, 40),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                Icon(quiz ? Icons.quiz_outlined : Icons.how_to_vote_outlined, color: _gold, size: 30),
+                Icon(quiz ? Icons.quiz_outlined : vote ? Icons.gavel_outlined : Icons.how_to_vote_outlined, color: _gold, size: 30),
                 const SizedBox(width: 12),
-                Text(quiz ? tr('Trắc nghiệm · câu {0}/{1}', [cur + 1, qs.length]) : tr('Bình chọn'), style: const TextStyle(color: _gold, fontSize: 24, fontWeight: FontWeight.w600)),
+                Text(quiz ? tr('Trắc nghiệm · câu {0}/{1}', [cur + 1, qs.length]) : vote ? tr('Biểu quyết') : tr('Bình chọn'), style: const TextStyle(color: _gold, fontSize: 24, fontWeight: FontWeight.w600)),
                 const Spacer(),
-                Text(tr('{0} người đã trả lời', [v['voters'] ?? 0]), style: const TextStyle(color: Colors.white70, fontSize: 24)),
+                Text(vote ? tr('{0} người đã bỏ phiếu', [v['voters'] ?? 0]) : tr('{0} người đã trả lời', [v['voters'] ?? 0]), style: const TextStyle(color: Colors.white70, fontSize: 24)),
               ]),
               const SizedBox(height: 22),
               Text('${q['text']}', maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.w700, height: 1.2)),
               const SizedBox(height: 28),
               for (final (i, o) in opts.indexed) _option(q, o, i, big: true),
               const Spacer(),
+              ?_outcome(big: true),
               if (resultOf('${q['id']}') == null)
                 Text(tr('Kết quả sẽ hiện khi công bố'), style: const TextStyle(color: _sub, fontSize: 22)),
               if (quiz && v['reveal'] == true && v['leaderboard'] is List && (v['leaderboard'] as List).isNotEmpty)
@@ -387,19 +439,22 @@ class _PollViewState extends State<PollView> {
     return ListView(padding: const EdgeInsets.all(16), children: [
       Row(children: [
         Expanded(child: Text('${v['title'] ?? ctx.page.title}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
-        if (v['anon'] == true) const Chip(label: Text('🕶 ẩn danh'), visualDensity: VisualDensity.compact),
+        if (v['anon'] == true) Chip(label: Text(vote ? tr('🔒 phiếu kín') : tr('🕶 ẩn danh')), visualDensity: VisualDensity.compact),
       ]),
       const SizedBox(height: 4),
       Text(
         [
-          tr('{0} người đã trả lời', [v['voters'] ?? 0]),
+          vote ? tr('{0} người đã bỏ phiếu', [v['voters'] ?? 0]) : tr('{0} người đã trả lời', [v['voters'] ?? 0]),
           if (v['closed'] == true) tr('đã đóng'),
           if (quiz && v['reveal'] != true) tr('kết quả hiện khi công bố'),
+          if (vote && v['closed'] != true) tr('kết quả hiện khi kết thúc'),
+          if (vote && ((v['quorum'] as num?) ?? 0) > 0) tr('tối thiểu {0} phiếu', [v['quorum']]),
           if (quiz && v['my_score'] != null) tr('điểm của bạn: {0}/{1}', [v['my_score'], qs.length]),
         ].join(' · '),
         style: const TextStyle(color: _sub, fontSize: 13),
       ),
       const SizedBox(height: 14),
+      if (_outcome(big: false) case final o?) ...[o, const SizedBox(height: 12)],
       for (final q in qs) ...[
         Text('${q['text']}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
         if (q['multi'] == true) Text(tr('Chọn một hoặc nhiều'), style: const TextStyle(color: _sub, fontSize: 12)),
@@ -415,7 +470,7 @@ class _PollViewState extends State<PollView> {
                       final sel = _pick.remove('${q['id']}')!.toList();
                       await _act('answer', {'q': q['id'], 'options': sel});
                     },
-              child: Text(mineOf('${q['id']}').isEmpty ? tr('Gửi') : tr('Đổi lựa chọn')),
+              child: Text(mineOf('${q['id']}').isEmpty ? (vote ? tr('Bỏ phiếu') : tr('Gửi')) : tr('Đổi lựa chọn')),
             ),
           ),
         const SizedBox(height: 14),
