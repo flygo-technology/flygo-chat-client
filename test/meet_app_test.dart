@@ -473,7 +473,7 @@ void main() {
       await show(t, 'd3-call', const Size(1440, 860), const CallScreen());
       expect(find.text('An Trần'), findsWidgets);
       // Cột Mọi người.
-      await t.tap(find.byTooltip('Mọi người'));
+      await t.tap(find.byTooltip('Thành viên'));
       await t.pump(const Duration(milliseconds: 300));
       expect(find.text('TRONG CUỘC HỌP · 5'), findsOneWidget);
       // Có người xin vào: thẻ ở góc + mục trong cột.
@@ -520,7 +520,7 @@ void main() {
           info: const MeetingInfo(postId: 'p', creatorId: _me, title: 'Giao ban kỹ thuật', code: 'abc-mnop-xyz'),
         );
         await show(t, name, size, CallScreen(key: ValueKey(name)));
-        await t.tap(find.byTooltip('Mọi người'));
+        await t.tap(find.byTooltip('Thành viên'));
         await t.pump(const Duration(milliseconds: 300));
         expect(find.text('TRONG CUỘC HỌP · 5'), findsOneWidget);
         await t.pump(const Duration(milliseconds: 300));
