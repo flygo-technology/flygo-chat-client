@@ -92,6 +92,19 @@ class PagesApi {
     return [for (final x in (j['pages'] as List? ?? const [])) MeetPage(x as Map)];
   }
 
+  /// Mọi trang mình xem được trong cuộc họp, kèm (chủ trì / phó phòng) số trang của từng người, kể cả trang riêng:
+  /// {id người: {name, pages, private, seconds}}.
+  Future<(List<MeetPage>, Map<String, Map<String, dynamic>>)> listAll() async {
+    final m = call.pagesMeeting;
+    if (m == null) return (const <MeetPage>[], const <String, Map<String, dynamic>>{});
+    final j = await _req('GET', '/meet/pages', query: {'meeting': m, 'scope': 'all'});
+    final c = j['counts'] is Map ? (j['counts'] as Map) : const {};
+    return (
+      [for (final x in (j['pages'] as List? ?? const [])) MeetPage(x as Map)],
+      {for (final e in c.entries) '${e.key}': (e.value as Map).cast<String, dynamic>()},
+    );
+  }
+
   /// Trang của app riêng theo loại: của tôi / được mời / toàn công ty.
   Future<List<MeetPage>> listApp(String type, String scope) async {
     final j = await _req('GET', '/meet/pages', query: {'app': type, 'scope': scope});
