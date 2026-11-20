@@ -286,10 +286,16 @@ class CenteredToasts extends StatelessWidget {
   final Widget child;
   const CenteredToasts({super.key, required this.child});
   @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        // Đo theo vùng thật của nội dung (không phải cả cửa sổ): màn hình nằm trong một phần cửa sổ (vd. cuộc họp cạnh
+        // thanh bên) mà tính lề theo cả cửa sổ thì lề lớn hơn bề rộng, thông báo bị ép thành một vệt dọc (bug 2026-11-20).
+        final width = box.maxWidth.isFinite ? box.maxWidth : MediaQuery.sizeOf(context).width;
+        return _build(context, width);
+      });
+
+  Widget _build(BuildContext context, double width) {
     final theme = Theme.of(context);
-    final side = ((size.width - 440) / 2).clamp(16.0, 2000.0);
+    final side = ((width - 440) / 2).clamp(16.0, 2000.0);
     return Theme(
       data: theme.copyWith(
         snackBarTheme: theme.snackBarTheme.copyWith(

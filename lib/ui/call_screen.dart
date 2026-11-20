@@ -30,7 +30,7 @@ import 'package:provider/provider.dart';
 
 import '../calls/call_service.dart';
 import '../config.dart';
-import '../data/models.dart' show MmUser;
+import '../data/models.dart' show MmChannel, MmUser;
 import '../state/app_state.dart';
 import 'common.dart';
 import 'direct_call_screen.dart';
@@ -454,6 +454,11 @@ class _CallScreenState extends State<CallScreen> {
       CallPhase.idle => '',
     };
 
+    // Thông báo (SnackBar) căn theo bề rộng của chính màn họp, không theo cả cửa sổ app.
+    return CenteredToasts(child: _screen(app, call, ch, meeting, title, status));
+  }
+
+  Widget _screen(AppState app, CallService call, MmChannel? ch, bool meeting, String title, String status) {
     return PopScope(
       // Họp / gọi nhóm: Back về chat, cuộc gọi chạy tiếp trong khung nổi (PiP). Gọi 1-1 giữ như cũ.
       canPop: !call.busy || call.direct == null,
@@ -1604,6 +1609,48 @@ class _CallScreenState extends State<CallScreen> {
       // Các tab của panel bên phải nằm ở đây (bấm mở tab, bấm lại để thu panel); cửa sổ rộng có nhãn dưới biểu tượng.
       final pages = call.liveKit && call.scribeAvailable;
       final lab = box.maxWidth >= 1300;
+      // Cửa sổ hẹp: các tab gom vào một nút "Bảng" (menu), để nút mic / camera / rời họp giữ đủ cỡ.
+      if (box.maxWidth < 900) {
+        final items = <(_MeetPanel, IconData, String)>[
+          if (pages) (_MeetPanel.pages, Icons.grid_view_rounded, tr('Trang họp')),
+          if (room != null) (_MeetPanel.chat, Icons.chat_outlined, tr('Tin nhắn trong cuộc họp')),
+          if (ai) (_MeetPanel.ai, Icons.auto_awesome_outlined, tr('Trợ lý AI')),
+          (_MeetPanel.people, Icons.people_outline_rounded, tr('Thành viên')),
+          (_MeetPanel.info, Icons.info_outline_rounded, tr('Thông tin cuộc họp')),
+        ];
+        final menu = PopupMenuButton<_MeetPanel>(
+          tooltip: tr('Bảng bên phải'),
+          color: const Color(0xFF2D2E31),
+          onSelected: (p) {
+            _openPanel(p);
+            _poke();
+          },
+          itemBuilder: (_) => [
+            for (final (p, icon, label) in items)
+              PopupMenuItem(
+                value: p,
+                child: Row(children: [
+                  Icon(icon, size: 20, color: _panel == p ? const Color(0xFF8EC3FF) : Colors.white),
+                  const SizedBox(width: 12),
+                  Text(label, style: TextStyle(color: _panel == p ? const Color(0xFF8EC3FF) : Colors.white)),
+                ]),
+              ),
+          ],
+          child: IgnorePointer(
+            child: _PanelButton(
+              icon: Icons.view_sidebar_outlined,
+              tooltip: tr('Bảng bên phải'),
+              on: _panel != _MeetPanel.none,
+              badge: room != null && room.knocks.isNotEmpty && _isHost(app, call) ? '!' : (room != null && room.comments.isNotEmpty ? '${room.comments.length}' : null),
+              onTap: () {},
+            ),
+          ),
+        );
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 8, 16),
+          child: Row(children: [Expanded(child: center), menu]),
+        );
+      }
       final side = Row(mainAxisSize: MainAxisSize.min, children: [
         if (pages) panelBtn(_MeetPanel.pages, Icons.grid_view_rounded, tr('Trang họp'), label: lab ? tr('Trang') : null),
         if (room != null)
