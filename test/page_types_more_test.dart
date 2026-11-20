@@ -1,9 +1,11 @@
 // Bấm giờ, Bốc thăm, Ghi chú, Biểu quyết: sân khấu (nhiều cỡ) và điện thoại, không tràn; thao tác gửi đúng hành động.
 // PAGES_OUT=<thư mục>: lưu ảnh chụp.
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/state/app_state.dart';
@@ -58,12 +60,32 @@ Future<void> _shot(WidgetTester t, String name) async {
   });
 }
 
+/// Khi chụp ảnh (PAGES_OUT): nạp font Inter + biểu tượng Material thật để chữ đọc được (mặc định test dùng font ô vuông).
+bool _fontsLoaded = false;
+Future<void> loadShotFonts(WidgetTester t) async {
+  if (_fontsLoaded || Platform.environment['PAGES_OUT'] == null) return;
+  _fontsLoaded = true;
+  await t.runAsync(() async {
+    final inter = FontLoader('Inter');
+    for (final f in ['Inter-Regular.ttf', 'Inter-Bold.ttf', 'Inter-SemiBold.ttf', 'Inter-Medium.ttf']) {
+      final file = File('assets/fonts/$f');
+      if (file.existsSync()) inter.addFont(Future.value(ByteData.sublistView(file.readAsBytesSync())));
+    }
+    await inter.load();
+    final icons = FontLoader('MaterialIcons');
+    final root = Platform.environment['FLUTTER_ROOT'] ?? '/mnt/d2/flygo-build/flutter';
+    icons.addFont(Future.value(ByteData.sublistView(File('$root/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf').readAsBytesSync())));
+    await icons.load();
+  });
+}
+
 Future<void> _pump(WidgetTester t, Widget w, Size size) async {
+  await loadShotFonts(t);
   t.view.physicalSize = size;
   t.view.devicePixelRatio = 1;
   await t.pumpWidget(RepaintBoundary(
       key: _shotKey,
-      child: MaterialApp(debugShowCheckedModeBanner: false, theme: ThemeData.dark(), home: Scaffold(backgroundColor: const Color(0xFF16181C), body: w))));
+      child: MaterialApp(debugShowCheckedModeBanner: false, theme: ThemeData.dark().copyWith(textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'Inter')), home: Scaffold(backgroundColor: const Color(0xFF16181C), body: w))));
   await t.pump();
 }
 
