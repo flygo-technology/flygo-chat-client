@@ -24,6 +24,7 @@ const _line = Color(0xFF363B43);
 const _sub = Color(0xFF9AA3AD);
 const _acc = Color(0xFF2BB3A3);
 const _gold = Color(0xFFFFD36B);
+final _compact = TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 32));
 
 /// Một hàng: một người và các trang của họ.
 class _Row {
@@ -225,7 +226,7 @@ class _PagesOverviewState extends State<PagesOverview> {
       if (private > 0) tr('{0} riêng', [private]),
       if (secs > 0) fmtLeft(secs * 1000),
     ].join(' · ');
-    final h = wide ? 128.0 : 104.0;
+    final h = wide ? 150.0 : 104.0;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -234,13 +235,12 @@ class _PagesOverviewState extends State<PagesOverview> {
           child: Row(children: [
             Avatar(userId: r.uid, name: r.name, size: 24, status: false),
             const SizedBox(width: 8),
-            Flexible(child: Text(mine ? tr('{0} (bạn)', [r.name]) : r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13))),
+            Flexible(flex: 3, child: Text(mine ? tr('{0} (bạn)', [r.name]) : r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13))),
             if (pres) _pill(left > 0 ? tr('● đang chiếu · còn {0}', [fmtLeft(left)]) : tr('● đang chiếu'), const Color(0xFFFFB4AE), const Color(0xFF3A1F1F)),
             if (qi >= 0) _pill(tr('{0} chờ lượt', ['${qi + 1}']), _gold, const Color(0xFF3D3010)),
-            const Spacer(),
-            if (info.isNotEmpty) Text(info, style: const TextStyle(color: _sub, fontSize: 11.5)),
-            if (host && pres) TextButton(onPressed: () => _toast(call.stageAct('release')), child: Text(tr('Kết thúc lượt'))),
-            if (host && !pres && total > 0) TextButton(onPressed: () => _toast(call.stageAct('grant', {'user': r.uid, 'name': r.name})), child: Text(tr('Trao lượt'))),
+            Expanded(flex: 2, child: Text(info, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end, style: const TextStyle(color: _sub, fontSize: 11.5))),
+            if (host && pres) TextButton(style: _compact, onPressed: () => _toast(call.stageAct('release')), child: Text(tr('Kết thúc lượt'))),
+            if (host && !pres && !mine && total > 0) TextButton(style: _compact, onPressed: () => _toast(call.stageAct('grant', {'user': r.uid, 'name': r.name})), child: Text(tr('Trao lượt'))),
           ]),
         ),
         SizedBox(
@@ -297,7 +297,7 @@ class _PagesOverviewState extends State<PagesOverview> {
                   s,
                   child: Stack(children: [
                     Center(child: Icon(s?.icon ?? Icons.help_outline, color: s?.color ?? Colors.grey, size: wide ? 30 : 22)),
-                    if (mine) Positioned(left: 4, top: 3, child: Text(p.public ? '🌐' : '🔒', style: const TextStyle(fontSize: 10))),
+                    if (mine) Positioned(left: 4, top: 4, child: Icon(p.public ? Icons.public_rounded : Icons.lock_rounded, size: 13, color: Colors.white70)),
                     if (live && pr != null && pr['page_id'] == p.id) Positioned(left: 4, bottom: 3, child: _badge('${pr['page']}/${pr['pages']}')),
                     if (p.seconds > 0) Positioned(right: 4, bottom: 3, child: _badge(fmtLeft(p.seconds * 1000))),
                   ]),
@@ -372,7 +372,7 @@ class _PagesOverviewState extends State<PagesOverview> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
             child: Text(
-              [p.title, s?.label ?? p.type, p.public ? tr('🌐 công khai') : tr('🔒 riêng')].join(' · '),
+              [p.title, s?.label ?? p.type, p.public ? tr('công khai') : tr('riêng')].join(' · '),
               maxLines: 2,
               style: const TextStyle(color: _sub, fontSize: 12.5),
             ),
