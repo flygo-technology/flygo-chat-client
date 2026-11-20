@@ -490,12 +490,12 @@ void main() {
       await t.pump();
       expect(find.text('Hoa Đỗ muốn tham gia cuộc họp này'), findsNothing);
       // Tin nhắn trong cuộc họp.
-      await t.tap(find.byTooltip('Tin nhắn trong cuộc họp'));
+      await t.tap(find.text('Chat').last);
       await t.pump(const Duration(milliseconds: 300));
       // Tab Chat là trang chat của nhóm cuộc họp (lịch sử + ô nhắn), nhúng ở cột phải.
       expect(find.byType(ChatPage), findsOneWidget);
       // Cài đặt: hai tab Thành viên / Màn hình; Mời thành viên mở lời mời (mã, liên kết, liên kết xem cho khách).
-      await t.tap(find.byTooltip('Cài đặt'));
+      await t.tap(find.text('Thành viên').last);
       await t.pump(const Duration(milliseconds: 300));
       expect(find.text('Màn hình'), findsOneWidget);
       await t.tap(find.text('Mời thành viên'));
@@ -556,7 +556,7 @@ void main() {
       );
       await show(t, 'p3-call', const Size(390, 844), const CallScreen());
       expect(find.textContaining('Giao ban kỹ thuật'), findsWidgets);
-      await t.tap(find.byTooltip('Cài đặt'));
+      await t.tap(find.byTooltip('Tương tác, thành viên, màn hình, chat, AI'));
       await t.pumpAndSettle();
       expect(find.text('Mời thành viên'), findsOneWidget);
       expect(find.text('Mời khách (không cần cài phần mềm)'), findsOneWidget);
