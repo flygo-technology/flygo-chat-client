@@ -19,7 +19,6 @@ import 'types/builtin.dart' show pageField;
 const _bg = Color(0xFF23262C);
 const _card = Color(0xFF2D3036);
 const _sub = Color(0xFF9AA0A6);
-const _acc = Color(0xFF8AB4F8);
 
 /// Sân khấu đang hiện một trang (không phải tài liệu: tài liệu đi qua khung trình chiếu có sẵn).
 bool stageShowsPage(CallService call) {
@@ -27,7 +26,7 @@ bool stageShowsPage(CallService call) {
   if (st == null) return false;
   final page = '${st['page'] ?? ''}';
   // Trang hệ thống: bố cục video là của màn họp; chỉ "Chờ lượt trình chiếu" là một ô trên sân khấu.
-  if (page.startsWith('sys:')) return page == 'sys:handover';
+  if (page.startsWith('sys:')) return sysStagePages.contains(page);
   if (page.isNotEmpty) return st['page_type'] != 'doc' || call.roomPresent?['page_id'] != st['page'];
   return '${st['idle_page'] ?? ''}'.isNotEmpty && call.roomPresent == null;
 }
@@ -70,6 +69,25 @@ class _StagePageViewState extends State<StagePageView> {
     final id = shown.isNotEmpty ? shown : '${st['idle_page'] ?? ''}';
     final key = shown.isNotEmpty ? '${st['key'] ?? ''}' : '${st['idle_key'] ?? ''}';
     if (id.isEmpty) return const SizedBox.shrink();
+    if (id == 'sys:welcome' || id == 'sys:program') {
+      final edit = widget.compact || !call.canModerate ? null : sysPageEditor(context, call, id);
+      final spec = pageTypeOf('welcome');
+      return Stack(children: [
+        Positioned.fill(
+          child: id == 'sys:program'
+              ? ProgramView(call: call, cfg: (st['program_cfg'] as Map?) ?? const {}, controls: !widget.compact)
+              : spec == null
+                  ? const SizedBox.shrink()
+                  : spec.view(context, sysWelcomeCtx(call, (st['welcome_cfg'] as Map?) ?? const {})),
+        ),
+        if (edit != null)
+          Positioned(
+            right: 12,
+            top: 12,
+            child: IconButton.filledTonal(tooltip: tr('Soạn trang này'), onPressed: edit, icon: const Icon(Icons.tune_rounded)),
+          ),
+      ]);
+    }
     if (id == 'sys:handover') {
       final mine = st['presenter'] == call.myId();
       return Stack(children: [
@@ -257,34 +275,43 @@ class _PagesPaneState extends State<PagesPane> {
     if (e != null && mounted) meetToast(context, e);
   }
 
-  /// Ô "Apps": Trình chiếu (màn hình / tài liệu), app của màn họp (bảng trắng…) và mọi loại trang.
+  /// Ô "Apps": lưới cân đối theo nhóm (Trình bày / Tương tác / Ghi chép), thẻ cao bằng nhau, tên ngắn một dòng, mô tả hai dòng.
   Future<void> _new() async {
-    Widget tile(BuildContext ctx, Object v, IconData icon, Color color, String label, String desc) => SizedBox(
-          width: 168,
-          child: Material(
-            color: _card,
+    // Tên ngắn trên thẻ (tên đầy đủ trong mô tả / tooltip).
+    const short = {'poll': 'Bình chọn', 'qa': 'Hỏi đáp', 'agenda': 'Chương trình', 'minutes': 'Biên bản', 'welcome': 'Chào mừng', 'video': 'Video', 'show': 'Show'};
+    // Loại trang chưa có ở đây (Bấm giờ, Bốc thăm…) vào nhóm Tương tác; tên ghi chú vào nhóm Ghi chép.
+    const group = {'video': 0, 'show': 0, 'welcome': 0, 'poll': 1, 'qa': 1, 'agenda': 2, 'minutes': 2, 'note': 2, 'notes': 2};
+    final items = <(int, Object, IconData, Color, String, String)>[
+      (0, 'present', Icons.present_to_all_rounded, const Color(0xFFF29900), tr('Trình chiếu'), tr('Màn hình của bạn hoặc tài liệu')),
+      // Website (cả phòng cùng xem, cùng bấm) và Bảng trắng ở nhóm Tương tác.
+      for (final a in widget.apps) (a.id == 'board' || a.id == 'web' ? 1 : 0, a, a.icon, a.color, a.label, a.desc),
+      for (final t in pageTypes)
+        if (t.type != 'doc') (group[t.type] ?? 1, t, t.icon, t.color, tr(short[t.type] ?? t.label), t.desc.isEmpty ? t.label : t.desc),
+    ];
+    Widget tile(BuildContext ctx, (int, Object, IconData, Color, String, String) it) => Material(
+          color: _card,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => Navigator.pop(ctx, v),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Row(children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(color: color.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
-                    child: Icon(icon, color: color, size: 19),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                      if (desc.isNotEmpty) Text(desc, maxLines: 2, style: const TextStyle(color: _sub, fontSize: 11)),
-                    ]),
-                  ),
-                ]),
-              ),
+            onTap: () => Navigator.pop(ctx, it.$2),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(color: it.$4.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
+                  child: Icon(it.$3, color: it.$4, size: 20),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(it.$5, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Text(it.$6, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _sub, fontSize: 11.5, height: 1.25)),
+                  ]),
+                ),
+              ]),
             ),
           ),
         );
@@ -292,21 +319,34 @@ class _PagesPaneState extends State<PagesPane> {
       context: context,
       backgroundColor: _bg,
       isScrollControlled: true,
-      constraints: const BoxConstraints(maxWidth: 560),
+      constraints: const BoxConstraints(maxWidth: 780),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 10), child: Text(tr('Apps'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700))),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              tile(ctx, 'present', Icons.present_to_all_rounded, const Color(0xFFF29900), tr('Trình chiếu'), tr('Màn hình của bạn, hoặc tài liệu')),
-              for (final a in widget.apps) tile(ctx, a, a.icon, a.color, a.label, a.desc),
-              for (final s in pageTypes)
-                if (s.type != 'doc') tile(ctx, s, s.icon, s.color, s.label, s.desc),
+        child: LayoutBuilder(builder: (ctx, box) {
+          // Số cột: rộng nhất có thể mà không nhóm nào còn một thẻ lẻ một mình ở hàng cuối.
+          final maxCols = box.maxWidth >= 700 ? 4 : box.maxWidth >= 470 ? 3 : 2;
+          final sizes = [for (final g in [0, 1, 2]) items.where((x) => x.$1 == g).length];
+          final cols = [for (var c = maxCols; c >= 2; c--) c].firstWhere((c) => sizes.every((n) => n <= c || n % c != 1), orElse: () => maxCols);
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(tr('Apps'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
+              for (final (g, title) in [(0, tr('Trình bày')), (1, tr('Tương tác')), (2, tr('Ghi chép'))])
+                if (items.any((x) => x.$1 == g)) ...[
+                  Padding(padding: const EdgeInsets.fromLTRB(2, 14, 2, 8), child: Text(title.toUpperCase(), style: const TextStyle(color: _sub, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: .5))),
+                  GridView.count(
+                    crossAxisCount: cols,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    mainAxisExtent: 74,
+                    children: [for (final it in items.where((x) => x.$1 == g)) tile(ctx, it)],
+                  ),
+                ],
             ]),
-          ]),
-        ),
+          );
+        }),
       ),
     );
     if (pick == null || !mounted) return;
@@ -454,20 +494,35 @@ class _PagesPaneState extends State<PagesPane> {
         ]),
       );
 
+  void _editPage(String id) => setState(() {
+        _viewing = null;
+        _editing = id;
+      });
+
   Widget _viewer(String id) => PageHost(
         key: ValueKey('view:$id'),
         call: call,
         id: id,
         builder: (context, ctx, spec) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _back('${ctx.page.title} · ${ctx.page.ownerName}', actions: [
-            if (call.canModerate && _canShow) IconButton(tooltip: tr('Lên sân khấu'), icon: const Icon(Icons.play_circle_outline_rounded, color: _acc), onPressed: () => _toast(call.stageAct('show', {'page': id}))),
+            if (ctx.page.owner == call.myId() || call.canModerate)
+              IconButton(
+                tooltip: tr('Sửa, chiếu, công khai, xoá'),
+                icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+                onPressed: () => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+              ),
           ]),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            // Khung cao để trả lời / đọc (bình chọn, hỏi đáp), cả bảng kéo lên lẫn panel máy tính.
-            child: SizedBox(
-              height: MediaQuery.sizeOf(context).height * .55,
-              child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
+            // Khung cao để trả lời / đọc (bình chọn, hỏi đáp), cả bảng kéo lên lẫn panel máy tính. Bấm để tương tác; nhấn giữ /
+            // chuột phải là menu của trang (như thẻ trang).
+            child: GestureDetector(
+              onLongPress: () => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+              onSecondaryTap: () => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * .55,
+                child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
+              ),
             ),
           ),
           Padding(

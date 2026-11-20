@@ -16,6 +16,7 @@ import 'package:flygo_chat/data/local_store.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
+import 'package:flygo_chat/ui/meet/knock_center.dart';
 import 'package:flygo_chat/ui/meet/meet_panel_prefs.dart';
 import 'package:flygo_chat/ui/pages/page_thumb.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -390,4 +391,133 @@ void main() {
     debugIsDesktop = null;
     CallScreen.debugRoom = null;
   });
+
+  for (final (name, size, desktop) in [('b1-may-tinh', const Size(1440, 900), true), ('b2-dien-thoai', const Size(390, 844), false)]) {
+    testWidgets('đợt mới: $name (xin vào, Apps, AI, Nội dung, Chào mừng, menu trang)', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 460, tab: desktop ? 'pages' : '');
+      CallScreen.debugRoom = (_) => _room();
+      await http.runWithClient(() async {
+        final app = _app();
+        await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('batch-$name')));
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: MeetKnockLayer(call: app.calls, child: nav!)),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 8; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        await settle();
+        // Người xin vào: hộp lớn cho chủ trì.
+        app.calls.fxEvents.add({'t': 'fx_guest_knock', 'req': 'r1', 'name': 'Phạm Thu Hà'});
+        app.calls.fxEvents.add({'t': 'fx_lock_knock', 'req': 'r2', 'name': 'Đỗ Văn Nam'});
+        await settle();
+        expect(find.text('2 người xin vào cuộc họp'), findsOneWidget);
+        expect(find.text('Cho tất cả vào'), findsOneWidget);
+        await snap(t, '$name-1-xin-vao');
+        app.calls.fxEvents.add({'t': 'fx_guest_knock_done', 'req': 'r1'});
+        app.calls.fxEvents.add({'t': 'fx_lock_knock_done', 'req': 'r2'});
+        await settle();
+        expect(find.text('Cho tất cả vào'), findsNothing);
+        // Trang hệ thống Nội dung trên sân khấu.
+        app.calls.roomStage = {
+          ...app.calls.roomStage!,
+          'presenter': 'me', 'page': 'sys:program', 'page_type': 'system', 'page_title': 'Nội dung', 'ends_at': 0,
+          'program_cfg': {
+            'title': 'Nội dung giao ban', 'current': 1,
+            'items': [
+              {'title': 'Khai mạc', 'owner': 'me', 'owner_name': 'Dương Văn Ba', 'minutes': 5},
+              {'title': 'Tiến độ tòa B', 'owner': 'loi', 'owner_name': 'Nguyễn Văn Lợi', 'minutes': 10},
+              {'title': 'Hợp đồng tháng 11', 'owner': 'kim', 'owner_name': 'Mai Kim', 'minutes': 8},
+              {'title': 'Hỏi đáp', 'owner': '', 'owner_name': '', 'minutes': 7},
+            ],
+          },
+        };
+        app.calls.notifyListeners();
+        await settle();
+        expect(find.text('Tiến độ tòa B'), findsWidgets);
+        await snap(t, '$name-2-noi-dung');
+        await t.tap(find.byTooltip('Soạn trang này').first);
+        await settle();
+        expect(find.text('Thêm phần'), findsOneWidget);
+        await snap(t, '$name-3-soan-noi-dung');
+        Navigator.of(t.element(find.text('Thêm phần'))).pop();
+        await settle();
+        // Trang hệ thống Chào mừng.
+        app.calls.roomStage = {
+          ...app.calls.roomStage!,
+          'page': 'sys:welcome', 'page_title': 'Chào mừng',
+          'welcome_cfg': {'heading': 'Giao ban tháng 12', 'subtitle': 'Chào mừng mọi người, 9:00 bắt đầu', 'icon': '☕', 'bg': 'linear-gradient(135deg,#5B2A86,#1C1230)', 'show_online': true, 'countdown': false},
+        };
+        app.calls.notifyListeners();
+        await settle();
+        await snap(t, '$name-4-chao-mung');
+        await t.tap(find.byTooltip('Soạn trang này').first);
+        await settle();
+        expect(find.text('Chào mừng (trang hệ thống)'), findsOneWidget);
+        await snap(t, '$name-5-soan-chao-mung');
+        Navigator.of(t.element(find.text('Chào mừng (trang hệ thống)'))).pop();
+        await settle();
+        if (find.byTooltip('Tương tác, thành viên, màn hình, chat, AI').hitTestable().evaluate().isEmpty) {
+          await t.tapAt(Offset(size.width / 2, 120));
+          await settle();
+        }
+        if (!desktop) {
+          await t.tap(find.byTooltip('Tương tác, thành viên, màn hình, chat, AI'));
+          await settle();
+        }
+        // Apps: lưới cân đối theo nhóm.
+        await t.tap(find.byTooltip('Apps: thêm trang, trình chiếu'));
+        await settle();
+        expect(find.text('TƯƠNG TÁC'), findsOneWidget);
+        await snap(t, '$name-6-apps');
+        Navigator.of(t.element(find.text('TƯƠNG TÁC'))).pop();
+        await settle();
+        // Nhấn giữ thẻ trang của mình: menu Sửa / Chiếu / Công khai / Xoá.
+        await t.longPress(find.text('Kế hoạch Q4').first);
+        await settle();
+        expect(find.text('Sửa'), findsOneWidget);
+        await snap(t, '$name-7-menu-trang');
+        Navigator.of(t.element(find.text('Sửa'))).pop();
+        await settle();
+        // AI: thanh gọn, theme tối.
+        await t.ensureVisible(find.text('AI').last);
+        await settle();
+        await t.tap(find.text('AI').last);
+        await settle();
+        expect(find.text('Phụ đề'), findsOneWidget);
+        await snap(t, '$name-8-ai');
+        if (!desktop) {
+          Navigator.of(t.element(find.text('Phụ đề'))).pop();
+          await settle();
+        }
+        // Cảm xúc: hàng nổi giữa thanh nút.
+        if (find.byTooltip('Giơ tay, thả cảm xúc').hitTestable().evaluate().isEmpty) {
+          await t.tapAt(Offset(size.width / 4, 120));
+          await settle();
+        }
+        await t.tap(find.byTooltip('Giơ tay, thả cảm xúc'));
+        await settle();
+        await snap(t, '$name-9-cam-xuc');
+        await t.tapAt(const Offset(40, 300));
+        await settle();
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
+    });
+  }
 }
