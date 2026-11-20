@@ -1,7 +1,6 @@
 // Bấm giờ, Bốc thăm, Ghi chú, Biểu quyết: sân khấu (nhiều cỡ) và điện thoại, không tràn; thao tác gửi đúng hành động.
 // PAGES_OUT=<thư mục>: lưu ảnh chụp.
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';

@@ -1,7 +1,6 @@
 // Trang Bình chọn / Trắc nghiệm và Hỏi đáp: dựng trên sân khấu (khung lớn, nhiều cỡ) và để trả lời (điện thoại), không tràn.
 // PAGES_OUT=<thư mục>: lưu ảnh chụp để xem.
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
