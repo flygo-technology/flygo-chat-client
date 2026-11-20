@@ -520,7 +520,14 @@ void main() {
           info: const MeetingInfo(postId: 'p', creatorId: _me, title: 'Giao ban kỹ thuật', code: 'abc-mnop-xyz'),
         );
         await show(t, name, size, CallScreen(key: ValueKey(name)));
-        await t.tap(find.byTooltip('Thành viên'));
+        // Cửa sổ hẹp: các tab gom vào nút "Bảng bên phải" (menu).
+        if (size.width < 900) {
+          await t.tap(find.byTooltip('Bảng bên phải').first);
+          await t.pumpAndSettle();
+          await t.tap(find.text('Thành viên').last);
+        } else {
+          await t.tap(find.byTooltip('Thành viên'));
+        }
         await t.pump(const Duration(milliseconds: 300));
         expect(find.text('TRONG CUỘC HỌP · 5'), findsOneWidget);
         await t.pump(const Duration(milliseconds: 300));
