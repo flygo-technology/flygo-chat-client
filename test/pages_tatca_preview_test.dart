@@ -259,7 +259,7 @@ void main() {
 
       await t.longPress(find.text('Kế hoạch Q4').last);
       await _settle(t);
-      expect(find.text('Xin lượt và chiếu trang này'), findsOneWidget);
+      expect(find.text('Xin lượt và chiếu'), findsOneWidget);
       await _shot(t, '3-menu-the-cua-toi');
       await t.tapAt(const Offset(195, 40));
       await _settle(t);

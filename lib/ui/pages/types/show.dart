@@ -149,10 +149,15 @@ class _ShowViewState extends State<_ShowView> {
     final url = '${c['invite_url'] ?? ''}';
     if (url.isNotEmpty && _canWeb && _loaded != url) {
       _loaded = url;
-      _web = WebViewController()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(Colors.black)
-        ..loadRequest(Uri.parse(url));
+      final w = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted);
+      // macOS (WKWebView qua AppKit) chưa hỗ trợ đặt màu nền: gọi là lỗi ngay và trang không tải (trắng).
+      if (!Platform.isMacOS) {
+        try {
+          w.setBackgroundColor(Colors.black);
+        } catch (_) {}
+      }
+      w.loadRequest(Uri.parse(url));
+      _web = w;
     }
     final control = widget.ctx.control && '${c['pid'] ?? ''}'.isNotEmpty;
     return Stack(children: [

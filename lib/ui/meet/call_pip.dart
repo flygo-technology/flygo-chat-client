@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../config.dart' show isChildWindow;
+import 'knock_center.dart';
 
 import '../../calls/call_service.dart';
 import '../../i18n/i18n.dart';
@@ -26,13 +27,15 @@ class _CallPipLayerState extends State<CallPipLayer> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final call = app.calls;
+    // Người xin vào cuộc họp: hộp lớn cho chủ trì ở mọi màn hình của app (chỉ cửa sổ chính).
+    final content = isChildWindow ? widget.child : MeetKnockLayer(call: call, child: widget.child);
     return ValueListenableBuilder<int>(
       valueListenable: CallScreen.visible,
       builder: (context, shown, _) {
         // Chỉ cửa sổ chính (nơi có cuộc gọi) hiện khung nổi: cửa sổ phụ của app trên máy tính (mini app, nhóm tách riêng…)
         // không vẽ thêm một khung nổi nữa (bug 2026-11-20: khung thừa nổi trên cửa sổ app Màn hình).
         final pip = !isChildWindow && shown == 0 && call.busy && call.direct == null && (call.phase == CallPhase.active || call.phase == CallPhase.connecting);
-        if (!pip) return widget.child;
+        if (!pip) return content;
         return LayoutBuilder(builder: (context, box) {
           const w = 150.0, h = 196.0;
           final pad = MediaQuery.paddingOf(context);
@@ -40,7 +43,7 @@ class _CallPipLayerState extends State<CallPipLayer> {
           final p = _pos ?? Offset(maxX, pad.top + 72);
           final at = Offset(p.dx.clamp(8.0, maxX < 8 ? 8.0 : maxX), p.dy.clamp(pad.top + 8, maxY < pad.top + 8 ? pad.top + 8 : maxY));
           return Stack(children: [
-            widget.child,
+            content,
             Positioned(
               left: at.dx,
               top: at.dy,

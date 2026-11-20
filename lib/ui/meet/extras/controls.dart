@@ -237,30 +237,6 @@ class _ControlsSheetState extends State<_ControlsSheet> {
 
 /// Báo cho chủ trì / phó phòng khi có người xin vào lúc cuộc họp khoá, và cho mọi người khi khoá / mở khoá.
 StreamSubscription<Map<String, dynamic>> listenControlNotices(BuildContext context, CallService call, void Function(String text) toast) {
-  // Lấy ScaffoldMessenger lúc có sự kiện (attach có thể chạy trước khung hình đầu).
-  ScaffoldMessengerState? messenger() => context.mounted ? ScaffoldMessenger.maybeOf(context) : null;
-  return call.fxEvents.stream.listen((m) {
-      if (m['t'] == 'fx_lock_knock' && call.canModerate) {
-        final req = '${m['req'] ?? ''}';
-        messenger()?.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 30),
-          content: Text(tr('🚪 {0} xin vào cuộc họp đang khoá', [m['name'] ?? ''])),
-          action: SnackBarAction(
-            label: tr('Cho vào'),
-            onPressed: () => fxRequest(call, 'POST', '/controls/admit', {'req': req, 'allow': true}).catchError((_) => <String, dynamic>{}),
-          ),
-        ));
-      }
-      if (m['t'] == 'fx_guest_knock' && call.canModerate) {
-        final req = '${m['req'] ?? ''}';
-        messenger()?.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 30),
-          content: Text(tr('🚪 Khách xin vào: {0} (ngoài công ty)', [m['name'] ?? ''])),
-          action: SnackBarAction(
-            label: tr('Cho vào'),
-            onPressed: () => fxRequest(call, 'POST', '/guests/admit', {'req': req, 'allow': true}).catchError((_) => <String, dynamic>{}),
-          ),
-        ));
-      }
-    });
+  // Người xin vào (khoá / khách): hộp lớn ở meet/knock_center.dart (mọi màn hình của app), không báo trùng ở đây.
+  return call.fxEvents.stream.listen((_) {});
 }

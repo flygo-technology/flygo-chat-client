@@ -209,8 +209,8 @@ class _PagesOverviewState extends State<PagesOverview> {
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: can ? () => _toast(call.stageAct('show', {'page': p.id})) : () => meetToast(context, tr('Chỉ người trình chiếu / chủ trì chọn bố cục sân khấu')),
-                    onLongPress: p.id == 'sys:handover' && call.canModerate ? () => showHandoverEditor(context, call, canCompany: _sysAdmin) : null,
-                    onSecondaryTap: p.id == 'sys:handover' && call.canModerate ? () => showHandoverEditor(context, call, canCompany: _sysAdmin) : null,
+                    onLongPress: call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null,
+                    onSecondaryTap: call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null,
                     child: Container(
                       width: w,
                       decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: st['page'] == p.id ? _acc : Colors.transparent)),
@@ -220,15 +220,15 @@ class _PagesOverviewState extends State<PagesOverview> {
                             color: p.color.withValues(alpha: .22),
                             child: Stack(children: [
                               Center(child: Icon(p.icon, color: p.color, size: wide ? 30 : 24)),
-                              if (p.id == 'sys:handover' && call.canModerate)
+                              if (call.canModerate && sysPageEditor(context, call, p.id) != null)
                                 Positioned(
                                   right: 2,
                                   top: 2,
                                   child: IconButton(
                                     visualDensity: VisualDensity.compact,
-                                    tooltip: tr('Chỉnh màn hình chờ lượt'),
+                                    tooltip: tr('Soạn trang này'),
                                     icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white70),
-                                    onPressed: () => showHandoverEditor(context, call, canCompany: _sysAdmin),
+                                    onPressed: sysPageEditor(context, call, p.id, canCompany: _sysAdmin),
                                   ),
                                 ),
                             ]),
@@ -337,8 +337,8 @@ class _PagesOverviewState extends State<PagesOverview> {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => widget.onView(p.id),
-          onLongPress: mine ? () => _menu(p) : null,
-          onSecondaryTap: mine ? () => _menu(p) : null,
+          onLongPress: mine || call.canModerate ? () => _menu(p) : null,
+          onSecondaryTap: mine || call.canModerate ? () => _menu(p) : null,
           child: Container(
             width: w,
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: live ? _acc : Colors.transparent)),
@@ -414,72 +414,75 @@ class _PagesOverviewState extends State<PagesOverview> {
         ),
       );
 
-  bool get _myTurn => call.roomStage?['presenter'] == call.myId();
-  bool get _stageFree => '${call.roomStage?['presenter'] ?? ''}'.isEmpty;
+  Future<void> _menu(MeetPage p) => showPageMenu(context, call, p, onEdit: () => widget.onEdit(p.id), reload: _load);
+}
 
-  /// Đưa trang của mình lên sân khấu; chưa tới lượt thì xin lượt (sân khấu trống thì được ngay rồi chiếu luôn).
-  Future<void> _showOnStage(MeetPage p) async {
-    if (!_myTurn && !call.canModerate) {
-      final e = await call.stageAct('request');
-      if (e != null) return mounted ? meetToast(context, e) : null;
-      if (!_myTurn) return mounted ? meetToast(context, tr('Đã xin lượt trình chiếu, chờ chủ trì trao lượt')) : null;
-    }
-    await _toast(call.stageAct('show', {'page': p.id}));
-  }
-
-  Future<void> _menu(MeetPage p) async {
-    final s = pageTypeOf(p.type);
-    final canShow = _myTurn || call.canModerate || _stageFree;
-    final a = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF2B2E33),
-      constraints: const BoxConstraints(maxWidth: 480),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-      builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-            child: Text(
-              [p.title, s?.label ?? p.type, p.public ? tr('công khai') : tr('riêng')].join(' · '),
-              maxLines: 2,
-              style: const TextStyle(color: _sub, fontSize: 12.5),
-            ),
+/// Menu của một trang (nhấn giữ / chuột phải thẻ, hoặc ⋯ trên trang): chủ trang có Sửa, Chiếu, Công khai / riêng, Xoá;
+/// chủ trì (trang người khác) có Chiếu. Bấm (không giữ) là tương tác với trang: người xem trả lời / hỏi / ghi, chủ trang soạn.
+Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p, {required VoidCallback onEdit, required Future<void> Function() reload}) async {
+  final api = PagesApi(call);
+  final mine = p.owner == call.myId();
+  final st = call.roomStage ?? const {};
+  final myTurn = st['presenter'] == call.myId();
+  final canShow = myTurn || call.canModerate || '${st['presenter'] ?? ''}'.isEmpty;
+  if (!mine && !call.canModerate) return;
+  final s = pageTypeOf(p.type);
+  final a = await showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: const Color(0xFF2B2E33),
+    constraints: const BoxConstraints(maxWidth: 480),
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+    builder: (ctx) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+          child: Text([p.title, s?.label ?? p.type, if (!mine) p.ownerName, p.public ? tr('công khai') : tr('riêng')].join(' · '), maxLines: 2, style: const TextStyle(color: _sub, fontSize: 12.5)),
+        ),
+        if (mine) ListTile(leading: const Icon(Icons.edit_outlined, color: Colors.white), title: Text(tr('Sửa'), style: const TextStyle(color: Colors.white)), onTap: () => Navigator.pop(ctx, 'edit')),
+        ListTile(
+          leading: const Icon(Icons.play_circle_outline_rounded, color: Color(0xFF7FD8CC)),
+          title: Text(canShow ? tr('Chiếu lên sân khấu') : tr('Xin lượt và chiếu'), style: const TextStyle(color: Color(0xFF7FD8CC), fontWeight: FontWeight.w600)),
+          onTap: () => Navigator.pop(ctx, 'show'),
+        ),
+        if (mine)
+          SwitchListTile(
+            secondary: const Icon(Icons.public_rounded, color: Colors.white),
+            value: p.public,
+            title: Text(tr('Công khai trong cuộc họp'), style: const TextStyle(color: Colors.white)),
+            onChanged: (_) => Navigator.pop(ctx, 'vis'),
           ),
-          ListTile(leading: const Icon(Icons.edit_outlined, color: Colors.white), title: Text(tr('Sửa trang'), style: const TextStyle(color: Colors.white)), onTap: () => Navigator.pop(ctx, 'edit')),
-          ListTile(
-            leading: Icon(p.public ? Icons.lock_outline_rounded : Icons.public_rounded, color: Colors.white),
-            title: Text(p.public ? tr('Chuyển về riêng') : tr('Công khai trong cuộc họp'), style: const TextStyle(color: Colors.white)),
-            onTap: () => Navigator.pop(ctx, 'vis'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.play_circle_outline_rounded, color: Color(0xFF7FD8CC)),
-            title: Text(canShow ? tr('Đưa lên sân khấu') : tr('Xin lượt và chiếu trang này'), style: const TextStyle(color: Color(0xFF7FD8CC), fontWeight: FontWeight.w600)),
-            onTap: () => Navigator.pop(ctx, 'show'),
-          ),
+        if (mine)
           ListTile(
             leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFF28B82)),
             title: Text(tr('Xoá'), style: const TextStyle(color: Color(0xFFF28B82))),
             onTap: () => Navigator.pop(ctx, 'delete'),
           ),
-        ]),
-      ),
-    );
-    if (a == null || !mounted) return;
-    try {
-      switch (a) {
-        case 'edit':
-          widget.onEdit(p.id);
-        case 'vis':
-          await api.patch(p.id, {'visibility': p.public ? 'private' : 'meeting'});
-          await _load();
-        case 'show':
-          await _showOnStage(p);
-        case 'delete':
-          await api.delete(p.id);
-          await _load();
-      }
-    } catch (e) {
-      if (mounted) meetToast(context, '$e');
+      ]),
+    ),
+  );
+  if (a == null || !context.mounted) return;
+  try {
+    switch (a) {
+      case 'edit':
+        onEdit();
+      case 'vis':
+        await api.patch(p.id, {'visibility': p.public ? 'private' : 'meeting'});
+        await reload();
+      case 'show':
+        if (!myTurn && !call.canModerate) {
+          final e = await call.stageAct('request');
+          if (e != null) return context.mounted ? meetToast(context, e) : null;
+          if ((call.roomStage ?? const {})['presenter'] != call.myId()) {
+            return context.mounted ? meetToast(context, tr('Đã xin lượt trình chiếu, chờ chủ trì trao lượt')) : null;
+          }
+        }
+        final e = await call.stageAct('show', {'page': p.id});
+        if (e != null && context.mounted) meetToast(context, e);
+      case 'delete':
+        await api.delete(p.id);
+        await reload();
     }
+  } catch (e) {
+    if (context.mounted) meetToast(context, '$e');
   }
 }
