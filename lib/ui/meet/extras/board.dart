@@ -42,6 +42,19 @@ Future<void> closeBoard(BuildContext context, CallService call) async {
   }
 }
 
+/// Cấu hình WebView của bảng trắng rồi tải trang. macOS (WKWebView qua AppKit) chưa hỗ trợ đặt màu nền: gọi là ném lỗi
+/// ngay, trang không được tải và màn hình trắng trơn (lỗi 20/11 trên MacBook), nên bỏ qua ở macOS và không để lỗi chặn tải trang.
+WebViewController configureBoardWeb(WebViewController web, Uri url, {required bool isMacOS}) {
+  web.setJavaScriptMode(JavaScriptMode.unrestricted);
+  if (!isMacOS) {
+    try {
+      web.setBackgroundColor(Colors.white);
+    } catch (_) {}
+  }
+  web.loadRequest(url);
+  return web;
+}
+
 class _BoardPage extends StatefulWidget {
   final Uri url;
   final CallService call;
@@ -51,10 +64,7 @@ class _BoardPage extends StatefulWidget {
 }
 
 class _BoardPageState extends State<_BoardPage> {
-  late final WebViewController _web = WebViewController()
-    ..setJavaScriptMode(JavaScriptMode.unrestricted)
-    ..setBackgroundColor(Colors.white)
-    ..loadRequest(widget.url);
+  late final WebViewController _web = configureBoardWeb(WebViewController(), widget.url, isMacOS: !kIsWeb && Platform.isMacOS);
 
   @override
   void initState() {
