@@ -53,7 +53,9 @@ class PageTypeSpec {
   final Widget Function(BuildContext context, PageCtx ctx)? editor;
   /// Thời lượng mặc định (giây) khi tự chạy.
   final int seconds;
-  const PageTypeSpec({required this.type, required this.label, this.desc = '', required this.icon, required this.color, this.create, required this.view, this.editor, this.seconds = 0});
+  /// Ảnh xem trước riêng trên thẻ trang (page_thumb.dart); null = thu nhỏ phần [view] trên sân khấu. [data] null = chưa tải.
+  final Widget Function(BuildContext context, CallService call, MeetPage page, PageData? data)? thumb;
+  const PageTypeSpec({required this.type, required this.label, this.desc = '', required this.icon, required this.color, this.create, required this.view, this.editor, this.seconds = 0, this.thumb});
 }
 
 final _types = <String, PageTypeSpec>{};

@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
 import '../../meet/meet_present.dart' show MeetPresentView, pickPresentPdf;
+import '../page_thumb.dart' show PdfThumb;
 import '../page_types.dart';
 
 // Loại trang có sẵn: Chào mừng, Video, Tài liệu (Slide / PDF / Word / Excel), Chương trình họp, Biên bản.
@@ -92,6 +93,12 @@ void registerBuiltinPageTypes() {
     icon: Icons.smart_display_outlined,
     color: const Color(0xFFD93025),
     view: (context, ctx) => _Video(ctx, key: ValueKey('v:${ctx.page.id}:${ctx.page.content['url']}')),
+    // Ảnh xem trước: không mở video (nặng), chỉ khung đen + nút phát.
+    thumb: (context, call, page, data) => Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white70, size: 34),
+    ),
     editor: (context, ctx) => PageContentField(ctx, 'url', tr('Đường dẫn video (mp4, m3u8)')),
   ));
   registerPageType(PageTypeSpec(
@@ -102,6 +109,12 @@ void registerBuiltinPageTypes() {
     color: const Color(0xFFF29900),
     view: (context, ctx) => _Doc(ctx),
     editor: (context, ctx) => _DocEditor(ctx),
+    // Ảnh xem trước: trang PDF đang chiếu (nếu đang trên sân khấu), không thì trang 1.
+    thumb: (context, call, page, data) {
+      final pr = call.roomPresent;
+      final n = pr != null && pr['page_id'] == page.id ? (pr['page'] as num?)?.toInt() ?? 1 : 1;
+      return PdfThumb(file: page.file, page: n);
+    },
   ));
   registerPageType(PageTypeSpec(
     type: 'agenda',

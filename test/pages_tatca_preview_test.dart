@@ -1,5 +1,6 @@
 // Bảng kéo lên Trang họp, tab "Tất cả" (mỗi người một hàng): dựng widget thật với dữ liệu giả (relay giả qua MockClient).
 // Ảnh xem trước (chạy tay): TATCA_OUT=<thư mục> flutter test test/pages_tatca_preview_test.dart
+// Ảnh trang tài liệu: TATCA_PDF=<thư mục có tiendo.pdf, hopdong.pdf, kehoach.pdf> (vẽ bằng build/native_assets/linux/libpdfium.so).
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -11,9 +12,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/config.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
+import 'package:flygo_chat/ui/pages/page_thumb.dart';
 import 'package:flygo_chat/ui/pages/pages_sheet.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:pdfrx/pdfrx.dart';
 import 'package:provider/provider.dart';
 
 Future<void> _fonts() async {
@@ -34,19 +37,29 @@ Future<void> _fonts() async {
 const _ch = 'cccccccccccccccccccccccccc';
 final _now = DateTime.now().millisecondsSinceEpoch;
 
-Map<String, dynamic> _p(String id, String type, String title, String owner, String name, {String vis = 'meeting', int secs = 0, int order = 0, Map<String, dynamic>? file}) => {
+Map<String, dynamic> _p(String id, String type, String title, String owner, String name,
+        {String vis = 'meeting', int secs = 0, int order = 0, Map<String, dynamic>? file, Map<String, dynamic> content = const {}}) =>
+    {
       'id': id, 'type': type, 'title': title, 'owner': owner, 'owner_name': name, 'meeting': 'abc-defg-hij', 'visibility': vis, 'seconds': secs, 'order': order,
-      'rev': 2, 'created_at': order, 'updated_at': order, 'content': {'file': ?file},
+      'rev': 2, 'created_at': order, 'updated_at': order, 'content': {...content, 'file': ?file}, 'file': ?file,
     };
+Map<String, dynamic> _f(String id, String name, int pages) => {'id': id, 'url': '/meet/livekit/pagefile/$id.pdf', 'name': name, 'pages': pages};
 
 final _pages = [
-  _p('p1', 'agenda', 'Chương trình họp', 'loi', 'Nguyễn Văn Lợi', secs: 300, order: 0),
-  _p('p2', 'doc', 'Tiến độ lắp đặt tòa B', 'loi', 'Nguyễn Văn Lợi', secs: 600, order: 1, file: {'name': 'TienDo.pptx', 'pages': 9}),
+  _p('p1', 'agenda', 'Chương trình họp', 'loi', 'Nguyễn Văn Lợi', secs: 300, order: 0, content: {
+    'items': [
+      {'text': 'Tiến độ tòa B', 'who': 'Lợi', 'minutes': 10},
+      {'text': 'Hợp đồng tháng 11', 'who': 'Kim', 'minutes': 8},
+      {'text': 'An toàn lao động', 'who': 'Minh', 'minutes': 5},
+      {'text': 'Hỏi đáp', 'minutes': 7},
+    ],
+  }),
+  _p('p2', 'doc', 'Tiến độ lắp đặt tòa B', 'loi', 'Nguyễn Văn Lợi', secs: 600, order: 1, file: _f('tiendo', 'TienDo.pptx', 2)),
   _p('p3', 'poll', 'Chọn ngày bàn giao', 'loi', 'Nguyễn Văn Lợi', secs: 120, order: 2),
-  _p('p4', 'doc', 'Hợp đồng T11', 'kim', 'Mai Kim', secs: 480, order: 0, file: {'name': 'HopDong.xlsx', 'pages': 4}),
+  _p('p4', 'doc', 'Hợp đồng T11', 'kim', 'Mai Kim', secs: 480, order: 0, file: _f('hopdong', 'HopDong.xlsx', 2)),
   _p('p5', 'qa', 'Hỏi đáp báo giá', 'kim', 'Mai Kim', order: 1),
-  _p('p6', 'welcome', 'Chào mừng', 'me', 'Dương Văn Ba', order: 0),
-  _p('p7', 'doc', 'Kế hoạch Q4', 'me', 'Dương Văn Ba', vis: 'private', secs: 360, order: 1, file: {'name': 'KeHoachQ4.pptx', 'pages': 12}),
+  _p('p6', 'welcome', 'Chào mừng', 'me', 'Dương Văn Ba', order: 0, content: {'heading': 'Giao ban tháng 12', 'subtitle': 'Chào mừng mọi người, 9:00 bắt đầu'}),
+  _p('p7', 'doc', 'Kế hoạch Q4', 'me', 'Dương Văn Ba', vis: 'private', secs: 360, order: 1, file: _f('kehoach', 'KeHoachQ4.pptx', 2)),
   _p('p8', 'minutes', 'Biên bản giao ban', 'me', 'Dương Văn Ba', order: 2),
   _p('p9', 'video', 'Video lắp ray dẫn hướng', 'minh', 'Lê Minh', secs: 165, order: 0),
 ];
@@ -60,6 +73,18 @@ final _counts = {
 };
 
 final _views = <String, Map<String, dynamic>>{
+  'p1': {'current': 1, 'started_at': 0},
+  'p3': {
+    'kind': 'poll', 'title': 'Chọn ngày bàn giao', 'anon': false, 'live': true, 'current': 0, 'reveal': false, 'closed': false, 'voters': 12,
+    'questions': [
+      {'id': 'q', 'text': 'Ngày nào bàn giao tòa B?', 'multi': false, 'options': [{'id': 'a', 'text': 'Thứ Ba 25/11'}, {'id': 'b', 'text': 'Thứ Sáu 28/11'}, {'id': 'c', 'text': 'Thứ Ba 02/12'}]},
+    ],
+    'mine': {}, 'results': {'q': {'total': 12, 'options': {'a': 7, 'b': 3, 'c': 2}}},
+  },
+  'p8': {
+    'text': '1. Tiến độ tòa B: đạt 70%, chậm 4 ngày do thiếu ray.\n2. Hợp đồng tháng 11: 12 mới, 3 gia hạn.', 'edited_by': 'Mai Kim', 'edited_at': 1, 'closed': false,
+    'tasks': [{'id': 't1', 'text': 'Xác nhận lịch giao ray', 'who': '@quang', 'due': '20/11', 'done': false}],
+  },
   'p5': {
     'title': 'Hỏi đáp báo giá', 'desc': 'Câu hỏi về báo giá thang tòa B', 'allow_anon': true, 'can_manage': false, 'total': 3, 'open': 2,
     'questions': [
@@ -73,6 +98,11 @@ final _views = <String, Map<String, dynamic>>{
 
 http.Client _relay({required bool host}) => MockClient((req) async {
       final p = req.url.path;
+      final pdf = RegExp(r'^/meet/livekit/pagefile/(\w+)\.pdf$').firstMatch(p);
+      if (pdf != null) {
+        final f = File('${Platform.environment['TATCA_PDF'] ?? '/nonexistent'}/${pdf.group(1)}.pdf');
+        return f.existsSync() ? http.Response.bytes(f.readAsBytesSync(), 200, headers: {'content-type': 'application/pdf'}) : http.Response('', 404);
+      }
       Map<String, dynamic>? body;
       if (p == '/meet/pages' && req.method == 'GET') {
         final scope = req.url.queryParameters['scope'];
@@ -102,6 +132,7 @@ AppState _app({required bool host}) {
     'presenter': 'loi', 'presenter_name': 'Nguyễn Văn Lợi', 'queue': [{'id': 'kim', 'name': 'Mai Kim', 'at': 1}],
     'page': 'p2', 'page_type': 'doc', 'page_title': 'Tiến độ lắp đặt tòa B', 'mode': 'auto', 'ends_at': _now + 252000, 'paused': false,
   };
+  c.roomPresent = {'id': 'tiendo', 'page_id': 'p2', 'name': 'TienDo.pptx', 'url': '/meet/livekit/pagefile/tiendo.pdf', 'by': 'loi', 'page': 2, 'pages': 2, 'at': 1};
   return app;
 }
 
@@ -155,7 +186,23 @@ Widget _meeting(BuildContext context) => Scaffold(
       ),
     );
 
+/// Vẽ sẵn ảnh trang PDF ở luồng thật (pdfium chạy nền, không chạy trong đồng hồ giả của test).
+Future<void> _warmPdf(WidgetTester t) async {
+  final dir = Platform.environment['TATCA_PDF'];
+  if (dir == null) return;
+  await t.runAsync(() async {
+    for (final id in ['tiendo', 'hopdong', 'kehoach']) {
+      final f = File('$dir/$id.pdf');
+      if (!f.existsSync()) continue;
+      seedPdfBytes(id, f.readAsBytesSync());
+      await pdfThumb(id, '/meet/livekit/pagefile/$id.pdf', 1);
+    }
+    await pdfThumb('tiendo', '/meet/livekit/pagefile/tiendo.pdf', 2);
+  });
+}
+
 Future<BuildContext> _pump(WidgetTester t, AppState app, Size size) async {
+  await _warmPdf(t);
   t.view.physicalSize = size;
   t.view.devicePixelRatio = 1;
   late BuildContext ctx;
@@ -189,7 +236,11 @@ Future<void> _done(WidgetTester t) async {
 }
 
 void main() {
-  setUpAll(_fonts);
+  setUpAll(() async {
+    await _fonts();
+    final lib = File('build/native_assets/linux/libpdfium.so');
+    if (lib.existsSync()) Pdfrx.pdfiumModulePath = lib.absolute.path;
+  });
 
   testWidgets('điện thoại: bảng thấp, cao hết, menu thẻ, xem trang người khác, soạn trang', (t) async {
     debugIsDesktop = false;
@@ -206,14 +257,14 @@ void main() {
       await _settle(t);
       await _shot(t, '2-tat-ca-cao-het');
 
-      await t.longPress(find.text('Kế hoạch Q4'));
+      await t.longPress(find.text('Kế hoạch Q4').last);
       await _settle(t);
       expect(find.text('Xin lượt và chiếu trang này'), findsOneWidget);
       await _shot(t, '3-menu-the-cua-toi');
       await t.tapAt(const Offset(195, 40));
       await _settle(t);
 
-      await t.tap(find.text('Hỏi đáp báo giá'));
+      await t.tap(find.text('Hỏi đáp báo giá').last);
       await _settle(t);
       expect(find.text('Về sân khấu'), findsOneWidget);
       await _shot(t, '4-xem-trang-nguoi-khac');
@@ -222,7 +273,7 @@ void main() {
       await t.dragFrom(const Offset(195, 470), const Offset(0, -700));
       await _settle(t);
 
-      await t.tap(find.text('Kế hoạch Q4'));
+      await t.tap(find.text('Kế hoạch Q4').last);
       await _settle(t);
       expect(find.text('Thời lượng (tự chạy)'), findsOneWidget);
       await _shot(t, '5-soan-trang');
