@@ -222,7 +222,7 @@ void main() {
       }
 
       await settle();
-      expect(find.byTooltip('Thành viên'), findsOneWidget);
+      expect(find.byTooltip('Cài đặt'), findsOneWidget);
       expect(find.text('Dương Văn Ba (bạn)'), findsOneWidget);
       await snap(t, 'd1-tab-trang');
 
@@ -237,14 +237,14 @@ void main() {
       await settle();
       await snap(t, 'd3-tab-chat');
 
-      await t.tap(find.byTooltip('Thành viên'));
+      await t.tap(find.byTooltip('Thành viên').first);
       await settle();
       expect(find.text('LƯỢT TRÌNH CHIẾU'), findsOneWidget);
       await snap(t, 'd4-tab-thanh-vien');
 
-      await t.tap(find.byTooltip('Thông tin cuộc họp'));
+      await t.tap(find.byTooltip('Cài đặt'));
       await settle();
-      await snap(t, 'd5-tab-thong-tin');
+      await snap(t, 'd5-tab-cai-dat');
 
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 3));
@@ -253,4 +253,57 @@ void main() {
     debugIsDesktop = null;
     CallScreen.debugRoom = null;
   });
+
+  for (final (name, size, desktop) in [('n1-may-tinh-hep', const Size(430, 895), true), ('p1-dien-thoai', const Size(390, 844), false)]) {
+    testWidgets('thanh nút mới: $name (hai hàng nút, Cài đặt, Apps)', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 400, tab: '');
+      CallScreen.debugRoom = (_) => _room();
+      await http.runWithClient(() async {
+        final app = _app();
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 8; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        await settle();
+        expect(find.byTooltip('Cài đặt'), findsOneWidget);
+        expect(find.byTooltip('Tùy chọn khác'), findsNothing);
+        await snap(t, '$name-1-thanh-nut');
+        await t.tap(find.byTooltip('Cài đặt'));
+        await settle();
+        expect(find.text('Thêm màn hình'), findsOneWidget);
+        expect(find.text('Mời khách'), findsOneWidget);
+        await snap(t, '$name-2-cai-dat');
+        if (!desktop) {
+          Navigator.of(t.element(find.text('Mời khách'))).pop();
+          await settle();
+          await t.tap(find.byTooltip('Apps: trang họp, trình chiếu, bình chọn, hỏi đáp, bảng trắng'));
+          await settle();
+          await t.tap(find.byTooltip('Apps: thêm trang, trình chiếu'));
+          await settle();
+          expect(find.text('Trình chiếu'), findsWidgets);
+          await snap(t, '$name-3-apps');
+        }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 3));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
+    });
+  }
 }

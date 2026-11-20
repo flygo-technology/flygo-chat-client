@@ -55,7 +55,6 @@ class _PagesOverviewState extends State<PagesOverview> {
   Map<String, Map<String, dynamic>> _counts = const {};
   String? _err;
   bool _loaded = false;
-  int _filter = 0; // 0 mọi người · 1 có lượt · 2 của tôi
   StreamSubscription? _fx;
   Timer? _tick, _debounce;
 
@@ -148,11 +147,7 @@ class _PagesOverviewState extends State<PagesOverview> {
         final c = rank(a).compareTo(rank(b));
         return c != 0 ? c : a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
-    return switch (_filter) {
-      1 => out.where((r) => r.uid == pres || qIds.contains(r.uid)).toList(),
-      2 => out.where((r) => r.uid == me).toList(),
-      _ => out,
-    };
+    return out;
   }
 
   @override
@@ -167,13 +162,11 @@ class _PagesOverviewState extends State<PagesOverview> {
     final empty = <String>{
       for (final r in rows)
         if (!shown.contains(r)) r.name,
-      if (_filter == 0)
-        for (final p in call.participants)
+      for (final p in call.participants)
           if (p.userId.isNotEmpty && !shownIds.contains(p.userId) && !p.userId.contains(':')) app.users[p.userId]?.displayName ?? '',
     }..removeWhere((x) => x.isEmpty);
     const pad = 12.0;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(padding: const EdgeInsets.fromLTRB(pad, 0, pad, 10), child: Align(alignment: Alignment.centerLeft, child: _filters())),
       if (!_loaded)
         Padding(padding: const EdgeInsets.all(24), child: Center(child: _err != null ? Text(_err!, style: const TextStyle(color: Colors.white70)) : const CircularProgressIndicator()))
       else ...[
@@ -189,18 +182,6 @@ class _PagesOverviewState extends State<PagesOverview> {
       ],
     ]);
   }
-
-  Widget _filters() => SegmentedButton<int>(
-        showSelectedIcon: false,
-        style: SegmentedButton.styleFrom(foregroundColor: Colors.white70, selectedForegroundColor: const Color(0xFF05201C), selectedBackgroundColor: _acc, visualDensity: VisualDensity.compact),
-        segments: [
-          ButtonSegment(value: 0, label: Text(tr('Mọi người'))),
-          ButtonSegment(value: 1, label: Text(tr('Có lượt'))),
-          ButtonSegment(value: 2, label: Text(tr('Của tôi'))),
-        ],
-        selected: {_filter},
-        onSelectionChanged: (s) => setState(() => _filter = s.first),
-      );
 
   Widget _pill(String text, Color fg, Color bg) => Container(
         margin: const EdgeInsets.only(left: 6),

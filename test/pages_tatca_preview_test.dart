@@ -249,7 +249,7 @@ void main() {
       final ctx = await _pump(t, app, const Size(390, 844));
       showPagesSheet(ctx, app.calls);
       await _settle(t);
-      expect(find.text('Tất cả'), findsOneWidget);
+      expect(find.byTooltip('Apps: thêm trang, trình chiếu'), findsOneWidget);
       expect(find.text('Thêm trang'), findsOneWidget);
       await _shot(t, '1-bang-thap');
 
