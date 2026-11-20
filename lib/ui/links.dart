@@ -10,20 +10,32 @@ import 'theme.dart';
 /// Link (có hoặc không có http) và số điện thoại Việt Nam / quốc tế, cho phép
 /// khoảng trắng, dấu chấm, gạch ngang giữa các số: "0912 345 678", "+84 912.345.678".
 final linkRe = RegExp(
-  r'(https?://[^\s<>()]+|www\.[^\s<>()]+)'
+  r'(https?://[^\s<>()`]+|www\.[^\s<>()`]+)'
   r'|((?<![\w+])(?:\+84|\+\d{2}|0)(?:[ .\-]?\d){8,10}(?![\w]))',
   caseSensitive: false,
 );
 
+/// Địa chỉ email (mở bằng mailto:).
+const _emailPat = r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}';
+// Chữ thường: link / số điện thoại như [linkRe], thêm email (nhóm 3).
+final _linkOrEmailRe = RegExp('${linkRe.pattern}|($_emailPat)', caseSensitive: false);
+// Trong mã nội dòng (`...`): chỉ link http / www và email (không bắt số điện thoại trong mã).
+final _codeLinkRe = RegExp('(https?://[^\\s<>()`]+|www\\.[^\\s<>()`]+)|($_emailPat)', caseSensitive: false);
+
 class FoundLink {
   final String text;
   final bool isPhone;
-  const FoundLink(this.text, this.isPhone);
+  final bool isEmail;
+  const FoundLink(this.text, this.isPhone, {this.isEmail = false});
 
   /// Số chỉ còn chữ số (giữ dấu +) để gọi.
   String get dial => text.replaceAll(RegExp(r'[^\d+]'), '');
+  /// Chữ để sao chép: số điện thoại chỉ còn chữ số, email không kèm "mailto:", link đầy đủ.
+  String get copyText => isPhone ? dial : (isEmail ? text : uri.toString());
   Uri get uri => isPhone
       ? Uri(scheme: 'tel', path: dial)
+      : isEmail
+      ? Uri(scheme: 'mailto', path: text)
       : text.startsWith('/') || text.startsWith('~/')
           // Đường dẫn tệp trên máy (bot AI thường gửi kiểu này).
           ? Uri.file(text.startsWith('~/') ? '${Platform.environment['HOME'] ?? ''}${text.substring(1)}' : text)
@@ -79,16 +91,17 @@ List<FoundLink> findLinks(String text) {
   return out;
 }
 
-/// Chia chữ thành các đoạn: link / số điện thoại bấm được, phần còn lại qua [plain].
+/// Chia chữ thành các đoạn: link / số điện thoại / email bấm được, phần còn lại qua [plain].
 List<InlineSpan> linkSpans(String text, Pal pal, List<InlineSpan> Function(String) plain) {
   final spans = <InlineSpan>[];
   var i = 0;
-  for (final m in linkRe.allMatches(text)) {
+  for (final m in _linkOrEmailRe.allMatches(text)) {
     final raw = m.group(0)!;
     final phone = m.group(2) != null;
+    final email = m.group(3) != null;
     final t = phone ? raw : _trimPunct(raw);
     if (m.start > i) spans.addAll(plain(text.substring(i, m.start)));
-    final link = FoundLink(phone ? t.trim() : t, phone);
+    final link = FoundLink(phone ? t.trim() : t, phone, isEmail: email);
     spans.add(TextSpan(
       text: t,
       style: TextStyle(color: pal.tick, decoration: TextDecoration.underline, decorationColor: pal.tick),
@@ -99,6 +112,29 @@ List<InlineSpan> linkSpans(String text, Pal pal, List<InlineSpan> Function(Strin
     i = m.start + t.length;
   }
   if (i < text.length) spans.addAll(plain(text.substring(i)));
+  return spans;
+}
+
+/// Mã nội dòng (`...`, trợ lý hay bọc link / email trong đó): giữ kiểu chữ mã [code], link http / www và email
+/// bấm được (mở bằng ứng dụng của hệ thống), kèm nút sao chép như link thường. Khối code nhiều dòng không dùng hàm này.
+List<InlineSpan> codeLinkSpans(String code, TextStyle style, Pal pal) {
+  final spans = <InlineSpan>[];
+  var i = 0;
+  for (final m in _codeLinkRe.allMatches(code)) {
+    final t = m.group(2) != null ? m.group(0)! : _trimPunct(m.group(0)!);
+    if (m.start > i) spans.add(TextSpan(text: code.substring(i, m.start), style: style));
+    final link = FoundLink(t, false, isEmail: m.group(2) != null);
+    spans.add(TextSpan(
+      text: t,
+      style: style.copyWith(color: pal.tick, decoration: TextDecoration.underline, decorationColor: pal.tick),
+      mouseCursor: SystemMouseCursors.click,
+      recognizer: TapGestureRecognizer()..onTap = link.open,
+    ));
+    spans.add(WidgetSpan(alignment: PlaceholderAlignment.middle, child: InlineLinkButtons(link: link)));
+    i = m.start + t.length;
+  }
+  if (spans.isEmpty) return [TextSpan(text: code, style: style)];
+  if (i < code.length) spans.add(TextSpan(text: code.substring(i), style: style));
   return spans;
 }
 
@@ -120,8 +156,8 @@ class InlineLinkButtons extends StatelessWidget {
         );
     return Row(mainAxisSize: MainAxisSize.min, children: [
       const SizedBox(width: 3),
-      btn(Icons.copy_rounded, link.isPhone ? tr('Sao chép') : tr('Sao chép link'), () {
-        Clipboard.setData(ClipboardData(text: link.isPhone ? link.dial : link.uri.toString()));
+      btn(Icons.copy_rounded, link.isPhone || link.isEmail ? tr('Sao chép') : tr('Sao chép link'), () {
+        Clipboard.setData(ClipboardData(text: link.copyText));
         ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Đã sao chép'))));
       }),
       // Link: bấm vào chữ là mở rồi, không cần nút mở riêng. Số điện thoại vẫn có nút gọi.

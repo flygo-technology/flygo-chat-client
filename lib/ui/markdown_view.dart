@@ -139,6 +139,8 @@ class MarkdownView extends StatelessWidget {
   static bool isSimple(String text) {
     // Có link markdown [tên](đường dẫn) thì dùng bộ hiển thị đầy đủ để chỉ hiện tên link.
     if (_mdLink.hasMatch(text)) return false;
+    // Có mã nội dòng: bộ hiển thị đầy đủ giữ kiểu chữ mã mà link / email bên trong vẫn bấm được.
+    if (text.contains('`')) return false;
     final nodes = _parse(text);
     return nodes.length == 1 && nodes.first is md.Element && (nodes.first as md.Element).tag == 'p';
   }
@@ -405,9 +407,11 @@ class MarkdownView extends StatelessWidget {
         case 'del':
           out.add(TextSpan(children: _inline(pal, kids, st), style: const TextStyle(decoration: TextDecoration.lineThrough)));
         case 'code':
-          out.add(TextSpan(
-            text: n.textContent,
-            style: TextStyle(fontFamily: _mono, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures, fontSize: (st.fontSize ?? 17) - (_reading ? 2.5 : 2), backgroundColor: pal.text.withValues(alpha: .08)),
+          // Link / email trong mã nội dòng vẫn bấm được (Sếp: "Agent tự nhận link nha").
+          out.addAll(codeLinkSpans(
+            n.textContent,
+            TextStyle(fontFamily: _mono, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures, fontSize: (st.fontSize ?? 17) - (_reading ? 2.5 : 2), backgroundColor: pal.text.withValues(alpha: .08)),
+            pal,
           ));
         case 'br':
           out.add(const TextSpan(text: '\n'));
@@ -419,7 +423,8 @@ class MarkdownView extends StatelessWidget {
           // Link markdown chỉ hiện tên, kèm nút sao chép / mở.
           final href = n.attributes['href'] ?? '';
           final phone = href.startsWith('tel:');
-          final link = FoundLink(phone ? href.substring(4) : href, phone);
+          final mail = href.startsWith('mailto:');
+          final link = FoundLink(phone ? href.substring(4) : (mail ? href.substring(7) : href), phone, isEmail: mail);
           out.add(TextSpan(
             text: n.textContent,
             style: TextStyle(color: pal.tick, decoration: TextDecoration.underline, decorationColor: pal.tick),
