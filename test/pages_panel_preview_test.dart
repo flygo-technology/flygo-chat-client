@@ -18,7 +18,6 @@ import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
 import 'package:flygo_chat/ui/meet/meet_panel_prefs.dart';
 import 'package:flygo_chat/ui/pages/page_thumb.dart';
-import 'package:flygo_chat/ui/pages/pages_sheet.dart' show PagesPane;
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -226,7 +225,7 @@ void main() {
       }
 
       await settle();
-      expect(find.byTooltip('Cài đặt'), findsOneWidget);
+      expect(find.byTooltip('Tương tác, thành viên, màn hình, chat, AI'), findsOneWidget);
       expect(find.text('Dương Văn Ba (bạn)'), findsOneWidget);
       await snap(t, 'd1-tab-trang');
 
@@ -237,7 +236,7 @@ void main() {
       await t.tap(find.text('Về sân khấu'));
       await settle();
 
-      await t.tap(find.byTooltip('Tin nhắn trong cuộc họp'));
+      await t.tap(find.text('Chat').last);
       await settle();
       await snap(t, 'd3-tab-chat');
 
@@ -246,9 +245,9 @@ void main() {
       expect(find.textContaining('TRONG CUỘC HỌP'), findsOneWidget);
       await snap(t, 'd4-tab-thanh-vien');
 
-      await t.tap(find.byTooltip('Cài đặt'));
+      await t.tap(find.text('Màn hình').last);
       await settle();
-      await snap(t, 'd5-tab-cai-dat');
+      await snap(t, 'd5-tab-man-hinh');
 
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 3));
@@ -284,41 +283,47 @@ void main() {
         }
 
         await settle();
-        expect(find.byTooltip('Cài đặt'), findsOneWidget);
-        expect(find.byTooltip('Tùy chọn khác'), findsNothing);
+        expect(find.byTooltip('Tương tác, thành viên, màn hình, chat, AI'), findsOneWidget);
+        expect(find.byTooltip('Cài đặt'), findsNothing);
         await snap(t, '$name-1-thanh-nut');
-        await t.tap(find.byTooltip('Cài đặt'));
+        await t.tap(find.byTooltip('Tương tác, thành viên, màn hình, chat, AI'));
+        await settle();
+        await snap(t, '$name-2-tuong-tac');
+        await t.tap(find.text('Thành viên').last);
         await settle();
         expect(find.text('Mời thành viên'), findsOneWidget);
         expect(find.textContaining('Mời khách'), findsOneWidget);
-        await snap(t, '$name-2-cai-dat');
-        await t.tap(find.textContaining('Màn hình').last);
+        await snap(t, '$name-3-thanh-vien');
+        await t.tap(find.text('Màn hình').last);
         await settle();
-        await snap(t, '$name-2b-cai-dat-man-hinh');
+        await snap(t, '$name-4-man-hinh');
         if (!desktop) {
-          Navigator.of(t.element(find.byType(TabBar))).pop();
+          await t.tap(find.text('Thành viên').last);
           await settle();
-          await t.tap(find.byTooltip('Apps: trang họp, trình chiếu, bình chọn, hỏi đáp, bảng trắng'));
-          await settle();
-          await t.tap(find.byTooltip('Apps: thêm trang, trình chiếu'));
-          await settle();
-          expect(find.text('Trình chiếu'), findsWidgets);
-          await snap(t, '$name-3-apps');
-          Navigator.of(t.element(find.text('Trình chiếu').first)).pop();
-          await settle();
-          Navigator.of(t.element(find.byType(PagesPane))).pop();
-          await settle();
-          await t.tap(find.byTooltip('Giơ tay, thả cảm xúc'));
-          await settle();
-          expect(find.text('✋'), findsWidgets);
-          await snap(t, '$name-4-cam-xuc');
-          await t.tapAt(const Offset(195, 300));
-          await settle();
-          await t.tap(find.byTooltip('Tắt mic mọi người'));
+          await t.tap(find.text('Tắt mic mọi người…'));
           await settle();
           expect(find.text('Tắt hẳn'), findsOneWidget);
           await snap(t, '$name-5-mute');
           await t.tap(find.text('Giữ nguyên'));
+          await settle();
+          await t.tap(find.text('Tương tác').last);
+          await settle();
+          await t.tap(find.byTooltip('Apps: thêm trang, trình chiếu'));
+          await settle();
+          expect(find.text('Trình chiếu'), findsWidgets);
+          await snap(t, '$name-6-apps');
+          Navigator.of(t.element(find.byType(CallScreen))).popUntil((r) => r.isFirst);
+          await settle();
+          // Điện thoại: thanh nút tự ẩn sau vài giây, chạm màn hình để hiện lại.
+          if (find.byTooltip('Giơ tay, thả cảm xúc').hitTestable().evaluate().isEmpty) {
+            await t.tapAt(const Offset(195, 400));
+            await settle();
+          }
+          await t.tap(find.byTooltip('Giơ tay, thả cảm xúc'));
+          await settle();
+          expect(find.text('✋'), findsWidgets);
+          await snap(t, '$name-7-cam-xuc');
+          await t.tapAt(const Offset(195, 300));
           await settle();
         }
         await t.pumpWidget(const SizedBox());
