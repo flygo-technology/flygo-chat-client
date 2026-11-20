@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ký số đa năng – Ký từ xa",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "Chuyển yêu cầu ký số của website tới máy chủ Ký số đa năng thay cho plugin cài trên máy.",
   "permissions": [
     "storage",
