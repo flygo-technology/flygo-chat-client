@@ -294,6 +294,26 @@ class _StartDialogState extends State<_StartDialog> {
                 IconButton(tooltip: tr('Đóng (Esc)'), icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
               ]),
               const SizedBox(height: 16),
+              // Cổng màn hình chung (hello.<tên miền>): danh sách TV / máy chiếu của công ty.
+              FilledButton.icon(
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        setState(() => (_busy = true, _error = null));
+                        try {
+                          final pid = await showToHelloScreen(context, widget.client, widget.open, widget.subtitle);
+                          if (mounted) pid != null ? Navigator.pop(context, pid) : setState(() => _busy = false);
+                        } catch (e) {
+                          if (mounted) setState(() => (_busy = false, _error = _err(e)));
+                        }
+                      },
+                icon: const Icon(Icons.cast_rounded),
+                label: Text(tr('Chọn màn hình của công ty (hello)')),
+              ),
+              const SizedBox(height: 10),
+              Text(tr('Hoặc màn hình cũ của Trình chiếu:'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
+              const SizedBox(height: 8),
               IntrinsicHeight(
                 child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   opt(true, Icons.tv_rounded, tr('Chiếu lên TV / máy chiếu'), tr('Nhập mã hiện trên màn hình TV')),

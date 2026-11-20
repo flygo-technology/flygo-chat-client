@@ -395,6 +395,9 @@ class _ScreenDetailPageState extends State<ScreenDetailPage> {
               icon: const Icon(Icons.cast_rounded),
               label: Text(status == 'casting' ? tr('Chiếu (xếp hàng)') : tr('Chiếu lên màn hình này')),
             ),
+          // Dừng nội dung để lại (vd bộ slide Show) hoặc, với người quản lý, dừng người đang chiếu.
+          if (status == 'casting' && (d['detached'] == true || manager))
+            OutlinedButton.icon(onPressed: () => _act('stopcast'), icon: const Icon(Icons.stop_rounded), label: Text(tr('Dừng chiếu'))),
           if (status == 'locked')
             FilledButton.tonalIcon(onPressed: () => _act('request'), icon: const Icon(Icons.pan_tool_rounded), label: Text(tr('Xin dùng'))),
           if (lock != null && (lock['mine'] == true || manager) && lock['meeting'] == null)

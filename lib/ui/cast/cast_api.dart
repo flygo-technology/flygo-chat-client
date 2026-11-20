@@ -195,6 +195,9 @@ class CastSession {
     return (url: '${j['url']}', token: '${j['token']}');
   }
 
+  /// "Để lại trên màn hình": nội dung đang chiếu ở lại (vd bộ slide Show do app Show điều khiển); phiên này kết thúc.
+  Future<void> detach() => _post('detach', {});
+
   Future<void> showUrl(String type, String url, {String name = '', String app = ''}) => _post('content', {'type': type, 'url': url, 'name': name, 'app': app});
   Future<int> page(int n) async => ((await _post('page', {'page': n}))['page'] as num?)?.toInt() ?? n;
   Future<void> blank(bool on) => _post('blank', {'on': on});
