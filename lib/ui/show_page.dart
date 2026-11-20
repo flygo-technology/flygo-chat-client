@@ -17,6 +17,7 @@ import '../api/show_api.dart';
 import '../config.dart' show isDesktop;
 import '../i18n/i18n.dart';
 import '../state/app_state.dart';
+import 'cast/cast_screen.dart' show pickAndPair;
 import 'mini_app_view.dart' show ScanOncePage;
 import 'theme.dart';
 
@@ -649,10 +650,26 @@ class _DeckDetailPageState extends State<DeckDetailPage> {
         padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + MediaQuery.of(sheet).viewInsets.bottom),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text(tr('Kết nối màn hình'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Text(tr('Mở {0}/tv trên TV hoặc máy chiếu, rồi quét mã QR hoặc nhập mã 8 ký tự hiện trên màn hình.', [host]),
-              style: TextStyle(color: Pal.of(sheet).sub)),
+          const SizedBox(height: 10),
+          // Cổng màn hình chung (hello.<tên miền>): chọn TV / máy chiếu của công ty, không cần mã riêng của Show.
+          FilledButton.icon(
+            onPressed: () async {
+              try {
+                final pid = await showToHelloScreen(sheet, widget.client, _open, _title);
+                if (pid != null && sheet.mounted) {
+                  _toast(sheet, tr('Đã đưa lên màn hình'));
+                  Navigator.pop(sheet, pid);
+                }
+              } catch (e) {
+                if (sheet.mounted) _toast(sheet, _err(e));
+              }
+            },
+            icon: const Icon(Icons.cast_rounded),
+            label: Text(tr('Chọn màn hình của công ty')),
+          ),
           const SizedBox(height: 14),
+          Text(tr('Màn hình cũ: mở {0}/tv trên TV rồi quét mã QR hoặc nhập mã 8 ký tự.', [host]), style: TextStyle(color: Pal.of(sheet).sub, fontSize: 12.5)),
+          const SizedBox(height: 8),
           _PairBox(tvUrl: '${widget.client.base}/tv', onCode: (code) async {
             final pid = await _open();
             try {
@@ -3126,4 +3143,26 @@ class _PinnedTabs extends SliverPersistentHeaderDelegate {
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => ColoredBox(color: color, child: bar);
   @override
   bool shouldRebuild(_PinnedTabs old) => old.bar != bar || old.color != color;
+}
+
+
+/// Chiếu bộ slide lên màn hình hello của công ty (cổng màn hình chung của Họp và Show): chọn màn hình trong danh sách
+/// (hoặc quét mã hello) → mở buổi chiếu → link TV ghép sẵn (screen_invite) → đưa lên màn hình và để lại; slide tự theo
+/// buổi chiếu, điều khiển bằng màn điều khiển của Show. Trả về presentation_id, null nếu huỷ.
+Future<String?> showToHelloScreen(BuildContext context, ShowClient client, Future<String> Function() open, String title) async {
+  final token = context.read<AppState>().token;
+  final cast = await pickAndPair(context, token);
+  if (cast == null) return null;
+  String? pid;
+  try {
+    pid = await open();
+    final inv = await client.call('screen_invite', {'presentation_id': pid, 'minutes': 720});
+    await cast.showUrl('show', '${inv['url']}', name: title, app: 'show');
+    await cast.detach();
+    return pid;
+  } catch (e) {
+    await cast.stop();
+    if (pid != null) unawaited(client.call('show_stop', {'presentation_id': pid}).catchError((_) => <String, dynamic>{}));
+    rethrow;
+  }
 }
