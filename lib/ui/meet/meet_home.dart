@@ -883,5 +883,12 @@ class MeetLinkBox extends StatelessWidget {
 }
 
 /// Thông báo ngắn ở đáy màn hình.
-void meetToast(BuildContext context, String text) =>
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text(text)));
+/// Thông báo nhỏ trong màn họp (nhãn tối phía trên thanh nút) khi màn họp đang mở; nơi khác là SnackBar như cũ.
+/// Màn họp đặt [meetToastSink] khi hiện, bỏ khi đóng.
+void Function(String text, {List<IconData> icons})? meetToastSink;
+
+void meetToast(BuildContext context, String text) {
+  final sink = meetToastSink;
+  if (sink != null) return sink(text);
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text(text)));
+}

@@ -11,7 +11,7 @@ import 'meet_overlay.dart';
 import 'ai_panel.dart';
 import '../calls/meet_room.dart';
 import '../calls/meet_rooms.dart';
-import 'meet/meet_home.dart' show MeetLinkBox, meetToast;
+import 'meet/meet_home.dart' show MeetLinkBox, meetToast, meetToastSink;
 import 'meet/meet_qr_invite.dart';
 import 'meet/meet_summary.dart';
 import 'meet/extras/actions.dart';
@@ -111,6 +111,34 @@ class _CallScreenState extends State<CallScreen> {
   int _sysSpeakerAt = 0;
   /// Lúc từng ô bắt đầu có hình (trang "Chủ phòng": ai mới bật camera đứng đầu dải).
   final Map<String, int> _camOnAt = {};
+  /// Thông báo nhỏ đang hiện (nhãn tối phía trên thanh nút, tự ẩn sau ~3 giây).
+  String? _note;
+  List<IconData> _noteIcons = const [];
+  Timer? _noteT;
+
+  final List<(String, List<IconData>)> _noteQueue = [];
+
+  /// Hiện một thông báo; đang có thông báo khác thì xếp hàng (lần lượt, không đè nhau).
+  void _flash(String text, {List<IconData> icons = const []}) {
+    if (_note != null) {
+      if (_note != text && !_noteQueue.any((q) => q.$1 == text)) _noteQueue.add((text, icons));
+      return;
+    }
+    setState(() {
+      _note = text;
+      _noteIcons = icons;
+    });
+    _noteT?.cancel();
+    _noteT = Timer(Duration(milliseconds: text.length > 60 ? 4500 : 3000), () {
+      if (!mounted) return;
+      setState(() => _note = null);
+      if (_noteQueue.isNotEmpty) {
+        final (t, i) = _noteQueue.removeAt(0);
+        Timer(const Duration(milliseconds: 250), () => mounted ? _flash(t, icons: i) : null);
+      }
+    });
+  }
+
   /// Bề rộng thật của màn họp (có thể nhỏ hơn cửa sổ khi app có thanh bên).
   double _screenW = 0;
   /// Bề rộng thanh nút (vùng họp bên trái panel), ghi lại khi dựng thanh nút; quyết định một hay hai hàng nút.
@@ -209,6 +237,10 @@ class _CallScreenState extends State<CallScreen> {
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
     _poke();
     CallScreen.visible.value++;
+    // Mọi thông báo trong lúc màn họp mở (trang họp, tính năng thêm…) dùng chung nhãn nhỏ này.
+    meetToastSink = (t, {icons = const []}) {
+      if (mounted) _flash(t, icons: icons);
+    };
     // Tính năng thêm (meet/extras): nghe sự kiện của cuộc họp để báo nhanh (vd. "X đã hạ tay bạn").
     final call = context.read<AppState>().calls;
     _extrasCall = call;
@@ -240,6 +272,8 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _tick?.cancel();
     _hide?.cancel();
+    _noteT?.cancel();
+    meetToastSink = null;
     _disposeRoom();
     final xc = _extrasCall;
     if (xc != null) meetExtrasDetach(xc);
@@ -398,22 +432,10 @@ class _CallScreenState extends State<CallScreen> {
     if (call.direct != null) return PopScope(canPop: !call.busy, child: const DirectCallView());
     _ensureRoom(app, call);
     // Vào cuộc gọi nhóm / cuộc họp: báo mic và camera đã tắt sẵn.
+    // Vào họp với mic + camera tự tắt (không phải tự chọn ở phòng chờ): báo một lần bằng nhãn nhỏ phía trên thanh nút.
     if (call.autoMutedNotice && call.phase == CallPhase.active) {
       call.autoMutedNotice = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 6),
-          content: Row(children: [
-            const Icon(Icons.mic_off, color: Colors.white, size: 20),
-            const SizedBox(width: 6),
-            const Icon(Icons.videocam_off, color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Expanded(child: Text(tr('Mic và camera đã được tắt tự động. Bấm nút mic / camera để bật khi cần.'))),
-          ]),
-        ));
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _flash(tr('Đã tắt mic và camera'), icons: const [Icons.mic_off, Icons.videocam_off]) : null);
     }
     if (call.unmuteAsk != null && call.phase == CallPhase.active) {
       final by = call.unmuteAsk!;
@@ -706,7 +728,6 @@ class _CallScreenState extends State<CallScreen> {
       icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
       color: _panelBg,
       onSelected: (a) async {
-        final messenger = ScaffoldMessenger.of(context);
         String? err;
         switch (a) {
           case 'cohost':
@@ -741,9 +762,9 @@ class _CallScreenState extends State<CallScreen> {
             if (ok == true) err = await call.moderate('remove', userId);
           default:
             err = await call.moderate(a, userId);
-            if (a == 'ask_unmute' && err == null) messenger.showSnackBar(toast(Text(tr('Đã mời {0} bật mic', [name]))));
+            if (a == 'ask_unmute' && err == null) _flash(tr('Đã mời {0} bật mic', [name]));
         }
-        if (err != null) messenger.showSnackBar(toast(Text(err)));
+        if (err != null) _flash(err);
       },
       itemBuilder: (_) => [
         if (call.amHost && !device) it('cohost', co ? Icons.star_outline : Icons.star, co ? tr('Bỏ phó phòng') : tr('Làm phó phòng')),
@@ -827,7 +848,7 @@ class _CallScreenState extends State<CallScreen> {
   /// Máy này tự đổi cách xem: phòng khoá bố cục thì không được; không khoá thì thôi theo bố cục của phòng.
   bool _localChange(CallService call) {
     if (call.liveKit && call.appLayout['locked'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(toast(Text(tr('Chủ trì đã khoá bố cục của cuộc họp'))));
+      _flash(tr('Chủ trì đã khoá bố cục của cuộc họp'));
       return false;
     }
     _followRoom = false;
@@ -1070,6 +1091,35 @@ class _CallScreenState extends State<CallScreen> {
               left: 0,
               right: 0,
               child: _fade(show, _controlBar(app, call)),
+            ),
+            // Thông báo nhỏ: nhãn tối, mờ nhẹ, ngay trên thanh nút (không che nút), tự ẩn.
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: show ? 88 : 20,
+              child: IgnorePointer(
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: _note == null
+                        ? const SizedBox.shrink()
+                        : Container(
+                            key: ValueKey(_note),
+                            constraints: const BoxConstraints(maxWidth: 420),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF202124).withValues(alpha: .92),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              for (final i in _noteIcons) Padding(padding: const EdgeInsets.only(right: 6), child: Icon(i, size: 16, color: Colors.white70)),
+                              Flexible(child: Text(_note!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 13.5))),
+                            ]),
+                          ),
+                  ),
+                ),
+              ),
             ),
             // Người xin vào phòng (chủ phòng cho vào / từ chối).
             if (room != null && room.knocks.isNotEmpty && _isHost(app, call))
@@ -1936,8 +1986,7 @@ class _CallScreenState extends State<CallScreen> {
     if (!ok && mounted) _snack(tr('Không đổi được trạng thái phiên âm, thử lại sau.'));
   }
 
-  void _snack(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text(text)));
+  void _snack(String text) => _flash(text);
 
   bool _isHost(AppState app, CallService call) =>
       (_room?.host ?? false) || call.callerId == app.me?.id || (call.channelId != null && app.canManage(call.channelId!));
@@ -2016,11 +2065,10 @@ class _CallScreenState extends State<CallScreen> {
       meetToast(context, tr('Chỉ ngôi sao của cuộc họp được trình chiếu'));
       return;
     }
-    final messenger = ScaffoldMessenger.of(context);
     final id = await showDialog<String>(context: context, builder: (_) => const ScreenPicker());
     if (id == null || !mounted) return;
     final err = await call.startScreenShare(id);
-    if (err != null) messenger.showSnackBar(toast(Text(err)));
+    if (err != null) _flash(err);
     // Màn hình của mình tự ghim (bỏ dấu "đã bỏ ghim" cũ).
     if (mounted) setState(() => _dismissedScreen = null);
   }
@@ -2261,15 +2309,8 @@ class _CallScreenState extends State<CallScreen> {
     }
     final code = call.meetingInfo?.code;
     if (code == null) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 10),
-      content: Text(tr('Cuộc họp của bạn đã sẵn sàng. Mã: {0}', [code])),
-      action: SnackBarAction(
-        label: tr('Sao chép liên kết'),
-        onPressed: () => Clipboard.setData(ClipboardData(text: meetLink(code))),
-      ),
-    ));
+    // Mời người: Thành viên (⋯) có liên kết, mã QR, chia sẻ.
+    _flash(tr('Cuộc họp đã sẵn sàng · mã {0}', [code]), icons: const [Icons.check_circle_outline_rounded]);
   }
 
   Future<void> _pickLayout() async {
