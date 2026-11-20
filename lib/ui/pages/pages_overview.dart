@@ -236,10 +236,15 @@ class _PagesOverviewState extends State<PagesOverview> {
           child: Row(children: [
             Avatar(userId: r.uid, name: r.name, size: 24, status: false),
             const SizedBox(width: 8),
-            Flexible(flex: 3, child: Text(mine ? tr('{0} (bạn)', [r.name]) : r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13))),
-            if (pres) _pill(left > 0 ? tr('● đang chiếu · còn {0}', [fmtLeft(left)]) : tr('● đang chiếu'), const Color(0xFFFFB4AE), const Color(0xFF3A1F1F)),
-            if (qi >= 0) _pill(tr('{0} chờ lượt', ['${qi + 1}']), _gold, const Color(0xFF3D3010)),
-            Expanded(flex: 2, child: Text(info, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end, style: const TextStyle(color: _sub, fontSize: 11.5))),
+            // Tên + nhãn lượt + số trang xuống dòng khi hẹp (panel máy tính, điện thoại nhỏ), không tràn.
+            Expanded(
+              child: Wrap(spacing: 0, runSpacing: 2, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                Text(mine ? tr('{0} (bạn)', [r.name]) : r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                if (pres) _pill(left > 0 ? tr('● đang chiếu · còn {0}', [fmtLeft(left)]) : tr('● đang chiếu'), const Color(0xFFFFB4AE), const Color(0xFF3A1F1F)),
+                if (qi >= 0) _pill(tr('{0} chờ lượt', ['${qi + 1}']), _gold, const Color(0xFF3D3010)),
+                if (info.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 8), child: Text(info, style: const TextStyle(color: _sub, fontSize: 11.5))),
+              ]),
+            ),
             if (host && pres) TextButton(style: _compact, onPressed: () => _toast(call.stageAct('release')), child: Text(tr('Kết thúc lượt'))),
             if (host && !pres && !mine && total > 0) TextButton(style: _compact, onPressed: () => _toast(call.stageAct('grant', {'user': r.uid, 'name': r.name})), child: Text(tr('Trao lượt'))),
           ]),

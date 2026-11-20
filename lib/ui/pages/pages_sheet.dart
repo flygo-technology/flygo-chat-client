@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../calls/call_service.dart';
-import '../../config.dart' show isDesktop;
 import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
 import 'page_types.dart';
@@ -81,31 +80,34 @@ class _StagePageViewState extends State<StagePageView> {
           builder: (context, ctx, spec) => spec == null ? unknownPageView(ctx) : spec.view(context, ctx),
         ),
       ),
+      // Một dải ở góc phải: ai đang chiếu, thời gian còn lại, nút điều khiển (người trình chiếu / chủ trì); không đè lên nội dung trang.
       if (shown.isNotEmpty && !widget.compact)
-        Positioned(
-          left: 8,
-          top: 8,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: .55), borderRadius: BorderRadius.circular(12)),
-            child: Text(
-              [tr('Đang chiếu: {0}', ['${st['presenter_name'] ?? ''}']), '${st['page_title'] ?? ''}', if (left > 0) tr('còn {0}', [fmtLeft(left)]), if (st['paused'] == true) tr('tạm dừng')].join(' · '),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ),
-        ),
-      if (control && !widget.compact)
         Positioned(
           right: 8,
           top: 8,
           child: Container(
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: .55), borderRadius: BorderRadius.circular(20)),
+            padding: const EdgeInsets.only(left: 12),
+            decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(20)),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              _btn(Icons.skip_previous_rounded, () => call.stageAct('prev')),
-              if (st['mode'] == 'auto')
-                _btn(st['paused'] == true ? Icons.play_arrow_rounded : Icons.pause_rounded, () => call.stageAct(st['paused'] == true ? 'resume' : 'pause')),
-              _btn(Icons.skip_next_rounded, () => call.stageAct('next')),
-              _btn(Icons.stop_rounded, () => call.stageAct('end')),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: control ? 0 : 6).copyWith(right: control ? 4 : 12),
+                  child: Text(
+                    [tr('Đang chiếu: {0}', ['${st['presenter_name'] ?? ''}']), if (left > 0) tr('còn {0}', [fmtLeft(left)]), if (st['paused'] == true) tr('tạm dừng')].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ),
+              if (control) ...[
+                _btn(Icons.skip_previous_rounded, () => call.stageAct('prev')),
+                if (st['mode'] == 'auto')
+                  _btn(st['paused'] == true ? Icons.play_arrow_rounded : Icons.pause_rounded, () => call.stageAct(st['paused'] == true ? 'resume' : 'pause')),
+                _btn(Icons.skip_next_rounded, () => call.stageAct('next')),
+                _btn(Icons.stop_rounded, () => call.stageAct('end')),
+              ],
             ]),
           ),
         ),
@@ -129,19 +131,22 @@ Future<void> showPagesSheet(BuildContext context, CallService call, {String? edi
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black26,
-      builder: (ctx) => _PagesSheet(call: call, edit: edit, create: create),
+      builder: (ctx) => PagesPane(call: call, edit: edit, create: create),
     );
 
-class _PagesSheet extends StatefulWidget {
+/// Nội dung Trang họp: tab Tất cả / Lượt, xem trang, soạn trang. Điện thoại: trong bảng kéo lên ([panel] = false);
+/// máy tính: trong panel bên phải của cuộc họp ([panel] = true).
+class PagesPane extends StatefulWidget {
   final CallService call;
   final String? edit;
   final bool create;
-  const _PagesSheet({required this.call, this.edit, this.create = false});
+  final bool panel;
+  const PagesPane({super.key, required this.call, this.edit, this.create = false, this.panel = false});
   @override
-  State<_PagesSheet> createState() => _PagesSheetState();
+  State<PagesPane> createState() => _PagesPaneState();
 }
 
-class _PagesSheetState extends State<_PagesSheet> {
+class _PagesPaneState extends State<PagesPane> {
   late final api = PagesApi(widget.call);
   final _sheet = DraggableScrollableController();
   int _tab = 0;
@@ -255,6 +260,7 @@ class _PagesSheetState extends State<_PagesSheet> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.panel) return CustomScrollView(slivers: [const SliverToBoxAdapter(child: SizedBox(height: 10)), ..._slivers()]);
     return DraggableScrollableSheet(
       controller: _sheet,
       initialChildSize: widget.edit != null ? .72 : .45,
@@ -270,39 +276,41 @@ class _PagesSheetState extends State<_PagesSheet> {
         clipBehavior: Clip.antiAlias,
         child: CustomScrollView(controller: scroll, slivers: [
           SliverToBoxAdapter(
-            child: Column(children: [
-              Container(width: 40, height: 5, margin: const EdgeInsets.only(top: 8, bottom: 6), decoration: BoxDecoration(color: const Color(0xFF555555), borderRadius: BorderRadius.circular(3))),
-              if (_editing == null && _viewing == null) _tabs(),
-            ]),
+            child: Container(width: 40, height: 5, margin: const EdgeInsets.only(top: 8, bottom: 6), decoration: BoxDecoration(color: const Color(0xFF555555), borderRadius: BorderRadius.circular(3))),
           ),
-          if (_editing != null)
-            SliverToBoxAdapter(child: _editor(_editing!))
-          else if (_viewing != null)
-            SliverToBoxAdapter(child: _viewer(_viewing!))
-          else if (_err != null)
-            SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(16), child: Text(_err!, style: const TextStyle(color: Colors.white70))))
-          else if (_tab == 0)
-            SliverToBoxAdapter(
-              child: PagesOverview(
-                call: call,
-                onView: (id) {
-                  setState(() => _mine.any((p) => p.id == id) ? _editing = id : _viewing = id);
-                  _size(.72);
-                },
-                onEdit: (id) {
-                  setState(() => _editing = id);
-                  _size(.72);
-                },
-                onNew: _new,
-              ),
-            )
-          else
-            SliverList.list(children: _turns()),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ..._slivers(),
         ]),
       ),
     );
   }
+
+  List<Widget> _slivers() => [
+        if (_editing == null && _viewing == null) SliverToBoxAdapter(child: _tabs()),
+        if (_editing != null)
+          SliverToBoxAdapter(child: _editor(_editing!))
+        else if (_viewing != null)
+          SliverToBoxAdapter(child: _viewer(_viewing!))
+        else if (_err != null)
+          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(16), child: Text(_err!, style: const TextStyle(color: Colors.white70))))
+        else if (_tab == 0)
+          SliverToBoxAdapter(
+            child: PagesOverview(
+              call: call,
+              onView: (id) {
+                setState(() => _mine.any((p) => p.id == id) ? _editing = id : _viewing = id);
+                _size(.72);
+              },
+              onEdit: (id) {
+                setState(() => _editing = id);
+                _size(.72);
+              },
+              onNew: _new,
+            ),
+          )
+        else
+          SliverList.list(children: _turns()),
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      ];
 
   Widget _tabs() {
     final q = (call.roomStage?['queue'] as List? ?? const []).length;
@@ -432,13 +440,11 @@ class _PagesSheetState extends State<_PagesSheet> {
           ]),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            // Điện thoại: khung cao để trả lời / đọc (bình chọn, hỏi đáp); máy tính: khung sân khấu 16:9.
-            child: isDesktop
-                ? AspectRatio(aspectRatio: 16 / 9, child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)))
-                : SizedBox(
-                    height: MediaQuery.sizeOf(context).height * .55,
-                    child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
-                  ),
+            // Khung cao để trả lời / đọc (bình chọn, hỏi đáp), cả bảng kéo lên lẫn panel máy tính.
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * .55,
+              child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -452,7 +458,11 @@ class _PagesSheetState extends State<_PagesSheet> {
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton.tonal(onPressed: () => Navigator.pop(context), child: Text(tr('Về sân khấu'))),
+              FilledButton.tonal(
+                // Panel máy tính: sân khấu vẫn ở bên trái, chỉ quay lại danh sách; điện thoại: đóng bảng.
+                onPressed: () => widget.panel ? setState(() => _viewing = null) : Navigator.pop(context),
+                child: Text(tr('Về sân khấu')),
+              ),
             ]),
           ),
         ]),
