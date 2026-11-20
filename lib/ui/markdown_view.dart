@@ -10,6 +10,63 @@ import 'links.dart';
 import 'shell_highlight.dart' show CodeColors, kMonoFallback, kMonoFont, kNoLigatures, kReadingFont, shellSpan;
 import 'theme.dart';
 
+final _fenceLine = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
+// "@ba.flygo.vn ```text": chữ rồi dấu mở khối code (kèm tên ngôn ngữ) ở cuối dòng.
+final _gluedOpen = RegExp(r'^(.*\S)[ \t]*(`{3,})([A-Za-z0-9_+#.\-]*)[ \t]*$');
+// "dòng cuối```": chữ rồi dấu đóng khối ở cuối dòng.
+final _blockMarker = RegExp(r'^\s*([-*+]|\d{1,9}[.)]|>+)$');
+final _gluedClose = RegExp(r'^(.*\S)[ \t]*(`{3,})[ \t]*$');
+
+/// Tách dấu ``` bị dính vào chữ ra dòng riêng để markdown nhận ra khối code (bot hay gửi "@tên ```text" trên cùng
+/// một dòng, nếu không cả khối hiện thành chữ thường, có cả "```text"):
+/// - "chữ ```lang" ở cuối dòng (ngoài khối code) → "chữ" + dòng "```lang";
+/// - trong khối đang mở, "chữ```" ở cuối dòng và phía sau không còn dấu đóng nào → "chữ" + dòng "```".
+/// Nội dung bên trong khối code đúng chuẩn giữ nguyên; "```code```" trong dòng (mã nội dòng) không bị tách.
+String splitGluedFences(String text) {
+  if (!text.contains('```')) return text;
+  final lines = text.split('\n');
+  final out = <String>[];
+  String? open; // dấu của khối đang mở (```/~~~, đủ độ dài)
+  bool closes(String l, String fence) {
+    final m = _fenceLine.firstMatch(l);
+    return m != null && m.group(1)![0] == fence[0] && m.group(1)!.length >= fence.length && m.group(2)!.trim().isEmpty;
+  }
+
+  for (var i = 0; i < lines.length; i++) {
+    final l = lines[i];
+    if (open == null) {
+      final f = _fenceLine.firstMatch(l);
+      if (f != null && !(f.group(1)![0] == '`' && f.group(2)!.contains('`'))) {
+        open = f.group(1);
+        out.add(l);
+        continue;
+      }
+      final g = _gluedOpen.firstMatch(l);
+      // "- ```", "1. ```", "> ```": khối code đúng chuẩn trong mục danh sách / trích dẫn, không tách.
+      if (g != null && !g.group(1)!.contains('```') && !_blockMarker.hasMatch(g.group(1)!)) {
+        out..add(g.group(1)!)..add('${g.group(2)}${g.group(3)}');
+        open = g.group(2);
+        continue;
+      }
+      out.add(l);
+    } else {
+      if (closes(l, open)) {
+        open = null;
+        out.add(l);
+        continue;
+      }
+      final c = open[0] == '`' ? _gluedClose.firstMatch(l) : null;
+      if (c != null && c.group(2)!.length >= open.length && !lines.skip(i + 1).any((x) => closes(x, open!))) {
+        out..add(c.group(1)!)..add(c.group(2)!);
+        open = null;
+        continue;
+      }
+      out.add(l);
+    }
+  }
+  return out.join('\n');
+}
+
 /// Hiển thị markdown của máy chủ chat thành widget: đoạn văn, tiêu đề, danh sách,
 /// khối mã, trích dẫn, bảng, đường kẻ; trong dòng có đậm, nghiêng, gạch,
 /// mã, link, @nhắc tên và :emoji:.
@@ -72,7 +129,7 @@ class MarkdownView extends StatelessWidget {
   static List<md.Node> _parse(String text) {
     final hit = _cache.remove(text);
     if (hit != null) return _cache[text] = hit;
-    final nodes = _doc.parse(replaceShortcodes(text));
+    final nodes = _doc.parse(replaceShortcodes(splitGluedFences(text)));
     _cache[text] = nodes;
     if (_cache.length > 400) _cache.remove(_cache.keys.first);
     return nodes;

@@ -4,6 +4,15 @@
 import type { RunCard } from "./card";
 import type { MM } from "./mm";
 
+/** Câu trả lời mở đầu bằng khối markdown (```, #, -, 1., >, |bảng): nếu "@tên " đứng trước trên cùng một dòng thì
+ *  markdown không còn nhận ra khối (hiện thành "```text" và chữ thường). */
+const BLOCK_START = /^\s*(```|~~~|#{1,6}\s|[-*+]\s|\d{1,9}[.)]\s|>|\|)/;
+
+/** "@tên " trước câu trả lời cuối; câu trả lời mở đầu bằng khối thì tên nằm riêng một đoạn ("@tên\n\n"). */
+export function mentionPrefix(username: string, message: string): string {
+  return BLOCK_START.test(message) ? `@${username}\n\n` : `@${username} `;
+}
+
 /** Trả lời của một lượt: MỘT post duy nhất, ở chat chính (root_id rỗng) hoặc trong luồng (flygo_reply).
  *  Post mang cả thẻ tiến trình (props.flygo_agent) lẫn tin stream (props.flygo_agent_message); chưa có chữ thì hiện thẻ.
  *  Kết thúc: đăng lại thành post mới (để có thông báo; ngoài DM thì @nhắc thật người giao việc) rồi xoá post stream. */
@@ -105,7 +114,7 @@ export class InlineReply {
       return;
     }
     const b = this.body(false, true);
-    const prefix = this.mention ? `@${this.owner.username} ` : "";
+    const prefix = this.mention ? mentionPrefix(this.owner.username, b.message) : "";
     await this.mm.createPost({ ...this.where, message: prefix + b.message, props: b.props }, this.mention ? [this.owner.username] : []);
     if (this.postId) await this.mm.deletePost(this.postId).catch(() => {});
   }
