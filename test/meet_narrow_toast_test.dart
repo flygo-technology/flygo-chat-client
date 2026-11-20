@@ -216,10 +216,21 @@ void main() {
           await t.pump(const Duration(milliseconds: 100));
         }
         await snap(t, name);
-        final bar = find.byType(SnackBar);
-        expect(bar, findsOneWidget);
-        expect(t.getSize(bar).width, greaterThan(300), reason: 'thông báo bị ép hẹp');
-        expect(t.getSize(bar).height, lessThan(200), reason: 'thông báo bị kéo dài');
+        // Thông báo "đã tắt mic và camera": nhãn tối nhỏ phía trên thanh nút (không còn SnackBar sáng che nút).
+        expect(find.byType(SnackBar), findsNothing);
+        final note = find.text('Đã tắt mic và camera');
+        expect(note, findsOneWidget);
+        final r = t.getRect(note);
+        expect(r.height, lessThan(40), reason: 'nhãn bị kéo dài');
+        expect(r.bottom, lessThan(size.height - 70), reason: 'nhãn che thanh nút');
+        await t.pump(const Duration(seconds: 3));
+        await t.pump(const Duration(milliseconds: 220)); // hết hiệu ứng mờ
+        expect(find.text('Đã tắt mic và camera'), findsNothing, reason: 'nhãn phải tự ẩn');
+        // Thông báo tiếp theo (cuộc họp đã sẵn sàng) hiện sau, không đè lên.
+        await t.pump(const Duration(milliseconds: 300));
+        await t.pump(const Duration(milliseconds: 100));
+        expect(find.textContaining('Cuộc họp đã sẵn sàng'), findsOneWidget);
+        await t.pump(const Duration(seconds: 4));
         await t.pumpWidget(const SizedBox());
         await t.pump(const Duration(seconds: 3));
         app.calls.debugMeeting(_ch, const []);
