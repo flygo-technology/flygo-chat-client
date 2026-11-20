@@ -808,7 +808,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.t === "prompt_reply") {
     // Only the tab that shows the dialog may answer it.
     if (sender.tab?.id !== undefined && prompts.get(message.pid) === sender.tab.id) {
-      replyPrompt(message.pid, { approved: !!message.approved, tokenId: message.tokenId || null });
+      const pin = typeof message.pin === "string" && message.pin ? { pin: message.pin, rememberPin: message.rememberPin !== false } : {};
+      replyPrompt(message.pid, { approved: !!message.approved, tokenId: message.tokenId || null, ...pin });
     }
     return false;
   }

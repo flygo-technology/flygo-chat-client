@@ -58,6 +58,9 @@
     .tech { background: #f9fafb; border-radius: 8px; padding: 8px 10px; font: 12px ui-monospace, monospace; word-break: break-all; }
     details summary { cursor: pointer; }
     .ack { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+    .pin { display: grid; gap: 8px; border: 1px solid #d0d5dd; border-radius: 10px; padding: 10px 12px; background: #f9fafb; }
+    .pin input[type=password] { font: 16px ui-monospace, monospace; letter-spacing: .2em; padding: 8px 10px; border: 1px solid #98a2b3; border-radius: 8px; }
+    .badge.warn { background: #fffaeb; color: #b54708; }
     .actions { display: flex; justify-content: flex-end; gap: 8px; }
     button {
       font: inherit; border-radius: 8px; padding: 8px 16px; cursor: pointer;
@@ -134,7 +137,11 @@
       asked.message = "";
     }
     const tokenId = approved ? current.selected : null;
-    chrome.runtime.sendMessage({ t: "prompt_reply", pid: current.prompt.pid, approved, tokenId });
+    const chosen = (current.prompt.certificates || []).find((certificate) => certificate.tokenId === tokenId);
+    // The PIN of a token the server has none for, typed in this dialog.
+    const pin = approved && chosen?.needsPin ? { pin: current.pin, rememberPin: current.rememberPin } : {};
+    chrome.runtime.sendMessage({ t: "prompt_reply", pid: current.prompt.pid, approved, tokenId, ...pin });
+    current.pin = "";
     current.state = "sent";
     current.message = approved ? "Đã xác nhận, đang ký…" : "Đã từ chối.";
     render();
@@ -147,13 +154,13 @@
     const certificates = prompt.certificates || [];
     // Preselect only when there is nothing to choose.
     const only = certificates.length === 1 && certificates[0].matchesRequest !== false ? certificates[0].tokenId : null;
-    current = { prompt, selected: only, acknowledged: false, state: "open", message: "" };
+    current = { prompt, selected: only, acknowledged: false, state: "open", message: "", pin: "", rememberPin: true };
     render();
     // Within the minute after "Ký và nhớ 60 giây": confirm by itself when
     // nothing needs a choice or a warning acknowledged.
     const asked = current;
     const warned = (prompt.warnings || []).some((item) => item.level === "danger");
-    if (only && !warned && typeof window.__msRemembered === "function") {
+    if (only && !warned && !certificates[0].needsPin && typeof window.__msRemembered === "function") {
       window.__msRemembered().then((remembered) => remembered && current === asked && answer(true), () => {});
     }
   }
@@ -166,11 +173,22 @@
     const chosen = certificates.find((certificate) => certificate.tokenId === current.selected);
     const mismatch = chosen?.matchesRequest === false || (prompt.warnings || []).some((item) => item.level === "danger");
     const canConfirm = current.state === "open" && !!chosen && (!mismatch || current.acknowledged);
+    // Enter / Xác nhận with an empty PIN field asks for it instead of sending.
+    const confirm = (remember) => {
+      if (!canConfirm) return;
+      if (chosen.needsPin && !current.pin) {
+        current.message = "Hãy nhập PIN của USB token.";
+        render();
+        return;
+      }
+      answer(true, remember);
+    };
 
     const body =
       current.state === "open"
         ? [
             current.message && el("div", { class: "alert danger" }, current.message),
+            prompt.pinError && el("div", { class: "alert danger" }, prompt.pinError),
             prompt.requested && el("div", { class: "muted" }, `Website yêu cầu chứng thư: ${prompt.requested}`),
             (prompt.warnings || []).map((item) => el("div", { class: `alert ${item.level}` }, item.text)),
             el("div", {}, el("strong", {}, "Chọn chứng thư để ký")),
@@ -202,7 +220,8 @@
                     { class: "badges" },
                     certificate.matchesRequest === true && el("span", { class: "badge ok" }, "Khớp yêu cầu của website"),
                     certificate.matchesRequest === false && el("span", { class: "badge bad" }, "Không khớp yêu cầu của website"),
-                    certificate.needsApprover && el("span", { class: "badge" }, "Cần người duyệt ký"),
+                    certificate.needsPin && el("span", { class: "badge warn" }, "Token chưa có PIN"),
+                    certificate.needsApprover && !certificate.needsPin && el("span", { class: "badge" }, certificate.pinLocked ? "Ô PIN tạm khoá, cần người duyệt ký" : "Cần người duyệt ký"),
                   ),
                 ),
               ),
@@ -222,6 +241,33 @@
                 el("input", { type: "checkbox", checked: current.acknowledged }),
                 "Tôi đã kiểm tra và vẫn muốn ký bằng chứng thư này.",
               ),
+            chosen?.needsPin &&
+              el(
+                "div",
+                { class: "pin" },
+                el("label", { for: "ms-pin" }, el("strong", {}, "PIN của USB token")),
+                el("input", {
+                  id: "ms-pin",
+                  type: "password",
+                  autocomplete: "off",
+                  value: current.pin,
+                  oninput: (event) => event.isTrusted && (current.pin = event.target.value),
+                  onkeydown: (event) => event.isTrusted && event.key === "Enter" && confirm(false),
+                }),
+                el(
+                  "label",
+                  {
+                    class: "ack",
+                    onclick: trusted((event) => {
+                      event.preventDefault();
+                      current.rememberPin = !current.rememberPin;
+                      render();
+                    }),
+                  },
+                  el("input", { type: "checkbox", checked: current.rememberPin }),
+                  "Nhớ PIN trên máy chủ ký: người khác được dùng token này sẽ ký không cần nhập lại, tới khi máy chủ khởi động lại hoặc rút token.",
+                ),
+              ),
             el(
               "div",
               { class: "actions" },
@@ -229,12 +275,12 @@
               typeof window.__msRemembered === "function" &&
                 el(
                   "button",
-                  { disabled: !canConfirm, title: "Xác thực một lần, 60 giây sau đó ký không hỏi lại", onclick: trusted(() => canConfirm && answer(true, true)) },
+                  { disabled: !canConfirm, title: "Xác thực một lần, 60 giây sau đó ký không hỏi lại", onclick: trusted(() => confirm(true)) },
                   "Ký và nhớ 60 giây",
                 ),
               el(
                 "button",
-                { class: "primary", disabled: !canConfirm, onclick: trusted(() => canConfirm && answer(true)) },
+                { class: "primary", disabled: !canConfirm, onclick: trusted(() => confirm(false)) },
                 prompt.requirePin ? "Xác nhận ký" : "Xác nhận chọn",
               ),
             ),
@@ -268,6 +314,7 @@
     );
 
     root.replaceChildren(el("style", {}, STYLE), el("div", { class: "overlay" }, card));
+    root.getElementById("ms-pin")?.focus();
   }
 
   chrome.runtime.onMessage.addListener((message) => {
