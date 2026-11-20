@@ -7,10 +7,12 @@ import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
 import 'page_types.dart';
 import 'pages_api.dart';
+import 'pages_overview.dart';
 import 'types/builtin.dart' show pageField;
 
-// Họp (mới): bảng kéo lên (thấp: danh sách, vẫn thấy sân khấu · vừa: soạn nhanh · cao hết: soạn kỹ) với
-// "Trang của tôi" / "Công khai" / "Lượt trình chiếu", và khung sân khấu hiện trang đang chiếu.
+// Họp (mới): bảng kéo lên (thấp: vẫn thấy sân khấu · vừa · cao hết; kéo xuống là đóng) với "▦ Tất cả" (mỗi người một
+// hàng trang, pages_overview.dart) và "Lượt trình chiếu"; soạn trang và xem trang người khác ngay trong bảng.
+// Cùng file: khung sân khấu hiện trang đang chiếu.
 
 const _bg = Color(0xFF23262C);
 const _card = Color(0xFF2D3036);
@@ -119,19 +121,21 @@ class _StagePageViewState extends State<StagePageView> {
       );
 }
 
-/// Mở bảng kéo lên Trang họp.
-Future<void> showPagesSheet(BuildContext context, CallService call) => showModalBottomSheet<void>(
+/// Mở bảng kéo lên Trang họp. [edit]: mở thẳng trình soạn trang đó; [create]: mở ngay bảng chọn loại trang mới.
+Future<void> showPagesSheet(BuildContext context, CallService call, {String? edit, bool create = false}) => showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black26,
-      builder: (ctx) => _PagesSheet(call: call),
+      builder: (ctx) => _PagesSheet(call: call, edit: edit, create: create),
     );
 
 class _PagesSheet extends StatefulWidget {
   final CallService call;
-  const _PagesSheet({required this.call});
+  final String? edit;
+  final bool create;
+  const _PagesSheet({required this.call, this.edit, this.create = false});
   @override
   State<_PagesSheet> createState() => _PagesSheetState();
 }
@@ -151,7 +155,9 @@ class _PagesSheetState extends State<_PagesSheet> {
   @override
   void initState() {
     super.initState();
+    _editing = widget.edit;
     _load();
+    if (widget.create) WidgetsBinding.instance.addPostFrameCallback((_) => _new());
     call.addListener(_changed);
     _fx = call.fxEvents.stream.listen((m) {
       if (m['t'] == 'fx_page') _load();
@@ -250,7 +256,7 @@ class _PagesSheetState extends State<_PagesSheet> {
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
       controller: _sheet,
-      initialChildSize: .45,
+      initialChildSize: widget.edit != null ? .72 : .45,
       minChildSize: .2,
       maxChildSize: 1,
       snap: true,
@@ -270,8 +276,23 @@ class _PagesSheetState extends State<_PagesSheet> {
             SliverToBoxAdapter(child: _viewer(_viewing!))
           else if (_err != null)
             SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(16), child: Text(_err!, style: const TextStyle(color: Colors.white70))))
+          else if (_tab == 0)
+            SliverToBoxAdapter(
+              child: PagesOverview(
+                call: call,
+                onView: (id) {
+                  setState(() => _mine.any((p) => p.id == id) ? _editing = id : _viewing = id);
+                  _size(.72);
+                },
+                onEdit: (id) {
+                  setState(() => _editing = id);
+                  _size(.72);
+                },
+                onNew: _new,
+              ),
+            )
           else
-            SliverList.list(children: switch (_tab) { 0 => _mineList(), 1 => _publicList(), _ => _turns() }),
+            SliverList.list(children: _turns()),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ]),
       ),
@@ -288,15 +309,13 @@ class _PagesSheetState extends State<_PagesSheet> {
             showSelectedIcon: false,
             style: SegmentedButton.styleFrom(foregroundColor: Colors.white70, selectedForegroundColor: const Color(0xFF041E49), selectedBackgroundColor: _acc, visualDensity: VisualDensity.compact),
             segments: [
-              ButtonSegment(value: 0, label: Text(tr('Của tôi'))),
-              ButtonSegment(value: 1, label: Text(tr('Công khai'))),
-              ButtonSegment(value: 2, label: Text(q > 0 ? tr('Lượt ({0})', [q]) : tr('Lượt'))),
+              ButtonSegment(value: 0, icon: const Icon(Icons.grid_view_rounded, size: 16), label: Text(tr('Tất cả'))),
+              ButtonSegment(value: 1, label: Text(q > 0 ? tr('Lượt ({0})', [q]) : tr('Lượt'))),
             ],
             selected: {_tab},
             onSelectionChanged: (s) => setState(() => _tab = s.first),
           ),
         ),
-        const SizedBox(width: 8),
         IconButton.filled(onPressed: _new, icon: const Icon(Icons.add_rounded), tooltip: tr('Trang mới')),
       ]),
     );
@@ -311,66 +330,6 @@ class _PagesSheetState extends State<_PagesSheet> {
 
   bool get _myTurn => call.roomStage?['presenter'] == call.myId();
   bool get _canShow => _myTurn || call.canModerate || '${call.roomStage?['presenter'] ?? ''}'.isEmpty;
-
-  Widget _pageTile(MeetPage p, {required bool mine}) {
-    final s = pageTypeOf(p.type);
-    final live = call.roomStage?['page'] == p.id;
-    return ListTile(
-      leading: _typeIcon(s),
-      tileColor: live ? const Color(0xFF173431) : null,
-      title: Text(p.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-      subtitle: Text(
-        [
-          if (!mine) p.ownerName,
-          s?.label ?? p.type,
-          if (p.seconds > 0) fmtLeft(p.seconds * 1000),
-          if (mine) p.public ? tr('công khai') : tr('riêng'),
-          if (live) tr('đang chiếu'),
-        ].join(' · '),
-        style: const TextStyle(color: _sub, fontSize: 12),
-      ),
-      trailing: (mine || call.canModerate) && _canShow
-          ? IconButton(
-              tooltip: tr('Lên sân khấu'),
-              icon: Icon(live ? Icons.cast_connected_rounded : Icons.play_circle_outline_rounded, color: _acc),
-              onPressed: live ? null : () => _toast(call.stageAct('show', {'page': p.id})),
-            )
-          : null,
-      onTap: () {
-        setState(() => mine ? _editing = p.id : _viewing = p.id);
-        _size(.72);
-      },
-    );
-  }
-
-  List<Widget> _mineList() => [
-        if (_mine.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(tr('Chưa có trang nào. Bấm ＋ để chuẩn bị chào mừng, tài liệu, chương trình, biên bản…'), textAlign: TextAlign.center, style: const TextStyle(color: _sub)),
-          ),
-        if (_mine.length > 1)
-          ReorderableListView(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            onReorderItem: (a, b) async {
-              final l = [..._mine];
-              l.insert(b, l.removeAt(a));
-              setState(() => _mine = l);
-              for (final (i, p) in l.indexed) {
-                if (p.order != i) await api.patch(p.id, {'order': i}).catchError((_) => p);
-              }
-            },
-            children: [for (final p in _mine) KeyedSubtree(key: ValueKey(p.id), child: _pageTile(p, mine: true))],
-          )
-        else
-          for (final p in _mine) _pageTile(p, mine: true),
-      ];
-
-  List<Widget> _publicList() => [
-        if (_public.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text(tr('Chưa ai công khai trang nào.'), textAlign: TextAlign.center, style: const TextStyle(color: _sub))),
-        for (final p in _public) _pageTile(p, mine: false),
-      ];
 
   List<Widget> _turns() {
     final st = call.roomStage ?? const {};
@@ -466,7 +425,25 @@ class _PagesSheetState extends State<_PagesSheet> {
           _back('${ctx.page.title} · ${ctx.page.ownerName}', actions: [
             if (call.canModerate && _canShow) IconButton(tooltip: tr('Lên sân khấu'), icon: const Icon(Icons.play_circle_outline_rounded, color: _acc), onPressed: () => _toast(call.stageAct('show', {'page': id}))),
           ]),
-          SizedBox(height: MediaQuery.sizeOf(context).height * .5, child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx))),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: AspectRatio(aspectRatio: 16 / 9, child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx))),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  call.roomStage?['page'] == id
+                      ? tr('Trang này đang trên sân khấu.')
+                      : tr('Bạn đang xem riêng trang này. Sân khấu vẫn chạy "{0}".', ['${call.roomStage?['page_title'] ?? ''}'.isEmpty ? tr('màn hình chờ') : call.roomStage!['page_title']]),
+                  style: const TextStyle(color: _sub, fontSize: 12.5),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(onPressed: () => Navigator.pop(context), child: Text(tr('Về sân khấu'))),
+            ]),
+          ),
         ]),
       );
 
