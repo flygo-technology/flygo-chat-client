@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../calls/call_service.dart';
+import '../../config.dart' show isDesktop;
 import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
 import 'page_types.dart';
@@ -261,8 +262,12 @@ class _PagesSheetState extends State<_PagesSheet> {
       maxChildSize: 1,
       snap: true,
       snapSizes: const [.45, .72],
-      builder: (context, scroll) => Container(
-        decoration: const BoxDecoration(color: _bg, borderRadius: BorderRadius.vertical(top: Radius.circular(18)), boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 24)]),
+      builder: (context, scroll) => Material(
+        color: _bg,
+        elevation: 16,
+        shadowColor: Colors.black,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+        clipBehavior: Clip.antiAlias,
         child: CustomScrollView(controller: scroll, slivers: [
           SliverToBoxAdapter(
             child: Column(children: [
@@ -427,7 +432,13 @@ class _PagesSheetState extends State<_PagesSheet> {
           ]),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: AspectRatio(aspectRatio: 16 / 9, child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx))),
+            // Điện thoại: khung cao để trả lời / đọc (bình chọn, hỏi đáp); máy tính: khung sân khấu 16:9.
+            child: isDesktop
+                ? AspectRatio(aspectRatio: 16 / 9, child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)))
+                : SizedBox(
+                    height: MediaQuery.sizeOf(context).height * .55,
+                    child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),

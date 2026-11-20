@@ -111,7 +111,8 @@ class _PageHostState extends State<PageHost> {
 
   /// Ngoài cuộc họp của trang (app Bình chọn / Hỏi đáp, cuộc họp khác): theo dõi qua SSE thay cho tin fx_page.
   void _watch(MeetPage p) {
-    final here = p.meeting != null && widget.call.channelId != null && p.meeting == widget.call.pagesMeeting;
+    final code = widget.call.meetingInfo?.code ?? '';
+    final here = p.meeting != null && widget.call.channelId != null && (code.isEmpty || code == p.meeting);
     if (here || _sse != null || widget.call.myId().isEmpty) return;
     _sse = api.events(widget.id).listen(_changed);
   }
