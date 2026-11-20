@@ -415,7 +415,7 @@ class _PollViewState extends State<PollView> {
                 const SizedBox(width: 12),
                 Text(quiz ? tr('Trắc nghiệm · câu {0}/{1}', [cur + 1, qs.length]) : vote ? tr('Biểu quyết') : tr('Bình chọn'), style: const TextStyle(color: _gold, fontSize: 24, fontWeight: FontWeight.w600)),
                 const Spacer(),
-                Text(tr('{0} người đã trả lời', [v['voters'] ?? 0]), style: const TextStyle(color: Colors.white70, fontSize: 24)),
+                Text(vote ? tr('{0} người đã bỏ phiếu', [v['voters'] ?? 0]) : tr('{0} người đã trả lời', [v['voters'] ?? 0]), style: const TextStyle(color: Colors.white70, fontSize: 24)),
               ]),
               const SizedBox(height: 22),
               Text('${q['text']}', maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.w700, height: 1.2)),
@@ -439,12 +439,12 @@ class _PollViewState extends State<PollView> {
     return ListView(padding: const EdgeInsets.all(16), children: [
       Row(children: [
         Expanded(child: Text('${v['title'] ?? ctx.page.title}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
-        if (v['anon'] == true) const Chip(label: Text('🕶 ẩn danh'), visualDensity: VisualDensity.compact),
+        if (v['anon'] == true) Chip(label: Text(vote ? tr('🔒 phiếu kín') : tr('🕶 ẩn danh')), visualDensity: VisualDensity.compact),
       ]),
       const SizedBox(height: 4),
       Text(
         [
-          tr('{0} người đã trả lời', [v['voters'] ?? 0]),
+          vote ? tr('{0} người đã bỏ phiếu', [v['voters'] ?? 0]) : tr('{0} người đã trả lời', [v['voters'] ?? 0]),
           if (v['closed'] == true) tr('đã đóng'),
           if (quiz && v['reveal'] != true) tr('kết quả hiện khi công bố'),
           if (vote && v['closed'] != true) tr('kết quả hiện khi kết thúc'),
