@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../i18n/i18n.dart';
+import '../app_kit.dart';
 import '../page_types.dart';
 import '../stage_frame.dart';
+import 'poll_app.dart';
 import 'builtin.dart' show pageField;
 
 // Loại trang "Bình chọn & Trắc nghiệm" (máy chủ: relay/meet-pt-poll.mjs). Bình chọn: kết quả hiện ngay (trừ khi chủ trang tắt);
@@ -31,8 +33,12 @@ void registerPollPageType() {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => const PollComposer(),
     ),
-    view: (context, ctx) => PollView(ctx),
+    view: (context, ctx) => AppScope.of(context).editing ? PollEditor(ctx) : PollView(ctx),
     stageThemed: true,
+    // Mỗi trang là một app (mockup 21/11): người xem chạm để chọn, chủ trang điều khiển và sửa tại chỗ.
+    panel: (context, ctx) => PollPanel(ctx),
+    controls: (context, ctx) => PollControls(ctx),
+    inlineEdit: true,
     stageLabel: (ctx) => switch (ctx.view['kind']) { 'quiz' => tr('Trắc nghiệm'), 'vote' => tr('Biểu quyết'), _ => tr('Bình chọn') },
     // Thanh cuối: số người đã trả lời / bỏ phiếu + cách tham gia; giờ còn lại của trang ở bên phải.
     stageFooter: (context, ctx) {
