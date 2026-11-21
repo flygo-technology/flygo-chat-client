@@ -9,6 +9,7 @@ import '../../i18n/i18n.dart';
 import '../../state/app_state.dart';
 import '../common.dart' show Avatar;
 import '../meet/meet_home.dart' show meetToast;
+import 'app_kit.dart';
 import 'page_thumb.dart';
 import 'page_types.dart';
 import 'stage_frame.dart' show showStageThemeEditor;
@@ -443,73 +444,54 @@ class _PagesOverviewState extends State<PagesOverview> {
 /// Menu của một trang (nhấn giữ / chuột phải thẻ, hoặc ⋯ trên trang): menu nổi ngay tại thẻ (Sếp: không phải bảng kéo lên).
 /// Chủ trang: Sửa, Xoá (hỏi lại), Trình chiếu, Nhân bản, Bật công khai, Bật riêng tư (mục đang ở trạng thái đó thì mờ);
 /// chủ trì với trang người khác: chỉ Trình chiếu. Bấm (không giữ) là tương tác với trang.
-Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p, {required VoidCallback onEdit, required Future<void> Function() reload, Rect? anchor}) async {
+Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p,
+    {required VoidCallback onEdit, required Future<void> Function() reload, Rect? anchor, PageCtx? ctx}) async {
   final api = PagesApi(call);
   final mine = p.owner == call.myId();
   final st = call.roomStage ?? const {};
   final myTurn = st['presenter'] == call.myId();
   final canShow = myTurn || call.canModerate || '${st['presenter'] ?? ''}'.isEmpty;
   if (!mine && !call.canModerate) return;
-  final box = context.findRenderObject() as RenderBox?;
-  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-  final r = anchor ?? (box == null ? Rect.zero : box.localToGlobal(Offset.zero) & box.size);
-  final origin = overlay.globalToLocal(r.topLeft);
-  PopupMenuItem<String> item(String v, IconData i, String label, {bool enabled = true, Color? color}) => PopupMenuItem<String>(
-        value: v,
-        enabled: enabled,
-        height: 44,
-        child: Row(children: [
-          Icon(i, size: 20, color: enabled ? (color ?? Colors.white) : Colors.white24),
-          const SizedBox(width: 12),
-          Text(label, style: TextStyle(color: enabled ? (color ?? Colors.white) : Colors.white38)),
-        ]),
-      );
-  final a = await showMenu<String>(
-    context: context,
-    color: const Color(0xFF2B2E33),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    position: RelativeRect.fromRect(origin & r.size, Offset.zero & overlay.size),
-    items: [
-      if (mine) item('edit', Icons.edit_outlined, tr('Sửa')),
-      if (mine) item('delete', Icons.delete_outline_rounded, tr('Xoá'), color: const Color(0xFFF28B82)),
-      item('show', Icons.play_circle_outline_rounded, canShow ? tr('Trình chiếu') : tr('Xin lượt và chiếu'), color: const Color(0xFF7FD8CC)),
-      if (mine) item('dup', Icons.copy_all_rounded, tr('Nhân bản')),
-      if (mine) item('public', Icons.public_rounded, tr('Bật công khai'), enabled: !p.public),
-      if (mine) item('private', Icons.lock_outline_rounded, tr('Bật riêng tư'), enabled: p.public),
-    ],
-  );
-  if (a == null || !context.mounted) return;
-  try {
-    switch (a) {
-      case 'edit':
-        onEdit();
-      case 'delete':
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF2B2E33),
-            title: Text(tr('Xoá trang?'), style: const TextStyle(color: Colors.white)),
-            content: Text(tr('"{0}" sẽ bị xoá, không khôi phục được.', [p.title]), style: const TextStyle(color: Colors.white70)),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Huỷ'))),
-              FilledButton(style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)), onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Xoá'))),
-            ],
-          ),
-        );
-        if (ok != true) return;
-        await api.delete(p.id);
-        await reload();
-      case 'dup':
-        await api.duplicate(p.id);
-        await reload();
-        if (context.mounted) meetToast(context, tr('Đã nhân bản "{0}"', [p.title]));
-      case 'public':
-        await api.patch(p.id, {'visibility': 'meeting'});
-        await reload();
-      case 'private':
-        await api.patch(p.id, {'visibility': 'private'});
-        await reload();
-      case 'show':
+  final at = anchor?.topLeft;
+  Future<void> run(Future<void> Function() f) async {
+    try {
+      await f();
+    } catch (e) {
+      if (context.mounted) meetToast(context, '$e');
+    }
+  }
+
+  // Mục riêng của loại trang (khi có dữ liệu trang: menu trên trang đang xem / sân khấu).
+  final extra = ctx == null ? const <PageMenuItem>[] : (pageTypeOf(p.type)?.menu?.call(ctx) ?? const <PageMenuItem>[]);
+  await showAppMenu(context, at: at, items: [
+    if (mine) PageMenuItem(label: tr('Sửa'), icon: Icons.edit_outlined, onTap: () async => onEdit()),
+    if (mine)
+      PageMenuItem(
+        label: tr('Xoá'),
+        icon: Icons.delete_outline_rounded,
+        danger: true,
+        // Hỏi lại ngay tại chỗ (menu thứ hai), không mở hộp thoại.
+        onTap: () async {
+          if (!context.mounted) return;
+          await showAppMenu(context, at: at, items: [
+            PageMenuItem(
+              label: tr('Xoá "{0}"? Không khôi phục được', [p.title]),
+              icon: Icons.delete_forever_rounded,
+              danger: true,
+              onTap: () => run(() async {
+                await api.delete(p.id);
+                await reload();
+              }),
+            ),
+            PageMenuItem(label: tr('Huỷ'), icon: Icons.close_rounded),
+          ]);
+        },
+      ),
+    PageMenuItem(
+      label: canShow ? tr('Trình chiếu') : tr('Xin lượt và chiếu'),
+      icon: Icons.play_circle_outline_rounded,
+      color: const Color(0xFF2BB3A3),
+      onTap: () => run(() async {
         if (!myTurn && !call.canModerate) {
           final e = await call.stageAct('request');
           if (e != null) return context.mounted ? meetToast(context, e) : null;
@@ -519,10 +501,30 @@ Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p, {r
         }
         final e = await call.stageAct('show', {'page': p.id});
         if (e != null && context.mounted) meetToast(context, e);
-    }
-  } catch (e) {
-    if (context.mounted) meetToast(context, '$e');
-  }
+      }),
+    ),
+    if (mine)
+      PageMenuItem(
+        label: tr('Nhân bản'),
+        icon: Icons.copy_all_rounded,
+        onTap: () => run(() async {
+          await api.duplicate(p.id);
+          await reload();
+          if (context.mounted) meetToast(context, tr('Đã nhân bản "{0}"', [p.title]));
+        }),
+      ),
+    if (mine)
+      PageMenuItem(label: tr('Bật công khai'), icon: Icons.public_rounded, enabled: !p.public, onTap: () => run(() async {
+        await api.patch(p.id, {'visibility': 'meeting'});
+        await reload();
+      })),
+    if (mine)
+      PageMenuItem(label: tr('Bật riêng tư'), icon: Icons.lock_outline_rounded, enabled: p.public, onTap: () => run(() async {
+        await api.patch(p.id, {'visibility': 'private'});
+        await reload();
+      })),
+    ...extra,
+  ]);
 }
 
 /// Nhãn "LIVE" đỏ nhấp nháy: trang đang trên sân khấu (thẻ trang, trang đang xem).

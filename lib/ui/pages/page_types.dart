@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../calls/call_service.dart';
 import '../../i18n/i18n.dart';
+import 'app_kit.dart';
 import 'pages_api.dart';
 import 'types/all.dart';
 
@@ -37,6 +38,8 @@ class PageCtx {
   Map<String, dynamic> get view => data.view;
   /// Chủ trang / chủ trì / người trình chiếu: điều khiển được trang.
   bool get control => data.manage || presenting;
+  /// Trang đang trên sân khấu (LIVE).
+  bool get live => '${call.roomStage?['page'] ?? ''}' == page.id;
 }
 
 class PageTypeSpec {
@@ -65,6 +68,17 @@ class PageTypeSpec {
   final String Function(PageCtx ctx)? stageLabel;
   /// Không hiện trong danh sách tạo trang (loại đã thay thế, vd Hỏi đáp -> Thảo luận); trang cũ vẫn xem được.
   final bool hidden;
+  // --- Mỗi trang là một app (app_kit.dart, app_shell.dart) ---
+  /// Phần tương tác của người xem: dưới sân khấu (điện thoại dọc), cột phải (ngang). Đọc AppScope.of(context).form để
+  /// chọn bố cục. null = app chỉ xem. Không mở hộp thoại / bảng / route.
+  final Widget Function(BuildContext context, PageCtx ctx)? panel;
+  /// Điều khiển của chủ trang (chỉ hiện khi ctx.control), dưới [panel]; thay cho [editor] dạng bảng.
+  final Widget Function(BuildContext context, PageCtx ctx)? controls;
+  /// Sửa tại chỗ: khi AppScope.editing, [view] vẽ ô sửa (AppInlineField) và đăng ký hàm lưu bằng AppScope.registerEdit;
+  /// khung vẽ thanh Xong / Huỷ. false = "Sửa" chỉ mở phần tiêu đề / công khai của khung.
+  final bool inlineEdit;
+  /// Mục thêm cho menu nhấn giữ của trang (sau Sửa / Xoá / Trình chiếu / Nhân bản / Công khai của khung).
+  final List<PageMenuItem> Function(PageCtx ctx)? menu;
   const PageTypeSpec({
     required this.type,
     required this.label,
@@ -81,6 +95,10 @@ class PageTypeSpec {
     this.stageThemed = false,
     this.stageLabel,
     this.hidden = false,
+    this.panel,
+    this.controls,
+    this.inlineEdit = false,
+    this.menu,
   });
 }
 

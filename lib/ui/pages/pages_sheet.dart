@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../calls/call_service.dart';
 import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
+import 'app_shell.dart';
 import 'page_types.dart';
 import 'pages_api.dart';
 import '../meet/meet_present.dart' show pickPresentPdf;
@@ -572,23 +573,31 @@ class _PagesPaneState extends State<PagesPane> {
                 builder: (btn) => IconButton(
                   tooltip: tr('Sửa, chiếu, công khai, xoá'),
                   icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
-                  onPressed: () => showPageMenu(btn, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+                  onPressed: () => showPageMenu(btn, call, ctx.page, ctx: ctx, onEdit: () => _editPage(id), reload: _load),
                 ),
               ),
           ]),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            // Khung cao để trả lời / đọc (bình chọn, hỏi đáp), cả bảng kéo lên lẫn panel máy tính. Bấm để tương tác; nhấn giữ /
-            // chuột phải là menu của trang (như thẻ trang).
-            child: GestureDetector(
-              // Menu nổi tại chỗ nhấn.
-              onLongPressStart: (d) => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load, anchor: d.globalPosition & const Size(1, 1)),
-              onSecondaryTapDown: (d) => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load, anchor: d.globalPosition & const Size(1, 1)),
-              child: SizedBox(
-                height: MediaQuery.sizeOf(context).height * .55,
-                child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
-              ),
-            ),
+            // Loại trang đã thành app (panel / controls): vỏ chung (hình sân khấu + phần tương tác + điều khiển). Loại chưa
+            // chuyển: khung cao, bấm thẳng vào trang như cũ. Nhấn giữ / chuột phải là menu của trang.
+            child: spec != null && (spec.panel != null || spec.controls != null)
+                ? PageAppShell(
+                    ctx: ctx,
+                    spec: spec,
+                    // Máy tính, trang đang LIVE: sân khấu đã hiện bên trái, cột phải chỉ phần tương tác.
+                    stage: !(widget.panel && ctx.live),
+                    onMenu: (at) => showPageMenu(context, call, ctx.page, ctx: ctx, onEdit: () => _editPage(id), reload: _load, anchor: at & const Size(1, 1)),
+                  )
+                : GestureDetector(
+                    // Menu nổi tại chỗ nhấn.
+                    onLongPressStart: (d) => showPageMenu(context, call, ctx.page, ctx: ctx, onEdit: () => _editPage(id), reload: _load, anchor: d.globalPosition & const Size(1, 1)),
+                    onSecondaryTapDown: (d) => showPageMenu(context, call, ctx.page, ctx: ctx, onEdit: () => _editPage(id), reload: _load, anchor: d.globalPosition & const Size(1, 1)),
+                    child: SizedBox(
+                      height: MediaQuery.sizeOf(context).height * .55,
+                      child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
+                    ),
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -638,6 +647,8 @@ class _Editor extends StatefulWidget {
 class _EditorState extends State<_Editor> {
   late final _title = TextEditingController(text: widget.ctx.page.title);
   late int _seconds = widget.ctx.page.seconds;
+  /// App sửa tại chỗ: mở trình soạn là vào chế độ sửa; Xong / Huỷ thoát về xem + điều khiển.
+  bool _inline = true;
 
   PageCtx get ctx => widget.ctx;
 
@@ -693,26 +704,35 @@ class _EditorState extends State<_Editor> {
             },
           ),
       ]),
-      // Xem trước đúng như trên sân khấu / TV (khung chung, bảng màu sân khấu).
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: ClipRRect(borderRadius: BorderRadius.circular(10), child: IgnorePointer(child: _stagePreview(context, spec))),
-        ),
-      ),
-      // Điều khiển của trang ngay trên trang (Sếp: không mở hộp riêng): loại trang không có trình soạn nội dung thì phần
-      // tương tác / điều khiển của nó (thêm ghi chú, bấm giờ, bốc thăm, câu hỏi…) nằm đây, đủ cao để dùng.
-      if (spec != null && spec.editor == null && const {'poll', 'qa', 'timer', 'draw', 'notes', 'minutes', 'show'}.contains(p.type))
+      // App sửa tại chỗ (mockup "mỗi trang là một app"): hình sân khấu thành ô sửa, phần tương tác + điều khiển, thanh
+      // Huỷ / Xong của vỏ chung. Loại chưa chuyển: xem trước + phần điều khiển cũ.
+      if (spec != null && (spec.inlineEdit || spec.panel != null || spec.controls != null))
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Container(
-            height: math.min(560, MediaQuery.sizeOf(context).height * .62),
-            decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(12)),
-            clipBehavior: Clip.antiAlias,
-            child: spec.view(context, ctx),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: PageAppShell(ctx: ctx, spec: spec, editing: spec.inlineEdit && _inline, onEditEnd: () => setState(() => _inline = false)),
+        )
+      else ...[
+        // Xem trước đúng như trên sân khấu / TV (khung chung, bảng màu sân khấu).
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(borderRadius: BorderRadius.circular(10), child: IgnorePointer(child: _stagePreview(context, spec))),
           ),
         ),
+        // Điều khiển của trang ngay trên trang (Sếp: không mở hộp riêng): loại trang không có trình soạn nội dung thì phần
+        // tương tác / điều khiển của nó (thêm ghi chú, bấm giờ, bốc thăm, câu hỏi…) nằm đây, đủ cao để dùng.
+        if (spec != null && spec.editor == null && const {'poll', 'qa', 'timer', 'draw', 'notes', 'minutes', 'show'}.contains(p.type))
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Container(
+              height: math.min(560, MediaQuery.sizeOf(context).height * .62),
+              decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(12)),
+              clipBehavior: Clip.antiAlias,
+              child: spec.view(context, ctx),
+            ),
+          ),
+      ],
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
