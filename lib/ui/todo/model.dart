@@ -151,6 +151,10 @@ class TNote {
     List<String>? labels,
     this.reminder,
     List<TMember>? members,
+    this.board,
+    this.col,
+    this.votes = 0,
+    this.voted = false,
   })  : blocks = blocks ?? [],
         files = files ?? [],
         createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch,
@@ -176,6 +180,10 @@ class TNote {
   List<String> labels;
   TReminder? reminder;
   List<TMember> members;
+  /// Bảng (null = Ghi chú của tôi), cột trong bảng, 👍.
+  String? board, col;
+  int votes;
+  bool voted;
 
   bool get canEdit => role != 'viewer';
   bool get isOwner => role == 'owner';
@@ -205,6 +213,10 @@ class TNote {
         labels: [for (final l in (m['labels'] as List? ?? const [])) '$l'],
         reminder: m['reminder'] is Map ? TReminder.fromJson(m['reminder'] as Map) : null,
         members: [for (final x in (m['members'] as List? ?? const [])) TMember.fromJson(x as Map)],
+        board: m['board'] as String?,
+        col: m['col'] as String?,
+        votes: (m['votes'] as num?)?.toInt() ?? 0,
+        voted: m['voted'] == true,
       );
 
   Map<String, dynamic> toJson() => {
@@ -227,6 +239,10 @@ class TNote {
         'labels': labels,
         'reminder': reminder?.toJson(),
         'members': [for (final x in members) x.toJson()],
+        'board': board,
+        'col': col,
+        'votes': votes,
+        'voted': voted,
       };
 
   TNote clone() => TNote.fromJson(toJson());
@@ -245,10 +261,40 @@ class TNote {
     if (b.containsKey('sort')) sort = (b['sort'] as num).toDouble();
     if (b.containsKey('labels')) labels = [for (final l in b['labels'] as List) '$l'];
     if (b.containsKey('reminder')) reminder = b['reminder'] == null ? null : TReminder.fromJson(b['reminder'] as Map);
+    if (b.containsKey('board')) board = b['board'] as String?;
+    if (b.containsKey('col')) col = b['col'] as String?;
     // Ghim thì bỏ lưu trữ và ngược lại (như máy chủ).
     if (b['pinned'] == true && !b.containsKey('archived')) archived = false;
     if (b['archived'] == true && !b.containsKey('pinned')) pinned = false;
   }
+}
+
+/// Bảng ghi chú ("Ghi chú của tôi" là bảng ảo, không có ở đây): bảng tự tạo, được chia sẻ, hoặc của cuộc họp.
+class TBoard {
+  final String id, name, kind;
+  final String? meeting, role;
+  final List<({String id, String name})> columns;
+  final List<TMember> members;
+  final int notes;
+  const TBoard({required this.id, required this.name, this.kind = 'board', this.meeting, this.role, this.columns = const [], this.members = const [], this.notes = 0});
+  bool get isMeeting => kind == 'meeting';
+  bool get isOwner => role == 'owner';
+  bool get canWrite => role != null && role != 'viewer';
+  factory TBoard.fromJson(Map m) => TBoard(
+        id: '${m['id']}',
+        name: '${m['name'] ?? ''}',
+        kind: '${m['kind'] ?? 'board'}',
+        meeting: m['meeting'] as String?,
+        role: m['role'] as String?,
+        columns: [for (final c in (m['columns'] as List? ?? const [])) (id: '${(c as Map)['id']}', name: '${c['name']}')],
+        members: [for (final x in (m['members'] as List? ?? const [])) TMember.fromJson(x as Map)],
+        notes: (m['notes'] as num?)?.toInt() ?? 0,
+      );
+  Map<String, dynamic> toJson() => {
+        'id': id, 'name': name, 'kind': kind, 'meeting': meeting, 'role': role, 'notes': notes,
+        'columns': [for (final c in columns) {'id': c.id, 'name': c.name}],
+        'members': [for (final x in members) x.toJson()],
+      };
 }
 
 /// Lặp lại lời nhắc: mã gửi máy chủ → tên hiển thị.

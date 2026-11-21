@@ -33,6 +33,7 @@ class TodoStore extends ChangeNotifier {
 
   final Map<String, TNote> notes = {};
   List<TLabel> labels = [];
+  List<TBoard> boards = [];
   String meId = '', meName = '';
   int seq = 0;
   final List<TodoOp> _ops = [];
@@ -60,6 +61,7 @@ class TodoStore extends ChangeNotifier {
       seq = (j['seq'] as num?)?.toInt() ?? 0;
       meId = '${j['me'] ?? ''}';
       labels = [for (final l in j['labels'] as List? ?? const []) TLabel.fromJson(l as Map)];
+      boards = [for (final b in j['boards'] as List? ?? const []) TBoard.fromJson(b as Map)];
       for (final n in j['notes'] as List? ?? const []) {
         final x = TNote.fromJson(n as Map);
         notes[x.id] = x;
@@ -84,6 +86,7 @@ class TodoStore extends ChangeNotifier {
           'seq': seq,
           'me': meId,
           'labels': [for (final l in labels) l.toJson()],
+          'boards': [for (final b in boards) b.toJson()],
           'notes': [for (final n in notes.values) n.toJson()],
           'ops': [for (final o in _ops) o.toJson()],
         }));
@@ -137,6 +140,7 @@ class TodoStore extends ChangeNotifier {
         labels = [...labels.where((l) => l.id != o.id), TLabel(o.id, '${o.body['name']}')];
       }
       labels.removeWhere((l) => _ops.any((o) => o.kind == 'label_del' && o.id == l.id));
+      if (j['boards'] is List) boards = [for (final b in j['boards'] as List) TBoard.fromJson(b as Map)];
       seq = (j['seq'] as num?)?.toInt() ?? seq;
       offline = false;
       error = null;
@@ -214,6 +218,8 @@ class TodoStore extends ChangeNotifier {
         await api.delete('/api/labels/${o.id}');
       case 'empty_trash':
         await api.post('/api/trash/empty');
+      case 'vote':
+        await api.post('/api/notes/${o.id}/vote');
     }
   }
 
@@ -232,11 +238,11 @@ class TodoStore extends ChangeNotifier {
 
   // ------------------------------------------------------------ thao tác
   /// Ghi chú mới (chưa gửi cho tới khi có nội dung).
-  TNote draft({String kind = 'note', List<TBlock>? blocks}) {
+  TNote draft({String kind = 'note', List<TBlock>? blocks, String? board}) {
     final top = notes.values.where((n) => !n.pinned).fold<double>(0, (m, n) => n.sort > m ? n.sort : m);
     final now = DateTime.now().millisecondsSinceEpoch.toDouble();
     return TNote(id: todoId(), kind: kind, blocks: blocks ?? [TBlock(t: kind == 'list' ? 'check' : 'p')], sort: now > top ? now : top + 1,
-        members: [TMember(meId, meName, 'owner')]);
+        members: [TMember(meId, meName, 'owner')], board: board);
   }
 
   /// Sửa ghi chú [n]: [body] là các trường đổi (giống PUT /api/notes/:id). Ghi chú mới thì gửi cả nội dung.
@@ -255,6 +261,8 @@ class TodoStore extends ChangeNotifier {
         'labels': n.labels,
         if (n.pinned) 'pinned': true,
         if (n.reminder != null) 'reminder': n.reminder!.toJson(),
+        if (n.board != null) 'board': n.board,
+        if (n.col != null) 'col': n.col,
         ...body,
       };
     }
@@ -307,6 +315,51 @@ class TodoStore extends ChangeNotifier {
     _queue(TodoOp('label_del', l.id));
   }
 
+  /// 👍 (ghi chú trong bảng): đổi ngay trên máy, gửi khi có mạng.
+  void vote(TNote n) {
+    n.voted = !n.voted;
+    n.votes = (n.votes + (n.voted ? 1 : -1)).clamp(0, 1 << 30);
+    _queue(TodoOp('vote', n.id));
+  }
+
+  TBoard? board(String? id) => id == null ? null : boards.where((b) => b.id == id).firstOrNull;
+
+  // Bảng: thao tác cần mạng (trả lỗi cho màn hình hiện), xong thì đồng bộ lại.
+  Future<TBoard> createBoard(String name, {List<String> columns = const []}) async {
+    final j = await api.post('/api/boards', {'name': name, 'columns': columns});
+    final b = TBoard.fromJson(j['board'] as Map);
+    boards = [...boards, b];
+    _changed();
+    return b;
+  }
+
+  Future<void> updateBoard(TBoard b, {String? name, List<({String id, String name})>? columns}) async {
+    await api.patch('/api/boards/${b.id}', {
+      'name': ?name,
+      if (columns != null) 'columns': [for (final c in columns) {'id': c.id, 'name': c.name}],
+    });
+    await sync();
+  }
+
+  Future<void> shareBoard(TBoard b, List<TMember> others) async {
+    await api.put('/api/boards/${b.id}/members', {'members': [for (final m in others) {'id': m.id, 'role': m.role}]});
+    await sync();
+  }
+
+  Future<void> deleteBoard(TBoard b) async {
+    await api.delete('/api/boards/${b.id}');
+    boards = boards.where((x) => x.id != b.id).toList();
+    await sync();
+  }
+
+  Future<void> leaveBoard(TBoard b) async {
+    await api.post('/api/boards/${b.id}/leave');
+    boards = boards.where((x) => x.id != b.id).toList();
+    notes.removeWhere((_, n) => n.board == b.id && !n.isOwner);
+    _changed();
+    await sync();
+  }
+
   void emptyTrash() {
     notes.removeWhere((_, n) => n.trashed);
     _queue(TodoOp('empty_trash', ''));
@@ -332,7 +385,9 @@ class TodoStore extends ChangeNotifier {
     } else {
       it = it.where((n) => !n.trashed);
       if (section == 'archive') it = it.where((n) => n.archived);
-      if (section == 'notes') it = it.where((n) => !n.archived);
+      // "Ghi chú của tôi": ghi chú không thuộc bảng nào; bảng: ghi chú của bảng đó.
+      if (section == 'notes') it = it.where((n) => !n.archived && n.board == null);
+      if (section.startsWith('board:')) it = it.where((n) => !n.archived && n.board == section.substring(6));
       if (section == 'reminders') it = it.where((n) => n.reminder != null);
       if (section.startsWith('label:')) it = it.where((n) => n.labels.contains(section.substring(6)));
     }

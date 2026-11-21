@@ -98,6 +98,8 @@ class FakeBackend {
   ];
   final files = <String, Uint8List>{};
   final calls = <String>[];
+  /// Bảng ghi chú (thêm khi kiểm thử bảng).
+  List<Map<String, dynamic>> boards = [];
   bool down = false;
   int seq = 10;
 
@@ -114,12 +116,20 @@ class FakeBackend {
         calls.add('${req.method} $p');
         Object? body;
         if (p == '/td/api/me') body = {'user': {'id': 'me', 'name': 'Ba', 'username': 'ba'}};
-        if (p == '/td/api/sync') body = {'seq': seq, 'full': req.url.queryParameters['since'] == '0', 'notes': notes.values.toList(), 'gone': [], 'labels': labels};
+        if (p == '/td/api/sync') body = {'seq': seq, 'full': req.url.queryParameters['since'] == '0', 'notes': notes.values.toList(), 'gone': [], 'labels': labels, 'boards': boards};
+        final v = RegExp(r'^/td/api/notes/([\w-]+)/vote$').firstMatch(p);
+        if (v != null && req.method == 'POST') {
+          final n = notes[v[1]!]!;
+          n['voted'] = n['voted'] != true;
+          n['votes'] = (n['votes'] as int? ?? 0) + (n['voted'] == true ? 1 : -1);
+          seq++;
+          body = {'note': n, 'seq': seq};
+        }
         final m = RegExp(r'^/td/api/notes/([\w-]+)$').firstMatch(p);
         if (m != null && req.method == 'PUT') {
           final b = jsonDecode(req.body) as Map<String, dynamic>;
           final n = notes[m[1]!] ??= _note(m[1]!, version: 0);
-          for (final k in ['kind', 'title', 'blocks', 'color', 'bg', 'pinned', 'archived', 'sort', 'labels', 'reminder']) {
+          for (final k in ['kind', 'title', 'blocks', 'color', 'bg', 'pinned', 'archived', 'sort', 'labels', 'reminder', 'board', 'col']) {
             if (b.containsKey(k)) n[k] = b[k];
           }
           if (b.containsKey('trashed')) n['trashed_at'] = b['trashed'] == true ? _now : null;
@@ -269,6 +279,75 @@ void main() {
     await settle(t, 2);
     expect(find.text('Hoá đơn tháng 10'), findsOneWidget);
     expect(find.text('Kế hoạch tuần 46'), findsNothing);
+    s.dispose();
+  });
+
+  // Bảng ghi chú (Sếp 2026-11-21: ghi chú và bảng ghi chú là một).
+  void seedBoards() {
+    be.boards = [
+      {'id': 'b-dua', 'name': 'Dự án tòa B', 'kind': 'board', 'role': 'owner', 'notes': 3,
+        'columns': [{'id': 'c1', 'name': 'Việc cần làm'}, {'id': 'c2', 'name': 'Đang làm'}, {'id': 'c3', 'name': 'Đã xong'}],
+        'members': [{'id': 'me', 'name': 'Ba', 'role': 'owner'}, {'id': 'u2', 'name': 'Lan', 'role': 'editor'}, {'id': 'u4', 'name': 'Nam', 'role': 'editor'}]},
+      {'id': 'b-meet', 'name': 'Giao ban kỹ thuật 21/11', 'kind': 'meeting', 'meeting': 'abc-defg-hij', 'role': 'editor', 'notes': 1, 'columns': [],
+        'members': [{'id': 'u4', 'name': 'Nam', 'role': 'owner'}, {'id': 'me', 'name': 'Ba', 'role': 'editor'}]},
+    ];
+    Map<String, dynamic> bn(String id, String title, String text, String board, {String? col, int votes = 0, String color = 'default', String owner = 'me'}) => {
+          ..._note(id, title: title, color: color, sort: votes.toDouble(), blocks: text.isEmpty ? const [] : [{'id': 'p-$id', 't': 'p', 'r': [{'x': text}]}]),
+          'board': board, 'col': col, 'votes': votes, 'voted': false,
+          'members': [{'id': owner, 'name': owner == 'me' ? 'Ba' : 'Lan', 'role': 'owner'}, {'id': 'u2', 'name': 'Lan', 'role': 'editor'}],
+          'role': owner == 'me' ? 'owner' : 'editor',
+        };
+    be.notes['bn1'] = bn('bn1', 'Đặt ray dẫn hướng', 'Kho Long Biên, giao 25/11', 'b-dua', col: 'c1', votes: 3, color: 'sand');
+    be.notes['bn2'] = bn('bn2', 'Tăng ca cuối tuần', 'Luân phiên 2 đội', 'b-dua', col: 'c2', votes: 5, color: 'mint', owner: 'u2');
+    be.notes['bn3'] = bn('bn3', 'Nghiệm thu thang số 1', '', 'b-dua', col: 'c3', votes: 1);
+    be.notes['bm1'] = bn('bm1', 'Ý kiến cuộc họp', 'Bàn giao sớm 1 tuần nếu đủ ray', 'b-meet', votes: 2, owner: 'u2');
+  }
+
+  testWidgets('máy tính: cột trái có "Ghi chú của tôi" + các bảng; mở bảng, lọc theo cột, 👍', (t) async {
+    seedBoards();
+    final s = newStore();
+    await pump(t, TodoHome(store: s, ownsStore: false), size: const Size(1440, 900));
+    expect(find.text('Ghi chú của tôi'), findsWidgets);
+    expect(find.text('BẢNG'), findsOneWidget);
+    expect(find.text('Tạo bảng mới'), findsOneWidget);
+    // Ghi chú của tôi không có ghi chú của bảng.
+    expect(find.text('Đặt ray dẫn hướng'), findsNothing);
+    await t.tap(find.text('Dự án tòa B').first);
+    await settle(t, 2);
+    expect(find.text('Đặt ray dẫn hướng'), findsOneWidget);
+    expect(find.text('Kế hoạch tuần 46'), findsNothing);
+    expect(find.textContaining('Việc cần làm · 1'), findsOneWidget);
+    await shot(t, 'todo-bang-may-tinh');
+    await t.tap(find.byKey(const ValueKey('vote-bn2')));
+    await settle(t, 2);
+    expect(be.calls, contains('POST /td/api/notes/bn2/vote'));
+    await t.tap(find.textContaining('Đang làm · 1'));
+    await settle(t, 2);
+    expect(find.text('Đặt ray dẫn hướng'), findsNothing);
+    expect(find.text('Tăng ca cuối tuần'), findsOneWidget);
+    await t.tap(find.text('Giao ban kỹ thuật 21/11').first);
+    await settle(t, 2);
+    expect(find.text('Ý kiến cuộc họp'), findsOneWidget);
+    expect(find.textContaining('Bảng của cuộc họp'), findsOneWidget);
+    await shot(t, 'todo-bang-cuoc-hop');
+    s.dispose();
+  });
+
+  testWidgets('điện thoại: menu kéo ra có các bảng; chọn bảng đổi tiêu đề; ghi chú mới thuộc bảng', (t) async {
+    seedBoards();
+    final s = newStore();
+    await pump(t, TodoHome(store: s, ownsStore: false));
+    expect(find.text('Ghi chú của tôi'), findsOneWidget); // tiêu đề khi đã có bảng
+    await t.tap(find.byTooltip('Menu').first);
+    await settle(t, 2);
+    await shot(t, 'todo-bang-dien-thoai-menu');
+    await t.tap(find.text('Dự án tòa B').last);
+    await settle(t, 2);
+    expect(find.text('Dự án tòa B'), findsWidgets);
+    expect(find.text('Đặt ray dẫn hướng'), findsOneWidget);
+    await shot(t, 'todo-bang-dien-thoai');
+    final n = s.draft(board: s.boards.first.id);
+    expect(n.board, 'b-dua');
     s.dispose();
   });
 
