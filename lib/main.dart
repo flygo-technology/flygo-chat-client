@@ -553,7 +553,8 @@ class _RootState extends State<Root> {
   OverlayEntry? _incomingToast;
 
   void _pushCallScreen() {
-    navigatorKey.currentState?.push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => const CallScreen()));
+    final nav = navigatorKey.currentState;
+    if (nav != null) CallScreen.open(nav);
   }
 
   void _hideIncomingToast() {

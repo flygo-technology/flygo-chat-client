@@ -74,8 +74,40 @@ const _grey = Color(0xFF9AA0A6);
 /// Màn hình cuộc gọi. Lúc đổ chuông / đang gọi / đã kết thúc: kiểu WhatsApp (ảnh lớn, nút tròn).
 /// Khi đã vào cuộc gọi: kiểu Google Meet (lưới ô cho mọi người, ghim, thanh nút ở dưới).
 class CallScreen extends StatefulWidget {
-  /// Số màn hình cuộc gọi đang mở (0 = đã rời màn hình nhưng có thể vẫn đang họp: hiện khung nổi PiP).
+  /// Số màn hình cuộc gọi đang thật sự HIỆN (0 = đã rời màn hình hoặc bị một trang khác phủ kín, nhưng có thể vẫn đang họp:
+  /// hiện khung nổi PiP). Bảng kéo lên / hộp thoại (⋯, chat, Apps) không tính là che.
   static final visible = ValueNotifier<int>(0);
+  static final _live = <_CallScreenState, bool>{};
+  static bool _syncQueued = false;
+  static void _sync() {
+    if (_syncQueued) return;
+    _syncQueued = true;
+    // Sau khung hình này: không đổi notifier khi cây đang dựng (khung nổi nằm trên Navigator).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncQueued = false;
+      visible.value = _live.values.where((on) => on).length;
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Mở màn hình cuộc gọi. Đã có (đang hiện hoặc bị trang khác phủ): quay về đúng màn đó, không mở thêm một màn nữa
+  /// (hai màn chồng nhau làm khung nổi PiP đếm sai và hiện đè lên màn họp — bug iPhone 2026-11-21).
+  static void open(NavigatorState nav) {
+    final r = openRoute;
+    if (r != null && r.isActive) {
+      if (!r.isCurrent) nav.popUntil((x) => x == r || x.isFirst);
+      return;
+    }
+    nav.push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => const CallScreen()));
+  }
+
+  /// Route của màn hình cuộc gọi đang mở (kể cả khi đang bị trang khác phủ), null = không có.
+  static Route<dynamic>? get openRoute {
+    for (final s in _live.keys) {
+      if (s.mounted && s._route != null) return s._route;
+    }
+    return null;
+  }
   const CallScreen({super.key});
   /// Kiểm thử / ảnh xem trước: phòng họp giả thay cho phòng nối trạm thật.
   @visibleForTesting
@@ -232,12 +264,36 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  ModalRoute<dynamic>? _route;
+
+  /// Màn hình cuộc gọi bị một trang toàn màn hình phủ lên (route kế tiếp chạy secondaryAnimation; bảng kéo lên thì không).
+  void _onCover() {
+    final on = (_route?.secondaryAnimation?.value ?? 0) < .5;
+    if (CallScreen._live[this] != on) {
+      CallScreen._live[this] = on;
+      CallScreen._sync();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final r = ModalRoute.of(context);
+    if (r != _route) {
+      _route?.secondaryAnimation?.removeListener(_onCover);
+      _route = r;
+      _route?.secondaryAnimation?.addListener(_onCover);
+      _onCover();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
     _poke();
-    CallScreen.visible.value++;
+    CallScreen._live[this] = true;
+    CallScreen._sync();
     // Mọi thông báo trong lúc màn họp mở (trang họp, tính năng thêm…) dùng chung nhãn nhỏ này.
     meetToastSink = (t, {icons = const []}) {
       if (mounted) _flash(t, icons: icons);
@@ -278,8 +334,9 @@ class _CallScreenState extends State<CallScreen> {
     _disposeRoom();
     final xc = _extrasCall;
     if (xc != null) meetExtrasDetach(xc);
-    // Sau khung hình này: tránh đổi notifier khi cây đang dựng lại.
-    WidgetsBinding.instance.addPostFrameCallback((_) => CallScreen.visible.value = (CallScreen.visible.value - 1).clamp(0, 99));
+    _route?.secondaryAnimation?.removeListener(_onCover);
+    CallScreen._live.remove(this);
+    CallScreen._sync();
     super.dispose();
   }
 

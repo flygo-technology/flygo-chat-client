@@ -17,6 +17,7 @@ import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/call_screen.dart';
 import 'package:flygo_chat/ui/meet/knock_center.dart';
+import 'package:flygo_chat/ui/meet/call_pip.dart';
 import 'package:flygo_chat/ui/meet/meet_panel_prefs.dart';
 import 'package:flygo_chat/ui/pages/page_thumb.dart';
 import 'package:flygo_chat/ui/theme.dart';
@@ -831,6 +832,71 @@ void main() {
       }
       expect(find.text('WEBSITE'), findsOneWidget);
       await snap(t, 'k1-may-tinh-5-website');
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
+      app.calls.debugMeeting(_ch, const []);
+    }, () => _relay(host: true));
+    debugIsDesktop = null;
+    CallScreen.debugRoom = null;
+  });
+
+  testWidgets('điện thoại: khung nổi PiP chỉ hiện khi màn họp không còn trên màn hình', (t) async {
+    debugIsDesktop = false;
+    CallScreen.debugRoom = (_) => _room();
+    await http.runWithClient(() async {
+      final app = _app();
+      await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('pip-phone')));
+      final nav = GlobalKey<NavigatorState>();
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: MaterialApp(
+          navigatorKey: nav,
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.dark),
+          builder: (c, child) => RepaintBoundary(key: shotKey, child: Overlay(initialEntries: [OverlayEntry(builder: (_) => CallPipLayer(child: child!))])),
+          home: const Scaffold(body: Center(child: Text('Nhóm chat'))),
+        ),
+      ));
+      Future<void> settle() async {
+        for (var i = 0; i < 10; i++) {
+          await t.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      app.calls.onShowCallScreen = () => CallScreen.open(nav.currentState!);
+      addTearDown(() => app.calls.onShowCallScreen = null);
+      final pip = find.byTooltip('Mở cuộc họp');
+      await settle();
+      // Đang họp, chưa mở màn họp: có khung nổi.
+      expect(pip, findsOneWidget);
+      CallScreen.open(nav.currentState!);
+      await settle();
+      expect(find.byType(CallScreen), findsOneWidget);
+      expect(pip, findsNothing, reason: 'màn họp đang hiện: không có khung nổi');
+      // Bảng kéo lên trên màn họp (⋯, chat): màn họp vẫn đang hiện.
+      showModalBottomSheet<void>(context: t.element(find.byType(CallScreen)), builder: (_) => const SizedBox(height: 300, child: Text('Bảng ⋯')));
+      await settle();
+      expect(pip, findsNothing, reason: 'bảng kéo lên không tính là rời màn họp');
+      Navigator.of(t.element(find.text('Bảng ⋯'))).pop();
+      await settle();
+      // Một trang toàn màn hình phủ lên màn họp (vd. mở nhóm chat của cuộc họp): khung nổi hiện.
+      nav.currentState!.push(MaterialPageRoute(builder: (_) => const Scaffold(body: Center(child: Text('Chat cuộc họp')))));
+      await settle();
+      expect(pip, findsOneWidget);
+      await snap(t, 'pip-1-chat-co-khung-noi');
+      // Bấm "Mở cuộc họp" trên khung nổi: quay về đúng màn họp cũ (không mở thêm), khung nổi biến mất.
+      await t.tap(pip);
+      await settle();
+      expect(pip, findsNothing);
+      expect(find.byType(CallScreen), findsOneWidget);
+      await snap(t, 'pip-2-mo-lai-man-hop');
+      // Về lại nhóm chat (đóng màn họp, vẫn đang họp): khung nổi hiện lại.
+      nav.currentState!.pop();
+      await settle();
+      expect(pip, findsOneWidget);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 5));
       app.calls.debugMeeting(_ch, const []);
