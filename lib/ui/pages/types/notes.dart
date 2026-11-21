@@ -222,7 +222,7 @@ class _NotesViewState extends State<NotesView> {
             ),
           ),
           if (big || readOnly)
-            Text('👍 ${n['votes']}', style: const TextStyle(color: Color(0xFF222222), fontSize: 20, fontWeight: FontWeight.w700))
+            Text('👍 ${n['votes']}', style: TextStyle(color: const Color(0xFF222222), fontSize: big ? 20 : 13, fontWeight: FontWeight.w700))
           else
             InkWell(
               borderRadius: BorderRadius.circular(12),
