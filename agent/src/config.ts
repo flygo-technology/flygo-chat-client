@@ -117,7 +117,7 @@ const defaults: Omit<Config, "serverUrl" | "botToken" | "ownerUserIds" | "engine
   },
   claude: {
     bin: "claude",
-    allowedTools: ["Read", "Grep", "Glob", "LS", "TodoWrite", "WebSearch", "WebFetch", "mcp__flygo_chat__chat_thread", "mcp__flygo_chat__chat_history", "mcp__flygo_chat__chat_search", "mcp__flygo_chat__chat_info", "mcp__flygo_chat__chat_files", "mcp__flygo_chat__chat_read_file", "mcp__flygo_chat__chat_send_files", "mcp__flygo_chat__chat_send_bilingual", "mcp__flygo_chat__session_list", "mcp__flygo_chat__session_read", "mcp__flygo_chat__session_ask", "mcp__flygo_chat__project_info", "mcp__flygo_chat__team_list", "mcp__flygo_chat__team_session_read", "mcp__flygo_chat__team_ask", "mcp__flygo_chat__team_post", "mcp__flygo_chat__file_read"],
+    allowedTools: ["Read", "Grep", "Glob", "LS", "TodoWrite", "WebSearch", "WebFetch", "mcp__flygo_chat__chat_thread", "mcp__flygo_chat__chat_history", "mcp__flygo_chat__chat_search", "mcp__flygo_chat__chat_info", "mcp__flygo_chat__chat_files", "mcp__flygo_chat__chat_read_file", "mcp__flygo_chat__chat_send_files", "mcp__flygo_chat__chat_send_bilingual", "mcp__flygo_chat__session_list", "mcp__flygo_chat__session_read", "mcp__flygo_chat__session_ask", "mcp__flygo_chat__project_info", "mcp__flygo_chat__team_list", "mcp__flygo_chat__team_session_read", "mcp__flygo_chat__team_ask", "mcp__flygo_chat__team_post", "mcp__flygo_chat__remote_agents", "mcp__flygo_chat__remote_agent_send", "mcp__flygo_chat__file_read"],
     // Cấm hẳn (không hiện thẻ duyệt): xoá đệ quy, đọc khoá/token. ssh/scp/sudo/git push: không cấm, hỏi duyệt từng lần như lệnh khác.
     deny: [
       // Xoá tệp luôn qua file_trash (thùng rác, khôi phục được), không rm (Sếp, 2026-11-10).

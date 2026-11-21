@@ -590,6 +590,10 @@ const http = Bun.serve({
       const r = await sessionTool(op, await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
       return Response.json({ text: r });
     }
+    if (url.pathname.startsWith("/remote/") && req.method === "POST") { // remote_agents / remote_agent_send: agent ngoài nối qua Token MCP
+      const r = await remoteTool(url.pathname.slice("/remote/".length), await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
+      return Response.json({ text: r });
+    }
     if (url.pathname === "/report_out" && req.method === "POST") {
       const r = await reportOut(await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
       return Response.json({ text: r });
@@ -2871,6 +2875,7 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
       `- chat_send_bilingual(text, lang, translation, translation_lang, to?, thread_root?): gửi tin song ngữ có nút cờ đổi ngôn ngữ (như nút Dịch AI của app), ở đây hoặc chat khác; mọi tool gửi tin khác cũng nhận lang + translation + translation_lang. Không ghép hai bản bằng dòng kẻ`,
       o.report ? `- chat_report_out(message, files?, lang?, translation?, translation_lang?): báo cáo ra ${n ? `${isAi ? "chat chính của nhóm" : `tầng ${n - 1}`} "${chain[n - 1].name}"` : "chat chính của nhóm"}, chỉ khi được yêu cầu; kèm lang + translation + translation_lang để gửi song ngữ (có nút cờ)` : "",
       a2a ? `- Bot khác: CÙNG DỰ ÁN thì dùng team_list / team_ask / team_session_read / team_post. Khác dự án / chat / app: chỉ khi người dùng TAG agent đó (hoặc gắn phiên của nó) trong tin đang xử lý mới nhờ được, bằng ask_agent(bot, message, session?, files?, data?); không tag thì không tự tìm hay hỏi agent khác` : "",
+      owner ? `- Agent NGOÀI của Sếp (Claude Code / Codex / Cursor… Sếp nối vào qua "Kết nối agent từ xa" / Token MCP, tin của chúng hiện tên "🔗 Agent ngoài"): remote_agents() liệt kê; remote_agent_send(agent, message) nhắn / giao việc cho một agent (agent = tên, id hoặc tên chat từ remote_agents). Tin vào hộp thư của agent đó; nó trả lời vào CHÍNH CHAT NÀY như một tin mới (bạn đọc và làm tiếp ở lượt sau), nên gửi xong thì báo Sếp là đã gửi, không chờ. Sếp bảo nhờ / giao việc cho "agent homelab", "agent ngoài"… thì dùng tool này, đừng bảo Sếp tự chuyển lời` : "",
       `- schedule_create(title, prompt, kind, at? | repeat?, target?) · schedule_list() · schedule_update(id, …) · schedule_delete(id): lịch hẹn — bot tự chạy prompt vào giờ hẹn ở chỗ này (hoặc target), kết quả hiện ở đó. Giờ theo Asia/Ho_Chi_Minh. Tạo khi người dùng muốn việc lặp lại / làm vào giờ nào đó ("mỗi sáng 8h…", "5 giờ chiều mai nhắc…").`,
       `- Giao việc / theo dõi việc (to-do): dùng các tool của ứng dụng Todo (hiện trong danh sách tool của app, do Flygo Gateway cấp — tên dạng vn_flygo_todo__…) để tạo / xem / cập nhật việc; thao tác ghi cần người giao việc duyệt.`,
       `- skill_list() · skill_read(name)${owner ? ` · skill_save(name, description, content, files?) · skill_delete(name) · role_set(text): sửa kỹ năng / vai trò của bot (người giao việc là chủ bot; lưu/xoá cần duyệt, có hiệu lực từ lượt sau)` : " (chỉ chủ bot sửa được kỹ năng / vai trò)"}`,
@@ -3100,6 +3105,43 @@ async function syncKnowledge(groupId: string, dir: string): Promise<string> {
     }
   }
   return lines.length ? `\n\n## Tài liệu dự án (dùng chung cho mọi phiên của dự án; đọc khi liên quan, nêu tên tệp khi dùng)\n${lines.join("\n")}` : "";
+}
+
+/** Agent ngoài của chủ (nối vào phiên AI qua Token MCP, relay bridge.mjs): liệt kê / nhắn. Relay chỉ cho bot nhắn agent
+ *  của CÙNG chủ và áp bộ lọc từ khoá; agent trả lời bằng reply -> tin cầu nối vào chat này (verifyBridge coi là tin của chủ). */
+async function remoteTool(op: string, a: any): Promise<string> {
+  const ctx = orchRuns.get(a.key);
+  if (!ctx) return "Phiên không còn chạy.";
+  if (!isOwner(ctx.assigner ?? "")) return "Chỉ chủ bot mới nhắn được agent ngoài của mình.";
+  if (ctx.bridged) return "Phiên này đang làm việc được nhờ (qua A2A / đồng đội) nên không nhắn tiếp agent khác. Trả lời bên nhờ trước.";
+  const call = async (method: string, path: string, body?: any) => {
+    const r = await fetch(`${refRelay()}${path}`, {
+      method, headers: { Authorization: `Bearer ${cfg.botToken}`, "X-MM-Server": cfg.serverUrl, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20_000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+    return j;
+  };
+  const agents: any[] = await call("GET", "/bridge/agents");
+  const ago = (t: number) => t ? `${Math.max(1, Math.round((Date.now() - t) / 60_000))} phút trước` : "chưa dùng";
+  if (op === "remote_agents") {
+    if (!agents.length) return "Sếp chưa nối agent ngoài nào (hoặc token đã hết hạn). Nối ở chat AI › Kết nối agent từ xa.";
+    return agents.map((x) => `- "${x.name}" · id ${x.id} · chat "${x.chat}" · ${x.listening ? "đang nghe" : `dùng gần nhất ${ago(x.last_used_at)}`}${x.pending ? ` · ${x.pending} tin chưa đọc` : ""}`).join("\n");
+  }
+  if (op !== "remote_agent_send") return `Không có tool ${op}.`;
+  const want = String(a.agent ?? "").trim().toLowerCase();
+  const message = String(a.message ?? "").trim();
+  if (!message) return "Thiếu message.";
+  const hits = !want && agents.length === 1 ? agents
+    : agents.filter((x) => x.id.toLowerCase() === want || x.name.toLowerCase() === want || String(x.chat).toLowerCase() === want);
+  const pick = hits.length ? hits : agents.filter((x) => `${x.name} ${x.chat}`.toLowerCase().includes(want));
+  if (!pick.length) return agents.length ? `Không thấy agent ngoài "${a.agent ?? ""}". Đang nối:\n${agents.map((x) => `- "${x.name}" (chat "${x.chat}", id ${x.id})`).join("\n")}` : "Sếp chưa nối agent ngoài nào.";
+  if (pick.length > 1) return `Có ${pick.length} agent khớp "${a.agent}", chọn theo id:\n${pick.map((x) => `- "${x.name}" (chat "${x.chat}", id ${x.id})`).join("\n")}`;
+  const target = pick[0];
+  ctx.card.step({ id: `remote-${target.id}-${Date.now()}`, kind: "message", title: `Nhắn agent ngoài "${target.name}": ${oneLine(message, 70)}`, status: "done", detail: message });
+  const r = await call("POST", "/bridge/deliver", { token_id: target.id, message, channel_id: ctx.channelId });
+  return `Đã gửi vào hộp thư của agent ngoài "${r.agent ?? target.name}" (chat "${target.chat}")${r.listening ? ", agent đang nghe" : ", agent chưa mở hộp thư: nó sẽ nhận khi gọi inbox / read lần tới"}. Câu trả lời sẽ vào chat này như một tin mới; báo Sếp là đã gửi, đừng chờ trong lượt này.`;
 }
 
 /** Hỏi trạm đẩy: tin [post] có đúng do trạm đăng qua Token MCP còn hạn không; trả id chủ phiên hoặc "". */

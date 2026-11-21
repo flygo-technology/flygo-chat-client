@@ -805,6 +805,16 @@ const CHAT_TOOLS = [
       inputSchema: { type: "object", properties: { session_id: { type: "string" }, message: { type: "string" }, wait_sec: { type: "number" } }, required: ["session_id", "message"] },
     },
     {
+      name: "remote_agents",
+      description: "AGENT NGOÀI của Sếp: các agent (Claude Code, Codex, Cursor…) Sếp đã nối vào phiên AI qua \"Kết nối agent từ xa\" / Token MCP — tên, id, chat, đang nghe hay không, tin chưa đọc.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "remote_agent_send",
+      description: "NHẮN / GIAO VIỆC cho một agent ngoài của Sếp (từ remote_agents; agent = tên, id hoặc tên chat; chỉ có một agent thì bỏ trống). Tin vào hộp thư của agent đó; nó trả lời vào chính chat này như một tin mới. Viết đủ ngữ cảnh (agent kia không thấy chat này). Gửi xong không chờ.",
+      inputSchema: { type: "object", properties: { agent: { type: "string" }, message: { type: "string" } }, required: ["message"] },
+    },
+    {
       name: "project_info",
       description: "THÔNG TIN DỰ ÁN của phiên hiện tại: tên, id, kênh, chủ dự án, thư mục gắn, thư mục làm việc của phiên này, thành viên (người + bot). Chỉ có khi phiên nằm trong một dự án.",
       inputSchema: { type: "object", properties: {} },
@@ -1041,6 +1051,10 @@ async function callTool(req: any): Promise<any> {
     case "session_list": case "session_read": case "session_ask": case "session_transcript": {
       const [kind, op] = String(req.params.name).split("_");
       const r = await runner(`/${kind}/${op}`, { ...a, owner: OWNER_ID, channel: CHANNEL }).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
+      return text(r.text ?? JSON.stringify(r));
+    }
+    case "remote_agents": case "remote_agent_send": {
+      const r = await runner(`/remote/${req.params.name}`, a).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
       return text(r.text ?? JSON.stringify(r));
     }
     case "project_info": case "team_list": case "team_session_read": case "team_ask": case "team_post": {
