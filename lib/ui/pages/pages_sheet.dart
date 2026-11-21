@@ -147,7 +147,7 @@ class _StagePageViewState extends State<StagePageView> {
   }
 
   /// Loại trang có người xem trả lời trên app: thanh cuối nhắc cách tham gia.
-  static const _interactive = {'poll', 'qa', 'notes', 'draw'};
+  static const _interactive = {'poll', 'qa', 'notes', 'draw', 'discuss'};
 
   Widget _framed(BuildContext context, PageCtx ctx, PageTypeSpec? spec, Map st, String shown, bool control, int left) {
     final call = widget.call;
