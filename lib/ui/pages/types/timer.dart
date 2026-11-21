@@ -135,9 +135,15 @@ class _TimerViewState extends State<TimerView> {
     _sync();
   }
 
+  int? _syncedNow;
+
+  /// Bù lệch giờ máy chủ, chỉ khi có view mới (now đổi). Trước đây tính lại ở mỗi lần dựng lại (cuộc họp dựng lại liên tục khi
+  /// có người nói, vào / ra...) với now cũ: lệch giờ trôi theo, đồng hồ đứng yên ở số lúc tải view.
   void _sync() {
     final now = (v['now'] as num?)?.toInt();
-    if (now != null) _skew = now - DateTime.now().millisecondsSinceEpoch;
+    if (now == null || now == _syncedNow) return;
+    _syncedNow = now;
+    _skew = now - DateTime.now().millisecondsSinceEpoch;
   }
 
   @override
@@ -274,7 +280,8 @@ class _TimerViewState extends State<TimerView> {
   @override
   Widget build(BuildContext context) {
     final ms = _shown;
-    final done = _countdown && ms <= 0 && ((v['elapsed_ms'] as num?) ?? 0) > 0;
+    // Hết giờ: đã chạy đủ thời lượng (kể cả khi đang chạy qua 0, lúc elapsed_ms của máy chủ vẫn là 0).
+    final done = _countdown && ms <= 0 && _elapsed > 0;
     final warn = _countdown && ms > 0 && ms <= 10000 && v['running'] == true;
     final speakers = [for (final s in (v['speakers'] as List? ?? const [])) '$s'];
     final who = speakers.isEmpty ? '' : speakers[((v['speaker'] as num?)?.toInt() ?? 0).clamp(0, speakers.length - 1)];

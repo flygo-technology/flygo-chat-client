@@ -145,6 +145,56 @@ void main() {
     await t.pumpWidget(const SizedBox());
   });
 
+  testWidgets('bấm giờ: đồng hồ vẫn chạy khi cuộc họp dựng lại màn hình (không tính lại lệch giờ theo now cũ); qua 0 = Hết giờ', (t) async {
+    final start = DateTime.now().millisecondsSinceEpoch;
+    final view = {..._timer, 'speakers': <String>[], 'started_at': start, 'now': start, 'elapsed_ms': 0, 'duration_ms': 300000};
+    late StateSetter rebuild;
+    var n = 0;
+    await _pump(t, StatefulBuilder(builder: (c, set) {
+      rebuild = set;
+      n++;
+      return TimerView(_ctx('timer', view, role: 'owner'));
+    }), const Size(390, 760));
+    expect(find.text('05:00'), findsOneWidget);
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 2100)));
+    rebuild(() {}); // vd có người bật mic: PageHost dựng lại với cùng view cũ
+    await t.pump(const Duration(milliseconds: 300));
+    expect(n, greaterThan(1));
+    expect(find.text('05:00'), findsNothing);
+    expect(find.textContaining(RegExp(r'^04:5[6-8]$')), findsOneWidget);
+    // Chạy qua 0 khi chưa từng tạm dừng (elapsed_ms của máy chủ = 0): hiện Hết giờ.
+    final over = DateTime.now().millisecondsSinceEpoch;
+    await _pump(t, TimerView(_ctx('timer', {...view, 'started_at': over - 301000, 'now': over}, role: 'owner')), const Size(390, 760));
+    expect(find.text('00:00'), findsOneWidget);
+    expect(find.text('Hết giờ'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('bấm giờ: các nút gửi đúng hành động (bắt đầu / tạm dừng / đặt lại / +1 phút / mốc / lượt nói / đổi chế độ)', (t) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final paused = {..._timer, 'running': false, 'started_at': 0, 'elapsed_ms': 30000, 'now': now};
+    await _pump(t, TimerView(_ctx('timer', paused, role: 'owner')), const Size(390, 900));
+    expect(find.text('04:30'), findsOneWidget);
+    for (final label in ['Bắt đầu', 'Đặt lại', '+1 phút', '3 phút', 'Chuyển sang bấm giờ']) {
+      await t.tap(find.text(label));
+      await t.pump();
+    }
+    await t.tap(find.byIcon(Icons.skip_next));
+    await t.pump();
+    await t.tap(find.byIcon(Icons.skip_previous));
+    await t.pump();
+    expect(_acts, ['start', 'reset', 'add', 'set', 'mode', 'next', 'prev']);
+    _acts.clear();
+    await _pump(t, TimerView(_ctx('timer', {...paused, 'running': true, 'started_at': now, 'elapsed_ms': 0}, role: 'owner')), const Size(390, 900));
+    await t.tap(find.text('Tạm dừng'));
+    await t.pump();
+    expect(_acts, ['pause']);
+    // Người xem thường: không có nút.
+    await _pump(t, TimerView(_ctx('timer', {...paused, 'can_control': false})), const Size(390, 900));
+    expect(find.text('Bắt đầu'), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
+
   test('đăng ký đủ loại trang mới', () {
     for (final t in ['timer', 'draw', 'notes', 'poll']) {
       expect(pageTypeOf(t)?.label, isNotEmpty, reason: t);
