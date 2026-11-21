@@ -982,6 +982,10 @@ class _ChatPageState extends State<ChatPage> {
                           newer.isSystem ||
                           !sameDay(newer.createAt, p.createAt) ||
                           newer.createAt - p.createAt > 5 * 60 * 1000;
+                      // Tin giữa các agent: nhãn nguồn / đích; tin qua lại (không phải câu trả lời cho mình) thu gọn sẵn.
+                      final link = agentLinkOf(app, p);
+                      final traffic = link != null && link.traffic && !p.isSystem;
+                      final folded = traffic && !app.expanded.contains(p.id);
                       return AnimatedContainer(
                         key: _keys.putIfAbsent(p.id, GlobalKey.new),
                         duration: const Duration(milliseconds: 250),
@@ -991,7 +995,7 @@ class _ChatPageState extends State<ChatPage> {
                         if (p.id == firstUnreadId) _UnreadDivider(count: unread.length),
                         // Tin giữa các agent (giao việc / nhắn / trả lời giữa các phiên, agent ngoài qua Token MCP):
                         // nhãn nguồn / đích phía trên bong bóng.
-                        if (agentLinkOf(app, p) case final link?) AgentLinkChip(info: link, mine: p.userId == app.me?.id),
+                        if (link != null) AgentLinkChip(info: link, mine: p.userId == app.me?.id),
                         p.isSystem
                             ? _SystemChip(p.message)
                             // Đóng / mở lại luồng: dòng hệ thống nhỏ ở giữa, không phải bong bóng tin.
@@ -1003,6 +1007,9 @@ class _ChatPageState extends State<ChatPage> {
                             ? _SystemChip(rcLogText(p.props, p.message)!)
                             : p.isCall
                                 ? _CallCard(post: p, channel: ch)
+                                // Tin qua lại giữa các agent: mặc định thu gọn (nhãn + 2 dòng), bấm để mở (Sếp: không đọc lặp).
+                                : folded
+                                ? AgentTrafficCollapsed(post: p, info: link, onExpand: () => app.expand(p.id))
                                 : _Bubble(
                                 post: p,
                                 channel: ch,
@@ -1022,6 +1029,8 @@ class _ChatPageState extends State<ChatPage> {
                                   _replyTo = null;
                                 }),
                               ),
+                        // Tin giữa các agent đang mở: câu trả lời lồng dưới bản ghi tin đã gửi + nút "Thu gọn".
+                        if (traffic && !folded) AgentTrafficFooter(post: p, info: link, onCollapse: () => app.collapse(p.id)),
                         ?widget.postFooter?.call(p),
                       ]));
                     })))),
@@ -2891,7 +2900,8 @@ class _Bubble extends StatelessWidget {
       if (post.props['flygo_session_handoff'] is Map)
         _SessionHandoffActions(app: app, here: post.channelId, h: (post.props['flygo_session_handoff'] as Map).cast<String, dynamic>()),
       // Kiểu Claude: dưới câu trả lời của trợ lý một hàng nút nhỏ (sao chép, chuyển tiếp, thêm) + giờ tương đối.
-      if (claude && !mine && last && post.message.trim().isNotEmpty && !streaming)
+      // Tin qua lại giữa các agent (bản ghi đã gửi, tin nhờ…) không phải câu trả lời cho mình: không có hàng nút.
+      if (claude && !mine && last && post.message.trim().isNotEmpty && !streaming && agentLinkOf(app, post)?.traffic != true)
         _AnswerActions(
           post: post,
           text: msgText.isNotEmpty ? msgText : agentDisplayText(post),

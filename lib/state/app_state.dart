@@ -2102,6 +2102,9 @@ class AppState extends ChangeNotifier {
     expanded.add(postId);
     notifyListeners();
   }
+  void collapse(String postId) {
+    if (expanded.remove(postId)) notifyListeners();
+  }
 
   // ---------------------------------------------------------------- chưa đọc, yêu thích
   /// Đánh dấu cuộc trò chuyện là chưa đọc (từ tin mới nhất của người khác).
