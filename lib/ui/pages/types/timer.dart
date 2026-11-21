@@ -6,6 +6,7 @@ import '../../../i18n/i18n.dart';
 import '../page_types.dart';
 import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
+import 'timer_app.dart';
 
 // Loại trang "Bấm giờ" (máy chủ: relay/meet-pt-timer.mjs): đếm ngược / bấm giờ, mốc có sẵn 1-3-5-10 phút, lượt người nói.
 // Máy chủ chỉ giữ mốc chạy; app tự đếm theo đồng hồ máy chủ (bù lệch giờ bằng view.now). TV kêu chuông khi hết giờ (hop-web).
@@ -30,6 +31,9 @@ void registerTimerPageType() {
       builder: (_) => const _TimerComposer(),
     ),
     view: (context, ctx) => TimerView(ctx),
+    // Mỗi trang là một app (mockup 21/11): người xem xin lượt nói, chủ trang điều khiển tại chỗ.
+    panel: (context, ctx) => TimerPanel(ctx),
+    controls: (context, ctx) => TimerControls(ctx),
     stageThemed: true,
   ));
 }
