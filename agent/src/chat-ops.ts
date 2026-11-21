@@ -236,6 +236,15 @@ export function createChatOps(d: ChatDeps) {
   const step = (ctx: ChatCtx, prefix: string, title: string, label: string, ok = true, detail?: string) =>
     ctx.card.step({ id: sid(prefix), kind: "tool", title, label: clip(label, 60), status: ok ? "done" : "error", detail: detail?.slice(0, 600) });
   /** Duyệt: đích là chat hiện tại thì không cần (trừ khi always). */
+  /** Phiên AI khác của chính bot (không phải chỗ đang ở): tin thường do bot đăng KHÔNG làm phiên đó chạy và không phải cách
+   *  bàn giao giữa agent; chỉ đường sang team_post (đánh thức phiên đó, người giao việc duyệt). "" nếu không phải. */
+  function handoffOnly(t: Target | RefTarget): string {
+    if (t.kind !== "chat" || t.current || !aiOf(t.ch)) return "";
+    return `"${t.name}" là một phiên AI khác của chính bạn: tin đăng bằng tool chat không làm phiên đó chạy, và không gắn nhãn quan trọng / khẩn cho tin giữa agent. ` +
+      `Bàn giao / giao việc: team_post(session="${t.id}", message="…") (đánh thức phiên đó chạy ngay, người giao việc bấm duyệt một lần trên thẻ); chỉ để lại ghi chú: thêm wake=false; hỏi rồi chờ trả lời: team_ask(session="${t.id}", message). ` +
+      `Nếu trước đó team_post báo không dùng được cho phiên của chính bạn: runner đã sửa (0.7.12), gọi lại team_post.`;
+  }
+
   async function approve(ctx: ChatCtx, t: { current?: boolean } | null, title: string, detail: string, always = false) {
     if (!always && t?.current) return true;
     return (await ctx.ask({ kind: "tool", title, detail: detail.slice(0, 1500) })) === "accept";
@@ -385,6 +394,8 @@ export function createChatOps(d: ChatDeps) {
   }
   /** Gửi tin vào chat đích. Trong luồng hiện tại: flygo_reply="thread" như tin của lượt. */
   async function postTo(ctx: ChatCtx, t: Target, body: { message: string; root_id?: string; file_ids?: string[]; props?: Record<string, any>; priority?: string; ack?: boolean; mention?: string[] }) {
+    const own = handoffOnly(t);
+    if (own) throw new Error(own);
     const props: Record<string, any> = { flygo_agent_owner: ctx.assigner, ...(body.root_id ? { flygo_reply: "thread" } : {}), ...(body.props ?? {}) };
     const meta = body.priority || body.ack ? { priority: { priority: body.priority ?? "", requested_ack: !!body.ack } } : undefined;
     return mm.createPost({ channel_id: t.id, root_id: body.root_id ?? "", message: body.message, file_ids: body.file_ids, props, ...(meta ? { metadata: meta } : {}) } as any, body.mention ?? []);
@@ -754,6 +765,8 @@ export function createChatOps(d: ChatDeps) {
       // ======== gửi ========
       case "chat_send": {
         const t = await resolveChat(ctx, a.to);
+        const own = handoffOnly(t);
+        if (own) return own;
         let message = String(a.message ?? "");
         const bi = bilingualOf(a, message);
         if (bi && "error" in bi) return bi.error;
