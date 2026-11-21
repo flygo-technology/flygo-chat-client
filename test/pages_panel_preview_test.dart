@@ -997,10 +997,8 @@ void main() {
         await t.pump(const Duration(seconds: 5));
         app.calls.debugMeeting(_ch, const []);
       }, () => _relay(host: true));
-      // ignore: avoid_print
-      for (final e in errs.toSet()) {
-        print('EDITOR_OVERFLOW $name $e');
-      }
+      // Lỗi tràn của trình soạn: báo luôn (kèm danh sách) thay vì chỉ in ra.
+      expect(errs.toSet(), isEmpty, reason: 'EDITOR_OVERFLOW $name');
     });
   }
 
