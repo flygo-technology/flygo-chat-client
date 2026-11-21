@@ -332,7 +332,9 @@ class _PagesPaneState extends State<PagesPane> {
     final items = <(int, Object, IconData, Color, String, String)>[
       (0, 'present', Icons.present_to_all_rounded, const Color(0xFFF29900), tr('Trình chiếu'), tr('Màn hình của bạn hoặc tài liệu')),
       // Website (cả phòng cùng xem, cùng bấm) và Bảng trắng ở nhóm Tương tác.
-      for (final a in widget.apps) (a.id == 'board' || a.id == 'web' ? 1 : 0, a, a.icon, a.color, a.label, a.desc),
+      // Bảng trắng của cả cuộc họp (app cũ) ẩn khi đã có loại trang Bảng trắng: chỉ một ô Bảng trắng.
+      for (final a in widget.apps)
+        if (a.id != 'board' || pageTypeOf('whiteboard') == null) (a.id == 'board' || a.id == 'web' ? 1 : 0, a, a.icon, a.color, a.label, a.desc),
       // App Website của phòng (điện thoại không có ô này từ màn họp): mở trong bảng trang.
       if (currentMeetRoom.value != null && !widget.apps.any((a) => a.id == 'web'))
         (1, PageApp(id: 'web', label: tr('Website'), desc: tr('Mở một trang web cho cả phòng'), icon: Icons.public, color: const Color(0xFF4285F4), run: (c, call) async {}), Icons.public,
