@@ -1015,6 +1015,19 @@ async function a2aTool(name: string, a: any): Promise<string> {
   ].filter(Boolean).join("\n");
 }
 
+/** Tin giữa hai phiên của chính bot này không qua relay: hỏi bộ lọc từ khoá của chủ trên relay (POST /a2a/dlp/check).
+ *  Bị chặn thì relay báo chủ (kèm nội dung), agent chỉ biết "không gửi được". Relay cũ / không trả lời: cho qua. */
+async function dlpBlocked(text: string, pair: string): Promise<boolean> {
+  if (!text.trim()) return false;
+  try {
+    const r = await fetch(`${relayBase}/dlp/check`, { method: "POST", headers: { ...relayAuth, "content-type": "application/json" }, body: JSON.stringify({ text, pair }), signal: AbortSignal.timeout(10_000) });
+    if (!r.ok) return false;
+    const j: any = await r.json().catch(() => ({}));
+    if (j?.blocked) log(`dlp: chặn tin ${pair}`);
+    return j?.blocked === true;
+  } catch { return false; }
+}
+
 /** ask_agent(bot = chính bot này, session): relay không cho bot tự gọi mình -> nối thẳng hai phiên ngay trong runner. */
 async function askOwnSession(ctx: OrchRun, a: any): Promise<string> {
   const session = String(a.session ?? "").trim();
@@ -1029,6 +1042,7 @@ async function askOwnSession(ctx: OrchRun, a: any): Promise<string> {
   const tch = key ? getSession(key)?.channel_id || (key.startsWith("ch:") ? key.slice(3) : "") : "";
   const target = tch ? await mm.channel(tch).then(chatName).catch(() => "") : "";
   const askTitle = `Hỏi phiên "${target || session}": ${oneLine(message, 80)}`;
+  if (await dlpBlocked(message, `từ "${ctx.chat}" gửi phiên "${target || session}" của @${BOT_NAME}`)) return `Không gửi được tin tới phiên ${target || session}.`;
   ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: message });
   ctx.waiting.set(BOT_ID, (ctx.waiting.get(BOT_ID) ?? 0) + 1);
   let r: { state: string; text: string };
@@ -1108,15 +1122,29 @@ async function teamTool(op: string, a: any): Promise<string> {
   const bot = String(a.bot ?? "").replace(/^@/, "").trim();
   const t = await teamOf(ctx.channelId);
   const mate = (t?.teammates ?? []).find((m: any) => (session && m.sessions?.some((s: any) => s.id === session)) || (bot && (m.username === bot || m.bot_id === bot)));
+  // Phiên khác của CHÍNH bot này trong dự án (relay không cho bot tự gọi mình): chuyển thẳng trong runner, cùng luật teamServe.
+  if (!mate && bot && (bot === BOT_NAME || bot === BOT_ID) && !session) return `@${BOT_NAME} là chính bạn: truyền session=<id phiên khác của bạn> (session_list) để gửi / giao việc cho phiên đó.`;
+  if (session && session === ctx.channelId) return "Đây là phiên hiện tại.";
+  const selfCh = !mate && session ? await mm.channel(session).catch(() => null as any) : null;
+  const selfTarget = !!selfCh && !!aiOf(selfCh) && !!(await channelMembers(selfCh.id).catch(() => null))?.bots.includes(BOT_ID);
   const sTitle = mate?.sessions?.find((s: any) => s.id === session)?.title;
-  const who = `${mate ? `@${mate.username}` : bot ? `@${bot}` : "đồng đội"}${sTitle ? ` · phiên "${sTitle}"` : session ? ` · phiên ${session}` : ""}`;
+  const who = selfTarget ? `phiên "${sessTitle(selfCh)}" của chính bạn` : `${mate ? `@${mate.username}` : bot ? `@${bot}` : "đồng đội"}${sTitle ? ` · phiên "${sTitle}"` : session ? ` · phiên ${session}` : ""}`;
+  const here = await mm.channel(ctx.channelId).catch(() => null as any);
+  const selfCall = (m: { op: string; params?: any }) => new Promise<any>((resolve, reject) => {
+    const P = { op: m.op, session, project: { id: t?.project?.id ?? p.id, name: t?.project?.name ?? "", owner_id: t?.project?.owner_id ?? aiOf(selfCh)?.owner }, from_session: { id: ctx.channelId, title: here ? sessTitle(here) : ctx.title ?? "" }, ...(m.params ?? {}) };
+    teamServe("", { id: BOT_ID, username: BOT_NAME, name: BOT_NAME, server: cfg.serverUrl, is_bot: true, is_agent: true, owner_id: ctx.assigner ?? "", owner_name: "" }, 0, P,
+      (r, e) => (e ? reject(Object.assign(new Error(e.message), { code: e.code })) : resolve(r))).catch(reject);
+  });
   const sid = `team-${crypto.randomUUID().slice(0, 8)}`;
   const step = (title: string, status: "running" | "done" | "error", detail?: string) => ctx.card.step({ id: sid, kind: "tool", title, label: clip(title, 60), status, detail });
   const call = async (title: string, m: { op: "read" | "ask" | "post"; params?: any }, timeoutMs: number, detail?: string) => {
     step(title, "running", detail);
     if (mate) ctx.waiting.set(mate.bot_id, (ctx.waiting.get(mate.bot_id) ?? 0) + 1);
     try {
-      const r = await a2a!.teamCall({ channel: ctx.channelId, ...(session ? { session } : { bot }), ...m }, { timeoutMs, signal: ctx.signal });
+      // Bộ lọc từ khoá của chủ (relay dlp) cũng áp cho tin giữa hai phiên của chính bot này.
+      if (selfTarget && m.op !== "read" && (await dlpBlocked(String(m.params?.message ?? ""), `từ phiên "${here ? sessTitle(here) : ctx.chat}" gửi phiên "${sessTitle(selfCh)}" của @${BOT_NAME}`)))
+        throw new Error("không gửi được tin tới phiên đó");
+      const r = selfTarget ? await selfCall(m) : await a2a!.teamCall({ channel: ctx.channelId, ...(session ? { session } : { bot }), ...m }, { timeoutMs, signal: ctx.signal });
       const text = resultText(r);
       step(title, "done", detail ? `${detail}\n\n${clip(text, 1500)}` : undefined);
       return { ok: true, text, from: String(r?.bot ?? who) };
@@ -1146,7 +1174,7 @@ async function teamTool(op: string, a: any): Promise<string> {
       return r.ok ? `${r.from} trả lời:\n${untrusted(r.from, session, r.text)}` : `Hỏi ${who} không thành: ${r.text}`;
     }
     if (!session) return "Thiếu session (lấy id từ team_list).";
-    const wake = a.wake === true;
+    const wake = a.wake === true || (selfTarget && a.wake !== false); // bàn giao cho phiên khác của chính mình: mặc định đánh thức
     if (wake) {
       const run = skillRuns.get(a.key);
       const ok = run && (await run.ask({ kind: "tool", title: `Gửi vào phiên của ${who} và để nó làm`, detail: message.slice(0, 1500) })) === "accept";
@@ -1206,8 +1234,10 @@ async function quietAsk(target: any, fromLabel: string, msg: string, waitMs: num
 }
 
 /** Phía được gọi của flygo/team: relay đã kiểm cùng dự án + canCall; ở đây kiểm lại phiên là của bot này và thuộc dự án đó. */
-async function teamServe(cid: string, from: A2APeer, depth: number, P: any) {
-  const fail = (code: number, message: string) => a2a!.done(cid, undefined, { code, message });
+async function teamServe(cid: string, from: A2APeer, depth: number, P: any, sink?: (result: any, error?: { code: number; message: string }) => void) {
+  // sink: gọi ngay trong runner (phiên khác của chính bot này, không qua relay); không có thì trả qua relay.
+  const out = sink ?? ((result: any, error?: { code: number; message: string }) => a2a!.done(cid, result, error));
+  const fail = (code: number, message: string) => out(undefined, { code, message });
   if (cfg.a2a.team === false) return fail(-32003, `@${BOT_NAME} không tham gia đội`);
   if (!from.is_bot || !(isOwner(from.owner_id) || parseAllow(botDesc).includes(from.owner_id))) return fail(-32003, `chỉ bot cùng chủ (hoặc chủ được allow) mới gọi được @${BOT_NAME}`);
   const proj = P.project ?? {};
@@ -1223,7 +1253,7 @@ async function teamServe(cid: string, from: A2APeer, depth: number, P: any) {
   }
   if (isPaused() && op !== "read") return fail(-32003, `@${BOT_NAME} đang tạm tắt, chưa nhận việc.`);
   log(`team: @${from.username} ${op} ${ch ? `phiên "${sessTitle(ch)}"` : "(bot)"}`);
-  const done = (text: string, mode?: string) => a2a!.done(cid, { text, bot: `@${BOT_NAME}`, ...(ch ? { session: ch.id, title: sessTitle(ch) } : {}), ...(mode ? { mode } : {}) });
+  const done = (text: string, mode?: string) => out({ text, bot: `@${BOT_NAME}`, ...(ch ? { session: ch.id, title: sessTitle(ch) } : {}), ...(mode ? { mode } : {}) });
   const wait = Math.min(Math.max(Number(P.wait_sec) || 300, 30), 1200) * 1000;
   const visibleTurn = async () => {
     const ac = new AbortController();
@@ -1238,6 +1268,7 @@ async function teamServe(cid: string, from: A2APeer, depth: number, P: any) {
   if (op === "ask") {
     if (!msg) return fail(-32602, "thiếu message");
     if (!ch) { // hỏi bot (không chỉ phiên): ngữ cảnh A2A riêng cho cặp (bot gọi, dự án), như ask_agent
+      if (sink) return fail(-32602, "hỏi chính bot này thì phải chỉ định session");
       const contextId = createHash("sha256").update(`team:${from.id}:${proj.id}`).digest("hex").slice(0, 32);
       return onA2ARequest(cid, from, depth, { method: "message/send", params: { message: {
         kind: "message", role: "user", messageId: crypto.randomUUID(), contextId,
@@ -2643,6 +2674,7 @@ async function sessionTool(op: string, a: any): Promise<string> {
     const attached = orchRuns.get(String(a.key ?? ""))?.tag?.sessions.some((x) => x.session === target.id && (x.bot === BOT_ID || x.bot === BOT_NAME));
     if (!attached && !(proj && aiOf(target)?.group === proj)) return `Phiên "${target.display_name}" không cùng dự án với phiên này nên không hỏi được (chỉ đọc bằng session_read). Muốn hai phiên nói chuyện: gắn phiên đó vào tin.`;
     const wait = Math.min(Math.max(Number(a.wait_sec) || 300, 30), 1200) * 1000;
+    if (await dlpBlocked(msg, `từ phiên "${from?.display_name ?? "khác"}" hỏi phiên "${target.display_name}" của @${BOT_NAME}`)) return `Không gửi được câu hỏi tới phiên "${target.display_name}".`;
     const r = await quietAsk(target, `phiên «${from?.display_name ?? "khác"}» của Sếp`, msg, wait);
     if (!r) return `Phiên "${target.display_name}" chạy bằng ${getSession(mainKey(target.id))?.engine ?? ENGINE}, chưa hỏi ngầm được; dùng session_read để đọc tin của nó.`;
     return r.ok ? `Phiên "${target.display_name}" trả lời:\n${r.text}` : `Phiên "${target.display_name}" chưa trả lời được: ${r.text}.`;
