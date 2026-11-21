@@ -12,6 +12,7 @@ import '../app_route.dart' show showsBack;
 import '../app_shell.dart';
 import '../theme.dart' show toast;
 import 'api.dart';
+import 'boards_ui.dart';
 import 'home_pins.dart';
 import 'look.dart';
 import 'model.dart';
@@ -49,6 +50,8 @@ class TodoHome extends StatefulWidget {
 
 class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
   String _section = 'notes';
+  /// Bảng có cột: đang lọc theo cột nào (null = tất cả).
+  String? _colFilter;
   final _q = TextEditingController();
   bool _searching = false, _list = false, _railOpen = true;
   final _scaffold = GlobalKey<ScaffoldState>();
@@ -95,8 +98,11 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
     openNote(context, store, n);
   }
 
+  TBoard? get _board => _section.startsWith('board:') ? store.board(_section.substring(6)) : null;
+
   String get _sectionTitle => switch (_section) {
-        'notes' => widget.title,
+        'notes' => store.boards.isEmpty ? widget.title : tr('Ghi chú của tôi'),
+        _ when _section.startsWith('board:') => _board?.name ?? tr('Bảng'),
         'reminders' => tr('Lời nhắc'),
         'archive' => tr('Lưu trữ'),
         'trash' => tr('Thùng rác'),
@@ -104,7 +110,8 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
       };
 
   void _new({String kind = 'note', bool image = false}) {
-    final n = store.draft(kind: kind);
+    final n = store.draft(kind: kind, board: _board?.id);
+    if (_board != null && _colFilter != null) n.col = _colFilter;
     if (_section.startsWith('label:')) n.labels = [_section.substring(6)];
     if (_section == 'reminders') n.reminder = TReminder(DateTime.now().add(const Duration(hours: 1)).copyWith(minute: 0, second: 0).millisecondsSinceEpoch);
     openNote(context, store, n, pickImage: image);
@@ -123,7 +130,10 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
           child: InkWell(
             borderRadius: const BorderRadius.horizontal(right: Radius.circular(30)),
             onTap: () {
-              setState(() => _section = id);
+              setState(() {
+                _section = id;
+                _colFilter = null;
+              });
               if (_scaffold.currentState?.isDrawerOpen ?? false) Navigator.pop(context);
             },
             child: Padding(
@@ -139,7 +149,35 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
     }
 
     return ListView(padding: const EdgeInsets.only(top: 8), children: [
-      item('notes', Icons.lightbulb_outline_rounded, tr('Ghi chú')),
+      item('notes', Icons.lightbulb_outline_rounded, tr('Ghi chú của tôi')),
+      // Bảng ghi chú (Sếp 2026-11-21: ghi chú và bảng ghi chú là một): bảng tự tạo, được chia sẻ, của cuộc họp.
+      if (!compact)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 12, 10, 4),
+          child: Text(tr('BẢNG'), style: TextStyle(fontSize: 11.5, letterSpacing: .8, fontWeight: FontWeight.w600, color: pal.onSurface.withValues(alpha: .55))),
+        ),
+      for (final b in store.boards)
+        item('board:${b.id}', b.isMeeting ? Icons.groups_outlined : b.members.length > 1 ? Icons.people_alt_outlined : Icons.view_quilt_outlined, b.name),
+      Padding(
+        padding: const EdgeInsets.only(right: 10),
+        child: InkWell(
+          key: const ValueKey('new-board'),
+          borderRadius: const BorderRadius.horizontal(right: Radius.circular(30)),
+          onTap: () async {
+            if (_scaffold.currentState?.isDrawerOpen ?? false) Navigator.pop(context);
+            final b = await newBoardDialog(context, store);
+            if (b != null && mounted) setState(() => _section = 'board:${b.id}');
+          },
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 22, vertical: 13),
+            child: Row(children: [
+              Icon(Icons.add_rounded, size: 22, color: pal.onSurface.withValues(alpha: .8)),
+              if (!compact) ...[const SizedBox(width: 20), Expanded(child: Text(tr('Tạo bảng mới'), overflow: TextOverflow.ellipsis))],
+            ]),
+          ),
+        ),
+      ),
+      const Divider(height: 16),
       item('reminders', Icons.notifications_none_rounded, tr('Lời nhắc')),
       for (final l in store.labels) item('label:${l.id}', Icons.label_outline_rounded, l.name),
       Padding(
@@ -266,6 +304,24 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
                   if (others.length > 3) Text('+${others.length - 3}', style: TextStyle(fontSize: 12, color: sub)),
                 ]),
               ),
+            if (n.board != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(children: [
+                  if (_colName(n) case final c?) _pill(Icons.view_column_outlined, c, fg),
+                  const Spacer(),
+                  InkWell(
+                    key: ValueKey('vote-${n.id}'),
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: n.canEdit && !n.trashed ? () => setState(() => store.vote(n)) : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                      decoration: BoxDecoration(color: n.voted ? const Color(0x332BB3A3) : fg.withValues(alpha: .08), borderRadius: BorderRadius.circular(14)),
+                      child: Text('👍 ${n.votes}', style: TextStyle(fontSize: 12.5, color: fg, fontWeight: n.voted ? FontWeight.w700 : FontWeight.w500)),
+                    ),
+                  ),
+                ]),
+              ),
             if (n.reminder != null || n.labels.isNotEmpty || n.others.isNotEmpty || (!n.isOwner && n.owner != null))
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -358,6 +414,11 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
             ? ('home', Icons.home_rounded, tr('Bỏ ghim trang chủ'))
             : ('home', Icons.add_home_outlined, tr('Ghim trang chủ')),
         ('archive', n.archived ? Icons.unarchive_outlined : Icons.archive_outlined, n.archived ? tr('Bỏ lưu trữ') : tr('Lưu trữ')),
+        // Bảng: chuyển cột (ai sửa được), chuyển ghi chú sang bảng khác / về Ghi chú của tôi (chủ ghi chú).
+        if (n.canEdit)
+          for (final c in store.board(n.board)?.columns ?? const <({String id, String name})>[])
+            if (c.id != n.col) ('col:${c.id}', Icons.view_column_outlined, tr('Chuyển sang cột "{0}"', [c.name])),
+        if (n.isOwner && (store.boards.isNotEmpty || n.board != null)) ('move', Icons.drive_file_move_outline, tr('Chuyển sang bảng khác')),
         ('trash', Icons.delete_outline_rounded, n.isOwner ? tr('Xoá') : tr('Xoá khỏi danh sách của tôi')),
       ],
     ];
@@ -390,7 +451,22 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
     void undoable(String text, Map<String, dynamic> undo) => messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text), action: SnackBarAction(label: tr('Hoàn tác'), onPressed: () => store.put(n, undo))));
+    if (v.startsWith('col:')) return setState(() => store.put(n, {'col': v!.substring(4)}));
     switch (v) {
+      case 'move':
+        final to = await showModalBottomSheet<String>(
+          context: context,
+          showDragHandle: true,
+          builder: (c) => SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (n.board != null) ListTile(leading: const Icon(Icons.lightbulb_outline_rounded), title: Text(tr('Ghi chú của tôi')), onTap: () => Navigator.pop(c, '')),
+              for (final b in store.boards.where((b) => b.id != n.board && b.canWrite))
+                ListTile(leading: Icon(b.isMeeting ? Icons.groups_outlined : Icons.view_quilt_outlined), title: Text(b.name), onTap: () => Navigator.pop(c, b.id)),
+              const SizedBox(height: 8),
+            ]),
+          ),
+        );
+        if (to != null && mounted) setState(() => store.put(n, {'board': to.isEmpty ? null : to, 'col': null}));
       case 'pin':
         store.put(n, {'pinned': !n.pinned});
       case 'home':
@@ -483,6 +559,7 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
       'archive' => (Icons.archive_outlined, tr('Ghi chú đã lưu trữ sẽ hiện ở đây')),
       'trash' => (Icons.delete_outline_rounded, tr('Thùng rác trống')),
       _ when _section.startsWith('label:') => (Icons.label_outline_rounded, tr('Chưa có ghi chú nào gắn nhãn này')),
+      _ when _section.startsWith('board:') => (Icons.view_quilt_outlined, tr('Bảng chưa có ghi chú. Mọi người trong bảng cùng thêm được.')),
       _ => (Icons.lightbulb_outline_rounded, tr('Ghi chú bạn thêm sẽ hiện ở đây')),
     };
     return Padding(
@@ -491,17 +568,105 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
     );
   }
 
+  String? _colName(TNote n) => n.col == null ? null : store.board(n.board)?.columns.where((c) => c.id == n.col).firstOrNull?.name;
+
+  /// Đầu bảng: người tham gia, lọc theo cột, nút chia sẻ / sửa / rời.
+  Widget _boardHeader(TBoard b) {
+    final pal = Theme.of(context).colorScheme;
+    final sub = pal.onSurface.withValues(alpha: .6);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          if (b.isMeeting) Padding(padding: const EdgeInsets.only(right: 8), child: Icon(Icons.groups_outlined, size: 18, color: sub)),
+          Expanded(
+            child: Text(
+              [b.isMeeting ? tr('Bảng của cuộc họp') : tr('Bảng'), tr('{0} người', [b.members.length]), if (b.role == 'viewer') tr('chỉ xem')].join(' · '),
+              style: TextStyle(color: sub, fontSize: 13),
+            ),
+          ),
+          for (final m in b.members.take(5)) Padding(padding: const EdgeInsets.only(left: 2), child: Tooltip(message: m.name, child: memberAvatar(m.name, 12))),
+          PopupMenuButton<String>(
+            key: const ValueKey('board-menu'),
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (a) => _boardAction(b, a),
+            itemBuilder: (_) => [
+              if (b.isOwner && !b.isMeeting) PopupMenuItem(value: 'share', child: Text(tr('Chia sẻ bảng'))),
+              if (b.canWrite) PopupMenuItem(value: 'rename', child: Text(tr('Đổi tên bảng'))),
+              if (b.canWrite) PopupMenuItem(value: 'columns', child: Text(tr('Sửa các cột'))),
+              if (b.isOwner && !b.isMeeting) PopupMenuItem(value: 'delete', child: Text(tr('Xoá bảng'))),
+              if (!b.isOwner || b.isMeeting) PopupMenuItem(value: 'leave', child: Text(tr('Rời bảng'))),
+            ],
+          ),
+        ]),
+        if (b.columns.isNotEmpty)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              Padding(padding: const EdgeInsets.only(right: 6), child: ChoiceChip(label: Text(tr('Tất cả')), selected: _colFilter == null, onSelected: (_) => setState(() => _colFilter = null))),
+              for (final c in b.columns)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text('${c.name} · ${store.view(_section).where((n) => n.col == c.id).length}'),
+                    selected: _colFilter == c.id,
+                    onSelected: (_) => setState(() => _colFilter = c.id),
+                  ),
+                ),
+            ]),
+          ),
+      ]),
+    );
+  }
+
+  Future<void> _boardAction(TBoard b, String a) async {
+    try {
+      switch (a) {
+        case 'share':
+          final others = await shareBoardDialog(context, store, b);
+          if (others != null) await store.shareBoard(b, others);
+        case 'rename':
+          final name = await askText(context, tr('Đổi tên bảng'), b.name);
+          if (name != null && name.trim().isNotEmpty) await store.updateBoard(b, name: name.trim());
+        case 'columns':
+          final cols = await editColumnsDialog(context, b);
+          if (cols != null) await store.updateBoard(b, columns: cols);
+        case 'delete':
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (d) => AlertDialog(
+              content: Text(tr('Xoá bảng "{0}"? Ghi chú trong bảng trở về "Ghi chú của tôi" của người viết.', [b.name])),
+              actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Huỷ'))), FilledButton(onPressed: () => Navigator.pop(d, true), child: Text(tr('Xoá')))],
+            ),
+          );
+          if (ok == true) {
+            await store.deleteBoard(b);
+            if (mounted) setState(() => _section = 'notes');
+          }
+        case 'leave':
+          await store.leaveBoard(b);
+          if (mounted) setState(() => _section = 'notes');
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e')));
+    }
+    if (mounted) setState(() {});
+  }
+
   Widget _label(String s) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 18, 0, 10),
         child: Text(s, style: TextStyle(fontSize: 11.5, letterSpacing: .8, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .6))),
       );
 
   Widget _content(double width) {
-    final all = store.view(_section, q: _searching ? _q.text : '');
+    final board = _board;
+    var all = store.view(_section, q: _searching ? _q.text : '');
+    if (board != null && _colFilter != null) all = all.where((n) => n.col == _colFilter).toList();
     final pad = width < 600 ? 10.0 : 24.0;
     final inner = width - 2 * pad;
     final children = <Widget>[];
-    final canCreate = (_section == 'notes' || _section == 'reminders' || _section.startsWith('label:')) && !(_searching && _q.text.isNotEmpty);
+    final canCreate = (_section == 'notes' || _section == 'reminders' || _section.startsWith('label:') || (board?.canWrite ?? false)) && !(_searching && _q.text.isNotEmpty);
+    if (board != null) children.add(_boardHeader(board));
     if (canCreate) children.addAll([const SizedBox(height: 12), _quickBar()]);
     if (_section == 'trash' && all.isNotEmpty) {
       children.add(Padding(
@@ -526,7 +691,7 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
     }
     if (all.isEmpty) {
       children.add(store.loaded || store.offline || store.error != null ? _empty() : const Padding(padding: EdgeInsets.only(top: 80), child: Center(child: CircularProgressIndicator())));
-    } else if (_section == 'notes' || _section.startsWith('label:')) {
+    } else if (_section == 'notes' || _section.startsWith('label:') || board != null) {
       final pinned = all.where((n) => n.pinned).toList(), rest = all.where((n) => !n.pinned).toList();
       if (pinned.isNotEmpty) children.addAll([_label(tr('ĐÃ GHIM')), _grid(pinned, inner)]);
       if (rest.isNotEmpty) children.addAll([if (pinned.isNotEmpty) _label(tr('KHÁC')) else const SizedBox(height: 20), _grid(rest, inner)]);
@@ -633,7 +798,7 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
         appBar: _appBar(wide),
         drawer: wide ? null : Drawer(child: SafeArea(child: _menu(compact: false))),
         body: body,
-        floatingActionButton: !wide && (_section == 'notes' || _section.startsWith('label:') || _section == 'reminders')
+        floatingActionButton: !wide && (_section == 'notes' || _section.startsWith('label:') || _section == 'reminders' || (_board?.canWrite ?? false))
             ? FloatingActionButton(
                 tooltip: tr('Ghi chú mới'),
                 backgroundColor: const Color(0xFFE8A100),
