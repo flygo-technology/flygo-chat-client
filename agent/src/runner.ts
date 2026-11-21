@@ -3227,6 +3227,25 @@ async function agentTool(op: string, a: any): Promise<string> {
   const agent_link = agentLinkOf(t.kind === "tag-bot" || t.kind === "tag-session" || t.kind === "remote" ? "message" : "handoff", "out", fromEnd, toEnd);
   if (agentSends.size > 500) for (const k of [...agentSends.keys()].slice(0, 250)) agentSends.delete(k);
   const base = { key: a.key, message, agent_link };
+  // Bản ghi tin gửi đi trong chat của bên gửi (Sếp, 0.7.15): tìm được, còn sau khi tải lại; app hiện thu gọn. Không đánh thức ai:
+  // tin của chính bot không mở lượt; @tên trong tin được chèn ký tự vô hình để không nhắc / gọi bot khác.
+  const thr = ctx.root.startsWith("ch:") ? "" : ctx.root;
+  // props.flygo_agent_link {kind handoff|message, dir "out", from, to, id} (thống nhất với app, phiên "agent chat ui"); trả lời về
+  // thì patch reply {state completed|failed|canceled|delivered, text, at, message_id?}.
+  const recLink = { ...agent_link, id: crypto.randomUUID() };
+  const recProps = (extra: Record<string, any>) => ({ ...(thr ? { flygo_reply: "thread" } : {}), flygo_agent_owner: ctx.assigner, flygo_silent: true, flygo_agent_link: { ...recLink, ...extra } });
+  const rec = await mm.createPost({ channel_id: ctx.channelId, root_id: thr, message: message.replace(/@(?=[A-Za-z0-9_])/g, "@\u2060"), props: recProps({}) }).catch(() => null);
+  let inboxId = "";
+  const result = await agentDeliver(t, a, { ...base, _onDelivered: (id: string) => { inboxId = id; } }, remotes).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
+  if (rec) {
+    const failed = /^(Lỗi|Không |Hỏi .* không thành|Nhờ .* không thành|Người giao việc không duyệt|Phiên này đang|Lượt này đã)/.test(result);
+    const state = failed ? (/quá giờ|canceled|đã dừng/i.test(result) ? "canceled" : "failed") : t.kind === "remote" ? "delivered" : "completed";
+    await mm.patchPost(rec.id, { props: recProps({ reply: { state, text: result.slice(0, 8000), at: Date.now(), ...(inboxId ? { message_id: inboxId } : {}) } }) }).catch(() => {});
+  }
+  return result;
+}
+async function agentDeliver(t: AgentTarget, a: any, base: { key: string; message: string; agent_link: AgentLink; _onDelivered?: (id: string) => void }, remotes: any[]): Promise<string> {
+  const ctx = orchRuns.get(a.key)!;
   switch (t.kind) {
     case "own": case "mate-session": {
       const here = await mm.channel(ctx.channelId).catch(() => null as any);
@@ -3277,6 +3296,7 @@ async function remoteTool(op: string, a: any): Promise<string> {
   const target = pick[0];
   ctx.card.step({ id: `remote-${target.id}-${Date.now()}`, kind: "message", title: `Nhắn agent ngoài "${target.name}": ${oneLine(message, 70)}`, status: "done", detail: message, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   const r = await call("POST", "/bridge/deliver", { token_id: target.id, message, channel_id: ctx.channelId });
+  if (r?.message_id) a._onDelivered?.(String(r.message_id)); // bản ghi tin gửi đi: app ghép tin trả lời (flygo_bridge.reply_to)
   return `Đã gửi vào hộp thư của agent ngoài "${r.agent ?? target.name}" (chat "${target.chat}")${r.listening ? ", agent đang nghe" : ", agent chưa mở hộp thư: nó sẽ nhận khi gọi inbox / read lần tới"}. Câu trả lời sẽ vào chat này như một tin mới; báo Sếp là đã gửi, đừng chờ trong lượt này.`;
 }
 
