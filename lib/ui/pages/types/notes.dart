@@ -6,6 +6,7 @@ import '../../todo/todo_page.dart' show openTodo, kTodoScreen;
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
 import '../stage_frame.dart';
+import 'notes_app.dart';
 import 'builtin.dart' show pageField;
 
 // Loại trang "Ghi chú" (máy chủ: relay/meet-pt-notes.mjs; cũng là app riêng "Ghi chú"): bảng ghi chú dán theo cột, màu,
@@ -39,6 +40,9 @@ void registerNotesPageType() {
     ),
     view: (context, ctx) => NotesView(ctx),
     stageThemed: true,
+    // Mỗi trang là một app (mockup 21/11): dán ghi chú, +1, chuyển cột ngay trong trang; chủ trang đổi pha, hẹn giờ.
+    panel: (context, ctx) => NotesPanel(ctx),
+    controls: (context, ctx) => NotesControls(ctx),
   ));
 }
 
