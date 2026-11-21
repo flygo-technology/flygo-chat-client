@@ -6,6 +6,8 @@ import '../i18n/i18n.dart';
 import '../state/app_state.dart';
 import 'agent_view.dart' show agentRunOf;
 import 'ai_panel.dart' show aiSessionLabel;
+import 'common.dart' show plainPreview, two;
+import 'markdown_view.dart';
 import 'schedules_view.dart' show openChatWith;
 import 'theme.dart';
 
@@ -20,7 +22,16 @@ class AgentLinkInfo {
 
   /// Phiên mở được khi bấm (chỉ khi mình có trong chat đó).
   final String? openChannel;
-  const AgentLinkInfo(this.tone, this.label, {this.sub, this.openChannel});
+
+  /// Tin này chính là tin qua lại giữa các agent (không phải câu trả lời của trợ lý cho mình): mặc định thu gọn.
+  final bool traffic;
+
+  /// Bản ghi tin đã gửi (➡️): câu trả lời đã về {state, text, at} (runner vá vào bản ghi), null nếu chưa có.
+  final Map<String, dynamic>? reply;
+
+  /// Tên bên trả lời (cho khối trả lời lồng dưới bản ghi tin đã gửi).
+  final String? replier;
+  const AgentLinkInfo(this.tone, this.label, {this.sub, this.openChannel, this.traffic = false, this.reply, this.replier});
 }
 
 Map<String, dynamic> _m(Object? v) => v is Map ? v.cast<String, dynamic>() : const {};
@@ -54,6 +65,24 @@ String _who(AppState app, Map<String, dynamic> end, {bool withBot = true}) {
 /// các props cũ: flygo_a2a_from, flygo_team_from, flygo_bridge, flygo_session_handoff, flygo_bg_task_result; phía
 /// gửi: các bước agent_send trong thẻ tiến trình (step.agent_link).
 AgentLinkInfo? agentLinkOf(AppState app, MmPost p) {
+  final info = _linkOf(app, p);
+  if (info == null || info.traffic || !_postLevel(p)) return info;
+  return AgentLinkInfo(info.tone, info.label, sub: info.sub, openChannel: info.openChannel, traffic: true, reply: info.reply, replier: info.replier);
+}
+
+/// Đã có bản ghi tin gửi tới [to] trong chat của [p], đăng trong vòng 2 giờ trước [p] (cùng lượt chạy).
+bool _hasRecord(AppState app, MmPost p, Map<String, dynamic> to) => app.postsOf(p.channelId).any((x) {
+      final l = _m(x.props['flygo_agent_link']);
+      if (l.isEmpty || _s(l['dir']) != 'out' || _s(l['kind']) == 'reply') return false;
+      if (x.createAt > p.createAt || p.createAt - x.createAt > 2 * 3600000) return false;
+      final t = _m(l['to']);
+      return _s(t['session']) == _s(to['session']) && _s(t['agent']) == _s(to['agent']) && _s(t['bot']) == _s(to['bot']);
+    });
+
+/// Tin mang nhãn ở chính tin (không phải suy ra từ các bước agent_send trong thẻ tiến trình).
+bool _postLevel(MmPost p) => const ['flygo_agent_link', 'flygo_bridge', 'flygo_a2a_from', 'flygo_team_from'].any((k) => p.props[k] is Map);
+
+AgentLinkInfo? _linkOf(AppState app, MmPost p) {
   final props = p.props;
   final link = _m(props['flygo_agent_link']);
   if (link.isNotEmpty) {
@@ -61,6 +90,33 @@ AgentLinkInfo? agentLinkOf(AppState app, MmPost p) {
     final dir = _s(link['dir']);
     final from = _m(link['from']), to = _m(link['to']);
     final agent = _s(from['agent']);
+    // Bản ghi tin trợ lý đã gửi cho agent khác (runner đăng ngay khi gửi, vá câu trả lời vào khi có).
+    if (kind != 'reply' && dir == 'out') {
+      final who = _who(app, to);
+      var reply = _m(link['reply']);
+      final state = _s(reply['state']);
+      // Agent ngoài: bản ghi chỉ có "đã gửi vào hộp thư"; câu trả lời thật về sau thành tin cầu nối
+      // (props.flygo_bridge.reply_to = reply.message_id) → lồng câu trả lời đó vào đây.
+      if (state == 'delivered') {
+        final mid = _s(reply['message_id']);
+        final ans = mid.isEmpty
+            ? null
+            : app.postsOf(p.channelId).where((x) => _s(_m(x.props['flygo_bridge'])['reply_to']) == mid).firstOrNull;
+        reply = ans == null ? reply : {'state': 'completed', 'text': ans.message, 'at': ans.createAt};
+      }
+      final st = _s(reply['state']);
+      return AgentLinkInfo(AgentLinkTone.outgoing, tr('➡️ Gửi tới {0}', [who.isEmpty ? tr('agent khác') : who]),
+          sub: reply.isEmpty
+              ? tr('đang chờ trả lời')
+              : st == 'completed'
+              ? tr('đã trả lời')
+              : st == 'delivered'
+              ? tr('đã gửi vào hộp thư')
+              : tr('không có trả lời'),
+          openChannel: _openable(app, _s(to['session'])),
+          reply: reply.isEmpty || st == 'delivered' ? null : reply,
+          replier: who.isEmpty ? null : who);
+    }
     if (kind == 'reply' && dir == 'out') {
       final who = _who(app, to);
       return AgentLinkInfo(AgentLinkTone.reply, who.isEmpty ? tr('↩︎ Trả lời bên nhờ') : tr('↩︎ Trả lời {0}', [who]),
@@ -120,6 +176,9 @@ AgentLinkInfo? agentLinkOf(AppState app, MmPost p) {
       if (l.isEmpty) continue;
       if (_s(l['dir']) == 'out') {
         final to = _m(l['to']);
+        // Runner 0.7.15+ đăng bản ghi riêng cho mỗi lần gửi (tin flygo_agent_link dir out ngay trước câu trả lời):
+        // nhãn nằm ở bản ghi đó, không lặp ở đây.
+        if (_hasRecord(app, p, to)) continue;
         final who = _who(app, to);
         if (who.isNotEmpty && !outs.contains(who)) outs.add(who);
         open ??= _openable(app, _s(to['session']));
@@ -197,5 +256,110 @@ class AgentLinkLabel extends StatelessWidget {
     final info = agentLinkOf(app, post);
     if (info == null) return const SizedBox.shrink();
     return AgentLinkChip(info: info, mine: post.userId == app.me?.id);
+  }
+}
+
+/// Tin giữa các agent đang thu gọn: 1–2 dòng xem trước + giờ; bấm để mở đầy đủ.
+class AgentTrafficCollapsed extends StatelessWidget {
+  final MmPost post;
+  final AgentLinkInfo info;
+  final VoidCallback onExpand;
+  const AgentTrafficCollapsed({super.key, required this.post, required this.info, required this.onExpand});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final app = context.read<AppState>();
+    final mine = post.userId == app.me?.id;
+    final preview = plainPreview(post.message);
+    final at = DateTime.fromMillisecondsSinceEpoch(post.createAt);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      child: Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: InkWell(
+            key: ValueKey('agent-traffic-${post.id}'),
+            borderRadius: BorderRadius.circular(12),
+            onTap: onExpand,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+              decoration: BoxDecoration(
+                border: Border(left: BorderSide(color: AgentLinkChip.colorOf(info.tone).withValues(alpha: .6), width: 3)),
+                color: pal.text.withValues(alpha: .04),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Text(preview.isEmpty ? tr('(không có nội dung)') : preview,
+                      maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, height: 1.4, color: pal.sub)),
+                ),
+                const SizedBox(width: 8),
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text('${two(at.hour)}:${two(at.minute)}', style: TextStyle(fontSize: 11.5, color: pal.sub)),
+                  Icon(Icons.expand_more_rounded, size: 18, color: pal.sub),
+                ]),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Câu trả lời lồng dưới bản ghi tin đã gửi (➡️), và nút "Thu gọn" của tin giữa các agent đang mở.
+class AgentTrafficFooter extends StatelessWidget {
+  final MmPost post;
+  final AgentLinkInfo info;
+  final VoidCallback onCollapse;
+  const AgentTrafficFooter({super.key, required this.post, required this.info, required this.onCollapse});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    final mine = post.userId == context.read<AppState>().me?.id;
+    final r = info.reply;
+    final text = _s(r?['text']);
+    final ok = _s(r?['state']) == 'completed';
+    final at = (r?['at'] as num?)?.toInt();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      child: Column(crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
+        if (r != null)
+          Container(
+            key: ValueKey('agent-reply-${post.id}'),
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+            constraints: const BoxConstraints(maxWidth: 720),
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: AgentLinkChip.colorOf(ok ? AgentLinkTone.reply : AgentLinkTone.outgoing), width: 3)),
+              color: pal.text.withValues(alpha: .04),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                [
+                  ok ? tr('↩︎ {0} trả lời', [info.replier ?? tr('Bên nhận')]) : tr('⚠️ Không có trả lời'),
+                  if (at != null) '${two(DateTime.fromMillisecondsSinceEpoch(at).hour)}:${two(DateTime.fromMillisecondsSinceEpoch(at).minute)}',
+                ].join(' · '),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: pal.sub),
+              ),
+              if (text.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: MarkdownView(text: text, style: TextStyle(fontSize: 14.5, height: 1.45, color: pal.text)),
+                ),
+            ]),
+          ),
+        TextButton.icon(
+          onPressed: onCollapse,
+          style: TextButton.styleFrom(visualDensity: VisualDensity.compact, foregroundColor: pal.sub),
+          icon: const Icon(Icons.expand_less_rounded, size: 18),
+          label: Text(tr('Thu gọn'), style: const TextStyle(fontSize: 13)),
+        ),
+      ]),
+    );
   }
 }
