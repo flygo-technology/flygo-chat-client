@@ -7,6 +7,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -31,19 +32,70 @@ class MeetStage extends StatelessWidget {
     final s = room.stage;
     Widget body;
     if (room.webUrl != null) {
-      body = webShareSupported
-          ? SharedWeb(room: room, key: ValueKey(room.webUrl))
-          : Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.public, color: Colors.white70, size: 48),
-                const SizedBox(height: 10),
-                Text(room.webUrl!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                FilledButton(
-                    onPressed: () => launchUrl(Uri.parse(room.webUrl!), mode: LaunchMode.externalApplication),
-                    child: Text(tr('Mở trong trình duyệt'))),
+      // Website (mockup Họp): thanh trên kiểu trình duyệt (chip, tên miền, ai đang điều khiển); máy không nhúng được trang thì
+      // hiện tên miền + mã QR để mở trên điện thoại.
+      final uri = Uri.tryParse(room.webUrl!);
+      final host = uri?.host.replaceFirst(RegExp(r'^www\.'), '') ?? room.webUrl!;
+      final driver = room.webDriver == null ? '' : (room.webDriver == room.myId ? tr('Bạn điều khiển') : tr('Người trình bày điều khiển'));
+      final bar = Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        color: const Color(0xFF1B1F26),
+        child: Row(children: [
+          Container(
+            height: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: .08), borderRadius: BorderRadius.circular(999)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.public, size: 14, color: Color(0xFFAEB8C6)),
+              const SizedBox(width: 6),
+              Text(tr('WEBSITE'), style: const TextStyle(color: Color(0xFFD5DCE6), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Container(
+              height: 28,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              alignment: Alignment.centerLeft,
+              decoration: BoxDecoration(color: const Color(0xFF0E1116), borderRadius: BorderRadius.circular(8)),
+              child: Row(children: [
+                const Icon(Icons.lock_outline_rounded, size: 13, color: Color(0xFF8E99A8)),
+                const SizedBox(width: 6),
+                Expanded(child: Text(room.webUrl!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFFC9D2DE), fontSize: 13))),
               ]),
-            );
+            ),
+          ),
+          if (driver.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Text(driver, style: const TextStyle(color: Color(0xFFAEB8C6), fontSize: 12.5)),
+          ],
+        ]),
+      );
+      body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        bar,
+        Expanded(
+          child: webShareSupported
+              ? SharedWeb(room: room, key: ValueKey(room.webUrl))
+              : Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                      child: QrImageView(data: room.webUrl!, size: 160, padding: EdgeInsets.zero),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(host, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700), textAlign: TextAlign.center),
+                    const SizedBox(height: 4),
+                    Text(tr('Quét để mở trên điện thoại'), style: const TextStyle(color: Color(0xFFAEB8C6))),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                        onPressed: () => launchUrl(Uri.parse(room.webUrl!), mode: LaunchMode.externalApplication),
+                        child: Text(tr('Mở trong trình duyệt'))),
+                  ]),
+                ),
+        ),
+      ]);
     } else {
       body = switch (s?['kind']) {
         'image' => InteractiveViewer(child: Center(child: Image.network('${s!['url']}', fit: BoxFit.contain))),
