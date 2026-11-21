@@ -25,6 +25,7 @@ export class InlineReply {
   private chain: Promise<void> = Promise.resolve();
   card!: RunCard;
   approval: Record<string, any> | null = null; // lời xin duyệt nằm ngay trong post (props.flygo_agent_approval)
+  extra: Record<string, any> | null = null; // props thêm của post trả lời (vd. flygo_agent_link khi trả lời agent khác)
 
   broadcast = false; // trong luồng: tin cuối gửi cả ra chat chính (thread_broadcast)
   private lastSent = ""; // bỏ lần sửa trùng nội dung
@@ -44,6 +45,7 @@ export class InlineReply {
         ...cardProps,
         flygo_agent_message: { run_id: this.runId, engine: this.engine, seq: 1, streaming, ...(final ? { final: true } : {}) },
         ...(this.approval && !final ? { flygo_agent_approval: this.approval } : {}),
+        ...(this.extra ?? {}),
       },
     };
   }

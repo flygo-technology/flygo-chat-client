@@ -18,7 +18,13 @@ export interface Step {
   ended_at?: number;
   seg?: number; // số đoạn chữ của agent đã bắt đầu trước bước này (app xen bước giữa các đoạn props.flygo_agent.texts)
   posts?: string[]; // kind "files": tin chứa tệp đã gửi (app vẽ ảnh / tệp ngay tại bước này trong câu trả lời)
+  agent_link?: AgentLink; // bước nhắn / nhận trả lời từ agent khác (agent_send): app vẽ chip nguồn / đích
 }
+/** Mốc tin giữa agent (props.flygo_agent_link trên post, step.agent_link trên thẻ): app hiện chip "từ / tới phiên nào". */
+export interface AgentEnd { session?: string; name?: string; bot?: string; bot_id?: string; agent?: string }
+export interface AgentLink { v: 1; kind: "handoff" | "message" | "reply"; dir: "in" | "out"; from: AgentEnd; to: AgentEnd }
+export const agentLinkOf = (kind: AgentLink["kind"], dir: AgentLink["dir"], from: AgentEnd, to: AgentEnd): AgentLink => ({ v: 1, kind, dir, from: clean(from), to: clean(to) });
+const clean = (e: AgentEnd): AgentEnd => Object.fromEntries(Object.entries(e).filter(([, v]) => v)) as AgentEnd;
 export type RunStatus = "queued" | "thinking" | "running" | "awaiting_approval" | "done" | "error" | "cancelled" | "stopped"; // stopped: runner tắt giữa lượt
 
 const MAX_STEPS = 40;

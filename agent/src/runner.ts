@@ -13,7 +13,7 @@ import { normHost } from "./config";
 import { join, resolve, sep } from "node:path";
 import defaultPersona from "../profiles/default/persona.md" with { type: "text" };
 import compactPersona from "../profiles/default/persona-compact.md" with { type: "text" };
-import { RunCard } from "./card";
+import { RunCard, agentLinkOf, type AgentLink } from "./card";
 import { AGY_DEFAULT_MODEL, agentOptions, CONFIG_DIR, ENGINE_NAMES, engineLabel, resolveBin, type Config, type EngineName } from "./config";
 import { doctor } from "./doctor";
 import { ClaudeEngine } from "./engines/claude";
@@ -970,7 +970,7 @@ async function a2aTool(name: string, a: any): Promise<string> {
   const sid = `a2a-${n}-${crypto.randomUUID().slice(0, 6)}`;
   const askTitle = `Hỏi @${peer.username}${session ? " (phiên của nó)" : ""}: ${oneLine(message, 80)}`;
   const fileNote = parts.filter((p) => p.kind === "file").map((p) => p.file.name);
-  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: message + (fileNote.length ? `\n📎 ${fileNote.join(", ")}` : "") });
+  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: message + (fileNote.length ? `\n📎 ${fileNote.join(", ")}` : ""), ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   // Cùng một luồng chat + cùng agent -> cùng contextId: agent kia nhớ các lần nhờ trước trong luồng này.
   const contextId = createHash("sha256").update(`${BOT_ID}:${ctx.root}:${peer.id}`).digest("hex").slice(0, 32);
   const artifacts: any[] = [];
@@ -986,13 +986,13 @@ async function a2aTool(name: string, a: any): Promise<string> {
         if (e?.kind === "status-update") {
           status = e.status;
           const t = splitParts(e.status?.message?.parts ?? []).texts.join(" ");
-          if (t && !e.final) ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: `${message}\n\n⏳ ${oneLine(t, 200)}` });
+          if (t && !e.final) ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: `${message}\n\n⏳ ${oneLine(t, 200)}`, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
         } else if (e?.kind === "artifact-update") artifacts.push(e.artifact);
         else if (e?.kind === "task") status = e.status;
       },
     });
   } catch (e: any) {
-    ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "error", detail: `${message}\n\n❌ ${e?.message ?? e}` });
+    ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "error", detail: `${message}\n\n❌ ${e?.message ?? e}`, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
     return `Nhờ @${peer.username} không thành: ${e?.message ?? e}`;
   } finally {
     const w = (ctx.waiting.get(peer.id) ?? 1) - 1;
@@ -1007,10 +1007,10 @@ async function a2aTool(name: string, a: any): Promise<string> {
     try { saved.push(await saveFilePart(f, join(ctx.dir, "a2a-nhan", peer.username), relayBase, relayAuth)); }
     catch (e: any) { sendErrors.push(`nhận ${f?.name}: ${e?.message ?? e}`); }
   }
-  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "done", detail: message + (fileNote.length ? `\n📎 ${fileNote.join(", ")}` : "") });
+  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "done", detail: message + (fileNote.length ? `\n📎 ${fileNote.join(", ")}` : ""), ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   ctx.card.step({
     id: `${sid}-a`, kind: "message", title: `@${peer.username} trả lời: ${oneLine(answer, 80)}`, status: state === "completed" ? "done" : "error",
-    detail: answer + (saved.length ? `\n📎 ${saved.map((p) => basename(p)).join(", ")}` : ""),
+    detail: answer + (saved.length ? `\n📎 ${saved.map((p) => basename(p)).join(", ")}` : ""), ...(a.agent_link ? { agent_link: agentLinkOf("reply", "in", a.agent_link.to, a.agent_link.from) } : {})
   });
   return [
     `@${peer.username} (${state}) trả lời:`, answer,
@@ -1048,19 +1048,19 @@ async function askOwnSession(ctx: OrchRun, a: any): Promise<string> {
   const target = tch ? await mm.channel(tch).then(chatName).catch(() => "") : "";
   const askTitle = `Hỏi phiên "${target || session}": ${oneLine(message, 80)}`;
   if (await dlpBlocked(message, `từ "${ctx.chat}" gửi phiên "${target || session}" của @${BOT_NAME}`)) return `Không gửi được tin tới phiên ${target || session}.`;
-  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: message });
+  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: "running", detail: message, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   ctx.waiting.set(BOT_ID, (ctx.waiting.get(BOT_ID) ?? 0) + 1);
   let r: { state: string; text: string };
   try {
-    r = await bridgeTurn({ id: BOT_ID, username: BOT_NAME, owner_id: ctx.assigner, title: `${ctx.chat} · ${ctx.title ?? ""}`, root: ctx.root }, message, session, ctx.signal);
+    r = await bridgeTurn({ id: BOT_ID, username: BOT_NAME, owner_id: ctx.assigner, title: `${ctx.chat} · ${ctx.title ?? ""}`, root: ctx.root, session: ctx.channelId }, message, session, ctx.signal, undefined, "handoff");
   } finally {
     const w = (ctx.waiting.get(BOT_ID) ?? 1) - 1;
     if (w > 0) ctx.waiting.set(BOT_ID, w); else ctx.waiting.delete(BOT_ID);
   }
   const ok = r.state === "completed";
-  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: ok ? "done" : "error", detail: message + (ok ? "" : `\n\n❌ ${r.text}`) });
+  ctx.card.step({ id: `${sid}-q`, kind: "tool", title: askTitle, status: ok ? "done" : "error", detail: message + (ok ? "" : `\n\n❌ ${r.text}`), ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   if (!ok) return `Nhờ phiên ${target || session} không thành (${r.state}): ${r.text}`;
-  ctx.card.step({ id: `${sid}-a`, kind: "message", title: `Phiên "${target || session}" trả lời: ${oneLine(r.text, 80)}`, status: "done", detail: r.text });
+  ctx.card.step({ id: `${sid}-a`, kind: "message", title: `Phiên "${target || session}" trả lời: ${oneLine(r.text, 80)}`, status: "done", detail: r.text, ...(a.agent_link ? { agent_link: agentLinkOf("reply", "in", a.agent_link.to, a.agent_link.from) } : {}) });
   return `Phiên "${target || session}" trả lời:\n${r.text}`;
 }
 
@@ -1141,7 +1141,7 @@ async function teamTool(op: string, a: any): Promise<string> {
       (r, e) => (e ? reject(Object.assign(new Error(e.message), { code: e.code })) : resolve(r))).catch(reject);
   });
   const sid = `team-${crypto.randomUUID().slice(0, 8)}`;
-  const step = (title: string, status: "running" | "done" | "error", detail?: string) => ctx.card.step({ id: sid, kind: "tool", title, label: clip(title, 60), status, detail });
+  const step = (title: string, status: "running" | "done" | "error", detail?: string) => ctx.card.step({ id: sid, kind: "tool", title, label: clip(title, 60), status, detail, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   const call = async (title: string, m: { op: "read" | "ask" | "post"; params?: any }, timeoutMs: number, detail?: string) => {
     step(title, "running", detail);
     if (mate) ctx.waiting.set(mate.bot_id, (ctx.waiting.get(mate.bot_id) ?? 0) + 1);
@@ -1265,7 +1265,7 @@ async function teamServe(cid: string, from: A2APeer, depth: number, P: any, sink
   const visibleTurn = async () => {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), wait);
-    const r = await bridgeTurn({ id: from.id, username: from.username, owner_id: from.owner_id, title: P.from_session?.title }, msg, ch.id, ac.signal).finally(() => clearTimeout(timer));
+    const r = await bridgeTurn({ id: from.id, username: from.username, owner_id: from.owner_id, title: P.from_session?.title, session: P.from_session?.id ? String(P.from_session.id) : undefined }, msg, ch.id, ac.signal, undefined, "handoff").finally(() => clearTimeout(timer));
     return r.state === "completed" ? done(r.text, "visible") : fail(-32000, r.text);
   };
   if (op === "read") {
@@ -1293,7 +1293,8 @@ async function teamServe(cid: string, from: A2APeer, depth: number, P: any, sink
     if (P.wake === true) return visibleTurn();
     await mm.createPost({
       channel_id: ch.id, root_id: "", message: `📨 **Ghi chú từ @${from.username}**${P.from_session?.title ? ` · phiên "${P.from_session.title}"` : ""}\n${msg}`,
-      props: { flygo_agent_owner: proj.owner_id, flygo_team_from: { bot_id: from.id, username: from.username, session: String(P.from_session?.id ?? "") } },
+      props: { flygo_agent_owner: proj.owner_id, flygo_team_from: { bot_id: from.id, username: from.username, session: String(P.from_session?.id ?? "") },
+        flygo_agent_link: agentLinkOf("message", "in", { session: P.from_session?.id, name: P.from_session?.title, bot: from.username, bot_id: from.id }, { session: ch.id, name: sessTitle(ch), bot: BOT_NAME, bot_id: BOT_ID }) },
     });
     return done(`Đã gửi ghi chú vào phiên "${sessTitle(ch)}" của @${BOT_NAME} (không chạy lượt mới; phiên đó thấy ở lượt sau).`);
   }
@@ -1438,8 +1439,8 @@ const bridgeKey = (sess: string) => getSession(sess) ? sess : /^\w{26}$/.test(se
 
 /** Cầu nối giữa hai phiên: hiện tin nhờ trong kênh của phiên `sess`, chạy một lượt ở đó (ai mở phiên cũng thấy),
  *  trả câu trả lời cuối cho bên nhờ. from.id = BOT_ID khi phiên nhờ là phiên khác của chính bot này. */
-async function bridgeTurn(from: { id: string; username: string; owner_id: string; title?: string; root?: string }, text: string, sess: string,
-  signal: AbortSignal, onWorking?: () => void): Promise<{ state: string; text: string }> {
+async function bridgeTurn(from: { id: string; username: string; owner_id: string; title?: string; root?: string; session?: string }, text: string, sess: string,
+  signal: AbortSignal, onWorking?: () => void, kind: "handoff" | "message" = "message"): Promise<{ state: string; text: string }> {
   const self = from.id === BOT_ID;
   const key = bridgeKey(sess);
   const s = key ? getSession(key) : null;
@@ -1452,9 +1453,13 @@ async function bridgeTurn(from: { id: string; username: string; owner_id: string
   if (cur) return { state: "rejected", text: `Vòng lặp: phiên này của @${BOT_NAME} đang chờ ${self ? "phiên nhờ" : `@${from.username}`} trả lời. Trả lời nó trước, đừng nhờ ngược lại.` };
   const who = self ? `Phiên "${from.title || "khác"}"` : `@${from.username}${from.title ? ` (phiên "${from.title}")` : ""}`;
   const threadRoot = key.startsWith("ch:") ? "" : key;
+  const tch = await mm.channel(channelId).catch(() => null as any);
+  const src = { session: from.session, name: from.title, bot: from.username, bot_id: from.id };
+  const dst = { session: channelId, name: tch ? sessTitle(tch) : "", bot: BOT_NAME, bot_id: BOT_ID };
   const shown = await mm.createPost({
     channel_id: channelId, root_id: threadRoot, message: `🤝 **${who} nhờ qua A2A:**\n${text}`,
-    props: { ...(threadRoot ? { flygo_reply: "thread" } : {}), flygo_agent_owner: from.owner_id, flygo_a2a_from: { bot_id: from.id, username: from.username, ...(from.title ? { title: from.title } : {}) } },
+    props: { ...(threadRoot ? { flygo_reply: "thread" } : {}), flygo_agent_owner: from.owner_id, flygo_a2a_from: { bot_id: from.id, username: from.username, ...(from.title ? { title: from.title } : {}) },
+      flygo_agent_link: agentLinkOf(kind, "in", src, dst) },
   }).catch(() => null);
   const post = {
     id: shown?.id ?? crypto.randomUUID(), channel_id: channelId, root_id: threadRoot, user_id: from.owner_id, create_at: Date.now(),
@@ -1463,8 +1468,9 @@ async function bridgeTurn(from: { id: string; username: string; owner_id: string
   } as any as Post;
   onWorking?.();
   // self: phiên nhờ đang giữ một chỗ chạy trong lúc chờ -> lượt này không xếp hàng chỗ chạy (tránh kẹt khi đủ MAX_PARALLEL).
-  const out: { text?: string; error?: string; onStart?: (ac: AbortController) => void; bridged?: boolean; noSlot?: boolean } = {
+  const out: { text?: string; error?: string; onStart?: (ac: AbortController) => void; bridged?: boolean; noSlot?: boolean; link?: AgentLink } = {
     bridged: true, noSlot: self, onStart: (ac) => signal.addEventListener("abort", () => ac.abort(), { once: true }),
+    link: agentLinkOf("reply", "out", dst, src),
   };
   return new Promise((resolve) => enqueue(key, () => runTurn(post, key, post.message, out).catch((e) => { out.error = String(e?.message ?? e); }).then(() => {
     if (out.text !== undefined) resolve({ state: "completed", text: out.text || "(không có câu trả lời)" });
@@ -3211,8 +3217,16 @@ async function agentTool(op: string, a: any): Promise<string> {
   if (hits.length > 1) return `"${a.target}" khớp ${hits.length} agent, chọn theo id:\n${hits.map((x) => `- ${x.id} · ${x.label}`).join("\n")}`;
   const t = hits[0];
   agentSends.set(a.key, n);
+  // Chip "tới phiên / agent nào" trên bước của thẻ (step.agent_link), trả lời: chiều ngược lại.
+  const hereCh = await mm.channel(ctx.channelId).catch(() => null as any);
+  const fromEnd = { session: ctx.channelId, name: hereCh ? sessTitle(hereCh) : ctx.chat, bot: BOT_NAME, bot_id: BOT_ID };
+  const tCh = t.kind === "own" || t.kind === "mate-session" || t.kind === "tag-session" ? await mm.channel(t.id).catch(() => null as any) : null;
+  const rem = t.kind === "remote" ? remotes.find((x) => x.id === t.id) : null;
+  const toEnd = rem ? { agent: rem.name, session: rem.channel_id, name: rem.chat }
+    : { session: tCh ? t.id : undefined, name: tCh ? sessTitle(tCh) : undefined, bot: t.kind === "own" ? BOT_NAME : t.bot, bot_id: t.kind === "own" ? BOT_ID : undefined };
+  const agent_link = agentLinkOf(t.kind === "tag-bot" || t.kind === "tag-session" || t.kind === "remote" ? "message" : "handoff", "out", fromEnd, toEnd);
   if (agentSends.size > 500) for (const k of [...agentSends.keys()].slice(0, 250)) agentSends.delete(k);
-  const base = { key: a.key, message };
+  const base = { key: a.key, message, agent_link };
   switch (t.kind) {
     case "own": case "mate-session": {
       const here = await mm.channel(ctx.channelId).catch(() => null as any);
@@ -3261,7 +3275,7 @@ async function remoteTool(op: string, a: any): Promise<string> {
   if (!pick.length) return agents.length ? `Không thấy agent ngoài "${a.agent ?? ""}". Đang nối:\n${agents.map((x) => `- "${x.name}" (chat "${x.chat}", id ${x.id})`).join("\n")}` : "Sếp chưa nối agent ngoài nào.";
   if (pick.length > 1) return `Có ${pick.length} agent khớp "${a.agent}", chọn theo id:\n${pick.map((x) => `- "${x.name}" (chat "${x.chat}", id ${x.id})`).join("\n")}`;
   const target = pick[0];
-  ctx.card.step({ id: `remote-${target.id}-${Date.now()}`, kind: "message", title: `Nhắn agent ngoài "${target.name}": ${oneLine(message, 70)}`, status: "done", detail: message });
+  ctx.card.step({ id: `remote-${target.id}-${Date.now()}`, kind: "message", title: `Nhắn agent ngoài "${target.name}": ${oneLine(message, 70)}`, status: "done", detail: message, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   const r = await call("POST", "/bridge/deliver", { token_id: target.id, message, channel_id: ctx.channelId });
   return `Đã gửi vào hộp thư của agent ngoài "${r.agent ?? target.name}" (chat "${target.chat}")${r.listening ? ", agent đang nghe" : ", agent chưa mở hộp thư: nó sẽ nhận khi gọi inbox / read lần tới"}. Câu trả lời sẽ vào chat này như một tin mới; báo Sếp là đã gửi, đừng chờ trong lượt này.`;
 }
@@ -3384,7 +3398,7 @@ async function refTool(op: string, a: any): Promise<string> {
   } catch (e: any) { return `Lỗi: ${e?.message ?? e}`; }
 }
 
-async function runTurn(post: Post, root: string, rawText: string, out?: { text?: string; error?: string; onStart?: (ac: AbortController) => void; bridged?: boolean; noSlot?: boolean }) {
+async function runTurn(post: Post, root: string, rawText: string, out?: { text?: string; error?: string; onStart?: (ac: AbortController) => void; bridged?: boolean; noSlot?: boolean; link?: AgentLink }) {
   markSeen(post.id); enqueuedPosts.delete(post.id);
   if (await isClosed(post)) return; // đóng trong lúc đang xếp hàng
   const threadRoot = threadRootOf(post);
@@ -3536,6 +3550,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const reply = new InlineReply(mm, where, runId, engineName, ownerRef, ch.type !== "D");
   const card = new RunCard(mm, where, runId, engineName, title, post.user_id, () => reply.touch());
   reply.card = card;
+  if (out?.link) reply.extra = { flygo_agent_link: out.link }; // trả lời một agent khác: app hiện chip "trả lời → phiên / bot"
   card.config = runConfig;
   // Tiến độ lên TeamWork: mọi bước của thẻ (cùng tiêu đề / trạng thái) + chữ đang viết; địa chỉ suy từ máy chủ trong cấu hình.
   const twp = tw?.push ? new TwProgress({ base: twBase(cfg.serverUrl), run: tw.run, botToken: cfg.botToken, serverUrl: cfg.serverUrl, log }) : null;
