@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
+import 'draw_app.dart';
 import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
 
@@ -33,6 +34,9 @@ void registerDrawPageType() {
     ),
     view: (context, ctx) => DrawView(ctx),
     stageThemed: true,
+    // Mỗi trang là một app (mockup 21/11): thẻ lật cho người xem, danh sách tên và nút bốc cho chủ trang.
+    panel: (context, ctx) => DrawPanel(ctx),
+    controls: (context, ctx) => DrawControls(ctx),
   ));
 }
 

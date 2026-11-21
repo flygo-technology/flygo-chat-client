@@ -5,6 +5,7 @@ import '../../bang_tin/discussion_page.dart' show DiscussionLoader, kStances;
 import '../page_types.dart';
 import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
+import 'discuss_app.dart';
 
 // Loại trang "Thảo luận" (máy chủ: relay/meet-pt-discuss.mjs, dữ liệu là bài riêng tư của Bảng tin; Sếp, 21/11/2026).
 // Điện thoại: màn hình Thảo luận của Bảng tin (thẻ bài, cảm xúc 👍 / 👎, trả lời 2 tầng, cập nhật tức thì).
@@ -30,6 +31,9 @@ void registerDiscussPageType() {
     ),
     view: (context, ctx) => DiscussView(ctx),
     stageThemed: true,
+    // Mỗi trang là một app (mockup 21/11): ý kiến, trả lời, cảm xúc ngay trong trang; chủ trang cài đặt tại chỗ.
+    panel: (context, ctx) => DiscussPanel(ctx),
+    controls: (context, ctx) => DiscussControls(ctx),
   ));
 }
 
