@@ -130,6 +130,20 @@ void main() {
     await t.pumpWidget(const SizedBox());
   });
 
+  testWidgets('Ghi chú trong cuộc họp = bảng của cuộc họp: xem nhanh + nút mở trong Ghi chú; sân khấu như cũ', (t) async {
+    final todoView = {'mode': 'todo', 'board_id': 'B1', 'meeting': 'abc-defg-hij', 'offline': false, 'title': 'Giao ban tòa B', 'columns': <Map>[],
+      'notes': [{'id': 'n1', 'text': 'Ray — giao 25/11', 'color': 'green', 'col': null, 'by_name': 'Lan', 'votes': 2, 'voted': false, 'mine': false}], 'can_manage': false};
+    await _pump(t, NotesView(_ctx('notes', todoView)), const Size(390, 760));
+    expect(find.text('Mở bảng trong Ghi chú'), findsOneWidget);
+    expect(find.text('Ray — giao 25/11'), findsOneWidget);
+    expect(find.text('Thêm ghi chú'), findsNothing);
+    await _shot(t, 'notes-meeting-phone');
+    await _pump(t, NotesView(_ctx('notes', todoView, stage: true)), const Size(1280, 720));
+    expect(find.text('Giao ban tòa B'), findsOneWidget);
+    await _shot(t, 'notes-meeting-stage');
+    await t.pumpWidget(const SizedBox());
+  });
+
   test('đăng ký đủ loại trang mới', () {
     for (final t in ['timer', 'draw', 'notes', 'poll']) {
       expect(pageTypeOf(t)?.label, isNotEmpty, reason: t);

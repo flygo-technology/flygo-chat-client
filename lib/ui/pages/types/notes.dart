@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../api/mini_apps.dart';
+import '../../todo/todo_page.dart' show openTodo, kTodoScreen;
+
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
 import 'builtin.dart' show pageField;
@@ -31,7 +34,7 @@ void registerNotesPageType() {
       backgroundColor: const Color(0xFF2D2E31),
       showDragHandle: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => const NotesComposer(),
+      builder: (_) => NotesComposer(meeting: call.pagesMeeting),
     ),
     view: (context, ctx) => NotesView(ctx),
   ));
@@ -39,7 +42,9 @@ void registerNotesPageType() {
 
 /// Tạo bảng ghi chú (dùng cả cho app Ghi chú).
 class NotesComposer extends StatefulWidget {
-  const NotesComposer({super.key});
+  /// Mã cuộc họp: trang là bảng của cuộc họp trong app Ghi chú (mọi người đang họp cùng ghi).
+  final String? meeting;
+  const NotesComposer({super.key, this.meeting});
   @override
   State<NotesComposer> createState() => _NotesComposerState();
 }
@@ -63,18 +68,23 @@ class _NotesComposerState extends State<NotesComposer> {
           padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text(tr('Bảng ghi chú mới'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+              Text(widget.meeting != null ? tr('Bảng ghi chú của cuộc họp') : tr('Bảng ghi chú mới'), style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+              if (widget.meeting != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(tr('Mọi người trong cuộc họp cùng ghi trên bảng này trong app Ghi chú; họp xong bảng vẫn còn ở đó.'), style: const TextStyle(color: _sub, fontSize: 12.5)),
+                ),
               const SizedBox(height: 12),
               TextField(controller: _title, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Tên bảng'))),
               const SizedBox(height: 10),
               TextField(controller: _cols, minLines: 2, maxLines: 6, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Các cột (mỗi dòng một cột)'))),
-              SwitchListTile(
+              if (widget.meeting == null) SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(tr('Ẩn tên người viết'), style: const TextStyle(color: Colors.white)),
                 value: _anon,
                 onChanged: (v) => setState(() => _anon = v),
               ),
-              Row(children: [
+              if (widget.meeting == null) Row(children: [
                 Expanded(child: Text(tr('Số 👍 mỗi người'), style: const TextStyle(color: Colors.white))),
                 DropdownButton<int>(
                   value: _votes,
@@ -93,6 +103,7 @@ class _NotesComposerState extends State<NotesComposer> {
                     'columns': [for (final l in _cols.text.split('\n')) if (l.trim().isNotEmpty) l.trim()],
                     'anon': _anon,
                     'votes_per_person': _votes,
+                    if (widget.meeting != null) 'meeting': widget.meeting,
                   }));
                 },
                 child: Text(tr('Tạo bảng')),
@@ -188,7 +199,7 @@ class _NotesViewState extends State<NotesView> {
     return _act('edit', {'id': note['id'], 'text': r.$1, 'color': r.$2});
   }
 
-  Widget _note(Map<String, dynamic> n, {bool big = false}) {
+  Widget _note(Map<String, dynamic> n, {bool big = false, bool readOnly = false}) {
     final mine = n['mine'] == true;
     final card = Container(
       width: big ? null : double.infinity,
@@ -210,7 +221,7 @@ class _NotesViewState extends State<NotesView> {
               style: TextStyle(color: const Color(0xFF555555), fontSize: big ? 16 : 11),
             ),
           ),
-          if (big)
+          if (big || readOnly)
             Text('👍 ${n['votes']}', style: const TextStyle(color: Color(0xFF222222), fontSize: 20, fontWeight: FontWeight.w700))
           else
             InkWell(
@@ -225,7 +236,7 @@ class _NotesViewState extends State<NotesView> {
         ]),
       ]),
     );
-    if (big) return card;
+    if (big || readOnly) return card;
     final tappable = GestureDetector(onTap: (mine || manage) && canWrite ? () => _editNote(note: n) : null, child: card);
     if (!canWrite) return tappable;
     return LongPressDraggable<String>(
@@ -351,9 +362,44 @@ class _NotesViewState extends State<NotesView> {
     );
   }
 
+  /// Mở bảng của cuộc họp trong app Ghi chú (sửa, thêm, 👍 ở đó).
+  Future<void> _openInTodo() async {
+    final app = MiniApps.cached.where((a) => a.nativeScreen == kTodoScreen).firstOrNull;
+    if (app == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(tr('Chưa mở được app Ghi chú trên máy này'))));
+      return;
+    }
+    await openTodo(context, app, boardId: '${v['board_id']}');
+  }
+
+  /// Trang là bảng của cuộc họp trong app Ghi chú: xem nhanh ở đây, sửa trong app Ghi chú.
+  Widget _todoViewer() {
+    final open = FilledButton.icon(onPressed: _openInTodo, icon: const Icon(Icons.open_in_new_rounded, size: 18), label: Text(tr('Mở bảng trong Ghi chú')));
+    final notes = [for (final n in (v['notes'] as List? ?? const [])) (n as Map).cast<String, dynamic>()];
+    final groups = cols.isEmpty ? [(id: '', name: '')] : [for (final c in cols) (id: '${c['id']}', name: '${c['name']}'), (id: '', name: tr('Chưa xếp cột'))];
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('${v['title'] ?? ctx.page.title}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
+        if (v['offline'] == true) const Tooltip(message: 'Đang mất kết nối với Ghi chú', child: Icon(Icons.cloud_off_rounded, color: _sub)),
+      ]),
+      Text(tr('Bảng của cuộc họp · {0} ghi chú · mọi người trong cuộc họp cùng ghi', [notes.length]), style: const TextStyle(color: _sub, fontSize: 12.5)),
+      const SizedBox(height: 12),
+      Align(alignment: Alignment.centerLeft, child: open),
+      const SizedBox(height: 12),
+      if (notes.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Text(tr('Chưa có ghi chú. Bấm "Mở bảng trong Ghi chú" để thêm.'), style: const TextStyle(color: _sub))),
+      for (final g in groups) ...[
+        if (g.name.isNotEmpty && notes.any((n) => (n['col'] ?? '') == g.id || (g.id.isEmpty && !cols.any((c) => c['id'] == n['col']))))
+          Padding(padding: const EdgeInsets.only(top: 8, bottom: 6), child: Text(g.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+        for (final n in notes.where((n) => cols.isEmpty || (g.id.isEmpty ? !cols.any((c) => c['id'] == n['col']) : n['col'] == g.id)))
+          Padding(padding: const EdgeInsets.only(bottom: 8), child: _note(n, big: false, readOnly: true)),
+      ],
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (ctx.onStage) return _stage();
+    if (v['mode'] == 'todo') return _todoViewer();
     final left = v['votes_left'];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(

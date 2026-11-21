@@ -23,7 +23,7 @@ import 'store.dart';
 const kTodoScreen = 'todo';
 
 /// Mở Todo (từ ô trong mục Chính, hoặc từ tin nhắc của bot với [noteId]).
-Future<void> openTodo(BuildContext context, MiniApp app, {String? noteId}) async {
+Future<void> openTodo(BuildContext context, MiniApp app, {String? noteId, String? boardId}) async {
   final state = context.read<AppState>();
   final host = AppHost.of(context);
   final messenger = ScaffoldMessenger.of(context);
@@ -32,24 +32,26 @@ Future<void> openTodo(BuildContext context, MiniApp app, {String? noteId}) async
     if (id == null) throw StateError(tr('Máy chủ này chưa có Flygo ID'));
     final api = TodoApi(base: app.baseUrl, id: id);
     final store = TodoStore(api, cacheKey: '${serverKey}_${state.me?.id ?? 'me'}'.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_'));
-    await host.open(key: app.id, title: app.name, deep: noteId != null, builder: (_) => TodoHome(store: store, title: app.name, openNoteId: noteId));
+    await host.open(key: app.id, title: app.name, deep: noteId != null || boardId != null, builder: (_) => TodoHome(store: store, title: app.name, openNoteId: noteId, openBoardId: boardId));
   } catch (e) {
     messenger.showSnackBar(toast(Text('$e')));
   }
 }
 
 class TodoHome extends StatefulWidget {
-  const TodoHome({super.key, required this.store, this.title = 'Ghi chú', this.openNoteId, this.ownsStore = true});
+  const TodoHome({super.key, required this.store, this.title = 'Ghi chú', this.openNoteId, this.openBoardId, this.ownsStore = true});
   final TodoStore store;
   final String title;
   final String? openNoteId;
+  /// Mở thẳng một bảng (vd bảng của cuộc họp, từ trang Ghi chú trong cuộc họp).
+  final String? openBoardId;
   final bool ownsStore;
   @override
   State<TodoHome> createState() => _TodoHomeState();
 }
 
 class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
-  String _section = 'notes';
+  late String _section = widget.openBoardId != null ? 'board:${widget.openBoardId}' : 'notes';
   /// Bảng có cột: đang lọc theo cột nào (null = tất cả).
   String? _colFilter;
   final _q = TextEditingController();
@@ -308,8 +310,8 @@ class _TodoHomeState extends State<TodoHome> with WidgetsBindingObserver {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(children: [
-                  if (_colName(n) case final c?) _pill(Icons.view_column_outlined, c, fg),
-                  const Spacer(),
+                  if (_colName(n) case final c?) Expanded(child: Align(alignment: Alignment.centerLeft, child: _pill(Icons.view_column_outlined, c, fg))) else const Spacer(),
+                  const SizedBox(width: 6),
                   InkWell(
                     key: ValueKey('vote-${n.id}'),
                     borderRadius: BorderRadius.circular(14),
