@@ -3135,7 +3135,9 @@ async function remoteTool(op: string, a: any): Promise<string> {
   if (!message) return "Thiếu message.";
   const hits = !want && agents.length === 1 ? agents
     : agents.filter((x) => x.id.toLowerCase() === want || x.name.toLowerCase() === want || String(x.chat).toLowerCase() === want);
-  const pick = hits.length ? hits : agents.filter((x) => `${x.name} ${x.chat}`.toLowerCase().includes(want));
+  // Không khớp hẳn: mọi từ Sếp gọi (vd. "agent homelab") đều có trong tên / tên chat của agent.
+  const words = want.split(/\s+/).filter(Boolean);
+  const pick = hits.length ? hits : agents.filter((x) => { const hay = `agent ${x.name} ${x.chat}`.toLowerCase(); return words.length > 0 && words.every((w) => hay.includes(w)); });
   if (!pick.length) return agents.length ? `Không thấy agent ngoài "${a.agent ?? ""}". Đang nối:\n${agents.map((x) => `- "${x.name}" (chat "${x.chat}", id ${x.id})`).join("\n")}` : "Sếp chưa nối agent ngoài nào.";
   if (pick.length > 1) return `Có ${pick.length} agent khớp "${a.agent}", chọn theo id:\n${pick.map((x) => `- "${x.name}" (chat "${x.chat}", id ${x.id})`).join("\n")}`;
   const target = pick[0];
