@@ -8,7 +8,8 @@ import 'package:video_player/video_player.dart';
 import '../../../state/app_state.dart';
 import '../page_media.dart';
 import '../pages_api.dart' show pageAssetUrl;
-import '../system_pages.dart' show pageBackground, pageBackgrounds;
+import '../stage_frame.dart' show StageBackgroundPicker, StageTheme;
+import '../system_pages.dart' show pageBackground;
 
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
@@ -89,6 +90,7 @@ void registerBuiltinPageTypes() {
     create: (context, call) async => PageDraft(title: tr('Chào mừng'), content: {'heading': call.meetingInfo?.title ?? tr('Chào mừng'), 'subtitle': ''}),
     view: (context, ctx) => _Welcome(ctx),
     editor: (context, ctx) => _WelcomeEditor(ctx),
+    stageBleed: true,
   ));
   registerPageType(PageTypeSpec(
     type: 'video',
@@ -313,34 +315,15 @@ class _WelcomeEditor extends StatelessWidget {
       PageContentField(ctx, 'subtitle', tr('Mô tả'), maxLines: 3),
       Row(children: [
         SizedBox(width: 110, child: PageContentField(ctx, 'icon', tr('Biểu tượng'))),
-        const SizedBox(width: 8),
-        Expanded(child: PageContentField(ctx, 'bg_image', tr('Ảnh nền (tuỳ chọn)'), key: ValueKey('bg:${c['bg_image']}'))),
-        IconButton(
-          tooltip: tr('Chọn ảnh nền'),
-          icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
-          onPressed: () async {
-            final u = await pickPageMedia(context, ctx.call, image: true);
-            if (u != null && context.mounted) await _set(context, {'bg_image': u});
-          },
-        ),
       ]),
-      Text(tr('Màu nền'), style: const TextStyle(color: _sub, fontSize: 12.5)),
-      const SizedBox(height: 6),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        for (final e in pageBackgrounds.entries)
-          InkWell(
-            onTap: () => _set(context, {'bg': e.key}),
-            child: Container(
-              width: 44,
-              height: 30,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: e.value),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: c['bg'] == e.key ? Colors.white : Colors.white24, width: c['bg'] == e.key ? 2 : 1),
-              ),
-            ),
-          ),
-      ]),
+      StageBackgroundPicker(
+        call: ctx.call,
+        theme: StageTheme.of(ctx.call.roomStage?['theme_cfg'] as Map?),
+        value: '${c['bg'] ?? ''}',
+        image: '${c['bg_image'] ?? ''}',
+        onBg: (k) => _set(context, {'bg': k, 'bg_image': ''}),
+        onImage: (u) => _set(context, {'bg_image': u}),
+      ),
       const SizedBox(height: 6),
       sw('show_online', tr('Hiện danh sách người đã vào')),
       sw('countdown', tr('Đếm ngược'), sub: tr('Tới giờ bắt đầu cuộc họp')),

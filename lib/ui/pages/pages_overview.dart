@@ -11,6 +11,7 @@ import '../common.dart' show Avatar;
 import '../meet/meet_home.dart' show meetToast;
 import 'page_thumb.dart';
 import 'page_types.dart';
+import 'stage_frame.dart' show showStageThemeEditor;
 import 'system_pages.dart';
 import 'pages_api.dart';
 import 'pages_sheet.dart' show fmtLeft;
@@ -195,7 +196,20 @@ class _PagesOverviewState extends State<PagesOverview> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Padding(
           padding: EdgeInsets.fromLTRB(pad, 0, pad, 6),
-          child: Text(tr('Hệ thống'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+          child: Row(children: [
+            Text(tr('Hệ thống'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+            const Spacer(),
+            // Giao diện sân khấu: màu nhấn, tối / sáng, nền chung của mọi trang (chủ trì; quản trị đặt mặc định công ty).
+            if (call.canModerate)
+              Flexible(
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact, foregroundColor: const Color(0xFF8AB4F8)),
+                  onPressed: () => showStageThemeEditor(context, call, canCompany: _sysAdmin),
+                  icon: const Icon(Icons.palette_outlined, size: 16),
+                  label: Text(tr('Giao diện sân khấu'), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+              ),
+          ]),
         ),
         SizedBox(
           height: wide ? 118 : 92,

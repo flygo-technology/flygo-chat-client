@@ -9,6 +9,7 @@ import 'page_types.dart';
 import 'pages_api.dart';
 import '../meet/meet_present.dart' show pickPresentPdf;
 import 'pages_overview.dart';
+import 'stage_frame.dart';
 import 'system_pages.dart';
 import 'types/builtin.dart' show pageField;
 
@@ -127,54 +128,71 @@ class _StagePageViewState extends State<StagePageView> {
           id: id,
           stageKey: key.isEmpty ? null : key,
           onStage: true,
-          // Khung sân khấu quá hẹp (cửa sổ nhỏ, cột bên phải đang mở): dựng ở 360 px rồi thu nhỏ cho vừa, không tràn.
-          builder: (context, ctx, spec) => LayoutBuilder(builder: (context, box) {
-            final view = spec == null ? unknownPageView(ctx) : spec.view(context, ctx);
-            if (box.maxWidth >= 360 || !box.maxHeight.isFinite || box.maxWidth <= 0) return view;
-            return FittedBox(fit: BoxFit.contain, child: SizedBox(width: 360, height: 360 * box.maxHeight / box.maxWidth, child: view));
-          }),
+          // Khung sân khấu chung (stage_frame.dart): thanh đầu loại trang / người trình bày / nút điều khiển, thanh cuối giờ.
+          builder: (context, ctx, spec) => _framed(context, ctx, spec, st, shown, control, left),
         ),
       ),
-      // Một dải ở góc phải: ai đang chiếu, thời gian còn lại, nút điều khiển (người trình chiếu / chủ trì); không đè lên nội dung trang.
-      if (shown.isNotEmpty && !widget.compact)
-        Positioned(
-          right: 8,
-          top: 8,
-          // Khung hẹp: chỉ nút điều khiển (chữ "Đang chiếu…" che mất tiêu đề trang).
-          child: Container(
-            padding: const EdgeInsets.only(left: 12),
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(20)),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (!narrow || !control) ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: narrow ? 160 : 260),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: control ? 0 : 6).copyWith(right: control ? 4 : 12),
-                  child: Text(
-                    [tr('Đang chiếu: {0}', ['${st['presenter_name'] ?? ''}']), if (left > 0) tr('còn {0}', [fmtLeft(left)]), if (st['paused'] == true) tr('tạm dừng')].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-              ),
-              if (control) ...[
-                _btn(Icons.skip_previous_rounded, () => call.stageAct('prev')),
-                if (st['mode'] == 'auto')
-                  _btn(st['paused'] == true ? Icons.play_arrow_rounded : Icons.pause_rounded, () => call.stageAct(st['paused'] == true ? 'resume' : 'pause')),
-                _btn(Icons.skip_next_rounded, () => call.stageAct('next')),
-                _btn(Icons.stop_rounded, () => call.stageAct('end')),
-                // Kết thúc lượt của mình (chủ trì: của người đang trình chiếu); tới lượt người kế tiếp.
-                _btn(Icons.logout_rounded, () => call.stageAct('release')),
-              ],
-            ]),
-          ),
-        ),
     ]);
   }
 
-  Widget _btn(IconData i, Future<String?> Function() f) => IconButton(
+  /// Loại trang có người xem trả lời trên app: thanh cuối nhắc cách tham gia.
+  static const _interactive = {'poll', 'qa', 'notes', 'draw'};
+
+  Widget _framed(BuildContext context, PageCtx ctx, PageTypeSpec? spec, Map st, String shown, bool control, int left) {
+    final call = widget.call;
+    final cfg = (st['theme_cfg'] as Map?) ?? const {};
+    final t = StageTheme.of(cfg);
+    final bg = '${cfg['bg'] ?? ''}', img = '${cfg['bg_image'] ?? ''}';
+    var view = spec == null ? unknownPageView(ctx) : spec.view(context, ctx);
+    // Trang chưa theo bảng màu sân khấu (chữ trắng): ở chế độ Sáng đặt trong một ô tối cho đọc được.
+    if (t.light && !(spec?.stageThemed ?? false) && !(spec?.stageBleed ?? false)) {
+      view = Container(
+        decoration: BoxDecoration(color: const Color(0xFF171B22), borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: view,
+      );
+    }
+    final code = call.meetingInfo?.code ?? '';
+    final presenter = '${st['presenter_name'] ?? ''}';
+    return StageFrame(
+      theme: t,
+      bleed: spec?.stageBleed ?? false,
+      background: bg.isEmpty && img.isEmpty ? null : stageBackground(bg, img, t),
+      headerLeading: [
+        // Nhãn ngắn: "Bình chọn / Trắc nghiệm" -> "Bình chọn".
+        StageTypeChip(icon: spec?.icon ?? Icons.article_outlined, label: (spec?.label ?? tr('Trang')).split(RegExp(r' [/&] ')).first, theme: t),
+        Flexible(child: Text(ctx.page.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.sub, fontSize: 15))),
+      ],
+      headerTrailing: [
+        if (shown.isNotEmpty && presenter.isNotEmpty)
+          ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: StagePresenterChip(name: presenter, note: st['paused'] == true ? tr('tạm dừng') : tr('đang trình bày'), theme: t)),
+        if (control && !widget.compact)
+          Container(
+            height: 40,
+            decoration: BoxDecoration(color: t.surface2, borderRadius: BorderRadius.circular(999)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              _btn(Icons.skip_previous_rounded, () => call.stageAct('prev'), t.text),
+              if (st['mode'] == 'auto')
+                _btn(st['paused'] == true ? Icons.play_arrow_rounded : Icons.pause_rounded, () => call.stageAct(st['paused'] == true ? 'resume' : 'pause'), t.text),
+              _btn(Icons.skip_next_rounded, () => call.stageAct('next'), t.text),
+              _btn(Icons.stop_rounded, () => call.stageAct('end'), t.text),
+              // Kết thúc lượt của mình (chủ trì: của người đang trình chiếu); tới lượt người kế tiếp.
+              _btn(Icons.logout_rounded, () => call.stageAct('release'), t.text),
+            ]),
+          ),
+      ],
+      footer: spec?.stageFooter?.call(context, ctx) ??
+          [
+            if (_interactive.contains(ctx.page.type) && code.isNotEmpty) StagePill(tr('Trả lời trên app Flygo · mã {0}', [code]), theme: t, accent: true),
+            if (left > 0) ...[const Spacer(), StagePill(fmtLeft(left), icon: Icons.timer_outlined, theme: t)],
+          ],
+      child: view,
+    );
+  }
+
+  Widget _btn(IconData i, Future<String?> Function() f, [Color? color]) => IconButton(
         visualDensity: VisualDensity.compact,
-        icon: Icon(i, color: Colors.white, size: 20),
+        icon: Icon(i, color: color ?? Colors.white, size: 20),
         onPressed: () async {
           final e = await f();
           if (e != null && mounted) meetToast(context, e);
