@@ -70,47 +70,7 @@ class _StagePageViewState extends State<StagePageView> {
     final id = shown.isNotEmpty ? shown : '${st['idle_page'] ?? ''}';
     final key = shown.isNotEmpty ? '${st['key'] ?? ''}' : '${st['idle_key'] ?? ''}';
     if (id.isEmpty) return const SizedBox.shrink();
-    if (id == 'sys:welcome' || id == 'sys:program') {
-      final edit = widget.compact || !call.canModerate ? null : sysPageEditor(context, call, id);
-      final spec = pageTypeOf('welcome');
-      return Stack(children: [
-        Positioned.fill(
-          child: id == 'sys:program'
-              ? ProgramView(call: call, cfg: (st['program_cfg'] as Map?) ?? const {}, controls: !widget.compact)
-              : spec == null
-                  ? const SizedBox.shrink()
-                  : spec.view(context, sysWelcomeCtx(call, (st['welcome_cfg'] as Map?) ?? const {})),
-        ),
-        if (edit != null)
-          Positioned(
-            right: 12,
-            top: 12,
-            child: IconButton.filledTonal(tooltip: tr('Soạn trang này'), onPressed: edit, icon: const Icon(Icons.tune_rounded)),
-          ),
-      ]);
-    }
-    if (id == 'sys:handover') {
-      final mine = st['presenter'] == call.myId();
-      return Stack(children: [
-        Positioned.fill(child: HandoverView(stage: st)),
-        // Người được mời trình bày: bắt đầu ngay (trang đầu của mình); chủ trì chỉnh màn hình chờ.
-        if (!widget.compact && (mine || call.canModerate))
-          Positioned(
-            right: 12,
-            bottom: 12,
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (call.canModerate)
-                IconButton.filledTonal(
-                  tooltip: tr('Chỉnh màn hình chờ lượt'),
-                  onPressed: () => showHandoverEditor(context, call),
-                  icon: const Icon(Icons.tune_rounded),
-                ),
-              const SizedBox(width: 8),
-              if (mine) FilledButton.icon(onPressed: () => call.stageAct('next'), icon: const Icon(Icons.play_arrow_rounded), label: Text(tr('Bắt đầu trình bày'))),
-            ]),
-          ),
-      ]);
-    }
+    if (sysStagePages.contains(id)) return _sysFramed(context, id, st);
     final mine = st['presenter'] == call.myId();
     final control = shown.isNotEmpty && (mine || call.canModerate);
     final ends = (st['ends_at'] as num?)?.toInt() ?? 0;
@@ -133,6 +93,56 @@ class _StagePageViewState extends State<StagePageView> {
         ),
       ),
     ]);
+  }
+
+  /// Trang hệ thống (Chào mừng, Nội dung, Chờ lượt) trong khung chung: thanh đầu chip loại trang + nút soạn (chủ trì),
+  /// thanh cuối cách vào họp / chuyển phần / bắt đầu trình bày.
+  Widget _sysFramed(BuildContext context, String id, Map st) {
+    final call = widget.call;
+    final cfg = (st['theme_cfg'] as Map?) ?? const {};
+    final t = StageTheme.of(cfg);
+    final sys = sysPages.firstWhere((p) => p.id == id);
+    final edit = widget.compact || !call.canModerate ? null : sysPageEditor(context, call, id);
+    final code = call.meetingInfo?.code ?? '';
+    final mine = st['presenter'] == call.myId();
+    final Widget child;
+    List<Widget> footer = const [];
+    var bleed = true;
+    switch (id) {
+      case 'sys:welcome':
+        final spec = pageTypeOf('welcome');
+        child = spec == null ? const SizedBox.shrink() : spec.view(context, sysWelcomeCtx(call, (st['welcome_cfg'] as Map?) ?? const {}));
+        if (code.isNotEmpty) footer = [StagePill(tr('Vào họp: mở app Flygo hoặc quét mã trên TV · mã {0}', [code]), theme: t, accent: true)];
+      case 'sys:program':
+        final pc = (st['program_cfg'] as Map?) ?? const {};
+        child = ProgramView(call: call, cfg: pc, controls: !widget.compact);
+        bleed = false;
+        if (!widget.compact) footer = programFooter(context, call, pc, t);
+      default:
+        child = HandoverView(stage: st);
+        footer = [
+          if (!widget.compact && mine) ...[
+            const Spacer(),
+            FilledButton.icon(onPressed: () => call.stageAct('next'), icon: const Icon(Icons.play_arrow_rounded), label: Text(tr('Bắt đầu trình bày'))),
+          ],
+        ];
+    }
+    final bg = '${cfg['bg'] ?? ''}', img = '${cfg['bg_image'] ?? ''}';
+    return StageFrame(
+      theme: t,
+      bleed: bleed,
+      background: bleed || (bg.isEmpty && img.isEmpty) ? null : stageBackground(bg, img, t),
+      headerLeading: [
+        StageTypeChip(icon: sys.icon, label: sys.label, theme: t),
+        Flexible(child: Text('${st['meeting_title'] ?? call.meetingInfo?.title ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.sub, fontSize: 15))),
+      ],
+      headerTrailing: [
+        if (edit != null)
+          IconButton.filledTonal(tooltip: tr('Soạn trang này'), onPressed: edit, icon: const Icon(Icons.tune_rounded)),
+      ],
+      footer: footer,
+      child: child,
+    );
   }
 
   /// Loại trang có người xem trả lời trên app: thanh cuối nhắc cách tham gia.

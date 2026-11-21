@@ -50,67 +50,129 @@ List<SysPage> get sysPages => [
 BoxDecoration pageBackground(String bg, String image, [StageTheme t = const StageTheme()]) =>
     bg.isEmpty && image.isEmpty ? stageBackground('linear-gradient(135deg,#0E5C55,#173431)', '', t) : stageBackground(bg, image, t);
 
-bool _light(String bg) => stageBgLight(bg, const StageTheme());
 
-/// Màn hình "Chờ lượt trình chiếu" (sân khấu, xem trước trong trình soạn).
+/// Màn hình "Chờ lượt trình chiếu" (sân khấu, xem trước trong trình soạn): người được mời (ảnh + vòng đếm ngược tự sang),
+/// lời mời lớn, số trang / thời lượng, và hàng chờ bên phải.
 class HandoverView extends StatelessWidget {
-  /// metadata.stage: handover {name, uid, pages, seconds, next}, handover_cfg, ends_at.
+  /// metadata.stage: handover {name, uid, pages, seconds, next}, handover_cfg, queue, ends_at.
   final Map stage;
   final Map? cfgOverride;
   const HandoverView({super.key, required this.stage, this.cfgOverride});
 
   @override
   Widget build(BuildContext context) {
+    final metrics = StageMetrics.of(context);
+    final t = metrics?.theme ?? StageTheme.of(stage['theme_cfg'] as Map?);
     final h = (stage['handover'] as Map?) ?? const {};
     final c = cfgOverride ?? (stage['handover_cfg'] as Map?) ?? const {};
-    final bg = '${c['bg'] ?? ''}';
-    final fg = _light(bg) ? const Color(0xFF1B2430) : Colors.white;
-    final sub = _light(bg) ? const Color(0xFF5C6670) : Colors.white70;
+    final bg = '${c['bg'] ?? ''}', img = '${c['bg_image'] ?? ''}';
+    final light = img.isEmpty && bg.isNotEmpty && stageBgLight(bg, t);
+    final fg = light ? const Color(0xFF141A23) : Colors.white;
+    final sub = light ? const Color(0xFF4A5565) : const Color(0xFFC9D2DE);
+    final card = light ? Colors.white.withValues(alpha: .8) : Colors.white.withValues(alpha: .06);
     final name = '${h['name'] ?? ''}';
     final title = '${c['title'] ?? ''}'.isEmpty ? tr('Mời {0} trình bày', [name]) : '${c['title']}'.replaceAll('{name}', name);
     final pages = (h['pages'] as num?)?.toInt() ?? 0;
     final mins = (((h['seconds'] as num?)?.toInt() ?? 0) / 60).round();
     final ends = (stage['ends_at'] as num?)?.toInt() ?? 0;
-    final left = ends == 0 ? 0 : ((ends - DateTime.now().millisecondsSinceEpoch) / 1000).ceil();
-    return Container(
-      decoration: pageBackground(bg, '${c['bg_image'] ?? ''}'),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(24),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 820),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            if ('${c['icon'] ?? ''}'.isNotEmpty) Text('${c['icon']}', style: const TextStyle(fontSize: 56)),
-            if (c['show_avatar'] != false) ...[
-              const SizedBox(height: 10),
-              CircleAvatar(
-                radius: 52,
-                backgroundColor: Colors.white24,
-                child: Text(name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase(), style: TextStyle(color: fg, fontSize: 48, fontWeight: FontWeight.w700)),
+    final left = ends == 0 ? 0 : ((ends - DateTime.now().millisecondsSinceEpoch) / 1000).ceil().clamp(0, 9999);
+    final auto = (c['auto_seconds'] as num?)?.toInt() ?? 0;
+    final queue = [for (final q in (stage['queue'] as List? ?? const [])) (q as Map)];
+    String initial(String n) => n.trim().isEmpty ? '?' : n.trim().characters.first.toUpperCase();
+
+    Widget pill(String text, {bool accent = false}) => Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(color: accent ? t.accent.withValues(alpha: .2) : card, borderRadius: BorderRadius.circular(999)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [Text(text, style: TextStyle(color: fg, fontSize: 17, fontWeight: FontWeight.w600))]),
+        );
+
+    Widget avatar(double size) => SizedBox(
+          width: size,
+          height: size,
+          child: Stack(alignment: Alignment.center, children: [
+            SizedBox.expand(
+              child: CircularProgressIndicator(
+                value: auto > 0 && left > 0 ? 1 - left / auto : 1,
+                strokeWidth: size * .045,
+                backgroundColor: fg.withValues(alpha: .1),
+                valueColor: AlwaysStoppedAnimation(t.accent),
               ),
-            ],
-            const SizedBox(height: 18),
-            Text(title, textAlign: TextAlign.center, style: TextStyle(color: fg, fontSize: 38, fontWeight: FontWeight.w700)),
-            if ('${c['desc'] ?? ''}'.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text('${c['desc']}', textAlign: TextAlign.center, style: TextStyle(color: sub, fontSize: 19)),
-            ],
-            if (c['show_pages'] != false && pages > 0) ...[
-              const SizedBox(height: 14),
-              Text(mins > 0 ? tr('{0} trang · {1} phút', [pages, mins]) : tr('{0} trang', [pages]), style: TextStyle(color: sub, fontSize: 18)),
-            ],
-            if (left > 0) ...[
-              const SizedBox(height: 10),
-              Text(tr('Bắt đầu sau {0} giây', [left]), style: TextStyle(color: fg, fontSize: 20, fontWeight: FontWeight.w600)),
-            ],
-            if (c['show_next'] != false && '${h['next'] ?? ''}'.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(tr('Tiếp theo: {0}', [h['next']]), style: TextStyle(color: sub, fontSize: 16)),
-            ],
+            ),
+            if (c['show_avatar'] != false)
+              Container(
+                width: size * .8,
+                height: size * .8,
+                decoration: const BoxDecoration(color: Color(0xFFE8710A), shape: BoxShape.circle),
+                alignment: Alignment.center,
+                child: Text(initial(name), style: TextStyle(color: Colors.white, fontSize: size * .34, fontWeight: FontWeight.w800)),
+              )
+            else if ('${c['icon'] ?? ''}'.isNotEmpty)
+              Text('${c['icon']}', style: TextStyle(fontSize: size * .4)),
           ]),
-        ),
-      ),
+        );
+
+    Widget queueRow(String n, String note, String badge, {bool now = false}) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(14), border: now ? Border.all(color: t.accent, width: 1.5) : null),
+          child: Row(children: [
+            CircleAvatar(radius: 20, backgroundColor: now ? const Color(0xFFE8710A) : t.series[(n.hashCode % 5).abs() + 1], child: Text(initial(n), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(n, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontSize: 17, fontWeight: FontWeight.w700)),
+                if (note.isNotEmpty) Text(note, style: TextStyle(color: sub, fontSize: 14)),
+              ]),
+            ),
+            Text(badge, style: TextStyle(color: now ? Color.lerp(t.accent, Colors.white, .4) : sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: .8)),
+          ]),
+        );
+
+    Widget main(bool portrait) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            avatar(portrait ? 96 : 132),
+            const SizedBox(width: 22),
+            Flexible(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(tr('TIẾP THEO'), style: TextStyle(color: Color.lerp(t.accent, light ? Colors.black : Colors.white, .35), fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 2)),
+                if (left > 0) Text(tr('Tự bắt đầu sau {0} giây', [left]), style: TextStyle(color: sub, fontSize: portrait ? 15 : 20)),
+              ]),
+            ),
+          ]),
+          SizedBox(height: portrait ? 18 : 26),
+          Text(title, style: TextStyle(color: fg, fontSize: portrait ? 40 : 66, fontWeight: FontWeight.w800, height: 1.06, letterSpacing: -.5)),
+          if ('${c['desc'] ?? ''}'.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('${c['desc']}', style: TextStyle(color: sub, fontSize: portrait ? 16 : 22, height: 1.4)),
+          ],
+          const SizedBox(height: 22),
+          Wrap(spacing: 12, runSpacing: 10, children: [
+            if (c['show_pages'] != false && pages > 0) pill(tr('{0} trang chuẩn bị sẵn', [pages])),
+            if (mins > 0) pill(tr('{0} phút', [mins])),
+            if (c['show_next'] != false && '${h['next'] ?? ''}'.isNotEmpty) pill(tr('Sau đó: {0}', ['${h['next']}'])),
+          ]),
+        ]);
+
+    Widget side() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(tr('HÀNG CHỜ'), style: TextStyle(color: sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+          const SizedBox(height: 12),
+          queueRow(name, mins > 0 ? tr('{0} phút', [mins]) : '', tr('BÂY GIỜ'), now: true),
+          for (final (i, q) in queue.take(4).indexed) ...[const SizedBox(height: 10), queueRow('${q['name'] ?? ''}', '', '${i + 2}')],
+        ]);
+
+    Widget layout(bool portrait) => portrait
+        ? Padding(padding: const EdgeInsets.fromLTRB(20, 70, 20, 70), child: Align(alignment: Alignment.centerLeft, child: main(true)))
+        : Padding(
+            padding: const EdgeInsets.fromLTRB(96, 110, 56, 92),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: main(false)),
+              if (queue.isNotEmpty || name.isNotEmpty) ...[const SizedBox(width: 40), SizedBox(width: 360, child: side())],
+            ]),
+          );
+
+    return Container(
+      decoration: bg.isEmpty && img.isEmpty ? BoxDecoration(color: t.bg) : stageBackground(bg, img, t),
+      child: metrics != null ? layout(metrics.portrait) : FittedBox(fit: BoxFit.cover, child: SizedBox(width: 1280, height: 720, child: layout(false))),
     );
   }
 }
@@ -248,8 +310,8 @@ PageCtx sysWelcomeCtx(CallService call, Map cfg, {bool onStage = true}) => PageC
       reload: () async {},
     );
 
-/// Trang "Nội dung" trên sân khấu: các phần, người phụ trách, phần đang diễn ra; chủ trì / người trình chiếu chuyển phần
-/// và trao lượt cho người phụ trách.
+/// Trang "Nội dung" trên sân khấu: các phần, người phụ trách, phần đang diễn ra (lớn, nổi bật), phần đã xong gạch đi.
+/// Nút chuyển phần / trao lượt nằm ở thanh cuối của khung ([programFooter]); ngoài khung thì nằm dưới danh sách.
 class ProgramView extends StatelessWidget {
   final CallService call;
   final Map cfg;
@@ -258,67 +320,122 @@ class ProgramView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final metrics = StageMetrics.of(context);
+    final t = metrics?.theme ?? StageTheme.of(call.roomStage?['theme_cfg'] as Map?);
+    final portrait = metrics?.portrait ?? false;
     final items = [for (final x in (cfg['items'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
-    final cur = (cfg['current'] as num?)?.toInt() ?? 0;
-    final can = controls && (call.canModerate || call.roomStage?['presenter'] == call.myId());
-    Future<void> act(String a, [Map<String, dynamic> b = const {}]) async {
-      final e = await call.stageAct(a, b);
-      if (e != null && context.mounted) meetToast(context, e);
+    final cur = ((cfg['current'] as num?)?.toInt() ?? 0).clamp(0, items.isEmpty ? 0 : items.length - 1);
+    final rest = items.skip(cur).fold<int>(0, (a, x) => a + ((x['minutes'] as num?)?.toInt() ?? 0));
+    final can = controls && metrics == null && (call.canModerate || call.roomStage?['presenter'] == call.myId());
+
+    Widget who(Map it, {bool big = false}) {
+      final n = '${it['owner_name'] ?? ''}';
+      if (n.isEmpty) return const SizedBox.shrink();
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        CircleAvatar(
+          radius: big ? 16 : 14,
+          backgroundColor: t.series[(n.hashCode % 5).abs() + 1],
+          child: Text(n.trim().characters.first.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+        ),
+        const SizedBox(width: 10),
+        Flexible(child: Text(n, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: big ? t.text : t.sub, fontSize: big ? 18 : 16))),
+      ]);
     }
 
-    return Container(
-      color: const Color(0xFF17191C),
-      // Dưới cùng chừa chỗ cho nhãn sân khấu (góc trái dưới).
-      padding: const EdgeInsets.fromLTRB(20, 52, 20, 44),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('${cfg['title'] ?? tr('Nội dung')}', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 12),
-        if (items.isEmpty) Text(tr('Chưa có nội dung. Chủ trì bấm ⚙ ở thẻ Nội dung để soạn.'), style: const TextStyle(color: Color(0xFF9AA0A6))),
-        Expanded(
-          child: ListView(children: [
-            for (final (i, it) in items.indexed)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: i == cur ? const Color(0xFF173431) : const Color(0xFF26282C),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: i == cur ? const Color(0xFF0E9F8E) : Colors.transparent),
-                ),
-                child: InkWell(
-                  onTap: can ? () => act('program_goto', {'index': i}) : null,
-                  child: Row(children: [
-                    Icon(i < cur ? Icons.check_circle_rounded : (i == cur ? Icons.play_circle_fill_rounded : Icons.radio_button_unchecked_rounded),
-                        size: 20, color: i < cur ? const Color(0xFF34A853) : (i == cur ? const Color(0xFF2BB3A3) : const Color(0xFF9AA0A6))),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text('${it['title']}', style: TextStyle(color: i < cur ? const Color(0xFF9AA0A6) : Colors.white, fontSize: 16))),
-                    if ('${it['owner_name'] ?? ''}'.isNotEmpty) Text('${it['owner_name']}  ', style: const TextStyle(color: Color(0xFF9AA0A6))),
-                    if ((it['minutes'] ?? 0) != 0) Text('${it['minutes']}′', style: const TextStyle(color: Color(0xFF9AA0A6))),
-                  ]),
-                ),
-              ),
-          ]),
+    Widget row(int i, Map<String, dynamic> it) {
+      final done = i < cur, now = i == cur;
+      final mins = (it['minutes'] as num?)?.toInt() ?? 0;
+      return Container(
+        height: now ? (portrait ? 84 : 92) : (portrait ? 54 : 62),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        decoration: BoxDecoration(
+          color: now ? t.accent.withValues(alpha: .16) : (done ? t.surface.withValues(alpha: .6) : Colors.transparent),
+          borderRadius: BorderRadius.circular(14),
+          border: now ? Border.all(color: t.accent, width: 1.5) : null,
         ),
-        if (can && items.isNotEmpty)
-          Row(children: [
-            const Spacer(),
-            if (call.canModerate && '${items[cur.clamp(0, items.length - 1)]['owner'] ?? ''}'.isNotEmpty)
-              Flexible(
-                flex: 4,
-                child: FilledButton.tonalIcon(
-                  onPressed: () => act('program_goto', {'index': cur, 'grant': true}),
-                  icon: const Icon(Icons.record_voice_over_outlined, size: 18),
-                  label: Text(tr('Trao lượt cho {0}', [items[cur.clamp(0, items.length - 1)]['owner_name'] ?? '']), maxLines: 1, overflow: TextOverflow.ellipsis),
+        child: Row(children: [
+          SizedBox(
+            width: 44,
+            child: done
+                ? const Icon(Icons.check_rounded, color: Color(0xFF38C793), size: 26)
+                : Text('${i + 1}', style: TextStyle(color: now ? t.text : t.sub, fontSize: now ? 26 : 20, fontWeight: FontWeight.w700)),
+          ),
+          Expanded(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (now) Text(tr('ĐANG DIỄN RA'), style: TextStyle(color: Color.lerp(t.accent, t.light ? Colors.black : Colors.white, .35), fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+              Text(
+                '${it['title']}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: done ? t.sub : t.text,
+                  fontSize: now ? (portrait ? 24 : 30) : (portrait ? 18 : 22),
+                  fontWeight: now ? FontWeight.w700 : FontWeight.w500,
+                  decoration: done ? TextDecoration.lineThrough : null,
+                  decorationColor: t.sub,
                 ),
               ),
-            const SizedBox(width: 8),
-            IconButton.filledTonal(tooltip: tr('Phần trước'), onPressed: cur > 0 ? () => act('program_goto', {'index': cur - 1}) : null, icon: const Icon(Icons.chevron_left_rounded)),
-            const SizedBox(width: 4),
-            IconButton.filledTonal(tooltip: tr('Phần sau'), onPressed: cur < items.length - 1 ? () => act('program_next') : null, icon: const Icon(Icons.chevron_right_rounded)),
-          ]),
-      ]),
-    );
+            ]),
+          ),
+          if (!portrait) SizedBox(width: 240, child: who(it, big: now)),
+          SizedBox(width: 64, child: Text(mins > 0 ? '$mins′' : '', textAlign: TextAlign.right, style: TextStyle(color: now ? t.text : t.sub, fontSize: now ? 22 : 18, fontWeight: now ? FontWeight.w700 : FontWeight.w400))),
+        ]),
+      );
+    }
+
+    final content = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Flex(
+        direction: portrait ? Axis.vertical : Axis.horizontal,
+        crossAxisAlignment: portrait ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+        children: [
+          if (portrait)
+            Text('${cfg['title'] ?? tr('Nội dung')}', style: TextStyle(color: t.text, fontSize: 28, fontWeight: FontWeight.w800))
+          else
+            Expanded(child: Text('${cfg['title'] ?? tr('Nội dung')}', style: TextStyle(color: t.text, fontSize: 44, fontWeight: FontWeight.w800))),
+          if (items.isNotEmpty) Text(tr('Phần {0} / {1}', [cur + 1, items.length]) + (rest > 0 ? tr(' · còn {0} phút', [rest]) : ''), style: TextStyle(color: t.sub, fontSize: portrait ? 14 : 18)),
+        ],
+      ),
+      SizedBox(height: portrait ? 14 : 22),
+      if (items.isEmpty)
+        Text(tr('Chưa có nội dung. Chủ trì bấm ⚙ ở thẻ Nội dung để soạn.'), style: TextStyle(color: t.sub, fontSize: 18))
+      else
+        Expanded(child: ListView(padding: EdgeInsets.zero, children: [for (final (i, it) in items.indexed) row(i, it)])),
+      if (can && items.isNotEmpty) Row(children: programFooter(context, call, cfg, t)),
+    ]);
+    if (metrics != null) return content;
+    return Container(color: t.bg, padding: const EdgeInsets.fromLTRB(20, 52, 20, 16), child: content);
   }
+}
+
+/// Thanh cuối của trang Nội dung: trao lượt cho người phụ trách phần hiện tại, phần trước / sau.
+List<Widget> programFooter(BuildContext context, CallService call, Map cfg, StageTheme t) {
+  final items = [for (final x in (cfg['items'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
+  if (items.isEmpty) return const [];
+  final cur = ((cfg['current'] as num?)?.toInt() ?? 0).clamp(0, items.length - 1);
+  final can = call.canModerate || call.roomStage?['presenter'] == call.myId();
+  final next = cur + 1 < items.length ? items[cur + 1] : null;
+  Future<void> act(String a, [Map<String, dynamic> b = const {}]) async {
+    final e = await call.stageAct(a, b);
+    if (e != null && context.mounted) meetToast(context, e);
+  }
+
+  // Màn hẹp (điện thoại): bỏ dòng "Tiếp: …" để đủ chỗ cho nút.
+  final narrow = MediaQuery.sizeOf(context).width < 600;
+  return [
+    if (!narrow) StagePill(next == null ? tr('Phần cuối') : tr('Tiếp: {0}', ['${next['title']}${'${next['owner_name'] ?? ''}'.isEmpty ? '' : ' · ${next['owner_name']}'}']), theme: t),
+    const Spacer(),
+    if (can && call.canModerate && '${items[cur]['owner'] ?? ''}'.isNotEmpty)
+      FilledButton.tonalIcon(
+        onPressed: () => act('program_goto', {'index': cur, 'grant': true}),
+        icon: const Icon(Icons.record_voice_over_outlined, size: 18),
+        label: Text(tr('Trao lượt cho {0}', ['${items[cur]['owner_name'] ?? ''}'])),
+      ),
+    if (can) ...[
+      IconButton.filledTonal(tooltip: tr('Phần trước'), onPressed: cur > 0 ? () => act('program_goto', {'index': cur - 1}) : null, icon: const Icon(Icons.chevron_left_rounded)),
+      IconButton.filledTonal(tooltip: tr('Phần sau'), onPressed: cur < items.length - 1 ? () => act('program_next') : null, icon: const Icon(Icons.chevron_right_rounded)),
+    ],
+  ];
 }
 
 /// Soạn trang Chào mừng của hệ thống (chủ trì: cuộc họp này; quản trị hệ thống: mặc định của công ty).
