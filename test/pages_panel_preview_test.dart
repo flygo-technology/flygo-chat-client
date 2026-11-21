@@ -1,6 +1,7 @@
 // Máy tính: panel bên phải của cuộc họp (một thanh tab Trang / Chat / AI / Thành viên / Thông tin), dựng CallScreen thật
 // với cuộc họp giả và relay giả. Ảnh xem trước (chạy tay): PANEL_OUT=<thư mục> flutter test test/pages_panel_preview_test.dart
 // Ảnh trang tài liệu: TATCA_PDF=<thư mục có tiendo.pdf, hopdong.pdf, kehoach.pdf>.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -20,6 +21,9 @@ import 'package:flygo_chat/ui/meet/knock_center.dart';
 import 'package:flygo_chat/ui/meet/call_pip.dart';
 import 'package:flygo_chat/ui/meet/meet_panel_prefs.dart';
 import 'package:flygo_chat/ui/pages/page_thumb.dart';
+import 'package:flygo_chat/ui/pages/page_types.dart';
+import 'package:flygo_chat/ui/pages/pages_sheet.dart';
+import 'package:flygo_chat/ui/pages/types/all.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -904,4 +908,93 @@ void main() {
     debugIsDesktop = null;
     CallScreen.debugRoom = null;
   });
+
+  // Trình soạn / hộp cấu hình của mọi loại trang (Sếp: nhiều cấu hình bị vỡ): điện thoại 390×844, cột phải máy tính 460,
+  // bản sáng. Lỗi tràn được gom lại và in ra (EDITOR_OVERFLOW) để sửa; ảnh vào PANEL_OUT.
+  final editorPages = <(String, Map<String, dynamic>, Map<String, dynamic>)>[
+    ('welcome', {'heading': 'Giao ban tháng 12', 'subtitle': 'Chào mừng mọi người', 'show_online': true, 'countdown': true}, const {}),
+    ('video', {'url': 'https://example.com/lap-ray.mp4'}, const {}),
+    ('doc', const {}, const {}),
+    ('agenda', {'items': [{'text': 'Tiến độ tòa B', 'who': 'Lợi', 'minutes': 10}, {'text': 'Hợp đồng tháng 11 và các phụ lục gia hạn bảo trì', 'who': 'Kim', 'minutes': 8}]}, {'current': 0}),
+    ('minutes', const {}, {'text': '1. Tiến độ\nĐạt 70%.', 'tasks': [{'id': 't', 'text': 'Xác nhận lịch giao ray', 'who': 'Quang', 'due': '25/11', 'done': false}], 'closed': false}),
+    ('poll', const {}, {'kind': 'poll', 'live': true, 'questions': [{'id': 'q', 'text': 'Ngày nào bàn giao?', 'options': [{'id': 'a', 'text': 'Thứ Ba'}, {'id': 'b', 'text': 'Thứ Sáu'}]}], 'voters': 0, 'mine': {}}),
+    ('qa', const {}, {'title': 'Hỏi đáp', 'allow_anon': true, 'questions': [], 'total': 0, 'open': 0}),
+    ('timer', const {}, {'mode': 'countdown', 'running': false, 'duration_ms': 300000, 'elapsed_ms': 0, 'speakers': ['Lợi', 'Kim'], 'speaker': 0, 'can_control': true}),
+    ('draw', const {}, {'mode': 'pick', 'count': 1, 'source': 'options', 'options': ['Lợi', 'Kim', 'Minh'], 'results': [], 'can_control': true}),
+    ('notes', const {}, {'columns': [{'id': 'c1', 'name': 'Làm tốt'}, {'id': 'c2', 'name': 'Cần cải thiện'}], 'notes': [{'id': 'n', 'text': 'Khảo sát kỹ', 'color': 'green', 'col': 'c1', 'by_name': 'Minh', 'votes': 2, 'mine': true}]}),
+    ('show', {'deck_id': 'd1', 'deck_title': 'Kế hoạch quý 1'}, const {}),
+  ];
+  for (final (name, size, light) in [('e1-dien-thoai', const Size(390, 844), false), ('e2-cot-phai', const Size(460, 900), false), ('e3-dien-thoai-sang', const Size(390, 844), true)]) {
+    testWidgets('trình soạn mọi loại trang: $name', (t) async {
+      registerAllPageTypes();
+      final extra = [for (final (type, content, _) in editorPages) _p('e-$type', type, 'Trang ${pageTypeOf(type)?.label ?? type}', 'me', 'Dương Văn Ba', order: 20, content: content)];
+      _pages.addAll(extra);
+      for (final (type, _, view) in editorPages) {
+        _views['e-$type'] = view;
+      }
+      addTearDown(() {
+        _pages.removeWhere((p) => extra.contains(p));
+        for (final (type, _, _) in editorPages) {
+          _views.remove('e-$type');
+        }
+      });
+      final errs = <String>[];
+      final old = FlutterError.onError;
+      var cur = '';
+      FlutterError.onError = (d) {
+        final m = d.exceptionAsString();
+        if (m.contains('overflowed') || m.contains('RenderBox was not laid out') || m.contains('unbounded')) {
+          errs.add('$cur: ${m.split('\n').first}');
+        } else {
+          old?.call(d);
+        }
+      };
+      addTearDown(() => FlutterError.onError = old);
+      await http.runWithClient(() async {
+        final app = _app();
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        Future<void> settle() async {
+          for (var i = 0; i < 10; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        for (final (type, _, _) in editorPages) {
+          cur = 'editor $type';
+          await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+            value: app,
+            child: MaterialApp(
+              key: ValueKey('ed-$type'),
+              debugShowCheckedModeBanner: false,
+              theme: buildTheme(light ? Brightness.light : Brightness.dark),
+              builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+              home: Scaffold(backgroundColor: const Color(0xFF1C1D20), body: SafeArea(child: PagesPane(call: app.calls, edit: 'e-$type', panel: true))),
+            ),
+          ));
+          await settle();
+          await snap(t, '$name-soan-$type');
+          final spec = pageTypeOf(type);
+          if (spec?.create != null && const {'poll', 'qa', 'timer', 'draw', 'notes'}.contains(type)) {
+            cur = 'cấu hình $type';
+            final ctx = t.element(find.byType(PagesPane));
+            unawaited(spec!.create!(ctx, app.calls));
+            await settle();
+            await snap(t, '$name-tao-$type');
+            final nav = Navigator.of(ctx);
+            if (nav.canPop()) nav.pop();
+            await settle();
+          }
+        }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      // ignore: avoid_print
+      for (final e in errs.toSet()) {
+        print('EDITOR_OVERFLOW $name $e');
+      }
+    });
+  }
 }

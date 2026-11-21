@@ -390,8 +390,17 @@ class _WelcomeState extends State<_Welcome> {
 
     final body = metrics != null
         ? layout(metrics.size, metrics.portrait)
-        // Ngoài khung sân khấu (xem trước, ảnh thu nhỏ): dựng ở 1280 × 720 rồi co cho vừa.
-        : FittedBox(fit: BoxFit.cover, child: SizedBox(width: 1280, height: 720, child: layout(const Size(1280, 720), false)));
+        // Ngoài khung sân khấu (xem trên điện thoại, cửa sổ nhỏ, ảnh thu nhỏ): dựng theo đúng tỉ lệ ô (dọc: bố cục dọc, rộng
+        // 440; ngang: rộng 1280) rồi co cho vừa, không cắt mất chữ / khối giờ.
+        : LayoutBuilder(builder: (context, box) {
+            if (!box.maxWidth.isFinite || !box.maxHeight.isFinite || box.maxWidth <= 0 || box.maxHeight <= 0) {
+              return FittedBox(child: SizedBox(width: 1280, height: 720, child: layout(const Size(1280, 720), false)));
+            }
+            final portrait = box.maxWidth < box.maxHeight * 1.05;
+            final lw = portrait ? 440.0 : 1280.0;
+            final lh = (lw * box.maxHeight / box.maxWidth).clamp(portrait ? 560.0 : 560.0, 4000.0);
+            return FittedBox(child: SizedBox(width: lw, height: lh, child: layout(Size(lw, lh), portrait)));
+          });
     return Container(
       decoration: bg.isEmpty && img.isEmpty
           ? stageBackground('linear-gradient(135deg,#0E5C55,#173431)', '', t)
@@ -436,7 +445,7 @@ class _WelcomeEditor extends StatelessWidget {
       PageContentField(ctx, 'heading', tr('Dòng chữ lớn trên màn hình')),
       PageContentField(ctx, 'subtitle', tr('Mô tả'), maxLines: 3),
       Row(children: [
-        SizedBox(width: 110, child: PageContentField(ctx, 'icon', tr('Biểu tượng'))),
+        SizedBox(width: 150, child: PageContentField(ctx, 'icon', tr('Biểu tượng'))),
       ]),
       StageBackgroundPicker(
         call: ctx.call,
@@ -1023,13 +1032,13 @@ class _MinutesState extends State<_Minutes> {
     final closed = v['closed'] == true;
     final ro = closed || widget.ctx.data.role == 'viewer';
     final tasks = [for (final x in (v['tasks'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
-    return Container(
-      color: const Color(0xFFF7F8FA),
-      padding: const EdgeInsets.all(16),
-      child: ListView(children: [
+    // Material (không phải Container tô màu): ô đánh dấu việc cần làm hiện được hiệu ứng bấm. Nền tối như mọi app trong họp.
+    return Material(
+      color: const Color(0xFF23262C),
+      child: ListView(padding: const EdgeInsets.all(16), children: [
         Row(children: [
-          Expanded(child: Text(widget.ctx.page.title, style: const TextStyle(color: Color(0xFF1B2430), fontSize: 20, fontWeight: FontWeight.w700))),
-          if ('${v['edited_by'] ?? ''}'.isNotEmpty) Text(tr('✎ {0}', [v['edited_by']]), style: const TextStyle(color: Color(0xFF5C6670), fontSize: 12)),
+          Expanded(child: Text(widget.ctx.page.title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700))),
+          if ('${v['edited_by'] ?? ''}'.isNotEmpty) Text(tr('✎ {0}', [v['edited_by']]), style: const TextStyle(color: Color(0xFF9AA0A6), fontSize: 12)),
         ]),
         const SizedBox(height: 8),
         TextField(
@@ -1038,7 +1047,7 @@ class _MinutesState extends State<_Minutes> {
           readOnly: ro,
           maxLines: null,
           minLines: 6,
-          style: const TextStyle(color: Color(0xFF1B2430), fontSize: 15, height: 1.5),
+          style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.5),
           decoration: InputDecoration(hintText: ro ? null : tr('Ghi vào biên bản…'), border: InputBorder.none),
           onChanged: (_) {
             _t?.cancel();
@@ -1046,7 +1055,7 @@ class _MinutesState extends State<_Minutes> {
           },
         ),
         const Divider(),
-        Text(tr('VIỆC CẦN LÀM'), style: const TextStyle(color: Color(0xFF0E5C55), fontWeight: FontWeight.w700, fontSize: 12.5)),
+        Text(tr('VIỆC CẦN LÀM'), style: const TextStyle(color: Color(0xFF7FD8CC), fontWeight: FontWeight.w700, fontSize: 12.5)),
         for (final t in tasks)
           CheckboxListTile(
             dense: true,
@@ -1054,14 +1063,14 @@ class _MinutesState extends State<_Minutes> {
             controlAffinity: ListTileControlAffinity.leading,
             value: t['done'] == true,
             onChanged: ro ? null : (x) => widget.ctx.act('task', {'id': t['id'], 'done': x == true}),
-            title: Text('${t['text']}', style: const TextStyle(color: Color(0xFF1B2430))),
-            subtitle: Text([t['who'], t['due']].where((x) => '${x ?? ''}'.isNotEmpty).join(' · '), style: const TextStyle(color: Color(0xFF5C6670))),
+            title: Text('${t['text']}', style: const TextStyle(color: Colors.white)),
+            subtitle: Text([t['who'], t['due']].where((x) => '${x ?? ''}'.isNotEmpty).join(' · '), style: const TextStyle(color: Color(0xFF9AA0A6))),
             secondary: ro ? null : IconButton(icon: const Icon(Icons.close_rounded, size: 18), onPressed: () => widget.ctx.act('del_task', {'id': t['id']})),
           ),
         if (!ro)
           TextField(
             controller: _task,
-            style: const TextStyle(color: Color(0xFF1B2430)),
+            style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(hintText: tr('＋ Việc mới (vd. Giao ray @quang 20/11)'), border: InputBorder.none),
             onSubmitted: (s) {
               final m = RegExp(r'^(.*?)(?:\s+(@\S+))?(?:\s+(\d{1,2}/\d{1,2}))?$').firstMatch(s.trim());

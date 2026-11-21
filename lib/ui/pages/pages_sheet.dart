@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -382,7 +383,10 @@ class _PagesPaneState extends State<PagesPane> {
     if (pick == 'present') return _present();
     final spec = pick as PageTypeSpec;
     try {
-      final d = spec.create == null ? PageDraft(title: spec.label) : await spec.create!(context, call);
+      // Bước cấu hình của loại trang (bình chọn, hỏi đáp, bấm giờ…) mở trong khung trang, không phủ cả màn họp.
+      final inner = _inner != null && _inner!.mounted ? _inner! : context;
+      // ignore: use_build_context_synchronously
+      final d = spec.create == null ? PageDraft(title: spec.label) : await spec.create!(inner, call);
       if (d == null) return;
       final p = await api.create(type: spec.type, title: d.title, content: d.content, init: d.init, seconds: d.seconds != 0 ? d.seconds : spec.seconds);
       await _load();
@@ -439,9 +443,23 @@ class _PagesPaneState extends State<PagesPane> {
     }
   }
 
+  /// Context bên trong khung trang: hộp chọn / soạn (Apps, cấu hình bình chọn, hỏi đáp…) mở ngay trong khung (cột phải
+  /// máy tính, bảng kéo lên điện thoại), không phủ cả màn họp (Sếp: cấu hình ngay trên trang).
+  BuildContext? _inner;
+
+  /// Khung trang có Navigator riêng: mọi bảng / hộp mở từ bên trong nằm gọn trong khung.
+  Widget _inPane(Widget child) => Navigator(
+        onGenerateRoute: (_) => PageRouteBuilder<void>(
+          pageBuilder: (context, _, _) => Builder(builder: (context) {
+            _inner = context;
+            return child;
+          }),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
-    if (widget.panel) return CustomScrollView(slivers: [const SliverToBoxAdapter(child: SizedBox(height: 10)), ..._slivers()]);
+    if (widget.panel) return _inPane(CustomScrollView(slivers: [const SliverToBoxAdapter(child: SizedBox(height: 10)), ..._slivers()]));
     return DraggableScrollableSheet(
       controller: _sheet,
       initialChildSize: widget.edit != null ? .72 : .45,
@@ -455,12 +473,12 @@ class _PagesPaneState extends State<PagesPane> {
         shadowColor: Colors.black,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
         clipBehavior: Clip.antiAlias,
-        child: CustomScrollView(controller: scroll, slivers: [
+        child: _inPane(CustomScrollView(controller: scroll, slivers: [
           SliverToBoxAdapter(
             child: Container(width: 40, height: 5, margin: const EdgeInsets.only(top: 8, bottom: 6), decoration: BoxDecoration(color: const Color(0xFF555555), borderRadius: BorderRadius.circular(3))),
           ),
           ..._slivers(),
-        ]),
+        ])),
       ),
     );
   }
@@ -533,11 +551,15 @@ class _PagesPaneState extends State<PagesPane> {
         id: id,
         builder: (context, ctx, spec) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _back('${ctx.page.title} · ${ctx.page.ownerName}', actions: [
+            // Trang đang trên sân khấu: nhãn LIVE đỏ nhấp nháy.
+            if ((call.roomStage ?? const {})['page'] == id) const Padding(padding: EdgeInsets.only(right: 4), child: LiveBadge(size: 11)),
             if (ctx.page.owner == call.myId() || call.canModerate)
-              IconButton(
-                tooltip: tr('Sửa, chiếu, công khai, xoá'),
-                icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
-                onPressed: () => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+              Builder(
+                builder: (btn) => IconButton(
+                  tooltip: tr('Sửa, chiếu, công khai, xoá'),
+                  icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+                  onPressed: () => showPageMenu(btn, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+                ),
               ),
           ]),
           Padding(
@@ -545,8 +567,9 @@ class _PagesPaneState extends State<PagesPane> {
             // Khung cao để trả lời / đọc (bình chọn, hỏi đáp), cả bảng kéo lên lẫn panel máy tính. Bấm để tương tác; nhấn giữ /
             // chuột phải là menu của trang (như thẻ trang).
             child: GestureDetector(
-              onLongPress: () => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
-              onSecondaryTap: () => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load),
+              // Menu nổi tại chỗ nhấn.
+              onLongPressStart: (d) => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load, anchor: d.globalPosition & const Size(1, 1)),
+              onSecondaryTapDown: (d) => showPageMenu(context, call, ctx.page, onEdit: () => _editPage(id), reload: _load, anchor: d.globalPosition & const Size(1, 1)),
               child: SizedBox(
                 height: MediaQuery.sizeOf(context).height * .55,
                 child: ClipRRect(borderRadius: BorderRadius.circular(10), child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx)),
@@ -619,6 +642,22 @@ class _EditorState extends State<_Editor> {
     }
   }
 
+  /// Hình của trang trên sân khấu, trong khung chung (giống StagePageView, không có nút điều khiển).
+  Widget _stagePreview(BuildContext context, PageTypeSpec? spec) {
+    final st = ctx.call.roomStage ?? const {};
+    final cfg = (st['theme_cfg'] as Map?) ?? const {};
+    final t = StageTheme.of(cfg);
+    final sctx = PageCtx(data: ctx.data, api: ctx.api, call: ctx.call, presenting: false, onStage: true, act: ctx.act, reload: ctx.reload);
+    final bg = '${cfg['bg'] ?? ''}', img = '${cfg['bg_image'] ?? ''}';
+    return StageFrame(
+      theme: t,
+      bleed: spec?.stageBleed ?? false,
+      background: bg.isEmpty && img.isEmpty ? null : stageBackground(bg, img, t),
+      headerLeading: [StageTypeChip(icon: spec?.icon ?? Icons.article_outlined, label: spec?.stageLabel?.call(sctx) ?? (spec?.label ?? tr('Trang')).split(RegExp(r' [/&] ')).first, theme: t)],
+      child: spec == null ? unknownPageView(sctx) : spec.view(context, sctx),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = ctx.page;
@@ -640,14 +679,26 @@ class _EditorState extends State<_Editor> {
             },
           ),
       ]),
-      // Xem trước như trên sân khấu.
+      // Xem trước đúng như trên sân khấu / TV (khung chung, bảng màu sân khấu).
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: AspectRatio(
           aspectRatio: 16 / 9,
-          child: ClipRRect(borderRadius: BorderRadius.circular(10), child: IgnorePointer(ignoring: p.type != 'minutes', child: spec == null ? unknownPageView(ctx) : spec.view(context, ctx))),
+          child: ClipRRect(borderRadius: BorderRadius.circular(10), child: IgnorePointer(child: _stagePreview(context, spec))),
         ),
       ),
+      // Điều khiển của trang ngay trên trang (Sếp: không mở hộp riêng): loại trang không có trình soạn nội dung thì phần
+      // tương tác / điều khiển của nó (thêm ghi chú, bấm giờ, bốc thăm, câu hỏi…) nằm đây, đủ cao để dùng.
+      if (spec != null && spec.editor == null && const {'poll', 'qa', 'timer', 'draw', 'notes', 'minutes', 'show'}.contains(p.type))
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Container(
+            height: math.min(560, MediaQuery.sizeOf(context).height * .62),
+            decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(12)),
+            clipBehavior: Clip.antiAlias,
+            child: spec.view(context, ctx),
+          ),
+        ),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

@@ -1045,6 +1045,32 @@ class _CallScreenState extends State<CallScreen> {
           if (!video.any((t) => t.key == _sysSpeaker)) _sysSpeaker = video.where((t) => t.key != 'me').firstOrNull?.key ?? video.firstOrNull?.key;
           layout = MeetLayout.auto;
           spot = _sysSpeaker;
+        case 'sys:screen':
+          // Trang hệ thống "Chiếu màn hình": màn hình chia sẻ mới nhất (người khác trước, rồi của mình) kín khung, kèm nút
+          // dừng của người đang chia sẻ; chưa ai chia sẻ thì một ô mời "Chiếu màn hình của tôi".
+          final screens = [for (final t in tiles) if (t.screen && t.stream != null && t.custom == null) t];
+          final latest = <String, int>{for (final p in call.participants) if (p.hasScreen) 'screen:${p.sessionId}': p.screenAt};
+          screens.sort((a, b) => (latest[b.key] ?? 0).compareTo(latest[a.key] ?? 0));
+          final shown = screens.where((t) => t.key != 'screen:me').firstOrNull ?? screens.firstOrNull;
+          if (shown != null) tiles.removeWhere((t) => t.key == shown.key);
+          final canShare = CallService.canShareScreen && (call.localScreen != null || meetPerm(call, 'share'));
+          tiles.insert(
+            0,
+            _TileData(
+              key: 'sys-screen',
+              userId: shown?.userId,
+              name: shown?.name ?? tr('Chiếu màn hình'),
+              screen: true,
+              custom: (compact) => _SysScreen(
+                shown: shown,
+                mine: shown != null && shown.key == 'screen:me',
+                compact: compact,
+                onToggle: canShare ? () => _toggleShare(call) : null,
+              ),
+            ),
+          );
+          spot = 'sys-screen';
+          layout = MeetLayout.auto;
         case 'sys:host':
           spot = (video.where((t) => t.userId == call.roomHost).firstOrNull ?? video.firstOrNull)?.key;
           layout = MeetLayout.auto;
@@ -3153,4 +3179,78 @@ class _ScribeChip extends StatelessWidget {
           Text(tr('Đang phiên âm'), style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
         ]),
       );
+}
+
+
+/// Trang hệ thống "Chiếu màn hình" trên sân khấu.
+class _SysScreen extends StatelessWidget {
+  final _TileData? shown;
+  final bool mine, compact;
+  final VoidCallback? onToggle;
+  const _SysScreen({required this.shown, required this.mine, required this.compact, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = shown;
+    if (s != null) {
+      return Stack(fit: StackFit.expand, children: [
+        ColoredBox(color: Colors.black, child: CallVideo(stream: s.stream!, trackId: s.trackId, contain: true)),
+        if (!compact)
+          Positioned(
+            left: 12,
+            top: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(color: Colors.black.withValues(alpha: .62), borderRadius: BorderRadius.circular(999)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.screen_share_outlined, size: 16, color: Color(0xFFF5B544)),
+                const SizedBox(width: 8),
+                Text(s.name, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+              ]),
+            ),
+          ),
+        if (!compact && mine && onToggle != null)
+          Positioned(
+            right: 12,
+            top: 10,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)),
+              onPressed: onToggle,
+              icon: const Icon(Icons.stop_screen_share_outlined, size: 18),
+              label: Text(tr('Dừng chia sẻ')),
+            ),
+          ),
+      ]);
+    }
+    return Container(
+      color: const Color(0xFF0E1116),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(16),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: compact ? 44 : 84,
+            height: compact ? 44 : 84,
+            decoration: BoxDecoration(color: const Color(0xFFF5B544).withValues(alpha: .16), borderRadius: BorderRadius.circular(compact ? 12 : 22)),
+            child: Icon(Icons.screen_share_outlined, color: const Color(0xFFF5B544), size: compact ? 22 : 40),
+          ),
+          if (!compact) ...[
+            const SizedBox(height: 16),
+            Text(tr('Chưa có ai chiếu màn hình'), style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(
+              onToggle != null ? tr('Bấm nút dưới để chiếu màn hình của bạn lên sân khấu') : tr('Người trình bày chiếu màn hình từ máy tính'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white60, fontSize: 15),
+            ),
+            if (onToggle != null) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(onPressed: onToggle, icon: const Icon(Icons.screen_share_outlined), label: Text(tr('Chiếu màn hình của tôi'))),
+            ],
+          ],
+        ]),
+      ),
+    );
+  }
 }

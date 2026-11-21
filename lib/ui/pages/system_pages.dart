@@ -14,7 +14,8 @@ import 'types/builtin.dart' show pageField;
 // Trang hệ thống của Họp (mới): không thuộc ai, người trình chiếu / chủ trì đưa lên sân khấu (metadata.stage.page = sys:…).
 //   sys:grid      Video dạng lưới: mọi người bật camera, lưới đều.
 //   sys:auto      Video tự động: người đang nói lên lớn (giữ một lúc để không nhảy liên tục).
-//   sys:host      Chủ phòng: chủ trì lớn nhất, dải người bên dưới, ai mới bật camera đứng đầu.
+//   sys:host      Chủ phòng (cũ, không còn trong danh sách): chủ trì lớn nhất, dải người bên dưới.
+//   sys:screen    Chiếu màn hình: màn hình chia sẻ mới nhất kín khung; chưa ai chia sẻ thì nút "Chiếu màn hình của tôi".
 //   sys:handover  Chờ lượt trình chiếu: "Mời {name} trình bày" tới khi người đó đưa trang đầu lên (cấu hình được).
 // Ba trang video là bố cục của màn họp (call_screen.dart); màn hình chờ lượt vẽ ở đây (HandoverView), TV vẽ ở hop-web.
 
@@ -42,7 +43,8 @@ List<SysPage> get sysPages => [
       SysPage('sys:program', tr('Nội dung'), tr('Các phần của cuộc họp, ai phụ trách'), Icons.format_list_numbered_rounded, const Color(0xFF1A73E8)),
       SysPage('sys:auto', tr('Video tự động'), tr('Người đang nói lên lớn'), Icons.record_voice_over_outlined, const Color(0xFF2BB3A3)),
       SysPage('sys:grid', tr('Video dạng lưới'), tr('Mọi người bật camera, chia đều'), Icons.grid_view_rounded, const Color(0xFF4285F4)),
-      SysPage('sys:host', tr('Chủ phòng'), tr('Chủ trì lớn nhất, mọi người bên dưới'), Icons.person_pin_outlined, const Color(0xFFF29900)),
+      // "Chủ phòng" bỏ khỏi danh sách (Sếp 2026-11-21); máy chủ / TV vẫn hiểu sys:host cho cuộc họp cũ.
+      SysPage('sys:screen', tr('Chiếu màn hình'), tr('Màn hình đang được chia sẻ, bắt đầu / dừng ngay trên trang'), Icons.screen_share_outlined, const Color(0xFFF29900)),
       SysPage('sys:handover', tr('Chờ lượt trình chiếu'), tr('Mời người kế tiếp trình bày'), Icons.hourglass_top_rounded, const Color(0xFF9334E6)),
     ];
 
@@ -251,7 +253,7 @@ class _HandoverEditorState extends State<_HandoverEditor> {
         TextField(controller: _desc, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Mô tả')), onChanged: (_) => setState(() {})),
         const SizedBox(height: 8),
         Row(children: [
-          SizedBox(width: 110, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
+          SizedBox(width: 150, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
         ]),
         const SizedBox(height: 10),
         StageBackgroundPicker(
@@ -512,7 +514,7 @@ class _SysWelcomeEditorState extends State<_SysWelcomeEditor> {
         TextField(controller: _sub, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Mô tả')), maxLines: 2, onChanged: (_) => setState(() {})),
         const SizedBox(height: 8),
         Row(children: [
-          SizedBox(width: 110, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
+          SizedBox(width: 150, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
         ]),
         const SizedBox(height: 8),
         StageBackgroundPicker(

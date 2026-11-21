@@ -190,7 +190,6 @@ class _PagesOverviewState extends State<PagesOverview> {
   Widget _sysRow(bool wide, double pad) {
     final st = call.roomStage ?? const {};
     final can = st['presenter'] == call.myId() || call.canModerate || ('${st['presenter'] ?? ''}'.isEmpty && st['locked'] != true);
-    final w = wide ? 150.0 : 104.0;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -211,11 +210,10 @@ class _PagesOverviewState extends State<PagesOverview> {
               ),
           ]),
         ),
-        SizedBox(
-          height: wide ? 118 : 92,
-          child: ListView(scrollDirection: Axis.horizontal, padding: EdgeInsets.symmetric(horizontal: pad), children: [
-            for (final p in sysPages)
-              Padding(
+        // Mọi thẻ hiện hết, xuống dòng (Sếp: không cuộn ngang).
+        _wrap(pad, wide ? 150 : 104, sysPages.length, (i, cw) {
+            final p = sysPages[i];
+            return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: Material(
                   color: _cardBg,
@@ -226,7 +224,8 @@ class _PagesOverviewState extends State<PagesOverview> {
                     onLongPress: call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null,
                     onSecondaryTap: call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null,
                     child: Container(
-                      width: w,
+                      width: cw,
+                      height: wide ? 118 : 92,
                       decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: st['page'] == p.id ? _acc : Colors.transparent)),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                         Expanded(
@@ -256,9 +255,8 @@ class _PagesOverviewState extends State<PagesOverview> {
                     ),
                   ),
                 ),
-              ),
-          ]),
-        ),
+              );
+        }),
       ]),
     );
   }
@@ -290,7 +288,6 @@ class _PagesOverviewState extends State<PagesOverview> {
       if (private > 0) tr('{0} riêng', [private]),
       if (secs > 0) fmtLeft(secs * 1000),
     ].join(' · ');
-    final h = wide ? 150.0 : 104.0;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -312,19 +309,16 @@ class _PagesOverviewState extends State<PagesOverview> {
             if (host && !pres && !mine && total > 0) TextButton(style: _compact, onPressed: () => _toast(call.stageAct('grant', {'user': r.uid, 'name': r.name})), child: Text(tr('Trao lượt'))),
           ]),
         ),
-        SizedBox(
-          height: h,
-          // Dựng dần khi cuộn: chỉ thẻ đang hiện mới tải ảnh xem trước.
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: pad),
-            itemCount: r.pages.length + ((!mine && private > 0 && host) || mine ? 1 : 0),
-            itemBuilder: (context, i) => i < r.pages.length
-                ? KeyedSubtree(key: ValueKey(r.pages[i].id), child: _card(r.pages[i], mine: mine, wide: wide))
-                : mine
-                    ? _addCard(wide)
-                    : _privateCard(private, wide),
-          ),
+        // Mọi trang hiện hết, xuống dòng theo bề rộng (Sếp: không cuộn ngang).
+        _wrap(
+          pad,
+          wide ? 176 : 112,
+          r.pages.length + ((!mine && private > 0 && host) || mine ? 1 : 0),
+          (i, cw) => i < r.pages.length
+              ? KeyedSubtree(key: ValueKey(r.pages[i].id), child: _card(r.pages[i], mine: mine, wide: wide, width: cw))
+              : mine
+                  ? _addCard(wide, cw)
+                  : _privateCard(private, wide, cw),
         ),
       ]),
     );
@@ -336,12 +330,22 @@ class _PagesOverviewState extends State<PagesOverview> {
         child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 10, fontFeatures: [FontFeature.tabularFigures()])),
       );
 
-  Widget _card(MeetPage p, {required bool mine, required bool wide}) {
+  /// Lưới xuống dòng: số cột theo bề rộng (thẻ ~[target] px), thẻ giãn đều cho kín hàng.
+  Widget _wrap(double pad, double target, int n, Widget Function(int i, double w) item) => Padding(
+        padding: EdgeInsets.symmetric(horizontal: pad),
+        child: LayoutBuilder(builder: (context, box) {
+          final cols = ((box.maxWidth + 8) / (target + 8)).floor().clamp(2, 12);
+          final cell = box.maxWidth / cols;
+          return Wrap(runSpacing: 8, children: [for (var i = 0; i < n; i++) SizedBox(width: cell, child: item(i, cell - 8))]);
+        }),
+      );
+
+  Widget _card(MeetPage p, {required bool mine, required bool wide, double? width}) {
     final s = pageTypeOf(p.type);
     final st = call.roomStage ?? const {};
     final live = st['page'] == p.id;
     final pr = call.roomPresent;
-    final w = wide ? 176.0 : 112.0;
+    final w = width ?? (wide ? 176.0 : 112.0);
     final sub = [s?.label ?? p.type, if (p.file?['pages'] != null && p.file!['pages'] != 0) tr('{0} trang', [p.file!['pages']])].join(' · ');
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -349,13 +353,14 @@ class _PagesOverviewState extends State<PagesOverview> {
         color: _cardBg,
         borderRadius: BorderRadius.circular(10),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
+        child: Builder(builder: (cardCtx) => InkWell(
           onTap: () => widget.onView(p.id),
-          onLongPress: mine || call.canModerate ? () => _menu(p) : null,
-          onSecondaryTap: mine || call.canModerate ? () => _menu(p) : null,
+          // Menu nổi ngay tại thẻ (nhấn giữ trên điện thoại, chuột phải / nhấn giữ trên máy tính).
+          onLongPress: mine || call.canModerate ? () => _menu(p, cardCtx) : null,
+          onSecondaryTap: mine || call.canModerate ? () => _menu(p, cardCtx) : null,
           child: Container(
             width: w,
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: live ? _acc : Colors.transparent)),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: live ? const Color(0xFFF0464E) : Colors.transparent, width: live ? 2 : 1)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               AspectRatio(
                 aspectRatio: 16 / 9,
@@ -382,6 +387,8 @@ class _PagesOverviewState extends State<PagesOverview> {
                       ),
                     ),
                   if (live && pr != null && pr['page_id'] == p.id) Positioned(left: 4, bottom: 3, child: _badge('${pr['page']}/${pr['pages']}')),
+                  // Đang chiếu: nhãn LIVE đỏ nhấp nháy để ai cũng biết trang này đang trên sân khấu.
+                  if (live) const Positioned(top: 4, left: 0, right: 0, child: Center(child: LiveBadge())),
                   if (p.seconds > 0) Positioned(right: 4, bottom: 3, child: _badge(fmtLeft(p.seconds * 1000))),
                 ]),
               ),
@@ -396,13 +403,14 @@ class _PagesOverviewState extends State<PagesOverview> {
                 ),
             ]),
           ),
-        ),
+        )),
       ),
     );
   }
 
-  Widget _privateCard(int n, bool wide) => Container(
-        width: wide ? 176 : 112,
+  Widget _privateCard(int n, bool wide, [double? width]) => Container(
+        width: width ?? (wide ? 176 : 112),
+        height: (width ?? (wide ? 176 : 112)) * 9 / 16 + (wide ? 40 : 22),
         margin: const EdgeInsets.only(right: 8),
         decoration: BoxDecoration(color: _cardBg.withValues(alpha: .6), borderRadius: BorderRadius.circular(10)),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -412,13 +420,14 @@ class _PagesOverviewState extends State<PagesOverview> {
         ]),
       );
 
-  Widget _addCard(bool wide) => Padding(
+  Widget _addCard(bool wide, [double? width]) => Padding(
         padding: const EdgeInsets.only(right: 8),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: widget.onNew,
           child: Container(
-            width: wide ? 176 : 112,
+            width: width ?? (wide ? 176 : 112),
+            height: (width ?? (wide ? 176 : 112)) * 9 / 16 + (wide ? 40 : 22),
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: _line)),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               const Icon(Icons.add_rounded, color: _acc, size: 26),
@@ -428,59 +437,77 @@ class _PagesOverviewState extends State<PagesOverview> {
         ),
       );
 
-  Future<void> _menu(MeetPage p) => showPageMenu(context, call, p, onEdit: () => widget.onEdit(p.id), reload: _load);
+  Future<void> _menu(MeetPage p, [BuildContext? at]) => showPageMenu(at ?? context, call, p, onEdit: () => widget.onEdit(p.id), reload: _load);
 }
 
-/// Menu của một trang (nhấn giữ / chuột phải thẻ, hoặc ⋯ trên trang): chủ trang có Sửa, Chiếu, Công khai / riêng, Xoá;
-/// chủ trì (trang người khác) có Chiếu. Bấm (không giữ) là tương tác với trang: người xem trả lời / hỏi / ghi, chủ trang soạn.
-Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p, {required VoidCallback onEdit, required Future<void> Function() reload}) async {
+/// Menu của một trang (nhấn giữ / chuột phải thẻ, hoặc ⋯ trên trang): menu nổi ngay tại thẻ (Sếp: không phải bảng kéo lên).
+/// Chủ trang: Sửa, Xoá (hỏi lại), Trình chiếu, Nhân bản, Bật công khai, Bật riêng tư (mục đang ở trạng thái đó thì mờ);
+/// chủ trì với trang người khác: chỉ Trình chiếu. Bấm (không giữ) là tương tác với trang.
+Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p, {required VoidCallback onEdit, required Future<void> Function() reload, Rect? anchor}) async {
   final api = PagesApi(call);
   final mine = p.owner == call.myId();
   final st = call.roomStage ?? const {};
   final myTurn = st['presenter'] == call.myId();
   final canShow = myTurn || call.canModerate || '${st['presenter'] ?? ''}'.isEmpty;
   if (!mine && !call.canModerate) return;
-  final s = pageTypeOf(p.type);
-  final a = await showModalBottomSheet<String>(
+  final box = context.findRenderObject() as RenderBox?;
+  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+  final r = anchor ?? (box == null ? Rect.zero : box.localToGlobal(Offset.zero) & box.size);
+  final origin = overlay.globalToLocal(r.topLeft);
+  PopupMenuItem<String> item(String v, IconData i, String label, {bool enabled = true, Color? color}) => PopupMenuItem<String>(
+        value: v,
+        enabled: enabled,
+        height: 44,
+        child: Row(children: [
+          Icon(i, size: 20, color: enabled ? (color ?? Colors.white) : Colors.white24),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(color: enabled ? (color ?? Colors.white) : Colors.white38)),
+        ]),
+      );
+  final a = await showMenu<String>(
     context: context,
-    backgroundColor: const Color(0xFF2B2E33),
-    constraints: const BoxConstraints(maxWidth: 480),
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-    builder: (ctx) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-          child: Text([p.title, s?.label ?? p.type, if (!mine) p.ownerName, p.public ? tr('công khai') : tr('riêng')].join(' · '), maxLines: 2, style: const TextStyle(color: _sub, fontSize: 12.5)),
-        ),
-        if (mine) ListTile(leading: const Icon(Icons.edit_outlined, color: Colors.white), title: Text(tr('Sửa'), style: const TextStyle(color: Colors.white)), onTap: () => Navigator.pop(ctx, 'edit')),
-        ListTile(
-          leading: const Icon(Icons.play_circle_outline_rounded, color: Color(0xFF7FD8CC)),
-          title: Text(canShow ? tr('Chiếu lên sân khấu') : tr('Xin lượt và chiếu'), style: const TextStyle(color: Color(0xFF7FD8CC), fontWeight: FontWeight.w600)),
-          onTap: () => Navigator.pop(ctx, 'show'),
-        ),
-        if (mine)
-          SwitchListTile(
-            secondary: const Icon(Icons.public_rounded, color: Colors.white),
-            value: p.public,
-            title: Text(tr('Công khai trong cuộc họp'), style: const TextStyle(color: Colors.white)),
-            onChanged: (_) => Navigator.pop(ctx, 'vis'),
-          ),
-        if (mine)
-          ListTile(
-            leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFF28B82)),
-            title: Text(tr('Xoá'), style: const TextStyle(color: Color(0xFFF28B82))),
-            onTap: () => Navigator.pop(ctx, 'delete'),
-          ),
-      ]),
-    ),
+    color: const Color(0xFF2B2E33),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    position: RelativeRect.fromRect(origin & r.size, Offset.zero & overlay.size),
+    items: [
+      if (mine) item('edit', Icons.edit_outlined, tr('Sửa')),
+      if (mine) item('delete', Icons.delete_outline_rounded, tr('Xoá'), color: const Color(0xFFF28B82)),
+      item('show', Icons.play_circle_outline_rounded, canShow ? tr('Trình chiếu') : tr('Xin lượt và chiếu'), color: const Color(0xFF7FD8CC)),
+      if (mine) item('dup', Icons.copy_all_rounded, tr('Nhân bản')),
+      if (mine) item('public', Icons.public_rounded, tr('Bật công khai'), enabled: !p.public),
+      if (mine) item('private', Icons.lock_outline_rounded, tr('Bật riêng tư'), enabled: p.public),
+    ],
   );
   if (a == null || !context.mounted) return;
   try {
     switch (a) {
       case 'edit':
         onEdit();
-      case 'vis':
-        await api.patch(p.id, {'visibility': p.public ? 'private' : 'meeting'});
+      case 'delete':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF2B2E33),
+            title: Text(tr('Xoá trang?'), style: const TextStyle(color: Colors.white)),
+            content: Text(tr('"{0}" sẽ bị xoá, không khôi phục được.', [p.title]), style: const TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('Huỷ'))),
+              FilledButton(style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)), onPressed: () => Navigator.pop(ctx, true), child: Text(tr('Xoá'))),
+            ],
+          ),
+        );
+        if (ok != true) return;
+        await api.delete(p.id);
+        await reload();
+      case 'dup':
+        await api.duplicate(p.id);
+        await reload();
+        if (context.mounted) meetToast(context, tr('Đã nhân bản "{0}"', [p.title]));
+      case 'public':
+        await api.patch(p.id, {'visibility': 'meeting'});
+        await reload();
+      case 'private':
+        await api.patch(p.id, {'visibility': 'private'});
         await reload();
       case 'show':
         if (!myTurn && !call.canModerate) {
@@ -492,11 +519,47 @@ Future<void> showPageMenu(BuildContext context, CallService call, MeetPage p, {r
         }
         final e = await call.stageAct('show', {'page': p.id});
         if (e != null && context.mounted) meetToast(context, e);
-      case 'delete':
-        await api.delete(p.id);
-        await reload();
     }
   } catch (e) {
     if (context.mounted) meetToast(context, '$e');
+  }
+}
+
+/// Nhãn "LIVE" đỏ nhấp nháy: trang đang trên sân khấu (thẻ trang, trang đang xem).
+class LiveBadge extends StatefulWidget {
+  final double size;
+  const LiveBadge({super.key, this.size = 10});
+  @override
+  State<LiveBadge> createState() => _LiveBadgeState();
+}
+
+class _LiveBadgeState extends State<LiveBadge> with SingleTickerProviderStateMixin {
+  late final _a = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+  @override
+  void dispose() {
+    _a.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final still = MediaQuery.of(context).disableAnimations;
+    return AnimatedBuilder(
+      animation: _a,
+      builder: (_, child) => Container(
+        padding: EdgeInsets.symmetric(horizontal: widget.size * .7, vertical: widget.size * .2),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE5343D),
+          borderRadius: BorderRadius.circular(widget.size),
+          boxShadow: [BoxShadow(color: const Color(0xFFE5343D).withValues(alpha: still ? .4 : .25 + .45 * _a.value), blurRadius: widget.size * (still ? .8 : .4 + 1.2 * _a.value))],
+        ),
+        child: child,
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: widget.size * .55, height: widget.size * .55, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+        SizedBox(width: widget.size * .4),
+        Text('LIVE', style: TextStyle(color: Colors.white, fontSize: widget.size, fontWeight: FontWeight.w800, letterSpacing: .8)),
+      ]),
+    );
   }
 }

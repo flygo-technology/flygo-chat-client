@@ -129,6 +129,9 @@ class PagesApi {
 
   Future<void> delete(String id) => _req('DELETE', '/meet/pages/$id');
 
+  /// Nhân bản trang (chủ trang): "tên (bản sao)", cùng nội dung / cấu hình / công khai, không chép kết quả.
+  Future<MeetPage> duplicate(String id) async => MeetPage((await _req('POST', '/meet/pages/$id/duplicate'))['page'] as Map);
+
   /// Một hành động của loại trang -> phần xem mới.
   Future<(Map<String, dynamic>, int)> act(String id, String action, [Map<String, dynamic> body = const {}]) async {
     final j = await _req('POST', '/meet/pages/$id/act/$action', body: body);
