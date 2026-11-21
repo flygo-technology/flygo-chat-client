@@ -8,8 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../../state/app_state.dart';
 import '../page_media.dart';
 import '../pages_api.dart' show pageAssetUrl;
-import '../stage_frame.dart' show StageBackgroundPicker, StageTheme;
-import '../system_pages.dart' show pageBackground;
+import '../stage_frame.dart' show StageBackgroundPicker, StageMetrics, StageTheme, stageBackground, stageBgLight;
 
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
@@ -227,54 +226,150 @@ class _WelcomeState extends State<_Welcome> {
     return h > 0 ? '$h:${two(s ~/ 60 % 60)}:${two(s % 60)}' : '${two(s ~/ 60)}:${two(s % 60)}';
   }
 
+  static const _weekdays = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
+
   @override
   Widget build(BuildContext context) {
-    final bg = '${c['bg'] ?? ''}';
-    final light = bg == '#F7F8FA';
-    final fg = light ? const Color(0xFF1B2430) : Colors.white;
-    final sub = light ? const Color(0xFF5C6670) : const Color(0xFFB7E4DD);
-    final left = c['countdown'] == true ? _left() : '';
+    final metrics = StageMetrics.of(context);
+    final t = metrics?.theme ?? StageTheme.of(widget.ctx.call.roomStage?['theme_cfg'] as Map?);
+    final bg = '${c['bg'] ?? ''}', img = '${c['bg_image'] ?? ''}';
+    final light = img.isEmpty && stageBgLight(bg.isEmpty ? 'linear-gradient(135deg,#0E5C55,#173431)' : bg, t);
+    final fg = light ? const Color(0xFF141A23) : Colors.white;
+    final sub = light ? const Color(0xFF4A5565) : const Color(0xFFC9D2DE);
+    final eyebrow = light ? t.accent : Color.lerp(t.accent, Colors.white, .45)!;
     final call = widget.ctx.call;
-    final people = c['show_online'] == true ? [tr('Bạn'), for (final p in call.participants) if (!p.userId.contains(':')) p.userId] : const <String>[];
-    return Container(
-      decoration: pageBackground(bg, '${c['bg_image'] ?? ''}'),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(24),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            if ('${c['icon'] ?? ''}'.isNotEmpty) Text('${c['icon']}', style: const TextStyle(fontSize: 64)),
-            Text('${c['heading'] ?? widget.ctx.page.title}', textAlign: TextAlign.center, style: TextStyle(color: fg, fontSize: 40, fontWeight: FontWeight.w700)),
-            if ('${c['subtitle'] ?? ''}'.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              Text('${c['subtitle']}', textAlign: TextAlign.center, style: TextStyle(color: sub, fontSize: 20)),
-            ],
-            if (left.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              Text(tr('Bắt đầu sau'), style: TextStyle(color: sub, fontSize: 16)),
-              Text(left, style: TextStyle(color: fg, fontSize: 56, fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
-            ],
-            if (people.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              Text(tr('{0} người đã vào', [people.length]), style: TextStyle(color: sub, fontSize: 15)),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 700),
-                child: Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
-                  for (final id in people.take(24))
-                    Chip(
-                      backgroundColor: Colors.black26,
-                      side: BorderSide.none,
-                      label: Text(id == tr('Bạn') ? id : _nameOf(context, id), style: TextStyle(color: fg, fontSize: 13)),
-                    ),
-                ]),
+    final left = c['countdown'] == true ? _left() : '';
+    final people = c['show_online'] == true ? [for (final p in call.participants) if (!p.userId.contains(':')) p.userId] : const <String>[];
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    int start = (c['countdown_to'] as num?)?.toInt() ?? 0;
+    if (start == 0) start = (call.roomMeeting['start'] as num?)?.toInt() ?? 0;
+    final startAt = start > 0 ? DateTime.fromMillisecondsSinceEpoch(start) : null;
+
+    // Khối giờ riêng (Sếp: tách giờ khỏi tiêu đề): giờ hiện tại + ngày, rồi đếm ngược tới giờ bắt đầu.
+    Widget timeBlock(bool portrait) => Container(
+          padding: EdgeInsets.symmetric(horizontal: portrait ? 18 : 28, vertical: portrait ? 14 : 24),
+          decoration: BoxDecoration(
+            color: (light ? Colors.white : Colors.black).withValues(alpha: light ? .7 : .28),
+            borderRadius: BorderRadius.circular(portrait ? 18 : 24),
+            border: Border.all(color: fg.withValues(alpha: .10)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: portrait ? CrossAxisAlignment.start : CrossAxisAlignment.end, children: [
+            Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('${two(now.hour)}:${two(now.minute)}', style: TextStyle(color: fg, fontSize: portrait ? 40 : 64, fontWeight: FontWeight.w800, height: 1)),
+              const SizedBox(width: 12),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('${_weekdays[now.weekday - 1]}\n${two(now.day)}/${two(now.month)}/${now.year}', style: TextStyle(color: sub, fontSize: portrait ? 13 : 17, height: 1.3)),
+              ),
+            ]),
+            if (left.isNotEmpty || startAt != null) ...[
+              Container(width: portrait ? 160 : 260, height: 1, margin: EdgeInsets.symmetric(vertical: portrait ? 10 : 18), color: fg.withValues(alpha: .14)),
+              Text(
+                left.isNotEmpty ? tr('BẮT ĐẦU SAU') : tr('BẮT ĐẦU LÚC'),
+                style: TextStyle(color: sub, fontSize: portrait ? 11 : 14, fontWeight: FontWeight.w700, letterSpacing: 1.6),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                left.isNotEmpty ? left : '${two(startAt!.hour)}:${two(startAt.minute)}',
+                style: TextStyle(color: left.isNotEmpty ? fg : sub, fontSize: portrait ? 44 : 84, fontWeight: FontWeight.w800, height: 1, letterSpacing: -1),
               ),
             ],
           ]),
-        ),
-      ),
+        );
+
+    Widget peopleRow(bool portrait) => Row(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(
+            width: (portrait ? 30.0 : 44.0) * (people.take(5).length + (people.length > 5 ? 1 : 0)) * .75 + (portrait ? 10 : 14),
+            height: portrait ? 34 : 48,
+            child: Stack(children: [
+              for (final (i, id) in [...people.take(5), if (people.length > 5) '+${people.length - 5}'].indexed)
+                Positioned(
+                  left: i * (portrait ? 22.0 : 33.0),
+                  child: Container(
+                    width: portrait ? 34 : 48,
+                    height: portrait ? 34 : 48,
+                    decoration: BoxDecoration(
+                      color: id.startsWith('+') ? const Color(0xFF2A3446) : t.series[i % t.series.length],
+                      shape: BoxShape.circle,
+                      border: Border.all(color: light ? Colors.white : const Color(0xFF13233F), width: 3),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      id.startsWith('+') ? id : _nameOf(context, id).trim().characters.first.toUpperCase(),
+                      style: TextStyle(color: Colors.white, fontSize: portrait ? 12 : 16, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(tr('{0} người đã vào', [people.length]), style: TextStyle(color: fg, fontSize: portrait ? 16 : 22, fontWeight: FontWeight.w700)),
+              Text(
+                people.take(4).map((id) => _nameOf(context, id).split(' ').last).join(', ') + (people.length > 4 ? tr(' và {0} người khác', [people.length - 4]) : ''),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: sub, fontSize: portrait ? 12 : 15),
+              ),
+            ]),
+          ),
+        ]);
+
+    final heading = '${c['heading'] ?? widget.ctx.page.title}';
+    final subtitle = '${c['subtitle'] ?? ''}';
+    final eyebrowText = '${call.roomMeeting['title'] ?? ''}'.trim();
+    Widget texts(bool portrait) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if ('${c['icon'] ?? ''}'.isNotEmpty) Text('${c['icon']}', style: TextStyle(fontSize: portrait ? 40 : 60)),
+          if (eyebrowText.isNotEmpty && eyebrowText != heading)
+            Text(eyebrowText.toUpperCase(), style: TextStyle(color: eyebrow, fontSize: portrait ? 13 : 18, fontWeight: FontWeight.w700, letterSpacing: 2)),
+          SizedBox(height: portrait ? 8 : 14),
+          Text(heading, style: TextStyle(color: fg, fontSize: portrait ? 36 : 68, fontWeight: FontWeight.w800, height: 1.08, letterSpacing: -.5)),
+          if (subtitle.isNotEmpty) ...[
+            SizedBox(height: portrait ? 10 : 18),
+            Text(subtitle, style: TextStyle(color: sub, fontSize: portrait ? 16 : 24, height: 1.45)),
+          ],
+        ]);
+
+    Widget layout(Size size, bool portrait) {
+      if (portrait) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 64, 20, 64),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            timeBlock(true),
+            const Spacer(),
+            texts(true),
+            const Spacer(),
+            if (people.isNotEmpty) peopleRow(true),
+          ]),
+        );
+      }
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(96, 120, 96, 92),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Flexible(child: texts(false)),
+              const Spacer(),
+              if (people.isNotEmpty) peopleRow(false),
+            ]),
+          ),
+          const SizedBox(width: 48),
+          Align(alignment: Alignment.topRight, child: timeBlock(false)),
+        ]),
+      );
+    }
+
+    final body = metrics != null
+        ? layout(metrics.size, metrics.portrait)
+        // Ngoài khung sân khấu (xem trước, ảnh thu nhỏ): dựng ở 1280 × 720 rồi co cho vừa.
+        : FittedBox(fit: BoxFit.cover, child: SizedBox(width: 1280, height: 720, child: layout(const Size(1280, 720), false)));
+    return Container(
+      decoration: bg.isEmpty && img.isEmpty
+          ? stageBackground('linear-gradient(135deg,#0E5C55,#173431)', '', t)
+          : stageBackground(bg, img, t),
+      child: DefaultTextStyle.merge(style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]), child: body),
     );
   }
 

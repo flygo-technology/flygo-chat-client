@@ -375,7 +375,7 @@ void main() {
       expect(find.text('Hệ thống'), findsOneWidget);
       expect(find.textContaining('Mời Mai Kim trình bày'), findsOneWidget);
       await snap(t, 's1-he-thong-cho-luot');
-      await t.tap(find.byTooltip('Chỉnh màn hình chờ lượt').first);
+      await t.tap(find.byTooltip('Soạn trang này').first);
       await settle();
       await snap(t, 's2-chinh-cho-luot');
       Navigator.of(t.element(find.text('Tự sang trang đầu của người trình bày'))).pop();
@@ -568,6 +568,76 @@ void main() {
           await settle();
           await snap(t, '$name-3-nen');
         }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
+    });
+  }
+
+  for (final (name, size, desktop) in [('h1-may-tinh', const Size(1440, 900), true), ('h2-dien-thoai', const Size(390, 844), false)]) {
+    testWidgets('trang hệ thống mới: $name', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 460, tab: desktop ? 'pages' : '');
+      CallScreen.debugRoom = (_) => _room();
+      await http.runWithClient(() async {
+        final app = _app();
+        await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('sys2-$name')));
+        final base = {...app.calls.roomStage!, 'meeting_title': 'Giao ban tháng 12', 'theme_cfg': {'accent': '#3D7BFF', 'mode': 'dark'}, 'ends_at': 0};
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 8; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        Future<void> show(Map<String, dynamic> st, String shot) async {
+          app.calls.roomStage = {...base, ...st};
+          app.calls.notifyListeners();
+          await settle();
+          await snap(t, '$name-$shot');
+        }
+
+        await settle();
+        await show({
+          'page': 'sys:welcome', 'page_type': 'system', 'page_title': 'Chào mừng',
+          'welcome_cfg': {'heading': 'Chào mừng mọi người đến buổi giao ban', 'subtitle': 'Tổng kết tiến độ tòa B, hợp đồng tháng 11 và kế hoạch quý 1.', 'bg': 'brand:dark', 'show_online': true, 'countdown': true, 'countdown_to': _now + 292000},
+        }, '1-chao-mung');
+        expect(find.text('BẮT ĐẦU SAU'), findsOneWidget);
+        await show({
+          'page': 'sys:handover', 'page_type': 'system', 'page_title': 'Chờ lượt trình chiếu', 'presenter': 'kim', 'presenter_name': 'Mai Kim',
+          'queue': [{'id': 'minh', 'name': 'Lê Minh'}, {'id': 'quang', 'name': 'Trần Quang'}],
+          'ends_at': _now + 6000,
+          'handover': {'name': 'Mai Kim', 'uid': 'kim', 'pages': 2, 'seconds': 480, 'next': 'Lê Minh'},
+          'handover_cfg': {'title': 'Mời chị {name} trình bày', 'show_avatar': true, 'show_pages': true, 'show_next': true, 'auto_seconds': 10},
+        }, '2-cho-luot');
+        await show({
+          'page': 'sys:program', 'page_type': 'system', 'page_title': 'Nội dung', 'presenter': 'me', 'presenter_name': 'Dương Văn Ba',
+          'program_cfg': {
+            'title': 'Nội dung giao ban', 'current': 1,
+            'items': [
+              {'title': 'Khai mạc', 'owner': 'me', 'owner_name': 'Dương Văn Ba', 'minutes': 5},
+              {'title': 'Tiến độ lắp đặt tòa B', 'owner': 'loi', 'owner_name': 'Nguyễn Văn Lợi', 'minutes': 10},
+              {'title': 'Hợp đồng tháng 11', 'owner': 'kim', 'owner_name': 'Mai Kim', 'minutes': 8},
+              {'title': 'An toàn lao động', 'owner': 'minh', 'owner_name': 'Lê Minh', 'minutes': 5},
+              {'title': 'Hỏi đáp & chốt việc', 'owner': '', 'owner_name': '', 'minutes': 7},
+            ],
+          },
+        }, '3-noi-dung');
+        expect(find.text('ĐANG DIỄN RA'), findsOneWidget);
         await t.pumpWidget(const SizedBox());
         await t.pump(const Duration(seconds: 5));
         app.calls.debugMeeting(_ch, const []);
