@@ -11,12 +11,11 @@ import '../pages/page_types.dart';
 import '../pages/pages_api.dart';
 
 // App riêng dựng trên loại trang (máy chủ: relay/meet-pages.mjs, trang không thuộc cuộc họp): "Bình chọn & Trắc nghiệm"
-// (manifest native.screen = "binh_chon", loại trang poll), "Hỏi đáp & Thảo luận" ("hoi_dap", qa) và "Ghi chú" ("ghi_chu", notes).
+// (manifest native.screen = "binh_chon", loại trang poll) và "Hỏi đáp & Thảo luận" ("hoi_dap", qa). Bảng ghi chú nằm trong app Ghi chú.
 // Danh sách: Của tôi / Được mời / Toàn công ty. Mở một mục = đúng phần xem của loại trang (như trong cuộc họp).
 
 const kBinhChonScreen = 'binh_chon';
 const kHoiDapScreen = 'hoi_dap';
-const kGhiChuScreen = 'ghi_chu';
 
 const _bg = Color(0xFF16181C);
 const _card = Color(0xFF23262C);
@@ -24,7 +23,7 @@ const _sub = Color(0xFF9AA0A6);
 
 /// Mở app theo native.screen của mini app (Bình chọn / Hỏi đáp).
 Future<void> openPageApp(BuildContext context, MiniApp app) async {
-  final type = switch (app.nativeScreen) { kHoiDapScreen => 'qa', kGhiChuScreen => 'notes', _ => 'poll' };
+  final type = app.nativeScreen == kHoiDapScreen ? 'qa' : 'poll';
   await AppHost.of(context).open(key: app.id, title: app.name, builder: (_) => PageAppScreen(type: type, title: app.name));
 }
 
