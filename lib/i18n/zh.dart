@@ -63,6 +63,7 @@ const Map<String, String> zh = {
   'Email hoặc tên đăng nhập': '邮箱或用户名',
   'File quá lớn so với giới hạn của máy chủ.': '文件超出服务器的大小限制。',
   'GIF': 'GIF',
+  'Nói thành chữ': '语音转文字',
   'Ghi âm': '语音消息',
   'Giữ để rời kênh': '长按退出频道',
   'Giữ để xóa kênh': '长按删除频道',

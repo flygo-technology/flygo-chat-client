@@ -65,6 +65,7 @@ const Map<String, String> en = {
   'Email hoặc tên đăng nhập': 'Email or username',
   'File quá lớn so với giới hạn của máy chủ.': 'File is too large for the server\'s limit.',
   'GIF': 'GIF',
+  'Nói thành chữ': 'Speech to text',
   'Ghi âm': 'Voice message',
   'Giữ để rời kênh': 'Hold to leave channel',
   'Giữ để xóa kênh': 'Hold to delete channel',

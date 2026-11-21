@@ -63,6 +63,7 @@ const Map<String, String> ko = {
   'Email hoặc tên đăng nhập': '이메일 또는 사용자 이름',
   'File quá lớn so với giới hạn của máy chủ.': '파일이 너무 큽니다. 서버 허용 크기를 초과했어요.',
   'GIF': 'GIF',
+  'Nói thành chữ': '음성 입력',
   'Ghi âm': '음성 메시지',
   'Giữ để rời kênh': '길게 눌러 채널 나가기',
   'Giữ để xóa kênh': '길게 눌러 채널 삭제',
