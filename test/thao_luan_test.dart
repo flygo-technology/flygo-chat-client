@@ -159,6 +159,9 @@ void main() {
     await t.tap(find.text('Mới nhất'));
     await settle(t, 2);
     expect(calls.last, 'GET /bt/api/discussions/D1/posts?sort=new');
+    // Hàng lọc cuộn ngang: kéo chip "Đồng ý" vào màn hình rồi bấm (font mặc định của test rộng hơn font thật).
+    await t.ensureVisible(find.widgetWithText(ChoiceChip, 'Đồng ý'));
+    await t.pump();
     await t.tap(find.widgetWithText(ChoiceChip, 'Đồng ý'));
     await settle(t, 2);
     expect(calls.last, 'GET /bt/api/discussions/D1/posts?sort=new&stance=y');
