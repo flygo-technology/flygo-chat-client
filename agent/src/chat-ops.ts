@@ -57,6 +57,8 @@ export interface ChatDeps {
   refPage?: (refId: string, before: string | undefined, limit: number, runKey: string) => Promise<{ posts: any[]; more: boolean }>;
   /** Bot đăng tin mốc đóng / mở luồng: runner cập nhật cache (không tự dừng lượt đang chạy của chính bot). */
   onCloseMark: (channelId: string, rootId: string, closed: boolean) => void;
+  /** Tin chat_send vào một phiên AI khác của chính bot = bàn giao: runner chuyển thành agent_send (đánh thức phiên đó). */
+  handoff?: (runKey: string, session: string, message: string) => Promise<string>;
   /** Mở một lượt mới ở `origin` (người giao việc = origin.assigner) sau khi đăng tin báo `notice`. */
   kickTurn: (origin: Origin, notice: string, text: string) => Promise<void>;
 }
@@ -241,8 +243,8 @@ export function createChatOps(d: ChatDeps) {
   function handoffOnly(t: Target | RefTarget): string {
     if (t.kind !== "chat" || t.current || !aiOf(t.ch)) return "";
     return `"${t.name}" là một phiên AI khác của chính bạn: tin đăng bằng tool chat không làm phiên đó chạy, và không gắn nhãn quan trọng / khẩn cho tin giữa agent. ` +
-      `Bàn giao / giao việc: team_post(session="${t.id}", message="…") (đánh thức phiên đó chạy ngay, người giao việc bấm duyệt một lần trên thẻ); chỉ để lại ghi chú: thêm wake=false; hỏi rồi chờ trả lời: team_ask(session="${t.id}", message). ` +
-      `Nếu trước đó team_post báo không dùng được cho phiên của chính bạn: runner đã sửa (0.7.12), gọi lại team_post.`;
+      `Nhắn / bàn giao / hỏi: agent_send(target="${t.id}", message="…") (đánh thức phiên đó làm ngay, câu trả lời về đây). ` +
+      `Nếu trước đó công cụ đồng đội báo không dùng được cho phiên của chính bạn: runner đã sửa, dùng agent_send.`;
   }
 
   async function approve(ctx: ChatCtx, t: { current?: boolean } | null, title: string, detail: string, always = false) {
@@ -765,6 +767,8 @@ export function createChatOps(d: ChatDeps) {
       // ======== gửi ========
       case "chat_send": {
         const t = await resolveChat(ctx, a.to);
+        // Bot đăng tin thường vào phiên AI khác của chính nó = bàn giao: đánh thức phiên đó (agent_send), không gắn ưu tiên.
+        if (handoffOnly(t) && d.handoff && t.kind === "chat" && String(a.message ?? "").trim() && !a.files?.length && !a.file_ids?.length) return d.handoff(ctx.runKey, t.id, String(a.message));
         const own = handoffOnly(t);
         if (own) return own;
         let message = String(a.message ?? "");

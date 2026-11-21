@@ -76,7 +76,7 @@ export async function tailTokens(path: string, pick: (ev: any) => number | null)
 }
 
 // Tool A2A của flygo_chat: luôn cho phép (nhờ agent khác / gửi tệp kết quả; agent kia tự xin duyệt quyền của nó).
-const A2A_TOOLS = ["mcp__flygo_chat__ask_agent", "mcp__flygo_chat__return_files", "mcp__flygo_chat__chat_report_out", "mcp__flygo_chat__remote_agents", "mcp__flygo_chat__remote_agent_send",
+const A2A_TOOLS = ["mcp__flygo_chat__ask_agent", "mcp__flygo_chat__return_files", "mcp__flygo_chat__chat_report_out", "mcp__flygo_chat__remote_agents", "mcp__flygo_chat__remote_agent_send", "mcp__flygo_chat__agent_send", "mcp__flygo_chat__agent_list",
   "mcp__flygo_chat__skill_list", "mcp__flygo_chat__skill_read", "mcp__flygo_chat__skill_save", "mcp__flygo_chat__skill_delete", "mcp__flygo_chat__role_set",
   "mcp__flygo_chat__schedule_create", "mcp__flygo_chat__schedule_list", "mcp__flygo_chat__schedule_update", "mcp__flygo_chat__schedule_delete",
   "mcp__flygo_chat__chat_edit_message", "mcp__flygo_chat__chat_recall_message", "mcp__flygo_chat__chat_session_title",

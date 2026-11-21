@@ -24,7 +24,7 @@ export function tagBridge(postId: string, tagged: { id: string; username: string
 
 /** Lý do không cho ask_agent tới bot `u` (phiên `session`), hoặc "" nếu được. */
 export function tagDenied(t: TagBridge | undefined, u: { id: string; username: string }, session: string): string {
-  const hint = "Chỉ nhờ được agent được tag trong tin đang xử lý (hoặc phiên được gắn vào tin); đồng đội cùng dự án thì dùng team_ask / team_post.";
+  const hint = "Chỉ nhờ được agent được tag trong tin đang xử lý (hoặc phiên được gắn vào tin); đồng đội và phiên cùng dự án nhắn bằng agent_send.";
   if (!t) return `Lượt này không có tin tag agent nào nên không nhờ @${u.username} được. ${hint}`;
   if (session) return t.sessions.some((x) => x.session === session && (x.bot === u.id || x.bot === u.username)) ? "" : `Phiên ${session} không được gắn vào tin này. ${hint}`;
   return t.bots.has(u.id) || t.bots.has(u.username) ? "" : `@${u.username} không được tag trong tin này. ${hint}`;

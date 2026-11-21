@@ -521,6 +521,9 @@ const runner = async (path: string, body: any) => {
   const r = await fetch(`${RUNNER}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, ...body }) });
   return r.json() as Promise<any>;
 };
+// 0.7.13 (Sếp): agent nói chuyện với nhau chỉ qua agent_send. Các tool cũ vẫn chạy được (lời gọi của phiên cũ) nhưng không còn
+// trong danh sách tool: ask_agent (A2A_TOOLS), team_post, team_ask, session_ask, remote_agents, remote_agent_send.
+const HIDDEN_AGENT_TOOLS = new Set(["team_post", "team_ask", "session_ask", "remote_agents", "remote_agent_send"]);
 const A2A_TOOLS = [
   {
     name: "ask_agent",
@@ -614,7 +617,7 @@ async function gatewayTools(): Promise<any[]> {
 }
 
 server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx(); return {
-  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...(A2A_ROLE === "orchestrator" ? A2A_TOOLS : []), ...CHAT_TOOLS, ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
+  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
     ...(await gatewayTools())],
 }; });
 const CHAT_TOOLS = [
@@ -803,6 +806,22 @@ const CHAT_TOOLS = [
       name: "session_ask",
       description: "HỎI một phiên AI khác của Sếp với bot này TRONG CÙNG DỰ ÁN với phiên hiện tại (phiên khác dự án / không thuộc dự án: chỉ hỏi được khi phiên đó được gắn vào tin; không thì chỉ session_read): chạy thẳng nối tiếp phiên làm việc của phiên đó (đủ ngữ cảnh của nó, chỉ đọc), KHÔNG hiện gì trong chat của phiên đó trên app; câu trả lời trả về đây. Dùng khi Sếp bảo hỏi phiên khác / việc nằm ở phiên khác. Chờ tối đa wait_sec (mặc định 300).",
       inputSchema: { type: "object", properties: { session_id: { type: "string" }, message: { type: "string" }, wait_sec: { type: "number" } }, required: ["session_id", "message"] },
+    },
+    {
+      name: "agent_send",
+      description: "NHẮN / GIAO VIỆC CHO MỘT AGENT KHÁC — tool DUY NHẤT để agent nói chuyện với nhau. Bên nhận LUÔN được đánh thức và làm ngay với tin này; câu trả lời trả về đây (agent ngoài nối qua Token MCP: trả lời thành tin mới ở chat này sau đó). target: id phiên khác của chính bạn (cùng dự án / được gắn vào tin), phiên hoặc @username đồng đội cùng dự án, @bot được tag trong tin, tên / id agent ngoài — xem agent_list(). Viết đủ ngữ cảnh (bên kia không thấy chat này). Không dùng chat_send để nhắn agent; không gắn nhãn quan trọng.",
+      inputSchema: { type: "object", properties: {
+        target: { type: "string", description: "id phiên / @username / tên agent (từ agent_list)" },
+        message: { type: "string" },
+        files: { type: "array", items: { type: "string" }, description: "tệp gửi kèm (chỉ bot được tag)" },
+        data: { type: "object", description: "dữ liệu có cấu trúc (chỉ bot được tag)" },
+        wait_sec: { type: "number", description: "chờ trả lời tối đa (mặc định 300, tối đa 1200)" },
+      }, required: ["target", "message"] },
+    },
+    {
+      name: "agent_list",
+      description: "Các agent nhắn được bằng agent_send từ phiên này: phiên khác của chính bạn, đồng đội cùng dự án (bot + phiên), bot được tag trong tin, agent ngoài của Sếp.",
+      inputSchema: { type: "object", properties: {} },
     },
     {
       name: "remote_agents",
@@ -1051,6 +1070,10 @@ async function callTool(req: any): Promise<any> {
     case "session_list": case "session_read": case "session_ask": case "session_transcript": {
       const [kind, op] = String(req.params.name).split("_");
       const r = await runner(`/${kind}/${op}`, { ...a, owner: OWNER_ID, channel: CHANNEL }).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
+      return text(r.text ?? JSON.stringify(r));
+    }
+    case "agent_send": case "agent_list": {
+      const r = await runner(`/agent/${req.params.name}`, { ...a, a2a_role: A2A_ROLE }).catch((e) => ({ text: `Lỗi: ${e.message ?? e}` }));
       return text(r.text ?? JSON.stringify(r));
     }
     case "remote_agents": case "remote_agent_send": {
