@@ -16,6 +16,7 @@ import '../page_thumb.dart' show PdfThumb;
 import '../app_kit.dart' show AppScope;
 import '../page_types.dart';
 import 'media_apps.dart';
+import 'minutes_app.dart';
 import 'welcome_agenda.dart';
 
 // Loại trang có sẵn: Chào mừng, Video, Tài liệu (Slide / PDF / Word / Excel), Chương trình họp, Biên bản.
@@ -170,19 +171,12 @@ void registerBuiltinPageTypes() {
     icon: Icons.edit_note_rounded,
     color: const Color(0xFF9334E6),
     create: (context, call) async => PageDraft(title: tr('Biên bản: {0}', [call.meetingInfo?.title ?? tr('cuộc họp')])),
-    view: (context, ctx) => ctx.onStage ? _MinutesStage(ctx) : _Minutes(ctx),
+    view: (context, ctx) => ctx.onStage ? MinutesAppStage(ctx) : _Minutes(ctx),
+    // App (mockup bảng 15): người xem đọc cùng, nhận việc, đề xuất sửa; người ghi gõ thẳng, gắn nhãn, duyệt đề xuất, chốt.
+    panel: (context, ctx) => MinutesPanel(ctx),
+    controls: (context, ctx) => MinutesControls(ctx),
     stageThemed: true,
-    stageFooter: (context, ctx) {
-      final t = StageMetrics.themeOf(context);
-      final v = ctx.view;
-      final tasks = (v['tasks'] as List? ?? const []);
-      return [
-        if ('${v['edited_by'] ?? ''}'.isNotEmpty) StagePill(tr('{0} vừa ghi', [v['edited_by']]), icon: Icons.edit_outlined, theme: t, accent: true),
-        if (v['closed'] == true) StagePill(tr('Đã chốt'), icon: Icons.lock_outline_rounded, theme: t),
-        const Spacer(),
-        StagePill(tr('{0} việc cần làm', [tasks.length]), icon: Icons.checklist_rounded, theme: t),
-      ];
-    },
+    stageFooter: (context, ctx) => minutesFooter(context, ctx),
   ));
 }
 
@@ -740,71 +734,6 @@ List<Widget> _agendaFooter(BuildContext context, PageCtx ctx) {
 }
 
 // ------------------------------------------------------------------ Biên bản
-/// Biên bản trên sân khấu (mockup Họp): trang giấy sáng chữ to (dòng bắt đầu bằng "1." / "#" là đề mục), việc cần làm bên phải.
-class _MinutesStage extends StatelessWidget {
-  final PageCtx ctx;
-  const _MinutesStage(this.ctx);
-  @override
-  Widget build(BuildContext context) {
-    final m = StageMetrics.of(context);
-    if (m == null) return FittedBox(child: SizedBox(width: 1168, height: 560, child: StageMetrics(theme: const StageTheme(), portrait: false, size: const Size(1168, 560), child: _MinutesStage(ctx))));
-    final t = m.theme;
-    final portrait = m.portrait;
-    final v = ctx.view;
-    final text = '${v['text'] ?? ''}'.trim();
-    final tasks = [for (final x in (v['tasks'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
-    final heading = RegExp(r'^(#+\s*|\d+[.)]\s+)');
-    final lines = text.isEmpty ? <String>[] : text.split('\n');
-    final paper = Container(
-      padding: EdgeInsets.all(portrait ? 18 : 32),
-      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(18)),
-      child: lines.isEmpty
-          ? Text(tr('Biên bản đang trống. Mọi người cùng ghi trên app.'), style: const TextStyle(color: Color(0xFF5C6670), fontSize: 20))
-          : ListView(padding: EdgeInsets.zero, reverse: false, physics: const NeverScrollableScrollPhysics(), children: [
-              for (final l in lines.length > 40 ? lines.sublist(lines.length - 40) : lines)
-                if (l.trim().isEmpty)
-                  const SizedBox(height: 10)
-                else if (heading.hasMatch(l))
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6, bottom: 4),
-                    child: Text(l.replaceFirst(RegExp(r'^#+\s*'), ''), style: TextStyle(color: const Color(0xFF1B2430), fontSize: portrait ? 17 : 21, fontWeight: FontWeight.w700)),
-                  )
-                else
-                  Text(l, style: TextStyle(color: const Color(0xFF2C3644), fontSize: portrait ? 15 : 19, height: 1.5)),
-            ]),
-    );
-    final side = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [
-        Text(tr('VIỆC CẦN LÀM'), style: TextStyle(color: t.sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
-        const Spacer(),
-        Text(tr('{0} / {1} xong', [tasks.where((x) => x['done'] == true).length, tasks.length]), style: TextStyle(color: t.sub, fontSize: 14)),
-      ]),
-      const SizedBox(height: 12),
-      if (tasks.isEmpty) Text(tr('Chưa có việc nào'), style: TextStyle(color: t.sub, fontSize: 16)),
-      for (final x in tasks.take(7))
-        Opacity(
-          opacity: x['done'] == true ? .6 : 1,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(12)),
-            child: Row(children: [
-              Icon(x['done'] == true ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, size: 22, color: x['done'] == true ? const Color(0xFF38C793) : t.sub),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text('${x['text'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: 16, decoration: x['done'] == true ? TextDecoration.lineThrough : null)),
-              ),
-              if ('${x['who'] ?? ''}${x['due'] ?? ''}'.isNotEmpty)
-                Text([if ('${x['who'] ?? ''}'.isNotEmpty) x['who'], if ('${x['due'] ?? ''}'.isNotEmpty) x['due']].join(' · '), style: TextStyle(color: t.sub, fontSize: 13)),
-            ]),
-          ),
-        ),
-    ]);
-    if (portrait) return Column(children: [Expanded(child: paper), const SizedBox(height: 12), SizedBox(height: 200, child: SingleChildScrollView(child: side))]);
-    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Expanded(child: paper), const SizedBox(width: 28), SizedBox(width: 400, child: side)]);
-  }
-}
-
 class _Minutes extends StatefulWidget {
   final PageCtx ctx;
   const _Minutes(this.ctx);
