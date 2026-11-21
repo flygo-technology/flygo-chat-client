@@ -288,30 +288,32 @@ class _PagesPaneState extends State<PagesPane> {
       for (final t in pageTypes)
         if (t.type != 'doc') (group[t.type] ?? 1, t, t.icon, t.color, tr(short[t.type] ?? t.label), t.desc.isEmpty ? t.label : t.desc),
     ];
-    Widget tile(BuildContext ctx, (int, Object, IconData, Color, String, String) it) => Material(
-          color: _card,
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.pop(ctx, it.$2),
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(color: it.$4.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
-                  child: Icon(it.$3, color: it.$4, size: 20),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(it.$5, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-                    const SizedBox(height: 2),
-                    Text(it.$6, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _sub, fontSize: 11.5, height: 1.25)),
-                  ]),
-                ),
-              ]),
+    // Ô gọn: biểu tượng trên, tên ngắn một dòng dưới; mô tả ở tooltip (di chuột / nhấn giữ).
+    Widget tile(BuildContext ctx, (int, Object, IconData, Color, String, String) it) => Tooltip(
+          message: '${it.$5}: ${it.$6}',
+          triggerMode: TooltipTriggerMode.longPress,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.pop(ctx, it.$2),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(color: it.$4.withValues(alpha: .22), borderRadius: BorderRadius.circular(14)),
+                    child: Icon(it.$3, color: it.$4, size: 24),
+                  ),
+                  const SizedBox(height: 6),
+                  // Tên dài (Chương trình, Trình chiếu) thu nhỏ cho vừa ô thay vì cắt.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(it.$5, maxLines: 1, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 12.5)),
+                  ),
+                ]),
+              ),
             ),
           ),
         );
@@ -323,10 +325,8 @@ class _PagesPaneState extends State<PagesPane> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
       builder: (ctx) => SafeArea(
         child: LayoutBuilder(builder: (ctx, box) {
-          // Số cột: rộng nhất có thể mà không nhóm nào còn một thẻ lẻ một mình ở hàng cuối.
-          final maxCols = box.maxWidth >= 700 ? 4 : box.maxWidth >= 470 ? 3 : 2;
-          final sizes = [for (final g in [0, 1, 2]) items.where((x) => x.$1 == g).length];
-          final cols = [for (var c = maxCols; c >= 2; c--) c].firstWhere((c) => sizes.every((n) => n <= c || n % c != 1), orElse: () => maxCols);
+          // 5 ô mỗi hàng (điện thoại, panel máy tính); rộng hơn thì thêm cột (ô ~120px).
+          final cols = (box.maxWidth / 120).floor().clamp(5, 8);
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
@@ -334,16 +334,15 @@ class _PagesPaneState extends State<PagesPane> {
               for (final (g, title) in [(0, tr('Trình bày')), (1, tr('Tương tác')), (2, tr('Ghi chép'))])
                 if (items.any((x) => x.$1 == g)) ...[
                   Padding(padding: const EdgeInsets.fromLTRB(2, 14, 2, 8), child: Text(title.toUpperCase(), style: const TextStyle(color: _sub, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: .5))),
-                  // Thẻ lẻ một mình ở hàng cuối (khi không tránh được bằng số cột) trải hết hàng.
-                  Builder(builder: (_) {
-                    final list = items.where((x) => x.$1 == g).toList();
-                    final w = (box.maxWidth - 28 - 8 * (cols - 1)) / cols;
-                    final lone = list.length > cols && list.length % cols == 1;
-                    return Wrap(spacing: 8, runSpacing: 8, children: [
-                      for (final (i, it) in list.indexed)
-                        SizedBox(width: lone && i == list.length - 1 ? box.maxWidth - 28 : w, height: 74, child: tile(ctx, it)),
-                    ]);
-                  }),
+                  GridView.count(
+                    crossAxisCount: cols,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 4,
+                    mainAxisExtent: 88,
+                    children: [for (final it in items.where((x) => x.$1 == g)) tile(ctx, it)],
+                  ),
                 ],
             ]),
           );
