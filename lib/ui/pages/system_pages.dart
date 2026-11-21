@@ -7,6 +7,7 @@ import '../../state/app_state.dart';
 import '../meet/meet_home.dart' show meetToast;
 import 'page_media.dart';
 import 'page_types.dart';
+import 'stage_frame.dart';
 import 'pages_api.dart';
 import 'types/builtin.dart' show pageField;
 
@@ -45,26 +46,11 @@ List<SysPage> get sysPages => [
       SysPage('sys:handover', tr('Chờ lượt trình chiếu'), tr('Mời người kế tiếp trình bày'), Icons.hourglass_top_rounded, const Color(0xFF9334E6)),
     ];
 
-/// Màu nền có sẵn cho trang Chào mừng / Chờ lượt (giá trị CSS: TV dùng nguyên chuỗi này).
-const pageBackgrounds = <String, List<Color>>{
-  'linear-gradient(135deg,#0E5C55,#173431)': [Color(0xFF0E5C55), Color(0xFF173431)],
-  'linear-gradient(135deg,#1A3A6B,#101826)': [Color(0xFF1A3A6B), Color(0xFF101826)],
-  'linear-gradient(135deg,#5B2A86,#1C1230)': [Color(0xFF5B2A86), Color(0xFF1C1230)],
-  'linear-gradient(135deg,#8A3B12,#2A1408)': [Color(0xFF8A3B12), Color(0xFF2A1408)],
-  'linear-gradient(135deg,#2B2E33,#121417)': [Color(0xFF2B2E33), Color(0xFF121417)],
-  '#F7F8FA': [Color(0xFFF7F8FA), Color(0xFFF7F8FA)],
-};
+/// Nền của một trang từ cấu hình (ảnh > nền có sẵn của stage_frame.dart > mặc định).
+BoxDecoration pageBackground(String bg, String image, [StageTheme t = const StageTheme()]) =>
+    bg.isEmpty && image.isEmpty ? stageBackground('linear-gradient(135deg,#0E5C55,#173431)', '', t) : stageBackground(bg, image, t);
 
-/// Nền của một trang từ cấu hình (ảnh > màu có sẵn > mặc định).
-BoxDecoration pageBackground(String bg, String image) {
-  if (image.startsWith('http') || image.startsWith('/')) {
-    return BoxDecoration(color: Colors.black, image: DecorationImage(image: NetworkImage(pageAssetUrl(image)), fit: BoxFit.cover, opacity: .85));
-  }
-  final c = pageBackgrounds[bg] ?? pageBackgrounds.values.first;
-  return BoxDecoration(gradient: LinearGradient(colors: c, begin: Alignment.topLeft, end: Alignment.bottomRight));
-}
-
-bool _light(String bg) => bg == '#F7F8FA';
+bool _light(String bg) => stageBgLight(bg, const StageTheme());
 
 /// Màn hình "Chờ lượt trình chiếu" (sân khấu, xem trước trong trình soạn).
 class HandoverView extends StatelessWidget {
@@ -153,19 +139,18 @@ class _HandoverEditorState extends State<_HandoverEditor> {
   late final _title = TextEditingController(text: '${cfg['title'] ?? tr('Mời {name} trình bày')}');
   late final _desc = TextEditingController(text: '${cfg['desc'] ?? ''}');
   late final _icon = TextEditingController(text: '${cfg['icon'] ?? ''}');
-  late final _image = TextEditingController(text: '${cfg['bg_image'] ?? ''}');
   bool _company = false;
   bool _busy = false;
 
   @override
   void dispose() {
-    for (final c in [_title, _desc, _icon, _image]) {
+    for (final c in [_title, _desc, _icon]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  Map<String, dynamic> get _now => {...cfg, 'title': _title.text, 'desc': _desc.text, 'icon': _icon.text, 'bg_image': _image.text};
+  Map<String, dynamic> get _now => {...cfg, 'title': _title.text, 'desc': _desc.text, 'icon': _icon.text};
 
   Future<void> _save() async {
     setState(() => _busy = true);
@@ -205,33 +190,19 @@ class _HandoverEditorState extends State<_HandoverEditor> {
         const SizedBox(height: 8),
         Row(children: [
           SizedBox(width: 110, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
-          const SizedBox(width: 8),
-          Expanded(child: TextField(controller: _image, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Ảnh nền (tuỳ chọn)')), onChanged: (_) => setState(() {}))),
-          IconButton(
-            tooltip: tr('Chọn ảnh nền'),
-            icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
-            onPressed: () async {
-              final u = await pickPageMedia(context, widget.call, image: true);
-              if (u != null && mounted) setState(() => _image.text = u);
-            },
-          ),
         ]),
         const SizedBox(height: 10),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final e in pageBackgrounds.entries)
-            InkWell(
-              onTap: () => setState(() => cfg['bg'] = e.key),
-              child: Container(
-                width: 44,
-                height: 30,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: e.value),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: cfg['bg'] == e.key ? Colors.white : Colors.white24, width: cfg['bg'] == e.key ? 2 : 1),
-                ),
-              ),
-            ),
-        ]),
+        StageBackgroundPicker(
+          call: widget.call,
+          theme: StageTheme.of(widget.call.roomStage?['theme_cfg'] as Map?),
+          value: '${cfg['bg'] ?? ''}',
+          image: '${cfg['bg_image'] ?? ''}',
+          onBg: (k) => setState(() {
+            cfg['bg'] = k;
+            cfg['bg_image'] = '';
+          }),
+          onImage: (u) => setState(() => cfg['bg_image'] = u),
+        ),
         const SizedBox(height: 6),
         _switch('show_avatar', tr('Hiện ảnh đại diện')),
         _switch('show_pages', tr('Hiện số trang, thời lượng đã chuẩn bị')),
@@ -425,33 +396,19 @@ class _SysWelcomeEditorState extends State<_SysWelcomeEditor> {
         const SizedBox(height: 8),
         Row(children: [
           SizedBox(width: 110, child: TextField(controller: _icon, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Biểu tượng')), onChanged: (_) => setState(() {}))),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: () async {
-              final u = await pickPageMedia(context, widget.call, image: true);
-              if (u != null && mounted) setState(() => cfg['bg_image'] = u);
-            },
-            icon: const Icon(Icons.add_photo_alternate_outlined),
-            label: Text('${cfg['bg_image'] ?? ''}'.isEmpty ? tr('Ảnh nền') : tr('Đổi ảnh nền')),
-          ),
-          if ('${cfg['bg_image'] ?? ''}'.isNotEmpty) IconButton(tooltip: tr('Bỏ ảnh nền'), onPressed: () => setState(() => cfg['bg_image'] = ''), icon: const Icon(Icons.close_rounded, color: Colors.white54)),
         ]),
         const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final e in pageBackgrounds.entries)
-            InkWell(
-              onTap: () => setState(() => cfg['bg'] = e.key),
-              child: Container(
-                width: 44,
-                height: 30,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: e.value),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: cfg['bg'] == e.key ? Colors.white : Colors.white24, width: cfg['bg'] == e.key ? 2 : 1),
-                ),
-              ),
-            ),
-        ]),
+        StageBackgroundPicker(
+          call: widget.call,
+          theme: StageTheme.of(widget.call.roomStage?['theme_cfg'] as Map?),
+          value: '${cfg['bg'] ?? ''}',
+          image: '${cfg['bg_image'] ?? ''}',
+          onBg: (k) => setState(() {
+            cfg['bg'] = k;
+            cfg['bg_image'] = '';
+          }),
+          onImage: (u) => setState(() => cfg['bg_image'] = u),
+        ),
         const SizedBox(height: 6),
         _sw('show_online', tr('Hiện danh sách người đã vào')),
         _sw('countdown', tr('Đếm ngược'), sub: tr('Tới giờ bắt đầu cuộc họp')),

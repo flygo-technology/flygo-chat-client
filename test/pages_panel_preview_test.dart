@@ -520,4 +520,60 @@ void main() {
       CallScreen.debugRoom = null;
     });
   }
+
+  for (final (name, size, desktop, light) in [
+    ('f1-may-tinh-toi', const Size(1440, 900), true, false),
+    ('f2-may-tinh-sang', const Size(1440, 900), true, true),
+    ('f3-dien-thoai', const Size(390, 844), false, false),
+  ]) {
+    testWidgets('khung sân khấu: $name', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 460, tab: desktop ? 'pages' : '');
+      CallScreen.debugRoom = (_) => _room();
+      await http.runWithClient(() async {
+        final app = _app();
+        await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('frame-$name')));
+        app.calls.roomStage = {
+          ...app.calls.roomStage!,
+          'presenter': 'me', 'presenter_name': 'Nguyễn Văn Lợi', 'page': 'p3', 'page_type': 'poll', 'page_title': 'Chọn ngày bàn giao', 'key': 'k3', 'mode': 'manual', 'ends_at': _now + 204000,
+          'theme_cfg': light ? {'accent': '#C8102E', 'mode': 'light', 'bg': ''} : {'accent': '#3D7BFF', 'mode': 'dark', 'bg': ''},
+        };
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 8; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        await settle();
+        await snap(t, '$name-1-san-khau');
+        expect(find.textContaining('BÌNH CHỌN'), findsWidgets);
+        if (desktop && !light) {
+          await t.tap(find.text('Giao diện sân khấu'));
+          await settle();
+          expect(find.text('Màu nhấn'), findsOneWidget);
+          await snap(t, '$name-2-giao-dien');
+          await t.drag(find.text('Màu nhấn'), const Offset(0, -300));
+          await settle();
+          await snap(t, '$name-3-nen');
+        }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
+    });
+  }
 }

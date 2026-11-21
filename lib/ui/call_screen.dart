@@ -2652,7 +2652,8 @@ class _Tile extends StatelessWidget {
                       size: (math.min(box.maxWidth, box.maxHeight) * .4).clamp(32.0, 128.0),
                     ),
                   ),
-                Positioned(
+                // Trang trên sân khấu tự có thanh đầu (tên trang) trong khung chung: ô lớn không cần nhãn.
+                if (d.key != 'stage' || small) Positioned(
                   left: 6,
                   right: 6,
                   bottom: 6,

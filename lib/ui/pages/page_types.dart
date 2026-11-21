@@ -55,7 +55,27 @@ class PageTypeSpec {
   final int seconds;
   /// Ảnh xem trước riêng trên thẻ trang (page_thumb.dart); null = thu nhỏ phần [view] trên sân khấu. [data] null = chưa tải.
   final Widget Function(BuildContext context, CallService call, MeetPage page, PageData? data)? thumb;
-  const PageTypeSpec({required this.type, required this.label, this.desc = '', required this.icon, required this.color, this.create, required this.view, this.editor, this.seconds = 0, this.thumb});
+  /// Trên sân khấu: trang tự vẽ nền kín khung (Chào mừng), thanh đầu / cuối của khung chung nổi lên trên.
+  final bool stageBleed;
+  /// Thanh cuối của khung sân khấu (tiến độ, số người trả lời…); null = mặc định (giờ còn lại, cách tham gia).
+  final List<Widget> Function(BuildContext context, PageCtx ctx)? stageFooter;
+  /// Trang đã vẽ theo bảng màu sân khấu (StageMetrics.themeOf). Chưa: ở chế độ Sáng, khung đặt trang trong một ô tối cho đọc được.
+  final bool stageThemed;
+  const PageTypeSpec({
+    required this.type,
+    required this.label,
+    this.desc = '',
+    required this.icon,
+    required this.color,
+    this.create,
+    required this.view,
+    this.editor,
+    this.seconds = 0,
+    this.thumb,
+    this.stageBleed = false,
+    this.stageFooter,
+    this.stageThemed = false,
+  });
 }
 
 final _types = <String, PageTypeSpec>{};
