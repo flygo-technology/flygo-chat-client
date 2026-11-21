@@ -29,12 +29,14 @@ const _rate = 16000;
 const _bytesPerSec = _rate * 2;
 
 /// Mở màn hình ghi âm. Trả về VoiceResult: path (gửi ghi âm) hoặc text + send (gửi phiên âm).
-Future<VoiceResult?> showVoiceStudio(BuildContext context, AppState app) =>
-    Navigator.of(context).push<VoiceResult>(AppPageRoute(fullscreenDialog: true, builder: (_) => _VoiceStudio(app: app)));
+/// [allowAudio] false (chat với trợ lý): chỉ chuyển giọng nói thành chữ, không có nút "Gửi ghi âm".
+Future<VoiceResult?> showVoiceStudio(BuildContext context, AppState app, {bool allowAudio = true}) => Navigator.of(context)
+    .push<VoiceResult>(AppPageRoute(fullscreenDialog: true, builder: (_) => _VoiceStudio(app: app, allowAudio: allowAudio)));
 
 class _VoiceStudio extends StatefulWidget {
   final AppState app;
-  const _VoiceStudio({required this.app});
+  final bool allowAudio;
+  const _VoiceStudio({required this.app, this.allowAudio = true});
   @override
   State<_VoiceStudio> createState() => _VoiceStudioState();
 }
@@ -482,7 +484,7 @@ class _VoiceStudioState extends State<_VoiceStudio> {
                   if (context.mounted) Navigator.pop(context);
                 }, color: pal.sub),
                 btn(Icons.edit_note_rounded, tr('Sửa phiên âm'), _editing || (_audio.isEmpty && _transcript.isEmpty && !_recording) ? null : _edit),
-                btn(Icons.send_rounded, tr('Gửi ghi âm'), _audio.isEmpty || _editing ? null : _sendAudio),
+                if (widget.allowAudio) btn(Icons.send_rounded, tr('Gửi ghi âm'), _audio.isEmpty || _editing ? null : _sendAudio),
                 btn(Icons.text_fields_rounded, tr('Gửi phiên âm'), _audio.isEmpty && _transcript.isEmpty && !_editing && !_recording ? null : _sendText, filled: true),
               ]),
             ),

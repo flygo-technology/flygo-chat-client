@@ -63,6 +63,7 @@ const Map<String, String> ja = {
   'Email hoặc tên đăng nhập': 'メールアドレスまたはユーザー名',
   'File quá lớn so với giới hạn của máy chủ.': 'ファイルが大きすぎます（サーバーの上限を超えています）。',
   'GIF': 'GIF',
+  'Nói thành chữ': '音声入力',
   'Ghi âm': '録音',
   'Giữ để rời kênh': '長押しでチャンネルから退出',
   'Giữ để xóa kênh': '長押しでチャンネルを削除',

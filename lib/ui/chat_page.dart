@@ -5083,7 +5083,7 @@ class _ComposerState extends State<_Composer> {
           Expanded(child: field),
           if (!hasText || _dictating)
             IconButton(
-              tooltip: tr('Ghi âm'),
+              tooltip: tr('Nói thành chữ'),
               icon: Icon(_dictating ? Icons.stop_rounded : Icons.mic_none_rounded, color: pal.text),
               onPressed: _dictating ? _stopDictation : _voice,
             ),
@@ -5129,7 +5129,7 @@ class _ComposerState extends State<_Composer> {
           const Spacer(),
           if (!hasText || _dictating)
             IconButton(
-              tooltip: tr('Ghi âm'),
+              tooltip: tr('Nói thành chữ'),
               icon: Icon(_dictating ? Icons.stop_rounded : Icons.mic_none_rounded, color: pal.text),
               onPressed: _dictating ? _stopDictation : _voice,
             ),
@@ -5995,7 +5995,9 @@ class _ComposerState extends State<_Composer> {
     if (_dictating) return _stopDictation();
     // Màn hình ghi âm toàn màn hình: sóng âm + phiên âm trực tiếp; gửi ghi âm / gửi phiên âm / sửa / hủy.
     _focus.unfocus();
-    if (mounted) await _handleVoice(await showVoiceStudio(context, context.read<AppState>()));
+    // Chat với trợ lý: chỉ đọc thành chữ, không gửi tin thoại (Sếp: tránh bấm nhầm).
+    final app = context.read<AppState>();
+    if (mounted) await _handleVoice(await showVoiceStudio(context, app, allowAudio: !_agentChat(app)));
   }
 
   // ---------------------------------------------------------------- đọc chính tả
@@ -6135,6 +6137,8 @@ class _ComposerState extends State<_Composer> {
   /// Kết quả ghi âm: gửi tin thoại, hoặc điền chữ đã nhận diện vào ô nhắn tin.
   Future<void> _handleVoice(VoiceResult? r) async {
     if (r == null) return;
+    // Chat với trợ lý không gửi tin thoại (phòng khi có đường khác trả về file ghi âm).
+    if (r.text == null && _agentChat(context.read<AppState>())) return;
     if (r.text != null && r.send) {
       // Gửi phiên âm: gửi thẳng thành tin chữ (giữ nguyên nội dung đang soạn trong ô nhắn tin).
       await context.read<AppState>().send(widget.channelId, r.text!, rootId: _rootId, replyKind: _replyKind);
@@ -6178,7 +6182,8 @@ class _ComposerState extends State<_Composer> {
         // Máy tính không có thư viện ảnh của máy: chọn ảnh / video từ ổ đĩa.
         _desktop ? await _pickDocuments(media: true) : await _gallery();
       case AttachAction.voice:
-        await _handleVoice(await showVoiceStudio(context, context.read<AppState>()));
+        final app = context.read<AppState>();
+        await _handleVoice(await showVoiceStudio(context, app, allowAudio: !_agentChat(app)));
       case AttachAction.location:
         await _sendLocation();
       case AttachAction.liveLocation:

@@ -22,9 +22,10 @@ import 'package:flygo_chat/ui/app_route.dart';
 enum AttachAction { file, drive, task, video, photo, gallery, voice, location, liveLocation, poll, checklist, meeting, paste, screenshot }
 
 /// Thao tác không có khi chat với trợ lý AI.
-const agentHiddenActions = {AttachAction.video, AttachAction.location, AttachAction.liveLocation, AttachAction.poll, AttachAction.meeting};
+// Ghi âm: chat với trợ lý không gửi tin thoại (nút mic ở ô nhắn tin vẫn chuyển giọng nói thành chữ).
+const agentHiddenActions = {AttachAction.video, AttachAction.voice, AttachAction.location, AttachAction.liveLocation, AttachAction.poll, AttachAction.meeting};
 
-/// Bảng "+" ở ô soạn tin: lưới các thao tác đính kèm. [agent]: chat với trợ lý (ẩn quay video, vị trí, bình chọn, cuộc họp).
+/// Bảng "+" ở ô soạn tin: lưới các thao tác đính kèm. [agent]: chat với trợ lý (ẩn quay video, ghi âm, vị trí, bình chọn, cuộc họp).
 /// [pasteImage]: bộ nhớ tạm đang có ảnh (hiện ô "Dán ảnh" đầu tiên).
 /// Người dùng có app Drive (đã tải danh sách app): hiện ô "Drive" (đính kèm từ Drive).
 bool get hasDrive => MiniApps.cached.any((a) => a.id == kDriveApp);
