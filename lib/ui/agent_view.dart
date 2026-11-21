@@ -1619,7 +1619,30 @@ class AgentStepRow extends StatelessWidget {
 /// Tóm tắt các bước của một nhóm theo loại, giữ thứ tự xuất hiện: "Đã chạy 2 lệnh, Đã nhắn tin cho tác nhân".
 String agentStepsSummaryText(List<Map<String, dynamic>> steps) {
   final counts = <String, int>{};
+  // Nhắn agent khác (step.agent_link, runner 0.7.14+): ghi rõ gửi tới ai, câu trả lời về đếm riêng.
+  final sentTo = <String>[];
+  var replies = 0;
   for (final s in steps) {
+    final link = s['agent_link'];
+    if (link is Map) {
+      if (link['dir'] == 'out') {
+        final to = link['to'] is Map ? link['to'] as Map : const {};
+        final name = '${to['name'] ?? ''}'.trim();
+        final who = '${to['agent'] ?? ''}'.trim().isNotEmpty
+            ? tr('agent ngoài {0}', [to['agent']])
+            : name.isNotEmpty
+            ? tr('phiên {0}', [name])
+            : '${to['bot'] ?? ''}'.trim().isNotEmpty
+            ? '@${to['bot']}'
+            : tr('tác nhân');
+        if (!sentTo.contains(who)) sentTo.add(who);
+        continue;
+      }
+      if (link['kind'] == 'reply') {
+        replies++;
+        continue;
+      }
+    }
     final k = switch (s['kind'] as String? ?? '') {
       'command' || 'file' || 'search' || 'message' || 'thinking' || 'approval' || 'report' => s['kind'] as String,
       _ => 'tool',
@@ -1639,6 +1662,8 @@ String agentStepsSummaryText(List<Map<String, dynamic>> steps) {
         _ => tr('Đã dùng {0} công cụ', [e.value]),
       },
   ];
+  if (sentTo.isNotEmpty) parts.add(tr('Đã gửi tới {0}', [sentTo.join(', ')]));
+  if (replies > 0) parts.add(replies == 1 ? tr('nhận 1 câu trả lời') : tr('nhận {0} câu trả lời', [replies]));
   final errors = steps.where((s) => s['status'] == 'error').length;
   if (errors > 0) parts.add(tr('{0} lỗi', [errors]));
   return parts.join(', ');

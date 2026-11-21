@@ -23,6 +23,7 @@ import '../data/models.dart';
 import '../state/drafts.dart';
 import '../state/app_state.dart';
 import '../state/date_jump.dart';
+import 'agent_link.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
 import 'agent_side_panel.dart';
@@ -988,8 +989,9 @@ class _ChatPageState extends State<ChatPage> {
                         child: Column(children: [
                         if (showDay) _DayChip(DateTime.fromMillisecondsSinceEpoch(p.createAt)),
                         if (p.id == firstUnreadId) _UnreadDivider(count: unread.length),
-                        // Tin agent ngoài gửi qua Token MCP: nhãn "🔗 Agent ngoài" phía trên.
-                        if (isBridgedPost(p)) const _BridgeLabel(),
+                        // Tin giữa các agent (giao việc / nhắn / trả lời giữa các phiên, agent ngoài qua Token MCP):
+                        // nhãn nguồn / đích phía trên bong bóng.
+                        if (agentLinkOf(app, p) case final link?) AgentLinkChip(info: link, mine: p.userId == app.me?.id),
                         p.isSystem
                             ? _SystemChip(p.message)
                             // Đóng / mở lại luồng: dòng hệ thống nhỏ ở giữa, không phải bong bóng tin.
@@ -2273,27 +2275,6 @@ class _EmptyChat extends StatelessWidget {
       decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(14)),
       child: Text(tr('Chưa có tin nhắn. Hãy gửi lời chào đầu tiên 👋'),
           textAlign: TextAlign.center, style: TextStyle(color: pal.sub)),
-    );
-  }
-}
-
-/// Nhãn trên tin do agent bên ngoài gửi qua Token MCP.
-class _BridgeLabel extends StatelessWidget {
-  const _BridgeLabel();
-  @override
-  Widget build(BuildContext context) {
-    final pal = Pal.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(color: const Color(0xFF6C4CE0).withValues(alpha: .12), borderRadius: BorderRadius.circular(10)),
-          child: Text(tr('🔗 Agent ngoài'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF6C4CE0))),
-        ),
-        const SizedBox(width: 6),
-        Flexible(child: Text(tr('gửi qua Token MCP'), style: TextStyle(fontSize: 11.5, color: pal.sub))),
-      ]),
     );
   }
 }
