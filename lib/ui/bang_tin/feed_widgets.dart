@@ -408,10 +408,16 @@ class PostActions extends StatelessWidget {
     this.onShare,
     this.onViews,
     this.likeKey,
+    this.kinds,
+    this.commentLabel,
   });
   final Map<String, dynamic> post;
   final bool mine;
   final ValueChanged<String?> onReact;
+
+  /// Thảo luận: thanh cảm xúc có 👎; nút bình luận gọi là "Trả lời".
+  final List<ReactionKind>? kinds;
+  final String? commentLabel;
   final VoidCallback onComment;
   final VoidCallback? onShare;
 
@@ -485,7 +491,7 @@ class PostActions extends StatelessWidget {
                     onTap: onComment,
                     child: Text(
                       [
-                        if (comments > 0) tr('{0} bình luận', ['$comments']),
+                        if (comments > 0) commentLabel != null ? tr('{0} trả lời', ['$comments']) : tr('{0} bình luận', ['$comments']),
                         if (shares > 0) tr('{0} lượt chia sẻ', ['$shares']),
                       ].join('  ·  '),
                       textAlign: TextAlign.right,
@@ -508,10 +514,10 @@ class PostActions extends StatelessWidget {
             children: [
               Expanded(
                 child: Center(
-                  child: LikeButton(key: likeKey, mine: my, onReact: onReact),
+                  child: LikeButton(key: likeKey, mine: my, onReact: onReact, kinds: kinds),
                 ),
               ),
-              action(Icons.mode_comment_outlined, tr('Bình luận'), onComment),
+              action(Icons.mode_comment_outlined, commentLabel ?? tr('Bình luận'), onComment),
               if (onShare != null) action(Icons.reply_rounded, tr('Chia sẻ'), onShare!, flip: true),
             ],
           ),

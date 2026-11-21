@@ -1,5 +1,6 @@
 import 'builtin.dart';
 import 'poll.dart';
+import 'discuss.dart';
 import 'draw.dart';
 import 'notes.dart';
 import 'qa.dart';
@@ -11,6 +12,7 @@ void registerAllPageTypes() {
   registerBuiltinPageTypes();
   registerPollPageType();
   registerQaPageType();
+  registerDiscussPageType();
   registerTimerPageType();
   registerDrawPageType();
   registerNotesPageType();

@@ -32,6 +32,8 @@ void registerQaPageType() {
     ),
     view: (context, ctx) => QaView(ctx),
     stageThemed: true,
+    // 2026-11-21 (Sếp): thay bằng Thảo luận; trang Hỏi đáp cũ chỉ còn xem.
+    hidden: true,
   ));
 }
 

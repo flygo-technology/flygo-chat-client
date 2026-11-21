@@ -24,12 +24,26 @@ List<ReactionKind> get kReactionKinds => [
   ReactionKind('😡', tr('Phẫn nộ'), const Color(0xFFE9710F)),
 ];
 
-ReactionKind? reactionKind(String? emoji) => emoji == null ? null : kReactionKinds.where((k) => k.emoji == emoji).firstOrNull;
+/// Thảo luận (Sếp, 21/11): có cả 👎 "Không đồng tình" cạnh 👍.
+List<ReactionKind> get kDiscussReactionKinds => [
+  ReactionKind('👍', tr('Đồng tình'), const Color(0xFF2D88FF)),
+  ReactionKind('👎', tr('Không đồng tình'), const Color(0xFFE5484D)),
+  ReactionKind('❤️', tr('Yêu thích'), const Color(0xFFF33E58)),
+  ReactionKind('😆', tr('Haha'), const Color(0xFFF7B125)),
+  ReactionKind('😮', tr('Wow'), const Color(0xFFF7B125)),
+  ReactionKind('🤔', tr('Cần bàn thêm'), const Color(0xFFF7B125)),
+];
+
+ReactionKind? reactionKind(String? emoji) =>
+    emoji == null ? null : [...kReactionKinds, ...kDiscussReactionKinds].where((k) => k.emoji == emoji).firstOrNull;
 
 /// Nút "Thích" có thanh chọn cảm xúc. [mine] là cảm xúc hiện tại của mình (null = chưa).
 class LikeButton extends StatefulWidget {
-  const LikeButton({super.key, required this.mine, required this.onReact, this.compact = false});
+  const LikeButton({super.key, required this.mine, required this.onReact, this.compact = false, this.kinds});
   final String? mine;
+
+  /// Các cảm xúc trên thanh chọn (mặc định: 6 cảm xúc của Bảng tin).
+  final List<ReactionKind>? kinds;
 
   /// emoji = cảm xúc chọn; null = bỏ cảm xúc.
   final ValueChanged<String?> onReact;
@@ -76,6 +90,7 @@ class LikeButtonState extends State<LikeButton> {
                 onEnter: (_) => _hoverClose?.cancel(),
                 onExit: (_) => _scheduleClose(),
                 child: ReactionBar(
+                  kinds: widget.kinds,
                   onPick: (e) {
                     closeBar();
                     widget.onReact(e);
@@ -104,7 +119,7 @@ class LikeButtonState extends State<LikeButton> {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    final k = reactionKind(widget.mine);
+    final k = widget.kinds?.where((x) => x.emoji == widget.mine).firstOrNull ?? reactionKind(widget.mine);
     final color = k?.color ?? pal.sub;
     return CompositedTransformTarget(
       link: _link,
@@ -137,7 +152,7 @@ class LikeButtonState extends State<LikeButton> {
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    k?.label ?? tr('Thích'),
+                    k?.label ?? widget.kinds?.first.label ?? tr('Thích'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14),
@@ -154,8 +169,9 @@ class LikeButtonState extends State<LikeButton> {
 
 /// Thanh 6 cảm xúc (nổi lên trên nút Thích).
 class ReactionBar extends StatefulWidget {
-  const ReactionBar({super.key, required this.onPick});
+  const ReactionBar({super.key, required this.onPick, this.kinds});
   final ValueChanged<String> onPick;
+  final List<ReactionKind>? kinds;
 
   @override
   State<ReactionBar> createState() => _ReactionBarState();
@@ -174,7 +190,7 @@ class _ReactionBarState extends State<ReactionBar> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    final kinds = kReactionKinds;
+    final kinds = widget.kinds ?? kReactionKinds;
     return ScaleTransition(
       scale: CurvedAnimation(parent: _anim, curve: Curves.easeOutBack),
       alignment: Alignment.bottomLeft,

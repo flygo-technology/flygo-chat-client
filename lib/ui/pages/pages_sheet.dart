@@ -306,15 +306,15 @@ class _PagesPaneState extends State<PagesPane> {
   /// Ô "Apps": lưới cân đối theo nhóm (Trình bày / Tương tác / Ghi chép), thẻ cao bằng nhau, tên ngắn một dòng, mô tả hai dòng.
   Future<void> _new() async {
     // Tên ngắn trên thẻ (tên đầy đủ trong mô tả / tooltip).
-    const short = {'poll': 'Bình chọn', 'qa': 'Hỏi đáp', 'agenda': 'Chương trình', 'minutes': 'Biên bản', 'welcome': 'Chào mừng', 'video': 'Video', 'show': 'Show'};
+    const short = {'poll': 'Bình chọn', 'qa': 'Hỏi đáp', 'discuss': 'Thảo luận', 'agenda': 'Chương trình', 'minutes': 'Biên bản', 'welcome': 'Chào mừng', 'video': 'Video', 'show': 'Show'};
     // Loại trang chưa có ở đây (Bấm giờ, Bốc thăm…) vào nhóm Tương tác; tên ghi chú vào nhóm Ghi chép.
-    const group = {'video': 0, 'show': 0, 'welcome': 0, 'poll': 1, 'qa': 1, 'agenda': 2, 'minutes': 2, 'note': 2, 'notes': 2};
+    const group = {'video': 0, 'show': 0, 'welcome': 0, 'poll': 1, 'qa': 1, 'discuss': 1, 'agenda': 2, 'minutes': 2, 'note': 2, 'notes': 2};
     final items = <(int, Object, IconData, Color, String, String)>[
       (0, 'present', Icons.present_to_all_rounded, const Color(0xFFF29900), tr('Trình chiếu'), tr('Màn hình của bạn hoặc tài liệu')),
       // Website (cả phòng cùng xem, cùng bấm) và Bảng trắng ở nhóm Tương tác.
       for (final a in widget.apps) (a.id == 'board' || a.id == 'web' ? 1 : 0, a, a.icon, a.color, a.label, a.desc),
       for (final t in pageTypes)
-        if (t.type != 'doc') (group[t.type] ?? 1, t, t.icon, t.color, tr(short[t.type] ?? t.label), t.desc.isEmpty ? t.label : t.desc),
+        if (t.type != 'doc' && !t.hidden) (group[t.type] ?? 1, t, t.icon, t.color, tr(short[t.type] ?? t.label), t.desc.isEmpty ? t.label : t.desc),
     ];
     // Ô gọn: biểu tượng trên, tên ngắn một dòng dưới; mô tả ở tooltip (di chuột / nhấn giữ).
     Widget tile(BuildContext ctx, (int, Object, IconData, Color, String, String) it) => Tooltip(
