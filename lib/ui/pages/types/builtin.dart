@@ -8,7 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../../state/app_state.dart';
 import '../page_media.dart';
 import '../pages_api.dart' show pageAssetUrl;
-import '../stage_frame.dart' show StageBackgroundPicker, StageMetrics, StageTheme, stageBackground, stageBgLight;
+import '../stage_frame.dart' show StageBackgroundPicker, StageMetrics, StagePill, StageTheme, stageBackground, stageBgLight;
 
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
@@ -98,6 +98,7 @@ void registerBuiltinPageTypes() {
     icon: Icons.smart_display_outlined,
     color: const Color(0xFFD93025),
     view: (context, ctx) => _Video(ctx, key: ValueKey('v:${ctx.page.id}:${ctx.page.content['url']}')),
+    stageThemed: true,
     // Ảnh xem trước: không mở video (nặng), chỉ khung đen + nút phát.
     thumb: (context, call, page, data) => Container(
       decoration: BoxDecoration(
@@ -133,6 +134,18 @@ void registerBuiltinPageTypes() {
     color: const Color(0xFFF29900),
     view: (context, ctx) => _Doc(ctx),
     editor: (context, ctx) => _DocEditor(ctx),
+    stageThemed: true,
+    // Thanh cuối: số trang lớn (trang đang chiếu / tổng), tên tệp.
+    stageFooter: (context, ctx) {
+      final t = StageMetrics.themeOf(context);
+      final pr = ctx.call.roomPresent;
+      final n = pr != null && pr['page_id'] == ctx.page.id ? (pr['page'] as num?)?.toInt() ?? 1 : 1;
+      final total = (ctx.page.file?['pages'] as num?)?.toInt() ?? 0;
+      return [
+        StagePill(total > 0 ? tr('Trang {0} / {1}', [n, total]) : tr('Trang {0}', [n]), icon: Icons.description_outlined, theme: t),
+        if ('${ctx.page.file?['name'] ?? ''}'.isNotEmpty) Text('${ctx.page.file?['name']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.sub, fontSize: 14)),
+      ];
+    },
     // Ảnh xem trước: trang PDF đang chiếu (nếu đang trên sân khấu), không thì trang 1.
     thumb: (context, call, page, data) {
       final pr = call.roomPresent;
@@ -146,8 +159,10 @@ void registerBuiltinPageTypes() {
     desc: tr('Các mục, thời gian, người phụ trách'),
     icon: Icons.format_list_numbered_rounded,
     color: const Color(0xFF1A73E8),
-    view: (context, ctx) => _Agenda(ctx),
+    view: (context, ctx) => ctx.onStage ? _AgendaStage(ctx) : _Agenda(ctx),
     editor: (context, ctx) => _AgendaEditor(ctx),
+    stageThemed: true,
+    stageFooter: (context, ctx) => _agendaFooter(context, ctx),
   ));
   registerPageType(PageTypeSpec(
     type: 'minutes',
@@ -156,7 +171,19 @@ void registerBuiltinPageTypes() {
     icon: Icons.edit_note_rounded,
     color: const Color(0xFF9334E6),
     create: (context, call) async => PageDraft(title: tr('Biên bản: {0}', [call.meetingInfo?.title ?? tr('cuộc họp')])),
-    view: (context, ctx) => _Minutes(ctx),
+    view: (context, ctx) => ctx.onStage ? _MinutesStage(ctx) : _Minutes(ctx),
+    stageThemed: true,
+    stageFooter: (context, ctx) {
+      final t = StageMetrics.themeOf(context);
+      final v = ctx.view;
+      final tasks = (v['tasks'] as List? ?? const []);
+      return [
+        if ('${v['edited_by'] ?? ''}'.isNotEmpty) StagePill(tr('{0} vừa ghi', [v['edited_by']]), icon: Icons.edit_outlined, theme: t, accent: true),
+        if (v['closed'] == true) StagePill(tr('Đã chốt'), icon: Icons.lock_outline_rounded, theme: t),
+        const Spacer(),
+        StagePill(tr('{0} việc cần làm', [tasks.length]), icon: Icons.checklist_rounded, theme: t),
+      ];
+    },
   ));
 }
 
@@ -515,7 +542,22 @@ class _VideoState extends State<_Video> {
   @override
   Widget build(BuildContext context) {
     final v = _v;
-    if (v == null) return Center(child: Text(tr('Chưa có đường dẫn video'), style: const TextStyle(color: Colors.white70)));
+    if (v == null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(color: const Color(0xFFF0646A).withValues(alpha: .16), borderRadius: BorderRadius.circular(22)),
+            child: const Icon(Icons.smart_display_outlined, color: Color(0xFFF0646A), size: 40),
+          ),
+          const SizedBox(height: 16),
+          Text(widget.ctx.page.title, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(tr('Chưa có đường dẫn video · chủ trang thêm trong phần Sửa'), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 16)),
+        ]),
+      );
+    }
     if (_err != null) return Center(child: Text(tr('Không phát được video: {0}', [_err]), style: const TextStyle(color: Colors.white70)));
     final playing = widget.ctx.view['playing'] == true;
     return Stack(children: [
@@ -552,6 +594,19 @@ class _Doc extends StatelessWidget {
     // Đang chiếu trên sân khấu: dùng khung trình chiếu tài liệu có sẵn (đồng bộ trang, bút laser).
     if (ctx.onStage && pr != null && pr['page_id'] == ctx.page.id) return MeetPresentView(call: ctx.call, compact: false);
     final f = ctx.page.file;
+    // Trên sân khấu, chưa bắt đầu trình chiếu: trang 1 lớn trong khung giấy (thay cho biểu tượng).
+    if (ctx.onStage && f != null && StageMetrics.of(context) != null) {
+      return Center(
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Container(
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 40, offset: Offset(0, 16))]),
+            clipBehavior: Clip.antiAlias,
+            child: PdfThumb(file: f, page: 1),
+          ),
+        ),
+      );
+    }
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Icon(Icons.slideshow_rounded, color: Color(0xFFF29900), size: 48),
@@ -656,6 +711,137 @@ class _Agenda extends StatelessWidget {
   }
 }
 
+/// Chương trình trên sân khấu (mockup Họp): mục đang bàn lớn bên trái (thứ tự, tên, người phụ trách, đếm giờ của mục so với số
+/// phút dự kiến), danh sách gọn bên phải (mục đã xong có dấu ✓).
+class _AgendaStage extends StatefulWidget {
+  final PageCtx ctx;
+  const _AgendaStage(this.ctx);
+  @override
+  State<_AgendaStage> createState() => _AgendaStageState();
+}
+
+class _AgendaStageState extends State<_AgendaStage> {
+  Timer? _tick;
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctx = widget.ctx;
+    final m = StageMetrics.of(context);
+    // Ngoài khung sân khấu (ảnh thu nhỏ của thẻ trang): dựng ở kích thước vùng nội dung của khung rồi co cho vừa.
+    if (m == null) return FittedBox(child: SizedBox(width: 1168, height: 560, child: StageMetrics(theme: const StageTheme(), portrait: false, size: const Size(1168, 560), child: _AgendaStage(ctx))));
+    final t = m.theme;
+    final portrait = m.portrait;
+    final items = _items(ctx);
+    if (items.isEmpty) return Center(child: Text(tr('Chưa có mục nào'), style: TextStyle(color: t.sub, fontSize: 24)));
+    final cur = ((ctx.view['current'] as num?)?.toInt() ?? 0).clamp(0, items.length - 1);
+    final it = items[cur];
+    final mins = (it['minutes'] as num?)?.toInt() ?? 0;
+    final started = (ctx.view['started_at'] as num?)?.toInt() ?? 0;
+    final el = started > 0 ? ((DateTime.now().millisecondsSinceEpoch - started) / 1000).floor().clamp(0, 359999) : 0;
+    String two(int n) => n.toString().padLeft(2, '0');
+    final over = mins > 0 && el > mins * 60;
+    final main = Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(tr('MỤC {0} / {1} · ĐANG BÀN', [cur + 1, items.length]), style: TextStyle(color: Color.lerp(t.accent, t.light ? Colors.black : Colors.white, .35), fontSize: portrait ? 13 : 16, fontWeight: FontWeight.w700, letterSpacing: 1.8)),
+      SizedBox(height: portrait ? 10 : 18),
+      Text('${it['text'] ?? ''}', maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: portrait ? 34 : 60, fontWeight: FontWeight.w800, height: 1.08)),
+      if ('${it['who'] ?? ''}'.isNotEmpty) ...[
+        SizedBox(height: portrait ? 10 : 18),
+        Row(children: [
+          CircleAvatar(radius: 16, backgroundColor: t.accent, child: Text('${it['who']}'.trim().characters.first.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700))),
+          const SizedBox(width: 10),
+          Text('${it['who']}', style: TextStyle(color: t.text, fontSize: portrait ? 16 : 20)),
+        ]),
+      ],
+      if (started > 0 || mins > 0) ...[
+        SizedBox(height: portrait ? 18 : 30),
+        Row(children: [
+          Text('${two(el ~/ 60)}:${two(el % 60)}', style: TextStyle(color: over ? const Color(0xFFF0646A) : t.text, fontSize: portrait ? 28 : 44, fontWeight: FontWeight.w800)),
+          const SizedBox(width: 16),
+          if (mins > 0) ...[
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (el / (mins * 60)).clamp(0.0, 1.0),
+                  minHeight: 8,
+                  backgroundColor: t.surface2,
+                  valueColor: AlwaysStoppedAnimation(over ? const Color(0xFFF0646A) : t.accent),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Text(tr('trên {0}:00', [mins]), style: TextStyle(color: t.sub, fontSize: portrait ? 14 : 17)),
+          ],
+        ]),
+      ],
+    ]);
+    if (portrait) return main;
+    return Row(children: [
+      Expanded(child: main),
+      const SizedBox(width: 48),
+      SizedBox(
+        width: 400,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          for (final (i, x) in items.take(8).indexed)
+            Container(
+              height: 56,
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: i == cur ? t.accent.withValues(alpha: .16) : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                border: i == cur ? Border.all(color: t.accent, width: 1.5) : null,
+              ),
+              child: Row(children: [
+                SizedBox(
+                  width: 28,
+                  child: i < cur
+                      ? const Icon(Icons.check_rounded, size: 20, color: Color(0xFF38C793))
+                      : Text('${i + 1}', style: TextStyle(color: i == cur ? t.text : t.sub, fontWeight: FontWeight.w700, fontSize: 17)),
+                ),
+                Expanded(
+                  child: Text('${x['text'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: i < cur ? t.sub : t.text, fontSize: 17, fontWeight: i == cur ? FontWeight.w700 : FontWeight.w400)),
+                ),
+                if ((x['minutes'] ?? 0) != 0) Text('${x['minutes']}′', style: TextStyle(color: t.sub, fontSize: 15)),
+              ]),
+            ),
+        ]),
+      ),
+    ]);
+  }
+}
+
+/// Thanh cuối của Chương trình: mục tiếp theo, nút mục trước / sau cho người trình chiếu.
+List<Widget> _agendaFooter(BuildContext context, PageCtx ctx) {
+  final t = StageMetrics.themeOf(context);
+  final items = _items(ctx);
+  if (items.isEmpty) return const [];
+  final cur = ((ctx.view['current'] as num?)?.toInt() ?? 0).clamp(0, items.length - 1);
+  final next = cur + 1 < items.length ? items[cur + 1] : null;
+  return [
+    if (MediaQuery.sizeOf(context).width >= 600)
+      StagePill(next == null ? tr('Mục cuối') : tr('Tiếp: {0}', ['${next['text']}${'${next['who'] ?? ''}'.isEmpty ? '' : ' · ${next['who']}'}']), theme: t),
+    if (ctx.control) ...[
+      const Spacer(),
+      IconButton.filledTonal(tooltip: tr('Mục trước'), onPressed: cur > 0 ? () => ctx.act('prev') : null, icon: const Icon(Icons.chevron_left_rounded)),
+      IconButton.filledTonal(tooltip: tr('Mục sau'), onPressed: cur < items.length - 1 ? () => ctx.act('next') : null, icon: const Icon(Icons.chevron_right_rounded)),
+    ],
+  ];
+}
+
 class _AgendaEditor extends StatefulWidget {
   final PageCtx ctx;
   const _AgendaEditor(this.ctx);
@@ -735,6 +921,71 @@ class _AgendaEditorState extends State<_AgendaEditor> {
 }
 
 // ------------------------------------------------------------------ Biên bản
+/// Biên bản trên sân khấu (mockup Họp): trang giấy sáng chữ to (dòng bắt đầu bằng "1." / "#" là đề mục), việc cần làm bên phải.
+class _MinutesStage extends StatelessWidget {
+  final PageCtx ctx;
+  const _MinutesStage(this.ctx);
+  @override
+  Widget build(BuildContext context) {
+    final m = StageMetrics.of(context);
+    if (m == null) return FittedBox(child: SizedBox(width: 1168, height: 560, child: StageMetrics(theme: const StageTheme(), portrait: false, size: const Size(1168, 560), child: _MinutesStage(ctx))));
+    final t = m.theme;
+    final portrait = m.portrait;
+    final v = ctx.view;
+    final text = '${v['text'] ?? ''}'.trim();
+    final tasks = [for (final x in (v['tasks'] as List? ?? const [])) (x as Map).cast<String, dynamic>()];
+    final heading = RegExp(r'^(#+\s*|\d+[.)]\s+)');
+    final lines = text.isEmpty ? <String>[] : text.split('\n');
+    final paper = Container(
+      padding: EdgeInsets.all(portrait ? 18 : 32),
+      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(18)),
+      child: lines.isEmpty
+          ? Text(tr('Biên bản đang trống. Mọi người cùng ghi trên app.'), style: const TextStyle(color: Color(0xFF5C6670), fontSize: 20))
+          : ListView(padding: EdgeInsets.zero, reverse: false, physics: const NeverScrollableScrollPhysics(), children: [
+              for (final l in lines.length > 40 ? lines.sublist(lines.length - 40) : lines)
+                if (l.trim().isEmpty)
+                  const SizedBox(height: 10)
+                else if (heading.hasMatch(l))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 4),
+                    child: Text(l.replaceFirst(RegExp(r'^#+\s*'), ''), style: TextStyle(color: const Color(0xFF1B2430), fontSize: portrait ? 17 : 21, fontWeight: FontWeight.w700)),
+                  )
+                else
+                  Text(l, style: TextStyle(color: const Color(0xFF2C3644), fontSize: portrait ? 15 : 19, height: 1.5)),
+            ]),
+    );
+    final side = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Text(tr('VIỆC CẦN LÀM'), style: TextStyle(color: t.sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+        const Spacer(),
+        Text(tr('{0} / {1} xong', [tasks.where((x) => x['done'] == true).length, tasks.length]), style: TextStyle(color: t.sub, fontSize: 14)),
+      ]),
+      const SizedBox(height: 12),
+      if (tasks.isEmpty) Text(tr('Chưa có việc nào'), style: TextStyle(color: t.sub, fontSize: 16)),
+      for (final x in tasks.take(7))
+        Opacity(
+          opacity: x['done'] == true ? .6 : 1,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(12)),
+            child: Row(children: [
+              Icon(x['done'] == true ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, size: 22, color: x['done'] == true ? const Color(0xFF38C793) : t.sub),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('${x['text'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: 16, decoration: x['done'] == true ? TextDecoration.lineThrough : null)),
+              ),
+              if ('${x['who'] ?? ''}${x['due'] ?? ''}'.isNotEmpty)
+                Text([if ('${x['who'] ?? ''}'.isNotEmpty) x['who'], if ('${x['due'] ?? ''}'.isNotEmpty) x['due']].join(' · '), style: TextStyle(color: t.sub, fontSize: 13)),
+            ]),
+          ),
+        ),
+    ]);
+    if (portrait) return Column(children: [Expanded(child: paper), const SizedBox(height: 12), SizedBox(height: 200, child: SingleChildScrollView(child: side))]);
+    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Expanded(child: paper), const SizedBox(width: 28), SizedBox(width: 400, child: side)]);
+  }
+}
+
 class _Minutes extends StatefulWidget {
   final PageCtx ctx;
   const _Minutes(this.ctx);

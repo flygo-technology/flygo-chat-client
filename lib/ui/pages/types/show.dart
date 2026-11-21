@@ -73,6 +73,7 @@ void registerShowPageType() {
       return PageDraft(title: '${d['title'] ?? tr('Show')}', content: {'deck_id': d['id'], 'deck_title': d['title'] ?? '', 'base': c.base});
     },
     view: (context, ctx) => _ShowView(ctx, key: ValueKey('show:${ctx.page.id}')),
+    stageThemed: true,
     thumb: (context, call, page, data) => Container(
       color: const Color(0xFF2A1C10),
       alignment: Alignment.center,

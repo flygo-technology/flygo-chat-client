@@ -738,4 +738,104 @@ void main() {
       CallScreen.debugRoom = null;
     });
   }
+
+  for (final (name, size, desktop) in [('k1-may-tinh', const Size(1440, 900), true), ('k2-dien-thoai', const Size(390, 844), false)]) {
+    testWidgets('trang trình bày mới: $name', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 460, tab: desktop ? 'pages' : '');
+      MeetRoom? webRoom;
+      CallScreen.debugRoom = (_) => webRoom ?? _room();
+      final old8 = _views['p8'];
+      _views['p8'] = {
+        'text': '1. Tiến độ tòa B\nĐạt 70% khối lượng lắp đặt, chậm 4 ngày do ray dẫn hướng về trễ.\n\n2. Hợp đồng tháng 11\n12 hợp đồng mới, 3 gia hạn bảo trì; doanh số 8,4 tỷ.\n\n3. An toàn lao động\nChia lịch kiểm tra thành 2 ca.',
+        'edited_by': 'Mai Kim', 'edited_at': 1, 'closed': false,
+        'tasks': [
+          {'id': 't1', 'text': 'Gửi báo giá sửa đổi', 'who': 'Kim', 'due': '21/11', 'done': true},
+          {'id': 't2', 'text': 'Xác nhận lịch giao ray', 'who': 'Quang', 'due': '25/11', 'done': false},
+          {'id': 't3', 'text': 'Lịch kiểm tra an toàn 2 ca', 'who': 'Minh', 'due': '28/11', 'done': false},
+        ],
+      };
+      final old1 = _views['p1'];
+      _views['p1'] = {'current': 1, 'started_at': _now - 192000};
+      addTearDown(() {
+        _views['p8'] = old8!;
+        _views['p1'] = old1!;
+      });
+      await http.runWithClient(() async {
+        final app = _app();
+        await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('k-$name')));
+        final base = {...app.calls.roomStage!, 'meeting_title': 'Giao ban tháng 12', 'theme_cfg': {'accent': '#3D7BFF', 'mode': 'dark'}, 'ends_at': _now + 204000, 'presenter': 'loi', 'presenter_name': 'Nguyễn Văn Lợi'};
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 10; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        for (final (id, type, title, shot) in [
+          ('p1', 'agenda', 'Chương trình họp', '1-chuong-trinh'),
+          ('p8', 'minutes', 'Biên bản giao ban', '2-bien-ban'),
+          ('p2', 'doc', 'Tiến độ lắp đặt tòa B', '3-tai-lieu'),
+          ('p9', 'video', 'Video lắp ray dẫn hướng', '4-video'),
+        ]) {
+          app.calls.roomStage = {...base, 'page': id, 'page_type': type, 'page_title': title, 'key': 'k-$id'};
+          app.calls.notifyListeners();
+          await settle();
+          await snap(t, '$name-$shot');
+        }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
+    });
+  }
+
+  testWidgets('website trên sân khấu', (t) async {
+    debugIsDesktop = true;
+    MeetPanelPrefs.debugSet(width: 460, tab: '');
+    CallScreen.debugRoom = (_) {
+      final r = _room();
+      r.debugApply({'type': 'state', 'you': {'host': true}, 'state': {'web': {'url': 'https://thangmaydnd.vn/du-an/toa-b', 'y': 0, 'driver': 'kim'}}});
+      return r;
+    };
+    await http.runWithClient(() async {
+      final app = _app();
+      await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('web')));
+      t.view.physicalSize = const Size(1440, 900);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.dark),
+          builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+          home: const CallScreen(),
+        ),
+      ));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text('WEBSITE'), findsOneWidget);
+      await snap(t, 'k1-may-tinh-5-website');
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
+      app.calls.debugMeeting(_ch, const []);
+    }, () => _relay(host: true));
+    debugIsDesktop = null;
+    CallScreen.debugRoom = null;
+  });
 }
