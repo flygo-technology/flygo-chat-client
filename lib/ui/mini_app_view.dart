@@ -205,6 +205,7 @@ Future<bool> openScannedMiniApp(BuildContext context, String raw) async {
 const _tileIcons = <String, IconData>{
   'poll': Icons.poll_rounded,
   'forum': Icons.forum_rounded,
+  'sticky_board': Icons.view_quilt_rounded,
   'table': Icons.table_chart_rounded,
   'tasks': Icons.task_alt_rounded,
   'network': Icons.hub_rounded,

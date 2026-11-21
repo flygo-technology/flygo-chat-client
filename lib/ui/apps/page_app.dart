@@ -11,7 +11,7 @@ import '../pages/page_types.dart';
 import '../pages/pages_api.dart';
 
 // App riêng dựng trên loại trang (máy chủ: relay/meet-pages.mjs, trang không thuộc cuộc họp): "Bình chọn & Trắc nghiệm"
-// (manifest native.screen = "binh_chon", loại trang poll), "Hỏi đáp & Thảo luận" ("hoi_dap", qa) và "Ghi chú" ("ghi_chu", notes).
+// (manifest native.screen = "binh_chon", loại trang poll), "Hỏi đáp & Thảo luận" ("hoi_dap", qa) và "Bảng ghi chú" ("ghi_chu", notes; khác app Ghi chú kiểu Keep).
 // Danh sách: Của tôi / Được mời / Toàn công ty. Mở một mục = đúng phần xem của loại trang (như trong cuộc họp).
 
 const kBinhChonScreen = 'binh_chon';

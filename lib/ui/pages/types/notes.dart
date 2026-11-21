@@ -4,7 +4,7 @@ import '../../../i18n/i18n.dart';
 import '../page_types.dart';
 import 'builtin.dart' show pageField;
 
-// Loại trang "Ghi chú" (máy chủ: relay/meet-pt-notes.mjs; cũng là app riêng "Ghi chú"): bảng ghi chú dán theo cột, màu,
+// Loại trang "Bảng ghi chú" (máy chủ: relay/meet-pt-notes.mjs; cũng là app riêng "Bảng ghi chú", khác app Ghi chú kiểu Keep): bảng ghi chú dán theo cột, màu,
 // kéo thả (nhấn giữ ghi chú rồi kéo sang cột khác), 👍 (có thể giới hạn số phiếu), ẩn danh tuỳ bảng, ghi vào Biên bản.
 
 const _sub = Color(0xFF9AA0A6);
@@ -21,9 +21,9 @@ const noteColors = <String, Color>{
 void registerNotesPageType() {
   registerPageType(PageTypeSpec(
     type: 'notes',
-    label: tr('Ghi chú'),
-    desc: tr('Bảng ghi chú dán, chia cột, 👍'),
-    icon: Icons.sticky_note_2_outlined,
+    label: tr('Bảng ghi chú'),
+    desc: tr('Ghi chú dán theo cột, 👍'),
+    icon: Icons.view_quilt_outlined,
     color: const Color(0xFFF9AB00),
     create: (context, call) => showModalBottomSheet<PageDraft>(
       context: context,
@@ -87,7 +87,7 @@ class _NotesComposerState extends State<NotesComposer> {
               const SizedBox(height: 10),
               FilledButton(
                 onPressed: () {
-                  final t = _title.text.trim().isEmpty ? tr('Ghi chú') : _title.text.trim();
+                  final t = _title.text.trim().isEmpty ? tr('Bảng ghi chú') : _title.text.trim();
                   Navigator.pop(context, PageDraft(title: t, init: {
                     'title': t,
                     'columns': [for (final l in _cols.text.split('\n')) if (l.trim().isNotEmpty) l.trim()],
@@ -323,7 +323,7 @@ class _NotesViewState extends State<NotesView> {
           padding: const EdgeInsets.all(40),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
-              const Icon(Icons.sticky_note_2_outlined, color: Color(0xFFF9AB00), size: 32),
+              const Icon(Icons.view_quilt_outlined, color: Color(0xFFF9AB00), size: 32),
               const SizedBox(width: 12),
               Expanded(child: Text('${v['title'] ?? ctx.page.title}', overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700))),
               Text(tr('{0} ghi chú', [(v['notes'] as List? ?? const []).length]), style: const TextStyle(color: _sub, fontSize: 22)),
