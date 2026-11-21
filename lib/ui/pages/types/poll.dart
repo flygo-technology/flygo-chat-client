@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
+import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
 
 // Loại trang "Bình chọn & Trắc nghiệm" (máy chủ: relay/meet-pt-poll.mjs). Bình chọn: kết quả hiện ngay (trừ khi chủ trang tắt);
@@ -31,6 +32,25 @@ void registerPollPageType() {
       builder: (_) => const PollComposer(),
     ),
     view: (context, ctx) => PollView(ctx),
+    stageThemed: true,
+    stageLabel: (ctx) => switch (ctx.view['kind']) { 'quiz' => tr('Trắc nghiệm'), 'vote' => tr('Biểu quyết'), _ => tr('Bình chọn') },
+    // Thanh cuối: số người đã trả lời / bỏ phiếu + cách tham gia; giờ còn lại của trang ở bên phải.
+    stageFooter: (context, ctx) {
+      final t = StageMetrics.themeOf(context);
+      final v = ctx.view;
+      final vote = v['kind'] == 'vote';
+      final code = ctx.call.meetingInfo?.code ?? '';
+      final st = ctx.call.roomStage ?? const {};
+      final ends = (st['ends_at'] as num?)?.toInt() ?? 0;
+      final left = ends == 0 ? 0 : ends - DateTime.now().millisecondsSinceEpoch;
+      String two(int n) => n.toString().padLeft(2, '0');
+      final s = (left / 1000).ceil().clamp(0, 359999);
+      return [
+        StagePill(vote ? tr('{0} đã bỏ phiếu', [v['voters'] ?? 0]) : tr('{0} đã trả lời', [v['voters'] ?? 0]), icon: Icons.groups_outlined, theme: t),
+        if (code.isNotEmpty && v['closed'] != true) StagePill(tr('Trả lời trên app Flygo · mã {0}', [code]), theme: t, accent: true),
+        if (left > 0) ...[const Spacer(), StagePill('${two(s ~/ 60)}:${two(s % 60)}', icon: Icons.timer_outlined, theme: t)],
+      ];
+    },
   ));
 }
 
@@ -395,44 +415,259 @@ class _PollViewState extends State<PollView> {
     );
   }
 
-  // Sân khấu: câu hiện tại (trắc nghiệm) hoặc câu đầu (bình chọn), chữ to, số người đã trả lời.
+  // Sân khấu (mockup Họp): câu hỏi lớn, thanh kết quả chạy theo phần trăm; trắc nghiệm công bố = ô đáp án đúng sáng lên
+  // + bảng điểm; biểu quyết = thanh Đồng ý / Không / Trắng, vạch ngưỡng, dấu THÔNG QUA. Màu theo bảng màu sân khấu.
   Widget _stage() {
     if (qs.isEmpty) return const SizedBox.shrink();
+    final m = StageMetrics.of(context);
+    final body = m == null
+        ? FittedBox(fit: BoxFit.contain, child: SizedBox(width: 1168, height: 560, child: _stageBody(const StageTheme(), false)))
+        : _stageBody(m.theme, m.portrait);
+    return body;
+  }
+
+  Widget _stageBody(StageTheme t, bool portrait) {
     final cur = quiz ? ((v['current'] as num?)?.toInt() ?? 0).clamp(0, qs.length - 1) : 0;
     final q = qs[cur];
     final opts = [for (final o in (q['options'] as List? ?? const [])) o as Map];
-    return LayoutBuilder(
-      builder: (context, box) => FittedBox(
-        fit: BoxFit.contain,
-        child: SizedBox(
-          width: 1280,
-          height: 720,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(64, 48, 64, 40),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Row(children: [
-                Icon(quiz ? Icons.quiz_outlined : vote ? Icons.gavel_outlined : Icons.how_to_vote_outlined, color: _gold, size: 30),
-                const SizedBox(width: 12),
-                Text(quiz ? tr('Trắc nghiệm · câu {0}/{1}', [cur + 1, qs.length]) : vote ? tr('Biểu quyết') : tr('Bình chọn'), style: const TextStyle(color: _gold, fontSize: 24, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                Text(vote ? tr('{0} người đã bỏ phiếu', [v['voters'] ?? 0]) : tr('{0} người đã trả lời', [v['voters'] ?? 0]), style: const TextStyle(color: Colors.white70, fontSize: 24)),
-              ]),
-              const SizedBox(height: 22),
-              Text('${q['text']}', maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.w700, height: 1.2)),
-              const SizedBox(height: 28),
-              for (final (i, o) in opts.indexed) _option(q, o, i, big: true),
-              const Spacer(),
-              ?_outcome(big: true),
-              if (resultOf('${q['id']}') == null)
-                Text(tr('Kết quả sẽ hiện khi công bố'), style: const TextStyle(color: _sub, fontSize: 22)),
-              if (quiz && v['reveal'] == true && v['leaderboard'] is List && (v['leaderboard'] as List).isNotEmpty)
-                Text('🏆 ${[for (final x in (v['leaderboard'] as List).take(3)) '${(x as Map)['name']} ${x['score']}/${x['of']}'].join('   ·   ')}',
-                    style: const TextStyle(color: _gold, fontSize: 24, fontWeight: FontWeight.w600)),
-            ]),
-          ),
+    final r = resultOf('${q['id']}');
+    final total = (r?['total'] as num?)?.toInt() ?? 0;
+    final correct = [for (final x in (q['correct'] as List? ?? const [])) '$x'];
+    int count(Map o) => ((r?['options'] as Map?)?['${o['id']}'] as num?)?.toInt() ?? 0;
+    final title = Text(
+      '${q['text']}',
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(color: t.text, fontSize: portrait ? 28 : 46, fontWeight: FontWeight.w800, height: 1.15),
+    );
+    final hint = Text(
+      [
+        if (quiz) tr('Câu {0} / {1}', [cur + 1, qs.length]),
+        if (!vote) q['multi'] == true ? tr('Chọn một hoặc nhiều') : tr('Chọn một'),
+        if (v['anon'] == true) vote ? tr('phiếu kín') : tr('ẩn danh'),
+        if (r == null && !vote) tr('kết quả hiện khi công bố') else if (!vote && v['live'] == true) tr('kết quả hiện trực tiếp'),
+        if (v['closed'] == true) tr('đã đóng'),
+      ].join(' · '),
+      style: TextStyle(color: t.sub, fontSize: portrait ? 14 : 17),
+    );
+
+    if (vote) return _voteStage(t, portrait, q, opts, title);
+
+    // Trắc nghiệm đã công bố: lưới ô đáp án (đúng sáng, sai mờ) + bảng điểm.
+    if (quiz && v['reveal'] == true && r != null) {
+      final board = [for (final x in (v['leaderboard'] as List? ?? const [])) (x as Map)];
+      final cells = GridView.count(
+        crossAxisCount: portrait ? 1 : 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 14,
+        childAspectRatio: portrait ? 5.2 : 3.6,
+        children: [
+          for (final (i, o) in opts.indexed)
+            Opacity(
+              opacity: correct.contains('${o['id']}') ? 1 : .4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                decoration: BoxDecoration(
+                  color: correct.contains('${o['id']}') ? const Color(0xFF38C793).withValues(alpha: .16) : t.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: correct.contains('${o['id']}') ? Border.all(color: const Color(0xFF38C793), width: 2) : null,
+                ),
+                child: Row(children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: correct.contains('${o['id']}') ? const Color(0xFF38C793) : t.surface2, borderRadius: BorderRadius.circular(12)),
+                    child: Text(String.fromCharCode(65 + i), style: TextStyle(color: correct.contains('${o['id']}') ? const Color(0xFF06281B) : t.text, fontSize: 22, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: Text('${o['text']}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: portrait ? 18 : 24, fontWeight: FontWeight.w600))),
+                  Text('${count(o)}', style: TextStyle(color: t.text, fontSize: portrait ? 20 : 28, fontWeight: FontWeight.w800)),
+                ]),
+              ),
+            ),
+        ],
+      );
+      final left = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [title, const SizedBox(height: 8), hint, SizedBox(height: portrait ? 16 : 28), cells]);
+      if (portrait || board.isEmpty) return SingleChildScrollView(child: left);
+      return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: left),
+        const SizedBox(width: 40),
+        SizedBox(
+          width: 340,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(tr('BẢNG ĐIỂM'), style: TextStyle(color: t.sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+            const SizedBox(height: 12),
+            for (final (i, x) in board.take(5).indexed)
+              Container(
+                height: 52,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(color: i == 0 ? const Color(0xFFF5B544).withValues(alpha: .14) : t.surface, borderRadius: BorderRadius.circular(12)),
+                child: Row(children: [
+                  SizedBox(width: 26, child: Text('${i + 1}', style: TextStyle(color: i == 0 ? const Color(0xFFF5B544) : t.sub, fontWeight: FontWeight.w700, fontSize: 17))),
+                  Expanded(child: Text('${x['name']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: 17))),
+                  Text('${x['score']}/${x['of']}', style: TextStyle(color: t.text, fontSize: 17, fontWeight: FontWeight.w800)),
+                ]),
+              ),
+          ]),
         ),
+      ]);
+    }
+
+    // Bình chọn (và trắc nghiệm chưa công bố): mỗi phương án một dòng: tên, số phiếu, % lớn, thanh màu chạy.
+    Widget opt(int i, Map o) {
+      final n = count(o);
+      final pct = total == 0 ? 0.0 : n / total;
+      final color = t.series[i % t.series.length];
+      return Padding(
+        padding: EdgeInsets.only(bottom: portrait ? 16 : 26),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            if (r == null) ...[
+              Container(
+                width: portrait ? 30 : 40,
+                height: portrait ? 30 : 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: color.withValues(alpha: .2), borderRadius: BorderRadius.circular(10)),
+                child: Text(String.fromCharCode(65 + i), style: TextStyle(color: color, fontSize: portrait ? 15 : 20, fontWeight: FontWeight.w800)),
+              ),
+              const SizedBox(width: 14),
+            ],
+            Expanded(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Flexible(child: Text('${o['text']}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: portrait ? 18 : 26, fontWeight: FontWeight.w600))),
+                if (r != null) ...[const SizedBox(width: 14), Text(tr('{0} phiếu', [n]), maxLines: 1, style: TextStyle(color: t.sub, fontSize: portrait ? 13 : 17))],
+              ]),
+            ),
+            if (r != null) ...[
+              Text('${(pct * 100).round()}%', style: TextStyle(color: t.text, fontSize: portrait ? 26 : 40, fontWeight: FontWeight.w800, height: 1)),
+            ],
+          ]),
+          if (r != null) ...[
+            SizedBox(height: portrait ? 8 : 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(11),
+              child: Container(
+                height: portrait ? 14 : 22,
+                color: t.surface2,
+                alignment: Alignment.centerLeft,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: pct),
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, x, _) => FractionallySizedBox(
+                    widthFactor: x,
+                    child: Container(decoration: BoxDecoration(color: correct.contains('${o['id']}') ? const Color(0xFF38C793) : color, borderRadius: BorderRadius.circular(11))),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ]),
+      );
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      title,
+      const SizedBox(height: 8),
+      hint,
+      SizedBox(height: portrait ? 22 : 40),
+      Expanded(child: ListView(padding: EdgeInsets.zero, physics: const NeverScrollableScrollPhysics(), children: [for (final (i, o) in opts.indexed) opt(i, o)])),
+    ]);
+  }
+
+  Widget _voteStage(StageTheme t, bool portrait, Map<String, dynamic> q, List<Map> opts, Widget title) {
+    final o = (v['outcome'] as Map?)?.cast<String, dynamic>();
+    final closed = v['closed'] == true;
+    final thr = ((v['threshold'] as num?) ?? (o?['threshold'] as num?) ?? 50).toDouble();
+    final quorum = ((v['quorum'] as num?) ?? 0).toInt();
+    const yesC = Color(0xFF38C793), noC = Color(0xFFF0646A), blankC = Color(0xFF6B7686);
+    if (o == null || !closed) {
+      // Đang bỏ phiếu: chưa lộ kết quả, chỉ số người đã bỏ phiếu.
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        title,
+        const Spacer(),
+        Text(tr('ĐANG BỎ PHIẾU'), style: TextStyle(color: Color.lerp(t.accent, t.light ? Colors.black : Colors.white, .35), fontSize: portrait ? 13 : 16, fontWeight: FontWeight.w700, letterSpacing: 2)),
+        const SizedBox(height: 6),
+        Text(tr('{0} đã bỏ phiếu', [v['voters'] ?? 0]), style: TextStyle(color: t.text, fontSize: portrait ? 40 : 72, fontWeight: FontWeight.w800)),
+        Text(
+          [tr('Thông qua khi Đồng ý > {0}%', [thr.round()]), if (quorum > 0) tr('tối thiểu {0} phiếu', [quorum]), if (v['anon'] == true) tr('phiếu kín')].join(' · '),
+          style: TextStyle(color: t.sub, fontSize: portrait ? 14 : 18),
+        ),
+        const Spacer(),
+      ]);
+    }
+    final yes = (o['yes'] as num?)?.toInt() ?? 0, no = (o['no'] as num?)?.toInt() ?? 0, blank = (o['abstain'] as num?)?.toInt() ?? 0;
+    final voters = (o['voters'] as num?)?.toInt() ?? 0;
+    final ok = o['passed'] == true;
+    final pct = voters == 0 ? 0 : (yes * 100 / voters).round();
+    final stamp = Transform.rotate(
+      angle: -.12,
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: portrait ? 16 : 28, vertical: portrait ? 10 : 16),
+        decoration: BoxDecoration(border: Border.all(color: ok ? yesC : noC, width: portrait ? 4 : 6), borderRadius: BorderRadius.circular(20)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(ok ? tr('THÔNG QUA') : tr('KHÔNG THÔNG QUA'), style: TextStyle(color: ok ? yesC : noC, fontSize: portrait ? 26 : 44, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+          Text(
+            o['quorum_met'] == false ? tr('chưa đủ {0} phiếu tối thiểu', [quorum]) : tr('{0}% đồng ý · cần > {1}%', [pct, thr.round()]),
+            style: TextStyle(color: (ok ? yesC : noC).withValues(alpha: .85), fontSize: portrait ? 12 : 16),
+          ),
+        ]),
       ),
     );
+    Widget k(int n, String label, Color c) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$n', style: TextStyle(color: c, fontSize: portrait ? 32 : 56, fontWeight: FontWeight.w800, height: 1)),
+          const SizedBox(height: 4),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 12, height: 12, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3))),
+            const SizedBox(width: 8),
+            Text(label, style: TextStyle(color: t.sub, fontSize: portrait ? 13 : 17)),
+          ]),
+        ]);
+    final bar = LayoutBuilder(
+      builder: (context, box) => SizedBox(
+        height: portrait ? 64 : 88,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            height: portrait ? 36 : 56,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Row(children: [
+                if (yes > 0) Expanded(flex: yes, child: Container(color: yesC)),
+                if (no > 0) Expanded(flex: no, child: Container(color: noC)),
+                if (blank > 0) Expanded(flex: blank, child: Container(color: blankC)),
+                if (voters == 0) Expanded(child: Container(color: t.surface2)),
+              ]),
+            ),
+          ),
+          Positioned(left: box.maxWidth * thr / 100, top: -10, width: 2, height: portrait ? 56 : 80, child: Container(color: t.text)),
+          Positioned(
+            left: box.maxWidth * thr / 100 + 10,
+            top: portrait ? 42 : 62,
+            child: Text(tr('Ngưỡng {0}%', [thr.round()]), style: TextStyle(color: t.text, fontSize: portrait ? 12 : 14, fontWeight: FontWeight.w600)),
+          ),
+        ]),
+      ),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (portrait) ...[title, const SizedBox(height: 18), Align(alignment: Alignment.centerLeft, child: stamp)] else Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: title), const SizedBox(width: 24), stamp]),
+      const Spacer(),
+      bar,
+      SizedBox(height: portrait ? 14 : 22),
+      Wrap(spacing: portrait ? 24 : 64, runSpacing: 12, children: [
+        k(yes, tr('Đồng ý'), yesC),
+        k(no, tr('Không đồng ý'), noC),
+        k(blank, tr('Phiếu trắng'), t.text),
+        if (quorum > 0) k(voters, o['quorum_met'] == false ? tr('Phiếu · chưa đủ túc số ({0})', [quorum]) : tr('Phiếu · đủ túc số ({0})', [quorum]), t.text),
+      ]),
+      const Spacer(),
+    ]);
   }
 
   Widget _viewer() {
@@ -494,7 +729,12 @@ class _PollViewState extends State<PollView> {
   Widget build(BuildContext context) => ctx.onStage
       ? Stack(children: [
           Positioned.fill(child: _stage()),
-          if (ctx.presenting) Positioned(right: 12, bottom: 12, child: Material(color: Colors.black54, borderRadius: BorderRadius.circular(12), child: Padding(padding: const EdgeInsets.all(8), child: _controls()))),
+          if (ctx.presenting)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Material(color: StageMetrics.themeOf(context).surface, borderRadius: BorderRadius.circular(14), child: Padding(padding: const EdgeInsets.all(8), child: _controls())),
+            ),
         ])
       : _viewer();
 }

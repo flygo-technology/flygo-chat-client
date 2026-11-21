@@ -170,7 +170,7 @@ class _StagePageViewState extends State<StagePageView> {
       background: bg.isEmpty && img.isEmpty ? null : stageBackground(bg, img, t),
       headerLeading: [
         // Nhãn ngắn: "Bình chọn / Trắc nghiệm" -> "Bình chọn".
-        StageTypeChip(icon: spec?.icon ?? Icons.article_outlined, label: (spec?.label ?? tr('Trang')).split(RegExp(r' [/&] ')).first, theme: t),
+        StageTypeChip(icon: spec?.icon ?? Icons.article_outlined, label: spec?.stageLabel?.call(ctx) ?? (spec?.label ?? tr('Trang')).split(RegExp(r' [/&] ')).first, theme: t),
         Flexible(child: Text(ctx.page.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.sub, fontSize: 15))),
       ],
       headerTrailing: [

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
+import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
 
 // Loại trang "Hỏi đáp & Thảo luận" (máy chủ: relay/meet-pt-qa.mjs). Ai cũng hỏi được (có thể ẩn danh thật), bấm 👍, trả lời;
@@ -30,6 +31,7 @@ void registerQaPageType() {
       builder: (_) => QaComposer(defaultTitle: tr('Hỏi đáp: {0}', [call.meetingInfo?.title ?? tr('cuộc họp')])),
     ),
     view: (context, ctx) => QaView(ctx),
+    stageThemed: true,
   ));
 }
 
@@ -126,52 +128,126 @@ class _QaViewState extends State<QaView> {
     return l; // 'top': máy chủ đã xếp (ghim > chưa trả lời > 👍 > mới)
   }
 
+  // Sân khấu (mockup Họp): câu đang trả lời lớn trong ô nổi bật (số ▲, người hỏi, câu trả lời được chọn), bên phải các câu
+  // nhiều người quan tâm. Màu theo bảng màu sân khấu.
   Widget _stage() {
+    final m = StageMetrics.of(context);
+    if (m == null) return FittedBox(fit: BoxFit.contain, child: SizedBox(width: 1168, height: 560, child: _stageBody(const StageTheme(), false)));
+    return _stageBody(m.theme, m.portrait);
+  }
+
+  Widget _stageBody(StageTheme t, bool portrait) {
     final list = qs.where((q) => q['hidden'] != true).toList();
     final q = list.where((q) => q['pinned'] == true).firstOrNull ?? list.where((q) => q['answered'] != true).firstOrNull ?? list.firstOrNull;
-    return FittedBox(
-      fit: BoxFit.contain,
-      child: SizedBox(
-        width: 1280,
-        height: 720,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(72, 56, 72, 48),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Icon(Icons.question_answer_outlined, color: _blue, size: 30),
-              const SizedBox(width: 12),
-              Expanded(child: Text('${v['title'] ?? ctx.page.title}', overflow: TextOverflow.ellipsis, style: const TextStyle(color: _blue, fontSize: 26, fontWeight: FontWeight.w600))),
-              Text(tr('{0} câu · {1} chờ trả lời', [v['total'] ?? 0, v['open'] ?? 0]), style: const TextStyle(color: Colors.white70, fontSize: 24)),
-            ]),
-            const Spacer(),
-            if (q == null)
-              Text(tr('Chưa có câu hỏi. Mở trang này trên điện thoại để đặt câu hỏi.'), style: const TextStyle(color: Colors.white70, fontSize: 34))
-            else ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(color: const Color(0xFF3D3010), borderRadius: BorderRadius.circular(20)),
-                child: Text(q['pinned'] == true ? tr('📌 Đang trả lời · 👍 {0}', [q['votes']]) : tr('👍 {0}', [q['votes']]),
-                    style: const TextStyle(color: _gold, fontSize: 24, fontWeight: FontWeight.w600)),
+    const gold = Color(0xFFF5B544);
+    if (q == null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(color: gold.withValues(alpha: .16), borderRadius: BorderRadius.circular(22)),
+            child: const Icon(Icons.forum_outlined, color: gold, size: 40),
+          ),
+          const SizedBox(height: 18),
+          Text(tr('Có gì muốn hỏi không?'), style: TextStyle(color: t.text, fontSize: portrait ? 26 : 38, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(tr('Đặt câu hỏi trên app, được hỏi ẩn danh. Câu được nhiều người bấm ▲ sẽ lên đầu.'), textAlign: TextAlign.center, style: TextStyle(color: t.sub, fontSize: portrait ? 15 : 20)),
+        ]),
+      );
+    }
+    final accepted = [for (final a in (q['answers'] as List? ?? const [])) if ((a as Map)['accepted'] == true) a].firstOrNull;
+    final pinned = q['pinned'] == true;
+    final main = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(pinned ? tr('ĐANG TRẢ LỜI') : tr('CÂU NHIỀU NGƯỜI QUAN TÂM'), style: TextStyle(color: gold, fontSize: portrait ? 12 : 14, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+      const SizedBox(height: 14),
+      Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(portrait ? 20 : 32),
+        decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(22), border: Border.all(color: gold.withValues(alpha: pinned ? .6 : .25), width: 1.5)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${q['text']}', maxLines: 5, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: portrait ? 24 : 36, fontWeight: FontWeight.w700, height: 1.3)),
+          const SizedBox(height: 16),
+          Row(children: [
+            Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(color: gold.withValues(alpha: .16), borderRadius: BorderRadius.circular(999)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.arrow_upward_rounded, size: 16, color: gold),
+                const SizedBox(width: 6),
+                Text('${q['votes'] ?? 0}', style: const TextStyle(color: gold, fontSize: 16, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+            const SizedBox(width: 14),
+            Flexible(child: Text(q['anon'] == true ? tr('Ẩn danh') : '${q['by_name'] ?? ''}', style: TextStyle(color: t.sub, fontSize: portrait ? 14 : 17))),
+          ]),
+          if (accepted != null) ...[
+            Container(height: 1, margin: const EdgeInsets.symmetric(vertical: 16), color: t.line),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: const Color(0xFFE8710A),
+                child: Text('${accepted['by_name'] ?? '?'}'.trim().characters.firstOrNull?.toUpperCase() ?? '?', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
               ),
-              const SizedBox(height: 22),
-              Text('${q['text']}', maxLines: 5, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 52, fontWeight: FontWeight.w700, height: 1.25)),
-              const SizedBox(height: 18),
-              Text(q['anon'] == true ? tr('Ẩn danh') : '${q['by_name']}', style: const TextStyle(color: Colors.white60, fontSize: 26)),
-              if ((q['answers'] as List? ?? const []).any((a) => (a as Map)['accepted'] == true)) ...[
-                const SizedBox(height: 22),
-                Text(
-                  '✅ ${[for (final a in q['answers'] as List) if ((a as Map)['accepted'] == true) '${a['by_name']}: ${a['text']}'].first}',
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(text: '${accepted['by_name'] ?? ''} · ', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    TextSpan(text: '${accepted['text'] ?? ''}'),
+                  ]),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _okTx, fontSize: 30),
+                  style: TextStyle(color: t.text, fontSize: portrait ? 15 : 19, height: 1.45),
                 ),
-              ],
-            ],
-            const Spacer(),
-          ]),
-        ),
+              ),
+            ]),
+          ],
+        ]),
       ),
-    );
+    ]);
+    final others = [for (final x in list) if (x != q) x]..sort((a, b) => ((b['votes'] as num?) ?? 0).compareTo((a['votes'] as num?) ?? 0));
+    if (portrait || others.isEmpty) return SingleChildScrollView(child: main);
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Expanded(child: main),
+      const SizedBox(width: 32),
+      SizedBox(
+        width: 400,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(tr('NHIỀU NGƯỜI QUAN TÂM'), style: TextStyle(color: t.sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+          const SizedBox(height: 12),
+          for (final x in others.take(4))
+            Opacity(
+              opacity: x['answered'] == true ? .6 : 1,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(14)),
+                child: Row(children: [
+                  SizedBox(
+                    width: 52,
+                    child: x['answered'] == true
+                        ? const Icon(Icons.check_rounded, color: Color(0xFF38C793))
+                        : Column(mainAxisSize: MainAxisSize.min, children: [
+                            Text('${x['votes'] ?? 0}', style: TextStyle(color: t.text, fontSize: 20, fontWeight: FontWeight.w800)),
+                            Icon(Icons.arrow_upward_rounded, size: 14, color: t.accent),
+                          ]),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('${x['text']}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: 16, height: 1.35)),
+                      const SizedBox(height: 3),
+                      Text(x['answered'] == true ? tr('Đã trả lời') : (x['anon'] == true ? tr('Ẩn danh') : '${x['by_name'] ?? ''}'), style: TextStyle(color: t.sub, fontSize: 13)),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+        ]),
+      ),
+    ]);
   }
 
   Widget _question(Map<String, dynamic> q) {
