@@ -24,6 +24,7 @@ const POST_ARG = { type: "string", description: "id tin (26 ký tự, #id trong 
 import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
 import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
+import { BROWSER_LOCAL_TOOLS, BROWSER_LOCAL_TOOL_NAMES, browserLocalTool } from "./browser-local";
 
 export async function runMcpChat() {
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`thiếu env ${k}`); return v; };
@@ -617,7 +618,7 @@ async function gatewayTools(): Promise<any[]> {
 }
 
 server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx(); return {
-  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
+  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...BROWSER_LOCAL_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
     ...(await gatewayTools())],
 }; });
 const CHAT_TOOLS = [
@@ -1028,6 +1029,8 @@ async function callTool(req: any): Promise<any> {
     return text(r.text ?? JSON.stringify(r));
   }
   if (String(req.params.name).startsWith("meeting_")) return text(await meetingTool(req.params.name, a).catch((e) => `Lỗi: ${e?.message ?? e}`));
+  // Mở profile Chrome có extension Flygo trên máy này (trình duyệt Flygo đang tắt): chỉ mở Chrome, không cần duyệt.
+  if (BROWSER_LOCAL_TOOL_NAMES.has(req.params.name)) return text(await browserLocalTool(req.params.name, a).catch((e) => `Lỗi: ${e?.message ?? e}`));
   if (FS_TOOL_NAMES.has(req.params.name)) {
     // Tệp / lệnh: thay đổi xin người giao việc duyệt qua runner (thẻ duyệt hiện lệnh / tệp như Bash / Write của engine).
     const approve = async (tool: string, input: any) => {
