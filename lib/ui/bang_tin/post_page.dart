@@ -1,6 +1,7 @@
 // Bảng tin: xem một bài (mở là tính "đã xem"), xác nhận đã đọc, cảm xúc, bình luận (trả lời một tầng).
 // Tác giả và quản trị Bảng tin: sửa, xoá, ghim, xem ai đã xem / đã xác nhận.
 // Máy tính: nhúng ở cột phải của Bảng tin (embedded); điện thoại: trang riêng.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -71,6 +72,12 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
   final _focus = FocusNode();
   Map<String, dynamic>? _replyTo, _editing;
 
+  /// Quan điểm của cuộc thảo luận (Thảo luận, 21/11): trả lời ẩn danh, 👎, cập nhật tức thì.
+  bool get _disc => _post?['discussion'] != null;
+  bool _anon = false;
+  StreamSubscription? _live;
+  Timer? _liveDebounce;
+
   /// Ảnh đính kèm bình luận đang soạn (đã tải lên: {id, name, mime, size}); số ảnh đang tải lên.
   List<Map<String, dynamic>> _cfiles = [];
   int _cuploading = 0;
@@ -96,9 +103,21 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
 
   @override
   void dispose() {
+    _live?.cancel();
+    _liveDebounce?.cancel();
     _input.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  /// Thảo luận: theo dõi SSE của cuộc thảo luận, bài này đổi (trả lời, cảm xúc) thì tải lại.
+  void _watchLive() {
+    if (_live != null || !_disc) return;
+    _live = api.events(discussion: '${_post!['discussion']}').listen((ev) {
+      if (ev['post'] != _pid) return;
+      _liveDebounce?.cancel();
+      _liveDebounce = Timer(const Duration(milliseconds: 300), _load);
+    });
   }
 
   static List<Map<String, dynamic>> _maps(Object? v) => [
@@ -116,6 +135,7 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
         _comments = _maps(r[1]['comments']);
         _error = null;
       });
+      _watchLive();
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
@@ -176,7 +196,7 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
             alignment: WrapAlignment.center,
             spacing: 10,
             children: [
-              for (final q in kReactionKinds.map((k) => k.emoji))
+              for (final q in (_disc ? kDiscussReactionKinds : kReactionKinds).map((k) => k.emoji))
                 InkWell(
                   borderRadius: BorderRadius.circular(24),
                   onTap: () => Navigator.pop(c, q),
@@ -204,8 +224,12 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
         final c = Map<String, dynamic>.from(r['comment'] as Map);
         setState(() => _comments = [for (final x in _comments) x['id'] == c['id'] ? c : x]);
       } else {
+        // Thảo luận: trả lời một trả lời (tầng 2) thì nhắc tên người đó.
+        final to = _replyTo, toName = '${(to?['author'] as Map?)?['name'] ?? ''}';
+        final body = _disc && to != null && to['parent'] != null && toName.isNotEmpty && !text.startsWith('@') ? '@$toName $text' : text;
         final r = await api.post('/api/posts/$_pid/comments', {
-          'body': text,
+          'body': body,
+          if (_disc && _anon) 'anon': true,
           if (_replyTo != null) 'parent': _replyTo!['id'],
           if (_cfiles.isNotEmpty) 'files': [for (final f in _cfiles) f['id']],
         });
@@ -572,13 +596,15 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
         PostActions(
           post: p,
           mine: mine,
+          kinds: _disc ? kDiscussReactionKinds : null,
+          commentLabel: _disc ? tr('Trả lời') : null,
           onReact: (e) {
             final cur = (p['my_reactions'] as List? ?? const []).map((x) => '$x').firstOrNull;
             _react('posts/$_pid', e ?? cur ?? '👍', e != null);
           },
           onComment: () => _focus.requestFocus(),
-          onViews: () => _views('${p['title'] ?? ''}'),
-          onShare: () async {
+          onViews: _disc ? null : () => _views('${p['title'] ?? ''}'),
+          onShare: _disc ? null : () async {
             final n = await shareBangTinPost(context, api, p);
             if (n != null && mounted) {
               setState(() => _post = {..._post!, 'shares': n});
@@ -823,6 +849,13 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
               padding: const EdgeInsets.fromLTRB(4, 6, 6, 8),
               child: Row(
                 children: [
+                  if (_disc && _editing == null)
+                    IconButton(
+                      tooltip: _anon ? tr('Đang trả lời ẩn danh') : tr('Trả lời ẩn danh'),
+                      isSelected: _anon,
+                      icon: Icon(Icons.visibility_off_outlined, color: _anon ? pal.accent : pal.sub),
+                      onPressed: () => setState(() => _anon = !_anon),
+                    ),
                   if (_editing == null)
                     IconButton(
                       tooltip: tr('Thêm ảnh'),
@@ -838,7 +871,7 @@ class _BangTinPostPageState extends State<BangTinPostPage> {
                       maxLength: 5000,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: tr('Viết bình luận…'),
+                        hintText: _disc ? (_anon ? tr('Trả lời ẩn danh…') : tr('Viết trả lời…')) : tr('Viết bình luận…'),
                         counterText: '',
                         isDense: true,
                         filled: true,

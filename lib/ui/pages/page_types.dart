@@ -63,6 +63,8 @@ class PageTypeSpec {
   final bool stageThemed;
   /// Nhãn loại trang ở thanh đầu sân khấu theo nội dung (Bình chọn / Trắc nghiệm / Biểu quyết); null = nhãn ngắn của loại.
   final String Function(PageCtx ctx)? stageLabel;
+  /// Không hiện trong danh sách tạo trang (loại đã thay thế, vd Hỏi đáp -> Thảo luận); trang cũ vẫn xem được.
+  final bool hidden;
   const PageTypeSpec({
     required this.type,
     required this.label,
@@ -78,6 +80,7 @@ class PageTypeSpec {
     this.stageFooter,
     this.stageThemed = false,
     this.stageLabel,
+    this.hidden = false,
   });
 }
 

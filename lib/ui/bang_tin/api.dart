@@ -1,5 +1,6 @@
 // Bảng tin (vn.flygo.bangtin): gọi backend bang-tin (flygo-chat-server) bằng vé Flygo ID (native giữ vé, tự gia hạn).
 // Đặc tả API: flygo-chat-server bang-tin/README.md.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -64,6 +65,61 @@ class BangTinApi {
   Future<Map<String, dynamic>> patch(String path, Object body) async => _json(await _send('PATCH', path, body: body));
   Future<Map<String, dynamic>> put(String path, Object body) async => _json(await _send('PUT', path, body: body));
   Future<Map<String, dynamic>> delete(String path) async => _json(await _send('DELETE', path));
+
+  /// Tin realtime (SSE): bảng tin chung (`{t:'feed', post}`) hoặc một cuộc thảo luận (`{t:'disc', kind, post}`).
+  /// Mất kết nối thì tự nối lại sau 5 giây; huỷ đăng ký là đóng kết nối.
+  Stream<Map<String, dynamic>> events({String? discussion}) {
+    late StreamController<Map<String, dynamic>> out;
+    StreamSubscription<String>? sub;
+    Timer? wait;
+    var closed = false;
+    Future<void> run() async {
+      var retried = false;
+      while (!closed) {
+        try {
+          final req = http.Request('GET', _uri(discussion == null ? '/api/events' : '/api/events?discussion=${Uri.encodeQueryComponent(discussion)}'))
+            ..headers.addAll(await _auth(refresh: retried))
+            ..headers['Accept'] = 'text/event-stream';
+          final res = await _http.send(req);
+          if (res.statusCode == 401 && !retried) {
+            retried = true;
+            continue;
+          }
+          // Không còn quyền / máy chủ chưa có realtime: thôi, không thử lại.
+          if (res.statusCode == 404 || res.statusCode == 403) break;
+          if (res.statusCode != 200) throw BangTinException(res.statusCode, 'SSE ${res.statusCode}');
+          retried = false;
+          final done = Completer<void>();
+          sub = res.stream.transform(utf8.decoder).transform(const LineSplitter()).listen(
+            (line) {
+              if (!line.startsWith('data: ')) return;
+              try {
+                out.add(Map<String, dynamic>.from(jsonDecode(line.substring(6)) as Map));
+              } catch (_) {}
+            },
+            onDone: () => done.isCompleted ? null : done.complete(),
+            onError: (_) => done.isCompleted ? null : done.complete(),
+            cancelOnError: true,
+          );
+          await done.future;
+        } catch (_) {}
+        if (closed) break;
+        final w = Completer<void>();
+        wait = Timer(const Duration(seconds: 5), w.complete);
+        await w.future;
+      }
+    }
+
+    out = StreamController<Map<String, dynamic>>(
+      onListen: run,
+      onCancel: () {
+        closed = true;
+        wait?.cancel();
+        sub?.cancel();
+      },
+    );
+    return out.stream;
+  }
 
   /// Tải một tệp lên (chưa gắn vào bài): trả {id, name, mime, size}.
   Future<Map<String, dynamic>> upload(String name, Uint8List bytes) async {

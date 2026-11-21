@@ -1,6 +1,7 @@
 // Bảng tin: tin tức / thông báo nội bộ (Sếp, 2026-11-10). Danh sách bài (ghim ở đầu), lọc chuyên mục, tìm kiếm,
 // lưu trữ, bài của tôi; quản trị Bảng tin có thêm chuyên mục và thống kê. Backend: flygo-chat-server bang-tin/.
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -23,6 +24,7 @@ import '../flows/column_resizer.dart';
 import 'admin_pages.dart';
 import 'api.dart';
 import 'bang_tin_service.dart';
+import 'discussion_page.dart';
 import 'editor_page.dart';
 import 'feed_widgets.dart';
 import 'post_page.dart';
@@ -145,10 +147,22 @@ class _BangTinHomeState extends State<BangTinHome> {
     if (widget.inTab) WidgetsBinding.instance.addPostFrameCallback((_) => svc.markSeen());
     _load();
     if (widget.openPost != null) WidgetsBinding.instance.addPostFrameCallback((_) => _open(widget.openPost!));
+    // Realtime (21/11): có bài mới / bài đổi thì tải lại trang đầu (đang tìm kiếm hoặc đã cuộn xuống trang sau thì thôi).
+    _live = api.events().listen((_) {
+      _liveDebounce?.cancel();
+      _liveDebounce = Timer(const Duration(milliseconds: 800), () {
+        if (mounted && !_searching && !_loadingMore) _load();
+      });
+    });
   }
+
+  StreamSubscription? _live;
+  Timer? _liveDebounce;
 
   @override
   void dispose() {
+    _live?.cancel();
+    _liveDebounce?.cancel();
     _q.dispose();
     super.dispose();
   }
@@ -431,6 +445,8 @@ class _BangTinHomeState extends State<BangTinHome> {
         case 'all' || 'mine' || 'archived':
           setState(() => _view = _View.values.byName(v));
           _load();
+        case 'discussions':
+          await Navigator.of(context).push(AppPageRoute(builder: (_) => DiscussionListPage(api: api, me: me!)));
         case 'categories':
           await Navigator.of(context).push(AppPageRoute(builder: (_) => BangTinCategoriesPage(api: api)));
           _reloadCategories();
@@ -447,6 +463,11 @@ class _BangTinHomeState extends State<BangTinHome> {
         PopupMenuItem(
           value: 'search',
           child: ListTile(leading: const Icon(Icons.search_rounded), title: Text(tr('Tìm kiếm'))),
+        ),
+      if (me != null)
+        PopupMenuItem(
+          value: 'discussions',
+          child: ListTile(leading: const Icon(Icons.forum_outlined), title: Text(tr('Thảo luận'))),
         ),
       if (_view != _View.all)
         PopupMenuItem(
