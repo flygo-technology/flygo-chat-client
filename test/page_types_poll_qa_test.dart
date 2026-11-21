@@ -104,7 +104,7 @@ void main() {
         expect(find.textContaining('Ngày nào bàn giao'), findsOneWidget);
         await _shot(t, 'poll-$name');
         await _pump(t, PollView(_ctx('poll', _quiz, stage: true, presenting: true, role: 'member')), size);
-        expect(find.textContaining('câu 1/2'), findsOneWidget);
+        expect(find.textContaining('Câu 1 / 2'), findsOneWidget);
         await _shot(t, 'quiz-$name');
         await _pump(t, QaView(_ctx('qa', _qa, stage: true)), size);
         expect(find.textContaining('Thưởng Tết'), findsOneWidget);

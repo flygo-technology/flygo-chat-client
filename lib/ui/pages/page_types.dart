@@ -61,6 +61,8 @@ class PageTypeSpec {
   final List<Widget> Function(BuildContext context, PageCtx ctx)? stageFooter;
   /// Trang đã vẽ theo bảng màu sân khấu (StageMetrics.themeOf). Chưa: ở chế độ Sáng, khung đặt trang trong một ô tối cho đọc được.
   final bool stageThemed;
+  /// Nhãn loại trang ở thanh đầu sân khấu theo nội dung (Bình chọn / Trắc nghiệm / Biểu quyết); null = nhãn ngắn của loại.
+  final String Function(PageCtx ctx)? stageLabel;
   const PageTypeSpec({
     required this.type,
     required this.label,
@@ -75,6 +77,7 @@ class PageTypeSpec {
     this.stageBleed = false,
     this.stageFooter,
     this.stageThemed = false,
+    this.stageLabel,
   });
 }
 

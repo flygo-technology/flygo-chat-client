@@ -646,4 +646,96 @@ void main() {
       CallScreen.debugRoom = null;
     });
   }
+
+  for (final (name, size, desktop) in [('i1-may-tinh', const Size(1440, 900), true), ('i2-dien-thoai', const Size(390, 844), false)]) {
+    testWidgets('trang tương tác mới: $name', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 460, tab: desktop ? 'pages' : '');
+      CallScreen.debugRoom = (_) => _room();
+      final extra = [
+        _p('q1', 'poll', 'An toàn lao động', 'loi', 'Nguyễn Văn Lợi', order: 9),
+        _p('v1', 'poll', 'Nghị quyết 07/2026', 'me', 'Dương Văn Ba', order: 9),
+        _p('t1', 'timer', 'Lượt phát biểu', 'me', 'Dương Văn Ba', order: 9),
+        _p('d1', 'draw', 'Người kiểm tra tầng 12', 'me', 'Dương Văn Ba', order: 9),
+        _p('n1', 'notes', 'Rút kinh nghiệm tòa B', 'me', 'Dương Văn Ba', order: 9),
+      ];
+      _pages.addAll(extra);
+      _views.addAll({
+        'q1': {
+          'kind': 'quiz', 'current': 0, 'reveal': true, 'closed': false, 'voters': 22, 'anon': false,
+          'questions': [
+            {'id': 'q', 'text': 'Khi làm việc trong giếng thang, dây an toàn phải móc vào đâu?', 'options': [{'id': 'a', 'text': 'Ray dẫn hướng'}, {'id': 'b', 'text': 'Điểm neo cố định'}, {'id': 'c', 'text': 'Nóc cabin'}, {'id': 'd', 'text': 'Cáp tải'}], 'correct': ['b']},
+          ],
+          'results': {'q': {'total': 22, 'options': {'a': 3, 'b': 14, 'c': 4, 'd': 1}}},
+          'leaderboard': [{'name': 'Lê Minh', 'score': 3, 'of': 3}, {'name': 'Mai Kim', 'score': 3, 'of': 3}, {'name': 'Trần Quang', 'score': 2, 'of': 3}, {'name': 'Nguyễn Văn Lợi', 'score': 2, 'of': 3}],
+        },
+        'v1': {
+          'kind': 'vote', 'closed': true, 'anon': true, 'voters': 20, 'quorum': 15, 'threshold': 65,
+          'questions': [{'id': 'q', 'text': 'Duyệt ngân sách 1,2 tỷ thay cáp tải cho 6 thang tòa A', 'options': [{'id': 'y', 'text': 'Đồng ý'}, {'id': 'n', 'text': 'Không đồng ý'}, {'id': 'a', 'text': 'Phiếu trắng'}]}],
+          'outcome': {'yes': 14, 'no': 4, 'abstain': 2, 'voters': 20, 'quorum': 15, 'threshold': 65, 'quorum_met': true, 'passed': true},
+        },
+        't1': {'mode': 'countdown', 'running': true, 'duration_ms': 120000, 'elapsed_ms': 89000, 'started_at': _now, 'now': _now, 'speakers': ['Nguyễn Văn Lợi', 'Mai Kim', 'Lê Minh', 'Trần Quang'], 'speaker': 1},
+        'd1': {'mode': 'pick', 'count': 1, 'source': 'participants', 'options': [], 'last': {'id': 'r1', 'picks': ['Lê Minh']}, 'results': []},
+        'n1': {
+          'mode': 'todo', 'title': 'Rút kinh nghiệm tòa B',
+          'columns': [{'id': 'c1', 'name': 'Làm tốt'}, {'id': 'c2', 'name': 'Cần cải thiện'}, {'id': 'c3', 'name': 'Việc tiếp theo'}],
+          'notes': [
+            {'id': 'a', 'text': 'Khảo sát giếng thang trước khi ký, không phát sinh', 'color': 'green', 'col': 'c1', 'by_name': 'Lê Minh', 'votes': 12},
+            {'id': 'b', 'text': 'Đội lắp đặt báo tiến độ hằng ngày qua nhóm chat', 'color': 'green', 'col': 'c1', 'by_name': 'Mai Kim', 'votes': 7},
+            {'id': 'c', 'text': 'Ray dẫn hướng về trễ 4 ngày, cần nhà cung cấp dự phòng', 'color': 'yellow', 'col': 'c2', 'by_name': 'Nguyễn Văn Lợi', 'votes': 15},
+            {'id': 'd', 'text': 'Thiếu người kiểm tra an toàn ca chiều', 'color': 'yellow', 'col': 'c2', 'by_name': 'Ẩn danh', 'votes': 9},
+            {'id': 'e', 'text': 'Ký hợp đồng khung với nhà cung cấp ray thứ hai', 'color': 'blue', 'col': 'c3', 'by_name': 'Mai Kim', 'votes': 6},
+          ],
+        },
+      });
+      addTearDown(() {
+        _pages.removeWhere((p) => extra.contains(p));
+        for (final k in ['q1', 'v1', 't1', 'd1', 'n1']) {
+          _views.remove(k);
+        }
+      });
+      await http.runWithClient(() async {
+        final app = _app();
+        await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('ia-$name')));
+        final base = {...app.calls.roomStage!, 'meeting_title': 'Giao ban tháng 12', 'theme_cfg': {'accent': '#3D7BFF', 'mode': 'dark'}, 'ends_at': _now + 204000, 'presenter': 'loi', 'presenter_name': 'Nguyễn Văn Lợi'};
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 10; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        for (final (id, type, title, shot) in [
+          ('p3', 'poll', 'Chọn ngày bàn giao', '1-binh-chon'),
+          ('q1', 'poll', 'An toàn lao động', '2-trac-nghiem'),
+          ('v1', 'poll', 'Nghị quyết 07/2026', '3-bieu-quyet'),
+          ('p5', 'qa', 'Hỏi đáp báo giá', '4-hoi-dap'),
+          ('t1', 'timer', 'Lượt phát biểu', '5-bam-gio'),
+          ('d1', 'draw', 'Người kiểm tra tầng 12', '6-boc-tham'),
+          ('n1', 'notes', 'Rút kinh nghiệm tòa B', '7-ghi-chu'),
+        ]) {
+          app.calls.roomStage = {...base, 'page': id, 'page_type': type, 'page_title': title, 'key': 'k-$id'};
+          app.calls.notifyListeners();
+          await settle();
+          await snap(t, '$name-$shot');
+        }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
+    });
+  }
 }

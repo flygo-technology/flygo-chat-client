@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
+import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
 
 // Loại trang "Bốc thăm" (máy chủ: relay/meet-pt-draw.mjs): bốc N mục từ danh sách hoặc từ người trong cuộc họp, có / không
@@ -31,6 +32,7 @@ void registerDrawPageType() {
       builder: (_) => DrawSettings(inMeeting: call.pagesMeeting != null),
     ),
     view: (context, ctx) => DrawView(ctx),
+    stageThemed: true,
   ));
 }
 
@@ -236,6 +238,84 @@ class _DrawViewState extends State<DrawView> {
     ]);
   }
 
+  /// Sân khấu (mockup Họp): vùng sáng tím ở giữa, tên trúng lớn (đang quay thì tên chạy mờ); chia nhóm = lưới thẻ nhóm.
+  Widget _stage(String header, {StageMetrics? fm}) {
+    final m = fm ?? StageMetrics.of(context);
+    if (m == null) return FittedBox(child: SizedBox(width: 1168, height: 560, child: _stage(header, fm: const StageMetrics(theme: StageTheme(), portrait: false, size: Size(1168, 560), child: SizedBox()))));
+    final t = m.theme;
+    final portrait = m.portrait;
+    const purple = Color(0xFF9B6BFF);
+    final r = last;
+    final shown = r != null && '${r['id']}' == _shownId && _spin == null;
+    final eyebrow = Text(
+      '${widget.ctx.page.title.isEmpty ? header : widget.ctx.page.title} · ${v['source'] == 'participants' ? tr('từ người trong phòng') : tr('{0} lựa chọn', [(v['options'] as List? ?? const []).length])}'.toUpperCase(),
+      textAlign: TextAlign.center,
+      style: TextStyle(color: Color.lerp(purple, t.light ? Colors.black : Colors.white, .4), fontSize: portrait ? 12 : 15, fontWeight: FontWeight.w700, letterSpacing: 1.6),
+    );
+    if (shown && r['teams'] is List) {
+      final teams = [for (final x in r['teams'] as List) [for (final p in x as List) '$p']];
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        eyebrow,
+        SizedBox(height: portrait ? 14 : 24),
+        Expanded(
+          child: GridView.count(
+            crossAxisCount: portrait ? 1 : (teams.length <= 2 ? 2 : 3),
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 14,
+            childAspectRatio: portrait ? 3.2 : 1.9,
+            children: [
+              for (final (i, tm) in teams.indexed)
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(18)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(tr('NHÓM {0}', [i + 1]), style: TextStyle(color: t.series[i % t.series.length], fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                    const SizedBox(height: 8),
+                    Text(tm.join(' · '), maxLines: 4, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: portrait ? 16 : 20, height: 1.4)),
+                  ]),
+                ),
+            ],
+          ),
+        ),
+      ]);
+    }
+    final picks = shown ? [for (final p in (r['picks'] as List? ?? const [])) '$p'] : const <String>[];
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: RadialGradient(colors: [purple.withValues(alpha: .28), Colors.transparent], radius: .8),
+      ),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(20),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        eyebrow,
+        SizedBox(height: portrait ? 18 : 28),
+        if (_spin != null)
+          Text(_flash, textAlign: TextAlign.center, style: TextStyle(color: t.sub, fontSize: portrait ? 40 : 72, fontWeight: FontWeight.w800))
+        else if (picks.isEmpty)
+          Text(tr('Chưa bốc'), style: TextStyle(color: t.sub, fontSize: portrait ? 28 : 44, fontWeight: FontWeight.w700))
+        else ...[
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: portrait ? 18 : 32, vertical: portrait ? 6 : 10),
+            decoration: BoxDecoration(color: purple.withValues(alpha: .18), borderRadius: BorderRadius.circular(18), border: Border.all(color: purple, width: 2)),
+            child: Text(picks.first, textAlign: TextAlign.center, style: TextStyle(color: t.text, fontSize: portrait ? 44 : 76, fontWeight: FontWeight.w800, height: 1.15)),
+          ),
+          if (picks.length > 1) ...[
+            const SizedBox(height: 18),
+            Wrap(alignment: WrapAlignment.center, spacing: 12, runSpacing: 12, children: [
+              for (final p in picks.skip(1))
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                  decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(999)),
+                  child: Text(p, style: TextStyle(color: t.text, fontSize: portrait ? 18 : 26, fontWeight: FontWeight.w700)),
+                ),
+            ]),
+          ],
+        ],
+      ]),
+    );
+  }
+
   Future<void> _settings() => showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
@@ -256,27 +336,8 @@ class _DrawViewState extends State<DrawView> {
     );
     if (widget.ctx.onStage) {
       return Stack(children: [
-        Positioned.fill(
-          child: FittedBox(
-            fit: BoxFit.contain,
-            child: SizedBox(
-              width: 1280,
-              height: 720,
-              child: Padding(
-                padding: const EdgeInsets.all(48),
-                child: Column(children: [
-                  Row(children: [
-                    const Icon(Icons.casino_outlined, color: _gold, size: 34),
-                    const SizedBox(width: 12),
-                    Text(header, style: const TextStyle(color: _gold, fontSize: 30, fontWeight: FontWeight.w600)),
-                  ]),
-                  Expanded(child: Center(child: _result(big: true))),
-                ]),
-              ),
-            ),
-          ),
-        ),
-        if (widget.ctx.presenting) Positioned(right: 16, bottom: 16, child: drawBtn),
+        Positioned.fill(child: _stage(header)),
+        if (widget.ctx.presenting) Positioned(right: 0, bottom: 0, child: drawBtn),
       ]);
     }
     final history = [for (final r in (v['results'] as List? ?? const []).reversed.skip(1)) (r as Map).cast<String, dynamic>()];

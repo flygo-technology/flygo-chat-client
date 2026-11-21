@@ -96,10 +96,10 @@ void main() {
       expect(find.textContaining('Mai Kim'), findsOneWidget);
       await _shot(t, 'timer-$name');
       await _pump(t, DrawView(_ctx('draw', _draw, stage: true)), size);
-      expect(find.text('Nhóm 3'), findsOneWidget);
+      expect(find.text('NHÓM 3'), findsOneWidget);
       await _shot(t, 'draw-$name');
       await _pump(t, NotesView(_ctx('notes', _notes, stage: true)), size);
-      expect(find.text('Vật tư'), findsOneWidget);
+      expect(find.text('VẬT TƯ'), findsOneWidget);
       await _shot(t, 'notes-$name');
       await _pump(t, PollView(_ctx('poll', _vote, stage: true)), size);
       expect(find.textContaining('THÔNG QUA'), findsOneWidget);
@@ -139,7 +139,8 @@ void main() {
     expect(find.text('Thêm ghi chú'), findsNothing);
     await _shot(t, 'notes-meeting-phone');
     await _pump(t, NotesView(_ctx('notes', todoView, stage: true)), const Size(1280, 720));
-    expect(find.text('Giao ban tòa B'), findsOneWidget);
+    // Tên bảng nằm ở thanh đầu của khung sân khấu; trang chỉ vẽ các ghi chú.
+    expect(find.text('Ray — giao 25/11'), findsOneWidget);
     await _shot(t, 'notes-meeting-stage');
     await t.pumpWidget(const SizedBox());
   });

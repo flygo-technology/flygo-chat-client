@@ -5,6 +5,7 @@ import '../../todo/todo_page.dart' show openTodo, kTodoScreen;
 
 import '../../../i18n/i18n.dart';
 import '../page_types.dart';
+import '../stage_frame.dart';
 import 'builtin.dart' show pageField;
 
 // Loại trang "Ghi chú" (máy chủ: relay/meet-pt-notes.mjs; cũng là app riêng "Ghi chú"): bảng ghi chú dán theo cột, màu,
@@ -37,6 +38,7 @@ void registerNotesPageType() {
       builder: (_) => NotesComposer(meeting: call.pagesMeeting),
     ),
     view: (context, ctx) => NotesView(ctx),
+    stageThemed: true,
   ));
 }
 
@@ -324,42 +326,86 @@ class _NotesViewState extends State<NotesView> {
     return r;
   }
 
-  Widget _stage() {
-    return FittedBox(
-      fit: BoxFit.contain,
-      child: SizedBox(
-        width: 1280,
-        height: 720,
-        child: Padding(
-          padding: const EdgeInsets.all(40),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+  /// Sân khấu (mockup Họp): mỗi cột một khung, giấy dán sắp theo bình chọn, ghi chú nhiều ▲ nhất của cả bảng nổi lên
+  /// ("đang bàn"). Chỉ xem; thêm / sửa trên app.
+  Widget _stage({StageMetrics? fm}) {
+    final m = fm ?? StageMetrics.of(context);
+    if (m == null) return FittedBox(child: SizedBox(width: 1168, height: 560, child: _stage(fm: const StageMetrics(theme: StageTheme(), portrait: false, size: Size(1168, 560), child: SizedBox()))));
+    final t = m.theme;
+    final portrait = m.portrait;
+    final notes = [for (final n in (v['notes'] as List? ?? const [])) (n as Map).cast<String, dynamic>()];
+    final top = (notes.toList()..sort((a, b) => ((b['votes'] as num?) ?? 0).compareTo((a['votes'] as num?) ?? 0))).firstOrNull;
+    final groups = cols.isEmpty
+        ? [(id: '', name: tr('Ghi chú'))]
+        : [
+            for (final c in cols) (id: '${c['id']}', name: '${c['name']}'),
+            if (notes.any((n) => !cols.any((c) => c['id'] == n['col']))) (id: '', name: tr('Chưa xếp cột')),
+          ];
+    List<Map<String, dynamic>> inGroup(String id) =>
+        notes.where((n) => cols.isEmpty || (id.isEmpty ? !cols.any((c) => c['id'] == n['col']) : n['col'] == id)).toList()
+          ..sort((a, b) => ((b['votes'] as num?) ?? 0).compareTo((a['votes'] as num?) ?? 0));
+    Widget card(Map<String, dynamic> n) {
+      final hot = identical(n, top) && ((n['votes'] as num?) ?? 0) > 0;
+      return Transform.rotate(
+        angle: hot ? -.02 : 0,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: EdgeInsets.fromLTRB(14, 12, 14, portrait ? 10 : 12),
+          decoration: BoxDecoration(
+            color: noteColors['${n['color']}'] ?? noteColors['yellow'],
+            borderRadius: BorderRadius.circular(10),
+            border: hot ? Border.all(color: const Color(0xFFF5B544), width: 3) : null,
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: hot ? .4 : .25), blurRadius: hot ? 18 : 2, offset: Offset(0, hot ? 8 : 2))],
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text('${n['text']}', maxLines: 4, overflow: TextOverflow.ellipsis, style: TextStyle(color: const Color(0xFF1B1F26), fontSize: portrait ? 15 : 17, height: 1.35, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
             Row(children: [
-              const Icon(Icons.sticky_note_2_outlined, color: Color(0xFFF9AB00), size: 32),
-              const SizedBox(width: 12),
-              Expanded(child: Text('${v['title'] ?? ctx.page.title}', overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700))),
-              Text(tr('{0} ghi chú', [(v['notes'] as List? ?? const []).length]), style: const TextStyle(color: _sub, fontSize: 22)),
+              Expanded(child: Text('${n['by_name'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xB31B1F26), fontSize: 12, fontWeight: FontWeight.w600))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: const Color(0x1F1B1F26), borderRadius: BorderRadius.circular(999)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.arrow_upward_rounded, size: 12, color: Color(0xFF1B1F26)),
+                  const SizedBox(width: 2),
+                  Text('${n['votes'] ?? 0}', style: const TextStyle(color: Color(0xFF1B1F26), fontSize: 12, fontWeight: FontWeight.w800)),
+                ]),
+              ),
             ]),
-            const SizedBox(height: 20),
-            Expanded(
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                for (final c in cols.take(5))
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 16),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        Text('${c['name']}', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 10),
-                        for (final n in (notesOf('${c['id']}')..sort((a, b) => ((b['votes'] as num?) ?? 0).compareTo((a['votes'] as num?) ?? 0))).take(4))
-                          Padding(padding: const EdgeInsets.only(bottom: 12), child: _note(n, big: true)),
-                      ]),
-                    ),
-                  ),
-              ]),
-            ),
           ]),
         ),
-      ),
-    );
+      );
+    }
+
+    if (notes.isEmpty) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(tr('Bảng đang chờ ý tưởng đầu tiên'), style: TextStyle(color: t.text, fontSize: portrait ? 24 : 36, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(tr('Mỗi người dán ghi chú từ điện thoại; ghi chú nhiều ▲ nhất nổi lên trên.'), textAlign: TextAlign.center, style: TextStyle(color: t.sub, fontSize: portrait ? 15 : 19)),
+        ]),
+      );
+    }
+    Widget column(({String id, String name}) g, int i) => Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: t.surface.withValues(alpha: t.light ? 1 : .7), borderRadius: BorderRadius.circular(18)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Container(width: 10, height: 10, decoration: BoxDecoration(color: t.series[i % t.series.length], borderRadius: BorderRadius.circular(3))),
+              const SizedBox(width: 8),
+              Expanded(child: Text(g.name.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 1))),
+              Text('${inGroup(g.id).length}', style: TextStyle(color: t.sub, fontSize: 14)),
+            ]),
+            const SizedBox(height: 12),
+            Expanded(child: ListView(padding: EdgeInsets.zero, physics: const NeverScrollableScrollPhysics(), children: [for (final n in inGroup(g.id).take(6)) card(n)])),
+          ]),
+        );
+    if (portrait) {
+      return ListView(padding: EdgeInsets.zero, children: [for (final n in notes.toList()..sort((a, b) => ((b['votes'] as num?) ?? 0).compareTo((a['votes'] as num?) ?? 0))) card(n)]);
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      for (final (i, g) in groups.take(4).indexed) ...[if (i > 0) const SizedBox(width: 16), Expanded(child: column(g, i))],
+    ]);
   }
 
   /// Mở bảng của cuộc họp trong app Ghi chú (sửa, thêm, 👍 ở đó).
