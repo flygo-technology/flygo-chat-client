@@ -6,15 +6,16 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../state/app_state.dart';
-import '../page_media.dart';
 import '../pages_api.dart' show pageAssetUrl;
 import '../stage_frame.dart' show StageMetrics, StagePill, StageTheme, stageBackground, stageBgLight;
 
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
-import '../../meet/meet_present.dart' show MeetPresentView, pickPresentPdf;
+import '../../meet/meet_present.dart' show MeetPresentView;
 import '../page_thumb.dart' show PdfThumb;
+import '../app_kit.dart' show AppScope;
 import '../page_types.dart';
+import 'media_apps.dart';
 import 'welcome_agenda.dart';
 
 // Loại trang có sẵn: Chào mừng, Video, Tài liệu (Slide / PDF / Word / Excel), Chương trình họp, Biên bản.
@@ -112,23 +113,11 @@ void registerBuiltinPageTypes() {
       alignment: Alignment.center,
       child: const Icon(Icons.play_circle_fill_rounded, color: Colors.white70, size: 34),
     ),
-    editor: (context, ctx) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      PageContentField(ctx, 'url', tr('Đường dẫn video (mp4, m3u8)')),
-      // Ảnh đại diện (thẻ trang, màn hình chờ trước khi phát).
-      Row(children: [
-        Expanded(child: PageContentField(ctx, 'poster', tr('Ảnh đại diện (tuỳ chọn)'), key: ValueKey('po:${ctx.page.content['poster']}'))),
-        IconButton(
-          tooltip: tr('Chọn ảnh đại diện'),
-          icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
-          onPressed: () async {
-            final u = await pickPageMedia(context, ctx.call, image: true);
-            if (u == null || !context.mounted) return;
-            await ctx.api.patch(ctx.page.id, {'content': {...ctx.page.content, 'poster': u}});
-            await ctx.reload();
-          },
-        ),
-      ]),
-    ]),
+    // App (mockup bảng 09): người xem theo mốc chương / xem riêng / phụ đề / hỏi tại mốc; chủ trang điều khiển cả phòng,
+    // sửa đường dẫn + mốc chương tại chỗ.
+    panel: (context, ctx) => VideoPanel(ctx),
+    controls: (context, ctx) => VideoControls(ctx),
+    inlineEdit: true,
   ));
   registerPageType(PageTypeSpec(
     type: 'doc',
@@ -137,7 +126,10 @@ void registerBuiltinPageTypes() {
     icon: Icons.slideshow_rounded,
     color: const Color(0xFFF29900),
     view: (context, ctx) => _Doc(ctx),
-    editor: (context, ctx) => _DocEditor(ctx),
+    // App (mockup bảng 06): người xem theo / tự lật, dải trang, tải về; chủ trang lật cho cả phòng, bút vẽ / laser tại chỗ.
+    panel: (context, ctx) => DocPanel(ctx),
+    controls: (context, ctx) => DocControls(ctx),
+    stageInput: docStageInput,
     stageThemed: true,
     // Thanh cuối: số trang lớn (trang đang chiếu / tổng), tên tệp.
     stageFooter: (context, ctx) {
@@ -487,6 +479,7 @@ class _VideoState extends State<_Video> {
   void initState() {
     super.initState();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => _sync());
+    _local;
     final url = '${widget.ctx.page.content['url'] ?? ''}';
     if (url.isEmpty) return;
     _v = VideoPlayerController.networkUrl(Uri.parse(url))
@@ -503,26 +496,47 @@ class _VideoState extends State<_Video> {
     _sync();
   }
 
-  /// Theo trạng thái chung {playing, pos, at}: lệch quá 1,5 giây thì tua lại.
+  /// Theo trạng thái chung {playing, pos, at}: lệch quá 1,5 giây thì tua lại. Xem riêng (app Video: mốc chương, "Xem lại
+  /// riêng"): không theo phòng, tua tới mốc người xem chọn.
   void _sync() {
     final v = _v;
     if (v == null || !v.value.isInitialized) return;
+    final local = VideoLocal.of(widget.ctx.page.id);
     final s = widget.ctx.view;
-    final playing = s['playing'] == true;
-    final pos = (s['pos'] as num?)?.toDouble() ?? 0;
-    final at = (s['at'] as num?)?.toInt() ?? 0;
-    final want = playing ? pos + (DateTime.now().millisecondsSinceEpoch - at) / 1000 : pos;
-    final cur = v.value.position.inMilliseconds / 1000;
-    if ((cur - want).abs() > 1.5) v.seekTo(Duration(milliseconds: (want * 1000).round()));
-    if (playing && !v.value.isPlaying) v.play();
-    if (!playing && v.value.isPlaying) v.pause();
+    final seek = local.takeSeek();
+    if (seek != null) v.seekTo(Duration(milliseconds: (seek * 1000).round()));
+    if (local.free) {
+      if (seek != null && !v.value.isPlaying) v.play();
+    } else {
+      final playing = s['playing'] == true;
+      final want = videoRoomPos(s);
+      final cur = v.value.position.inMilliseconds / 1000;
+      if ((cur - want).abs() > 1.5) v.seekTo(Duration(milliseconds: (want * 1000).round()));
+      if (playing && !v.value.isPlaying) v.play();
+      if (!playing && v.value.isPlaying) v.pause();
+      // Hết video: người điều khiển chuyển sân khấu sang trang kế (chủ trang bật "Hết video tự sang trang kế").
+      final dur = v.value.duration.inMilliseconds / 1000;
+      if (playing && dur > 0 && cur >= dur - .5 && widget.ctx.onStage && widget.ctx.control && widget.ctx.live && widget.ctx.page.content['auto_next'] == true && !_advanced) {
+        _advanced = true;
+        widget.ctx.call.stageAct('next');
+      }
+    }
     // Tiếng video nhỏ lại khi có người nói: tiếng họp luôn nghe rõ.
     final talking = widget.ctx.call.participants.any((x) => x.speaking && x.unmuted);
     v.setVolume(talking ? .25 : 1);
+    if (local.subs && mounted) setState(() {});
+  }
+
+  bool _advanced = false;
+  late final _local = VideoLocal.of(widget.ctx.page.id)..addListener(_onLocal);
+  void _onLocal() {
+    _sync();
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _local.removeListener(_onLocal);
     _tick?.cancel();
     _v?.dispose();
     super.dispose();
@@ -541,14 +555,17 @@ class _VideoState extends State<_Video> {
             child: const Icon(Icons.smart_display_outlined, color: Color(0xFFF0646A), size: 40),
           ),
           const SizedBox(height: 16),
-          Text(widget.ctx.page.title, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+          Text(widget.ctx.page.title, textAlign: TextAlign.center, style: TextStyle(color: StageMetrics.themeOf(context).text, fontSize: 26, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
-          Text(tr('Chưa có đường dẫn video · chủ trang thêm trong phần Sửa'), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 16)),
+          Text(tr('Chưa có đường dẫn video · chủ trang thêm trong phần Sửa'), textAlign: TextAlign.center, style: TextStyle(color: StageMetrics.themeOf(context).sub, fontSize: 16)),
         ]),
       );
     }
-    if (_err != null) return Center(child: Text(tr('Không phát được video: {0}', [_err]), style: const TextStyle(color: Colors.white70)));
+    if (_err != null) {
+      return Center(child: Text(tr('Không phát được video: {0}', [_err]), textAlign: TextAlign.center, style: TextStyle(color: StageMetrics.themeOf(context).sub, fontSize: 18)));
+    }
     final playing = widget.ctx.view['playing'] == true;
+    final caption = v.value.isInitialized ? videoCaptionAt(widget.ctx.page.id, v.value.position.inMilliseconds / 1000) : null;
     return Stack(children: [
       Positioned.fill(
         child: Container(
@@ -557,7 +574,21 @@ class _VideoState extends State<_Video> {
           child: v.value.isInitialized ? AspectRatio(aspectRatio: v.value.aspectRatio, child: VideoPlayer(v)) : const CircularProgressIndicator(),
         ),
       ),
-      if (widget.ctx.control)
+      if (caption != null)
+        Positioned(
+          left: 24,
+          right: 24,
+          bottom: 28,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(color: Colors.black.withValues(alpha: .72), borderRadius: BorderRadius.circular(8)),
+              child: Text(caption, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 22, height: 1.3)),
+            ),
+          ),
+        ),
+      // Nút trên hình: chỉ ở ô sân khấu của màn họp (trong app, điều khiển nằm ở phần điều khiển).
+      if (widget.ctx.control && AppScope.maybeOf(context) == null)
         Positioned(
           left: 12,
           bottom: 12,
@@ -581,7 +612,8 @@ class _Doc extends StatelessWidget {
   Widget build(BuildContext context) {
     final pr = ctx.call.roomPresent;
     // Đang chiếu trên sân khấu: dùng khung trình chiếu tài liệu có sẵn (đồng bộ trang, bút laser).
-    if (ctx.onStage && pr != null && pr['page_id'] == ctx.page.id) return MeetPresentView(call: ctx.call, compact: false);
+    // Trong vỏ app (bảng trang): chỉ trang + nét vẽ, nút điều khiển ở phần điều khiển của app.
+    if (ctx.onStage && pr != null && pr['page_id'] == ctx.page.id) return MeetPresentView(call: ctx.call, compact: AppScope.maybeOf(context) != null);
     final f = ctx.page.file;
     // Trên sân khấu, chưa bắt đầu trình chiếu: trang 1 lớn trong khung giấy (thay cho biểu tượng).
     if (ctx.onStage && f != null && StageMetrics.of(context) != null) {
@@ -603,46 +635,6 @@ class _Doc extends StatelessWidget {
         Text(f == null ? tr('Chưa chọn tài liệu') : '${f['name']}', style: const TextStyle(color: Colors.white, fontSize: 16)),
         if (f != null && (f['pages'] ?? 0) != 0) Text(tr('{0} trang', [f['pages']]), style: const TextStyle(color: _sub)),
       ]),
-    );
-  }
-}
-
-class _DocEditor extends StatefulWidget {
-  final PageCtx ctx;
-  const _DocEditor(this.ctx);
-  @override
-  State<_DocEditor> createState() => _DocEditorState();
-}
-
-class _DocEditorState extends State<_DocEditor> {
-  bool _busy = false;
-  @override
-  Widget build(BuildContext context) {
-    final f = widget.ctx.page.file;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.description_outlined, color: Colors.white),
-      title: Text(f == null ? tr('Chưa chọn tài liệu') : '${f['name']}', style: const TextStyle(color: Colors.white)),
-      subtitle: f == null ? null : Text(tr('{0} trang', [f['pages'] ?? '?']), style: const TextStyle(color: _sub)),
-      trailing: _busy
-          ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-          : FilledButton.tonal(
-              onPressed: () async {
-                setState(() => _busy = true);
-                try {
-                  final r = await pickPresentPdf(context, widget.ctx.call);
-                  if (r != null) {
-                    await widget.ctx.api.upload(widget.ctx.page.id, r.$1, r.$2, r.$3);
-                    await widget.ctx.reload();
-                  }
-                } catch (e) {
-                  if (context.mounted) meetToast(context, '$e');
-                } finally {
-                  if (mounted) setState(() => _busy = false);
-                }
-              },
-              child: Text(f == null ? tr('Chọn tài liệu') : tr('Đổi')),
-            ),
     );
   }
 }

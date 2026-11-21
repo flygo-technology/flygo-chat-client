@@ -212,6 +212,48 @@ Future<File> _pdfFile(MeetPresentation p, String token) => _pdfCache.putIfAbsent
 });
 
 /// Màn xem bài trình chiếu (khung lớn của màn hình họp, hoặc toàn màn hình xoay ngang trên điện thoại).
+/// Trạng thái trình chiếu tài liệu trên máy này (tự lật, vẽ chú thích, bút laser), dùng chung giữa ô sân khấu của màn họp
+/// và app Tài liệu trong bảng trang (mockup "mỗi trang là một app"): bấm "Tự lật" / chọn bút ở app thì sân khấu đổi theo.
+class PresentControl extends ChangeNotifier {
+  static final _all = Expando<PresentControl>();
+  static PresentControl of(CallService call) => _all[call] ??= PresentControl();
+
+  bool _free = false, _laser = false, _ink = false;
+  int _myPage = 1;
+  String _tool = 'pen', _color = inkColors.first;
+
+  /// Số trang của tài liệu đang mở (0 = chưa mở xong), trang người trình chiếu đang ở.
+  int pages = 0, presenterPage = 1;
+
+  /// Người xem đang tự xem trang khác (không theo người trình chiếu).
+  bool get free => _free;
+  set free(bool v) => _set(() => _free = v);
+  int get myPage => _myPage;
+  set myPage(int v) => _set(() => _myPage = v);
+  bool get laser => _laser;
+  set laser(bool v) => _set(() => _laser = v);
+  bool get ink => _ink;
+  set ink(bool v) => _set(() => _ink = v);
+  String get tool => _tool;
+  set tool(String v) => _set(() => _tool = v);
+  String get color => _color;
+  set color(String v) => _set(() => _color = v);
+
+  void _set(VoidCallback f) {
+    f();
+    notifyListeners();
+  }
+
+  /// Đổi bài: tắt vẽ / laser (gọi trong lúc dựng, không báo).
+  void resetQuiet() {
+    _ink = false;
+    _laser = false;
+  }
+
+  /// Trang người xem đang thấy.
+  int pageFor(bool presenter) => (_free && !presenter ? _myPage : presenterPage).clamp(1, pages < 1 ? 1 : pages);
+}
+
 class MeetPresentView extends StatefulWidget {
   final CallService call;
   final bool fullscreen;
@@ -224,10 +266,7 @@ class MeetPresentView extends StatefulWidget {
 }
 
 class _MeetPresentViewState extends State<MeetPresentView> {
-  /// Người xem đang tự xem trang khác (không theo người trình chiếu).
-  bool _free = false;
-  int _myPage = 1;
-  bool _laserMode = false;
+  late final PresentControl _pc = PresentControl.of(widget.call);
   Offset? _laser; // tỉ lệ 0..1 trong trang
   Timer? _laserHide;
   StreamSubscription? _laserSub;
@@ -235,9 +274,6 @@ class _MeetPresentViewState extends State<MeetPresentView> {
   String? _pageId;
   Map _ink = const {};
   StreamSubscription? _fx;
-  bool _inkMode = false;
-  String _tool = 'pen';
-  String _color = inkColors.first;
   Map<String, dynamic>? _cur;
   bool _saving = false;
 
@@ -281,9 +317,20 @@ class _MeetPresentViewState extends State<MeetPresentView> {
     }
   }
 
+  void _onControl() {
+    if (!mounted) return;
+    // Tắt bút laser từ app: báo mọi máy tắt chấm ngay.
+    if (!_pc.laser && _laser != null) {
+      widget.call.sendLaser(_laser!.dx, _laser!.dy, on: false);
+      _laser = null;
+    }
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    _pc.addListener(_onControl);
     _fx = widget.call.fxEvents.stream.listen((m) {
       if (m['t'] == 'fx_page' && m['page'] == _pageId && _cur == null) _loadInk();
     });
@@ -323,6 +370,7 @@ class _MeetPresentViewState extends State<MeetPresentView> {
 
   @override
   void dispose() {
+    _pc.removeListener(_onControl);
     _doc?.dispose();
     _fx?.cancel();
     _laserSub?.cancel();
@@ -353,7 +401,7 @@ class _MeetPresentViewState extends State<MeetPresentView> {
     final pageId = raw['page_id'] as String?;
     if (pageId != _pageId) {
       _pageId = pageId;
-      _inkMode = false;
+      _pc.resetQuiet();
       WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _loadInk() : null);
     }
     return ColoredBox(
@@ -369,7 +417,9 @@ class _MeetPresentViewState extends State<MeetPresentView> {
           final doc = snap.data;
           if (doc == null) return const Center(child: CircularProgressIndicator());
           final n = doc.pages.length;
-          final page = (_free && !presenter ? _myPage : p.page).clamp(1, n);
+          _pc.pages = n;
+          _pc.presenterPage = p.page;
+          final page = _pc.pageFor(presenter);
           final pg = doc.pages[page - 1];
           return LayoutBuilder(
             builder: (context, box) {
@@ -379,13 +429,11 @@ class _MeetPresentViewState extends State<MeetPresentView> {
               final rect = Rect.fromLTWH((box.maxWidth - w) / 2, (box.maxHeight - h) / 2, w, h);
               void go(int to) {
                 to = to.clamp(1, n);
-                if (control && (!_free || presenter)) {
+                if (control && (!_pc.free || presenter)) {
                   call.presentPage(to);
                 } else {
-                  setState(() {
-                    _free = true;
-                    _myPage = to;
-                  });
+                  _pc.myPage = to;
+                  _pc.free = true;
                 }
               }
 
@@ -396,8 +444,8 @@ class _MeetPresentViewState extends State<MeetPresentView> {
               }
 
               void inkStart(Offset at) {
-                if (_tool == 'text' || !rect.contains(at)) return;
-                setState(() => _cur = {'t': _tool, 'c': _color, 'w': _tool == 'pen' ? .004 : .003, 'p': [pt(at)]});
+                if (_pc.tool == 'text' || !rect.contains(at)) return;
+                setState(() => _cur = {'t': _pc.tool, 'c': _pc.color, 'w': _pc.tool == 'pen' ? .004 : .003, 'p': [pt(at)]});
               }
 
               void inkMove(Offset at) {
@@ -405,7 +453,7 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                 if (c == null) return;
                 setState(() {
                   final ps = c['p'] as List;
-                  if (_tool == 'pen') {
+                  if (_pc.tool == 'pen') {
                     if (ps.length < 600) ps.add(pt(at));
                   } else {
                     c['p'] = [ps.first, pt(at)];
@@ -439,13 +487,13 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                   ),
                 );
                 if ((t ?? '').trim().isEmpty) return;
-                final c = {'t': 'text', 'c': _color, 'w': .004, 's': t!.trim(), 'p': [pt(at)]};
+                final c = {'t': 'text', 'c': _pc.color, 'w': .004, 's': t!.trim(), 'p': [pt(at)]};
                 setState(() => _ink = {..._ink, '$page': [...((_ink['$page'] as List?) ?? const []), c]});
                 await _inkAct('ink', page, c);
               }
 
               void point(Offset at) {
-                if (!presenter || !_laserMode || !rect.contains(at)) return;
+                if (!presenter || !_pc.laser || !rect.contains(at)) return;
                 final x = (at.dx - rect.left) / rect.width, y = (at.dy - rect.top) / rect.height;
                 setState(() => _laser = Offset(x, y));
                 call.sendLaser(x, y);
@@ -462,17 +510,17 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onHorizontalDragEnd: _laserMode
+                      onHorizontalDragEnd: _pc.laser || _pc.ink
                           ? null
                           : (d) {
                               final v = d.primaryVelocity ?? 0;
                               if (v.abs() > 200) go(page + (v < 0 ? 1 : -1));
                             },
-                      onPanStart: _inkMode ? (d) => inkStart(d.localPosition) : _laserMode ? (d) => point(d.localPosition) : null,
-                      onPanUpdate: _inkMode ? (d) => inkMove(d.localPosition) : _laserMode ? (d) => point(d.localPosition) : null,
-                      onPanEnd: _inkMode ? (_) => inkEnd() : null,
-                      onTapUp: _inkMode && _tool == 'text' ? (d) => inkText(d.localPosition) : null,
-                      onTapDown: _laserMode && !_inkMode ? (d) => point(d.localPosition) : null,
+                      onPanStart: _pc.ink ? (d) => inkStart(d.localPosition) : _pc.laser ? (d) => point(d.localPosition) : null,
+                      onPanUpdate: _pc.ink ? (d) => inkMove(d.localPosition) : _pc.laser ? (d) => point(d.localPosition) : null,
+                      onPanEnd: _pc.ink ? (_) => inkEnd() : null,
+                      onTapUp: _pc.ink && _pc.tool == 'text' ? (d) => inkText(d.localPosition) : null,
+                      onTapDown: _pc.laser && !_pc.ink ? (d) => point(d.localPosition) : null,
                     ),
                   ),
                   // Nét chú thích của trang (mọi người thấy).
@@ -519,38 +567,30 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                             if (control && pageId != null)
                               _btn(
                                 Icons.draw_rounded,
-                                _inkMode ? tr('Thôi vẽ') : tr('Vẽ chú thích'),
-                                () => setState(() {
-                                  _inkMode = !_inkMode;
-                                  if (_inkMode) {
-                                    _laserMode = false;
-                                    _laser = null;
-                                  }
-                                }),
-                                on: _inkMode,
+                                _pc.ink ? tr('Thôi vẽ') : tr('Vẽ chú thích'),
+                                () {
+                                  if (!_pc.ink) _pc.laser = false;
+                                  _pc.ink = !_pc.ink;
+                                },
+                                on: _pc.ink,
                               ),
                             if (presenter)
                               _btn(
                                 Icons.highlight_alt_rounded,
-                                _laserMode ? tr('Tắt bút laser') : tr('Bút laser'),
+                                _pc.laser ? tr('Tắt bút laser') : tr('Bút laser'),
                                 () {
-                                  // Tắt bút: xoá chấm trên máy mình và báo mọi máy (TV, người xem) tắt ngay.
-                                  if (_laserMode) {
-                                    call.sendLaser(_laser?.dx ?? 0, _laser?.dy ?? 0, on: false);
-                                    _laserHide?.cancel();
-                                  }
-                                  setState(() {
-                                    _laserMode = !_laserMode;
-                                    if (!_laserMode) _laser = null;
-                                  });
+                                  // Tắt bút: xoá chấm trên máy mình và báo mọi máy (TV, người xem) tắt ngay (_onControl).
+                                  if (_pc.laser) _laserHide?.cancel();
+                                  if (!_pc.laser) _pc.ink = false;
+                                  _pc.laser = !_pc.laser;
                                 },
-                                on: _laserMode,
+                                on: _pc.laser,
                               ),
-                            if (_free && !presenter)
+                            if (_pc.free && !presenter)
                               ActionChip(
                                 avatar: const Icon(Icons.undo_rounded, size: 18),
                                 label: Text(tr('Về trang người trình chiếu')),
-                                onPressed: () => setState(() => _free = false),
+                                onPressed: () => _pc.free = false,
                               ),
                             if (!widget.fullscreen && (Platform.isAndroid || Platform.isIOS))
                               _btn(Icons.fullscreen_rounded, tr('Toàn màn hình'), () {
@@ -574,7 +614,7 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                       ),
                     ),
                   // Công cụ vẽ: bút / hình / chữ, màu, hoàn tác, xoá trang, lưu bản PDF có chú thích vào nhóm chat.
-                  if (_inkMode && !widget.compact)
+                  if (_pc.ink && !widget.compact)
                     Positioned(
                       top: 46,
                       left: 8,
@@ -597,16 +637,16 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                                       'arrow' => tr('Mũi tên'),
                                       _ => tr('Chữ'),
                                     },
-                                    isSelected: _tool == e.key,
-                                    style: IconButton.styleFrom(backgroundColor: _tool == e.key ? Colors.white24 : null),
+                                    isSelected: _pc.tool == e.key,
+                                    style: IconButton.styleFrom(backgroundColor: _pc.tool == e.key ? Colors.white24 : null),
                                     icon: Icon(e.value, color: Colors.white),
-                                    onPressed: () => setState(() => _tool = e.key),
+                                    onPressed: () => _pc.tool = e.key,
                                   ),
                                 Container(width: 1, height: 24, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 4)),
                                 for (final c in inkColors)
                                   InkWell(
                                     customBorder: const CircleBorder(),
-                                    onTap: () => setState(() => _color = c),
+                                    onTap: () => _pc.color = c,
                                     child: Container(
                                       width: 24,
                                       height: 24,
@@ -614,7 +654,7 @@ class _MeetPresentViewState extends State<MeetPresentView> {
                                       decoration: BoxDecoration(
                                         color: inkColor(c),
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: _color == c ? Colors.white : Colors.white30, width: _color == c ? 3 : 1),
+                                        border: Border.all(color: _pc.color == c ? Colors.white : Colors.white30, width: _pc.color == c ? 3 : 1),
                                       ),
                                     ),
                                   ),

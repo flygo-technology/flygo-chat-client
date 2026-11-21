@@ -79,6 +79,9 @@ class PageTypeSpec {
   final bool inlineEdit;
   /// Mục thêm cho menu nhấn giữ của trang (sau Sửa / Xoá / Trình chiếu / Nhân bản / Công khai của khung).
   final List<PageMenuItem> Function(PageCtx ctx)? menu;
+  /// Hình sân khấu trong vỏ app nhận chạm khi hàm này trả true (vd đang vẽ chú thích / chỉ laser trên tài liệu); mặc định
+  /// chỉ xem (chạm vào phần tương tác bên dưới).
+  final bool Function(PageCtx ctx)? stageInput;
   const PageTypeSpec({
     required this.type,
     required this.label,
@@ -99,6 +102,7 @@ class PageTypeSpec {
     this.controls,
     this.inlineEdit = false,
     this.menu,
+    this.stageInput,
   });
 }
 

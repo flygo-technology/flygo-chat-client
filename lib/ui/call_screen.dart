@@ -36,6 +36,7 @@ import 'common.dart';
 import 'direct_call_screen.dart';
 import 'meet/knock_center.dart' show meetKnockCount;
 import 'meet/meet_panel_prefs.dart';
+import 'pages/sys_media_apps.dart' show currentMeetRoom, screenLaserOn, screenZoomReset, sysShareToggle, sysVideoMine;
 import 'pages/system_pages.dart' show sysStagePages;
 import 'pages/pages_sheet.dart';
 import 'poll.dart';
@@ -142,6 +143,8 @@ class _CallScreenState extends State<CallScreen> {
   /// Trang hệ thống "Video tự động": người đang nói đang lên lớn và lúc lên (giữ ít nhất 3 giây, không nhảy liên tục).
   String? _sysSpeaker;
   int _sysSpeakerAt = 0;
+  /// Cách xem riêng "Ghim người nói" (app Video tự động): người đang nói lúc bật ghim.
+  String? _myPinKey;
   /// Lúc từng ô bắt đầu có hình (trang "Chủ phòng": ai mới bật camera đứng đầu dải).
   final Map<String, int> _camOnAt = {};
   /// Thông báo nhỏ đang hiện (nhãn tối phía trên thanh nút, tự ẩn sau ~3 giây).
@@ -228,6 +231,8 @@ class _CallScreenState extends State<CallScreen> {
     room.addListener(_onRoom);
     _asks = room.asks.stream.listen((a) => _onAsk(call, a));
     _room = room;
+    // App Website trong bảng trang đọc phòng này (gán sau khung hình: hàm này chạy trong lúc dựng màn họp).
+    WidgetsBinding.instance.addPostFrameCallback((_) => currentMeetRoom.value = room);
     if (call.deafened) room.setSilent(true);
   }
 
@@ -236,6 +241,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _disposeRoom() {
+    if (_room != null && currentMeetRoom.value == _room) WidgetsBinding.instance.addPostFrameCallback((_) => currentMeetRoom.value = null);
     _asks?.cancel();
     _room?.removeListener(_onRoom);
     _room?.dispose();
@@ -287,9 +293,14 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  void _onSysMine() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    sysVideoMine.addListener(_onSysMine);
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
     _poke();
     CallScreen._live[this] = true;
@@ -327,6 +338,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    sysVideoMine.removeListener(_onSysMine);
     _tick?.cancel();
     _hide?.cancel();
     _noteT?.cancel();
@@ -1029,9 +1041,17 @@ class _CallScreenState extends State<CallScreen> {
         _camOnAt.remove(t.key);
       }
     }
+    // Chiếu màn hình của mình từ app Chiếu màn hình (bảng trang): gán sau khung hình khi khả năng chiếu đổi.
+    final shareFn = CallService.canShareScreen && (call.localScreen != null || meetPerm(call, 'share')) ? () => _toggleShare(call) : null;
+    if ((sysShareToggle.value == null) != (shareFn == null)) WidgetsBinding.instance.addPostFrameCallback((_) => sysShareToggle.value = shareFn);
     if (call.meeting && sysp.startsWith('sys:') && !sysStagePages.contains(sysp) && _pinned == null) {
       final video = [for (final t in tiles) if (!t.screen && t.custom == null && t.stream != null) t];
-      switch (sysp) {
+      // App Video tự động / lưới: bố cục của phòng (người lên lớn, ẩn người tắt camera, khoá) và cách xem riêng của mình.
+      final vcfg = (call.roomStage?['video_cfg'] as Map?) ?? const {};
+      final mineView = vcfg['lock'] == true ? '' : sysVideoMine.value;
+      final sp = (sysp == 'sys:auto' || sysp == 'sys:grid') && mineView.isNotEmpty ? (mineView == 'grid' ? 'sys:grid' : 'sys:auto') : sysp;
+      if (mineView != 'pin') _myPinKey = null;
+      switch (sp) {
         case 'sys:grid':
           layout = MeetLayout.grid;
           spot = null;
@@ -1045,6 +1065,15 @@ class _CallScreenState extends State<CallScreen> {
           if (!video.any((t) => t.key == _sysSpeaker)) _sysSpeaker = video.where((t) => t.key != 'me').firstOrNull?.key ?? video.firstOrNull?.key;
           layout = MeetLayout.auto;
           spot = _sysSpeaker;
+          final forced = '${vcfg['spot'] ?? ''}';
+          final forcedTile = forced.isEmpty ? null : video.where((t) => t.userId == forced).firstOrNull;
+          if (mineView == 'pin') {
+            if (_myPinKey == null || !video.any((t) => t.key == _myPinKey)) _myPinKey = _sysSpeaker;
+            spot = _myPinKey;
+          } else if (forcedTile != null) {
+            spot = forcedTile.key;
+          }
+          if (vcfg['hide_off'] == true && video.isNotEmpty) tiles.removeWhere((t) => !t.screen && t.custom == null && t.stream == null);
         case 'sys:screen':
           // Trang hệ thống "Chiếu màn hình": màn hình chia sẻ mới nhất (người khác trước, rồi của mình) kín khung, kèm nút
           // dừng của người đang chia sẻ; chưa ai chia sẻ thì một ô mời "Chiếu màn hình của tôi".
@@ -1062,6 +1091,7 @@ class _CallScreenState extends State<CallScreen> {
               name: shown?.name ?? tr('Chiếu màn hình'),
               screen: true,
               custom: (compact) => _SysScreen(
+                call: call,
                 shown: shown,
                 mine: shown != null && shown.key == 'screen:me',
                 compact: compact,
@@ -3183,44 +3213,141 @@ class _ScribeChip extends StatelessWidget {
 
 
 /// Trang hệ thống "Chiếu màn hình" trên sân khấu.
-class _SysScreen extends StatelessWidget {
+class _SysScreen extends StatefulWidget {
+  final CallService call;
   final _TileData? shown;
   final bool mine, compact;
   final VoidCallback? onToggle;
-  const _SysScreen({required this.shown, required this.mine, required this.compact, required this.onToggle});
+  const _SysScreen({required this.call, required this.shown, required this.mine, required this.compact, required this.onToggle});
+  @override
+  State<_SysScreen> createState() => _SysScreenState();
+}
+
+/// Màn hình chia sẻ trên sân khấu (app Chiếu màn hình): chụm hai ngón để phóng to ("Vừa khung" ở app đưa về), tạm che
+/// (người chiếu / chủ trì), chấm laser của mọi người (khi người chiếu cho phép; bật "Chỉ laser" ở app rồi chạm giữ).
+class _SysScreenState extends State<_SysScreen> {
+  final _zoom = TransformationController();
+  Offset? _laser;
+  Timer? _laserHide;
+  StreamSubscription? _laserSub;
+
+  void _fit() => _zoom.value = Matrix4.identity();
+
+  @override
+  void initState() {
+    super.initState();
+    screenZoomReset.addListener(_fit);
+    screenLaserOn.addListener(_onLaserOn);
+    _laserSub = widget.call.laser.stream.listen((l) {
+      if (!mounted || !_laserAllowed) return;
+      _laserHide?.cancel();
+      setState(() => _laser = l.$3 ? Offset(l.$1, l.$2) : null);
+      _laserHide = Timer(const Duration(milliseconds: 2500), () {
+        if (mounted) setState(() => _laser = null);
+      });
+    });
+  }
+
+  void _onLaserOn() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _laserAllowed => ((widget.call.roomStage?['screen_cfg'] as Map?) ?? const {})['laser'] == true;
+
+  @override
+  void dispose() {
+    screenZoomReset.removeListener(_fit);
+    screenLaserOn.removeListener(_onLaserOn);
+    _laserSub?.cancel();
+    _laserHide?.cancel();
+    _zoom.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final s = shown;
+    final s = widget.shown;
+    final compact = widget.compact, mine = widget.mine, onToggle = widget.onToggle;
+    final cfg = (widget.call.roomStage?['screen_cfg'] as Map?) ?? const {};
+    final pointing = !compact && _laserAllowed && screenLaserOn.value;
     if (s != null) {
-      return Stack(fit: StackFit.expand, children: [
-        ColoredBox(color: Colors.black, child: CallVideo(stream: s.stream!, trackId: s.trackId, contain: true)),
-        if (!compact)
-          Positioned(
-            left: 12,
-            top: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: .62), borderRadius: BorderRadius.circular(999)),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.screen_share_outlined, size: 16, color: Color(0xFFF5B544)),
-                const SizedBox(width: 8),
-                Text(s.name, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-              ]),
-            ),
+      return LayoutBuilder(builder: (context, box) {
+        void point(Offset at) {
+          final x = (at.dx / box.maxWidth).clamp(0.0, 1.0), y = (at.dy / box.maxHeight).clamp(0.0, 1.0);
+          setState(() => _laser = Offset(x, y));
+          widget.call.sendLaser(x, y);
+        }
+
+        return Stack(fit: StackFit.expand, children: [
+          ColoredBox(
+            color: Colors.black,
+            child: compact
+                ? CallVideo(stream: s.stream!, trackId: s.trackId, contain: true)
+                : InteractiveViewer(transformationController: _zoom, minScale: 1, maxScale: 5, panEnabled: !pointing, scaleEnabled: !pointing, child: CallVideo(stream: s.stream!, trackId: s.trackId, contain: true)),
           ),
-        if (!compact && mine && onToggle != null)
-          Positioned(
-            right: 12,
-            top: 10,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)),
-              onPressed: onToggle,
-              icon: const Icon(Icons.stop_screen_share_outlined, size: 18),
-              label: Text(tr('Dừng chia sẻ')),
+          if (pointing)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (d) => point(d.localPosition),
+                onPanUpdate: (d) => point(d.localPosition),
+                onTapDown: (d) => point(d.localPosition),
+              ),
             ),
-          ),
-      ]);
+          if (_laser != null && _laserAllowed)
+            Positioned(
+              left: _laser!.dx * box.maxWidth - 8,
+              top: _laser!.dy * box.maxHeight - 8,
+              child: IgnorePointer(
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: const BoxDecoration(color: Color(0xFFFF2D2D), shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0xBBFF2D2D), blurRadius: 12, spreadRadius: 3)]),
+                ),
+              ),
+            ),
+          // Tạm che: mọi máy thấy "Chờ một chút" (người chiếu vẫn chiếu, chỉnh màn hình xong thì bỏ che).
+          if (cfg['cover'] == true)
+            ColoredBox(
+              color: const Color(0xFF0E1116),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.hourglass_top_rounded, color: Color(0xFFF5B544), size: 44),
+                    const SizedBox(height: 12),
+                    Text(tr('Chờ một chút'), style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+                  ]),
+                ),
+              ),
+            ),
+          if (!compact)
+            Positioned(
+              left: 12,
+              top: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: Colors.black.withValues(alpha: .62), borderRadius: BorderRadius.circular(999)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.screen_share_outlined, size: 16, color: Color(0xFFF5B544)),
+                  const SizedBox(width: 8),
+                  Text(s.name, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+          if (!compact && mine && onToggle != null)
+            Positioned(
+              right: 12,
+              top: 10,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)),
+                onPressed: onToggle,
+                icon: const Icon(Icons.stop_screen_share_outlined, size: 18),
+                label: Text(tr('Dừng chia sẻ')),
+              ),
+            ),
+        ]);
+      });
     }
     return Container(
       color: const Color(0xFF0E1116),

@@ -7,6 +7,7 @@ import '../../calls/call_service.dart';
 import '../../i18n/i18n.dart';
 import '../meet/meet_home.dart' show meetToast;
 import 'app_shell.dart';
+import 'sys_media_apps.dart' show currentMeetRoom, webAppCtx, webAppSpec;
 import 'page_types.dart';
 import 'pages_api.dart';
 import '../meet/meet_present.dart' show pickPresentPdf;
@@ -332,6 +333,10 @@ class _PagesPaneState extends State<PagesPane> {
       (0, 'present', Icons.present_to_all_rounded, const Color(0xFFF29900), tr('Trình chiếu'), tr('Màn hình của bạn hoặc tài liệu')),
       // Website (cả phòng cùng xem, cùng bấm) và Bảng trắng ở nhóm Tương tác.
       for (final a in widget.apps) (a.id == 'board' || a.id == 'web' ? 1 : 0, a, a.icon, a.color, a.label, a.desc),
+      // App Website của phòng (điện thoại không có ô này từ màn họp): mở trong bảng trang.
+      if (currentMeetRoom.value != null && !widget.apps.any((a) => a.id == 'web'))
+        (1, PageApp(id: 'web', label: tr('Website'), desc: tr('Mở một trang web cho cả phòng'), icon: Icons.public, color: const Color(0xFF4285F4), run: (c, call) async {}), Icons.public,
+            const Color(0xFF4285F4), tr('Website'), tr('Mở một trang web cho cả phòng')),
       for (final t in pageTypes)
         if (t.type != 'doc' && !t.hidden) (group[t.type] ?? 1, t, t.icon, t.color, tr(short[t.type] ?? t.label), t.desc.isEmpty ? t.label : t.desc),
     ];
@@ -397,6 +402,12 @@ class _PagesPaneState extends State<PagesPane> {
       ),
     );
     if (pick == null || !mounted) return;
+    // Website (mockup bảng 08): app trong bảng trang (gõ địa chỉ, đồng bộ cuộn, QR), không còn hộp hỏi địa chỉ.
+    if (pick is PageApp && pick.id == 'web' && currentMeetRoom.value != null) {
+      setState(() => _viewing = 'app:web');
+      _size(.72);
+      return;
+    }
     if (pick is PageApp) return pick.run(context, call);
     if (pick == 'present') return _present();
     final spec = pick as PageTypeSpec;
@@ -578,7 +589,24 @@ class _PagesPaneState extends State<PagesPane> {
         _editing = id;
       });
 
-  Widget _viewer(String id) => sysAppIds.contains(id) ? _sysViewer(id) : _pageViewer(id);
+  Widget _viewer(String id) => id == 'app:web' ? _webViewer() : sysAppIds.contains(id) ? _sysViewer(id) : _pageViewer(id);
+
+  /// Website của phòng thành app: người xem theo / tự cuộn, chép / mở link; người điều khiển gõ địa chỉ, đồng bộ cuộn, dừng.
+  Widget _webViewer() => ValueListenableBuilder(
+        valueListenable: currentMeetRoom,
+        builder: (context, room, _) => room == null
+            ? Column(children: [_back(tr('Website')), Padding(padding: const EdgeInsets.all(16), child: Text(tr('Website chỉ có trong cuộc họp'), style: const TextStyle(color: Colors.white70)))])
+            : ListenableBuilder(
+                listenable: room,
+                builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _back(tr('Website'), actions: [if (room.webUrl != null) const Padding(padding: EdgeInsets.only(right: 8), child: LiveBadge(size: 11))]),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: PageAppShell(ctx: webAppCtx(call, room), spec: webAppSpec(room), stage: !(widget.panel && room.webUrl != null)),
+                  ),
+                ]),
+              ),
+      );
 
   /// Trang hệ thống (Chào mừng, Nội dung, Chờ lượt) thành app: người xem tương tác, chủ trì điều khiển / sửa tại chỗ.
   Widget _sysViewer(String id) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

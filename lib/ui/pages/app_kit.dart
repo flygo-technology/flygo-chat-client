@@ -47,6 +47,9 @@ class AppScope extends InheritedWidget {
   static AppScope of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>() ?? AppScope(form: AppForm.wide, theme: StageMetrics.themeOf(context), hub: _fallback, child: const SizedBox());
 
+  /// Phạm vi app nếu đang ở trong vỏ app (bảng trang), null = ngoài (ô sân khấu của màn họp, TV, ảnh thu nhỏ).
+  static AppScope? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>();
+
   bool get interactive => form != AppForm.tv;
   bool get compact => form == AppForm.phoneLandscape;
 

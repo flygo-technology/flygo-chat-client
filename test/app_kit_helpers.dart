@@ -60,7 +60,7 @@ final _shotKey = GlobalKey();
 /// Dựng [spec] trong PageAppShell ở mọi kiểu màn hình × tối / sáng. Ảnh: `APP_OUT/<name>-<kiểu>-<toi|sang>.png`.
 /// [check] chạy sau mỗi lần dựng (kiểm tra chữ, bấm nút…).
 Future<void> pumpAppForms(WidgetTester t, String name, PageTypeSpec spec, PageCtx ctx,
-    {bool editing = false, Future<void> Function(WidgetTester t, String form, bool light)? check, Iterable<String>? forms}) async {
+    {bool editing = false, Future<void> Function(WidgetTester t, String form, bool light)? check, Iterable<String>? forms, Widget Function(Widget child)? wrap}) async {
   for (final form in forms ?? appFormSizes.keys) {
     for (final light in [false, true]) {
       final size = appFormSizes[form]!;
@@ -70,7 +70,7 @@ Future<void> pumpAppForms(WidgetTester t, String name, PageTypeSpec spec, PageCt
       final old = FlutterError.onError;
       FlutterError.onError = (d) => errs.add(d.exceptionAsString());
       final th = StageTheme(light: light);
-      await t.pumpWidget(MaterialApp(
+      final app = MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData(fontFamily: 'Flygo Inter', brightness: light ? Brightness.light : Brightness.dark),
         home: RepaintBoundary(
@@ -85,7 +85,9 @@ Future<void> pumpAppForms(WidgetTester t, String name, PageTypeSpec spec, PageCt
             ),
           ),
         ),
-      ));
+      );
+      // [wrap]: bọc thêm (vd Provider<AppState> cho phần xem cần trạng thái app).
+      await t.pumpWidget(wrap == null ? app : wrap(app));
       for (var i = 0; i < 6; i++) {
         await t.pump(const Duration(milliseconds: 100));
       }

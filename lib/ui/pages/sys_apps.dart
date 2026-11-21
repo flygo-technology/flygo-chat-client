@@ -10,6 +10,7 @@ import 'app_shell.dart';
 import 'page_types.dart';
 import 'pages_api.dart';
 import 'stage_frame.dart';
+import 'sys_media_apps.dart';
 import 'system_pages.dart';
 import 'types/welcome_agenda.dart';
 
@@ -17,7 +18,7 @@ import 'types/welcome_agenda.dart';
 // nhưng dữ liệu là metadata.stage (cấu hình cuộc họp) và hành động là /meet/stage (call.stageAct).
 
 /// Trang hệ thống có phần app (người xem tương tác / chủ trì điều khiển).
-const sysAppIds = {'sys:welcome', 'sys:program', 'sys:handover'};
+const sysAppIds = {'sys:welcome', 'sys:program', 'sys:handover', 'sys:screen', 'sys:auto', 'sys:grid'};
 
 /// Trang hệ thống đang được chủ trì sửa tại chỗ (id), null = không.
 final sysAppEditing = ValueNotifier<String?>(null);
@@ -31,6 +32,8 @@ PageCtx sysAppCtx(CallService call, String id, {void Function(String error)? onE
   final cfg = switch (id) {
     'sys:welcome' => st['welcome_cfg'],
     'sys:program' => st['program_cfg'],
+    'sys:screen' => st['screen_cfg'],
+    'sys:auto' || 'sys:grid' => st['video_cfg'],
     _ => st['handover_cfg'],
   } as Map?;
   final label = sysPages.where((p) => p.id == id).firstOrNull?.label ?? '';
@@ -43,7 +46,10 @@ PageCtx sysAppCtx(CallService call, String id, {void Function(String error)? onE
     }),
     api: PagesApi(call),
     call: call,
-    presenting: id == 'sys:program' && st['presenter'] == _me(call) && '${st['presenter'] ?? ''}'.isNotEmpty,
+    // Người trình chiếu điều khiển được Nội dung (chuyển phần) và Chiếu màn hình (che, cho chỉ laser); người đang chiếu
+    // màn hình cũng vậy.
+    presenting: (id == 'sys:program' || id == 'sys:screen') && st['presenter'] == _me(call) && '${st['presenter'] ?? ''}'.isNotEmpty ||
+        id == 'sys:screen' && call.localScreen != null,
     onStage: false,
     act: (a, [b = const {}]) async {
       final e = await call.stageAct(a, b);
@@ -82,6 +88,26 @@ PageTypeSpec? sysAppSpec(String id) {
         panel: (context, ctx) => ProgramPanel(ctx),
         controls: (context, ctx) => ProgramControls(ctx),
         inlineEdit: true,
+      ),
+    'sys:screen' => PageTypeSpec(
+        type: 'sys_screen',
+        label: sys.label,
+        icon: sys.icon,
+        color: sys.color,
+        stageThemed: true,
+        view: (context, ctx) => ScreenStagePreview(ctx),
+        panel: (context, ctx) => ScreenPanel(ctx),
+        controls: (context, ctx) => ScreenControls(ctx),
+      ),
+    'sys:auto' || 'sys:grid' => PageTypeSpec(
+        type: id.replaceFirst(':', '_'),
+        label: sys.label,
+        icon: sys.icon,
+        color: sys.color,
+        stageThemed: true,
+        view: (context, ctx) => VideoStagePreview(ctx, grid: id == 'sys:grid'),
+        panel: (context, ctx) => VideoViewerPanel(ctx),
+        controls: (context, ctx) => VideoRoomControls(ctx),
       ),
     _ => PageTypeSpec(
         type: 'sys_handover',

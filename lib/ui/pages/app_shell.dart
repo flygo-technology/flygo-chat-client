@@ -120,7 +120,7 @@ class _PageAppShellState extends State<PageAppShell> {
       onSecondaryTapDown: widget.onMenu == null ? null : (d) => widget.onMenu!(d.globalPosition),
       child: AspectRatio(
         aspectRatio: 16 / 9,
-        child: ClipRRect(borderRadius: BorderRadius.circular(12), child: widget.editing ? frame : IgnorePointer(child: frame)),
+        child: ClipRRect(borderRadius: BorderRadius.circular(12), child: widget.editing || (spec?.stageInput?.call(ctx) ?? false) ? frame : IgnorePointer(child: frame)),
       ),
     );
   }

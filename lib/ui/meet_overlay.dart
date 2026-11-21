@@ -15,6 +15,7 @@ import 'package:webview_windows/webview_windows.dart' as win;
 
 import '../calls/meet_room.dart';
 import 'markdown_view.dart';
+import 'pages/sys_media_apps.dart' show webFollow, webSync;
 import 'common.dart' show hhmm;
 
 // Giao diện phòng họp trên màn hình cuộc gọi: sân khấu trình chiếu (trợ lý AI / chủ phòng điều khiển), web chia sẻ
@@ -291,7 +292,8 @@ class _SharedWebState extends State<SharedWeb> {
           final now = DateTime.now().millisecondsSinceEpoch;
           if (now - _lastSent < 120) return;
           _lastSent = now;
-          room.scrollWeb(n('y'));
+          // App Website: người điều khiển tắt "Đồng bộ cuộn cho cả phòng" thì không gửi vị trí cuộn.
+          if (webSync.value) room.scrollWeb(n('y'));
         } else if (t == 'c') {
           room.clickWeb(n('x'), n('y'));
         }
@@ -306,6 +308,7 @@ class _SharedWebState extends State<SharedWeb> {
       ))
       ..loadRequest(Uri.parse(room.webUrl!));
     room.addListener(_applyScroll);
+    webFollow.addListener(_onFollow);
     _clicks = room.webClicks.stream.listen((p) {
       if (room.iDriveWeb) return;
       _web.runJavaScript(
@@ -313,9 +316,13 @@ class _SharedWebState extends State<SharedWeb> {
     });
   }
 
+  /// Bật lại "Theo cuộn": về ngay vị trí của người điều khiển.
+  void _onFollow() => _applyScroll(force: true);
+
   void _applyScroll({bool force = false}) {
     final room = widget.room;
-    if (room.iDriveWeb) return;
+    // App Website: người xem chọn "Tự cuộn" thì không theo cuộn của người điều khiển.
+    if (room.iDriveWeb || !webFollow.value) return;
     if (!force && (room.webScroll - _applied).abs() < .001) return;
     _applied = room.webScroll;
     _web.runJavaScript(
@@ -324,6 +331,7 @@ class _SharedWebState extends State<SharedWeb> {
 
   @override
   void dispose() {
+    webFollow.removeListener(_onFollow);
     widget.room.removeListener(_applyScroll);
     _clicks?.cancel();
     super.dispose();
