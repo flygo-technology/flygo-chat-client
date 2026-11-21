@@ -8,13 +8,14 @@ import 'package:video_player/video_player.dart';
 import '../../../state/app_state.dart';
 import '../page_media.dart';
 import '../pages_api.dart' show pageAssetUrl;
-import '../stage_frame.dart' show StageBackgroundPicker, StageMetrics, StagePill, StageTheme, stageBackground, stageBgLight;
+import '../stage_frame.dart' show StageMetrics, StagePill, StageTheme, stageBackground, stageBgLight;
 
 import '../../../i18n/i18n.dart';
 import '../../meet/meet_home.dart' show meetToast;
 import '../../meet/meet_present.dart' show MeetPresentView, pickPresentPdf;
 import '../page_thumb.dart' show PdfThumb;
 import '../page_types.dart';
+import 'welcome_agenda.dart';
 
 // Loại trang có sẵn: Chào mừng, Video, Tài liệu (Slide / PDF / Word / Excel), Chương trình họp, Biên bản.
 
@@ -88,7 +89,10 @@ void registerBuiltinPageTypes() {
     color: const Color(0xFF0E9F8E),
     create: (context, call) async => PageDraft(title: tr('Chào mừng'), content: {'heading': call.meetingInfo?.title ?? tr('Chào mừng'), 'subtitle': ''}),
     view: (context, ctx) => _Welcome(ctx),
-    editor: (context, ctx) => _WelcomeEditor(ctx),
+    // App (mockup bảng 01): người xem vẫy chào; chủ trang chỉnh nền / đếm ngược, sửa chữ tại chỗ.
+    panel: (context, ctx) => WelcomePanel(ctx),
+    controls: (context, ctx) => WelcomeControls(ctx),
+    inlineEdit: true,
     stageBleed: true,
   ));
   registerPageType(PageTypeSpec(
@@ -160,7 +164,10 @@ void registerBuiltinPageTypes() {
     icon: Icons.format_list_numbered_rounded,
     color: const Color(0xFF1A73E8),
     view: (context, ctx) => ctx.onStage ? _AgendaStage(ctx) : _Agenda(ctx),
-    editor: (context, ctx) => _AgendaEditor(ctx),
+    // App (mockup bảng 16): dòng thời gian + "Nhắc tôi" cho người xem; chủ trang chuyển phiên, dời lịch, sửa tại chỗ.
+    panel: (context, ctx) => AgendaPanel(ctx),
+    controls: (context, ctx) => AgendaControls(ctx),
+    inlineEdit: true,
     stageThemed: true,
     stageFooter: (context, ctx) => _agendaFooter(context, ctx),
   ));
@@ -202,22 +209,43 @@ class _WelcomeState extends State<_Welcome> {
   AudioPlayer? _player;
   String _playing = '';
 
-  Map<String, dynamic> get c => widget.ctx.page.content;
+  /// Nội dung trang, kèm bản nháp khi chủ trang đang sửa tại chỗ (hiện ngay khi gõ).
+  Map<String, dynamic> get c => {...widget.ctx.page.content, ...?pageDraftOf(widget.ctx.page.id).value};
+
+  /// Người vừa bấm "Vẫy chào" (tên, lúc bấm): hiện 6 giây trên sân khấu.
+  final _waves = <(String, int)>[];
+  StreamSubscription? _react;
 
   @override
   void initState() {
     super.initState();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() {});
+      setState(() => _waves.removeWhere((w) => DateTime.now().millisecondsSinceEpoch - w.$2 > 6000));
       _music();
     });
     _music();
+    pageDraftOf(widget.ctx.page.id).addListener(_redraw);
+    _react = widget.ctx.call.reactions.stream.listen((r) {
+      if (r.$2 != '👋' || !mounted) return;
+      setState(() {
+        final n = _nameOf(context, r.$1);
+        final who = r.$1 == widget.ctx.call.myId() ? tr('Bạn') : (n == tr('Người tham gia') ? n : n.split(' ').last);
+        _waves.insert(0, (who, DateTime.now().millisecondsSinceEpoch));
+        if (_waves.length > 3) _waves.removeLast();
+      });
+    });
+  }
+
+  void _redraw() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _react?.cancel();
+    pageDraftOf(widget.ctx.page.id).removeListener(_redraw);
     _player?.dispose();
     super.dispose();
   }
@@ -417,87 +445,27 @@ class _WelcomeState extends State<_Welcome> {
       decoration: bg.isEmpty && img.isEmpty
           ? stageBackground('linear-gradient(135deg,#0E5C55,#173431)', '', t)
           : stageBackground(bg, img, t),
-      child: DefaultTextStyle.merge(style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]), child: body),
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+        child: Stack(children: [
+          Positioned.fill(child: body),
+          if (_waves.isNotEmpty)
+            Positioned(
+              right: metrics?.portrait ?? false ? 20 : 96,
+              bottom: metrics?.portrait ?? false ? 120 : 150,
+              child: WelcomeWaves([for (final w in _waves) w.$1], scale: metrics?.portrait ?? false ? 1 : 1.3),
+            ),
+        ]),
+      ),
     );
   }
 
   String _nameOf(BuildContext context, String uid) {
-    final n = context.read<AppState>().users[uid]?.displayName ?? '';
-    return n.isEmpty ? tr('Người tham gia') : n;
-  }
-}
-
-/// Trình soạn trang Chào mừng (xem trước ở trên, trong bảng soạn trang).
-class _WelcomeEditor extends StatelessWidget {
-  final PageCtx ctx;
-  const _WelcomeEditor(this.ctx);
-
-  Future<void> _set(BuildContext context, Map<String, dynamic> v) async {
+    String n = '';
     try {
-      await ctx.api.patch(ctx.page.id, {'content': {...ctx.page.content, ...v}});
-      await ctx.reload();
-    } catch (e) {
-      if (context.mounted) meetToast(context, '$e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ctx.page.content;
-    Widget sw(String k, String label, {String? sub}) => SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          value: c[k] == true,
-          title: Text(label, style: const TextStyle(color: Colors.white)),
-          subtitle: sub == null ? null : Text(sub, style: const TextStyle(color: _sub, fontSize: 12)),
-          onChanged: (v) => _set(context, {k: v}),
-        );
-    final vol = ((c['music_volume'] as num?)?.toDouble() ?? 40).clamp(0.0, 100.0);
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      PageContentField(ctx, 'heading', tr('Dòng chữ lớn trên màn hình')),
-      PageContentField(ctx, 'subtitle', tr('Mô tả'), maxLines: 3),
-      Row(children: [
-        SizedBox(width: 150, child: PageContentField(ctx, 'icon', tr('Biểu tượng'))),
-      ]),
-      StageBackgroundPicker(
-        call: ctx.call,
-        theme: StageTheme.of(ctx.call.roomStage?['theme_cfg'] as Map?),
-        value: '${c['bg'] ?? ''}',
-        image: '${c['bg_image'] ?? ''}',
-        onBg: (k) => _set(context, {'bg': k, 'bg_image': ''}),
-        onImage: (u) => _set(context, {'bg_image': u}),
-      ),
-      const SizedBox(height: 6),
-      sw('show_online', tr('Hiện danh sách người đã vào')),
-      sw('countdown', tr('Đếm ngược'), sub: tr('Tới giờ bắt đầu cuộc họp')),
-      const Divider(color: Colors.white12),
-      Row(children: [
-        Expanded(child: PageContentField(ctx, 'music', tr('Nhạc nền (tuỳ chọn)'), key: ValueKey('mu:${c['music']}'))),
-        IconButton(
-          tooltip: tr('Chọn nhạc'),
-          icon: const Icon(Icons.library_music_outlined, color: Colors.white),
-          onPressed: () async {
-            final u = await pickPageMedia(context, ctx.call, image: false);
-            if (u != null && context.mounted) await _set(context, {'music': u});
-          },
-        ),
-      ]),
-      Row(children: [
-        const Icon(Icons.volume_down_rounded, color: _sub, size: 20),
-        Expanded(
-          child: Slider(
-            value: vol,
-            max: 100,
-            divisions: 20,
-            label: '${vol.round()}%',
-            onChanged: (_) {},
-            onChangeEnd: (v) => _set(context, {'music_volume': v.round()}),
-          ),
-        ),
-        Text('${vol.round()}%', style: const TextStyle(color: _sub)),
-      ]),
-      sw('music_devices', tr('Phát nhạc cả trên máy của mọi người'), sub: tr('Mặc định chỉ phát trên TV / màn hình phòng; nhạc nhỏ lại khi có người nói')),
-    ]);
+      n = context.read<AppState>().users[uid]?.displayName ?? '';
+    } catch (_) {}
+    return n.isEmpty ? tr('Người tham gia') : n;
   }
 }
 
@@ -732,8 +700,7 @@ class _Agenda extends StatelessWidget {
   }
 }
 
-/// Chương trình trên sân khấu (mockup Họp): mục đang bàn lớn bên trái (thứ tự, tên, người phụ trách, đếm giờ của mục so với số
-/// phút dự kiến), danh sách gọn bên phải (mục đã xong có dấu ✓).
+/// Chương trình trên sân khấu: dòng thời gian các phiên (AgendaTimeline), đếm giờ phiên đang diễn ra.
 class _AgendaStage extends StatefulWidget {
   final PageCtx ctx;
   const _AgendaStage(this.ctx);
@@ -757,92 +724,9 @@ class _AgendaStageState extends State<_AgendaStage> {
     super.dispose();
   }
 
+  // Dòng thời gian (mockup bảng 16); trạng thái này chỉ để đếm giây của phiên đang diễn ra.
   @override
-  Widget build(BuildContext context) {
-    final ctx = widget.ctx;
-    final m = StageMetrics.of(context);
-    // Ngoài khung sân khấu (ảnh thu nhỏ của thẻ trang): dựng ở kích thước vùng nội dung của khung rồi co cho vừa.
-    if (m == null) return FittedBox(child: SizedBox(width: 1168, height: 560, child: StageMetrics(theme: const StageTheme(), portrait: false, size: const Size(1168, 560), child: _AgendaStage(ctx))));
-    final t = m.theme;
-    final portrait = m.portrait;
-    final items = _items(ctx);
-    if (items.isEmpty) return Center(child: Text(tr('Chưa có mục nào'), style: TextStyle(color: t.sub, fontSize: 24)));
-    final cur = ((ctx.view['current'] as num?)?.toInt() ?? 0).clamp(0, items.length - 1);
-    final it = items[cur];
-    final mins = (it['minutes'] as num?)?.toInt() ?? 0;
-    final started = (ctx.view['started_at'] as num?)?.toInt() ?? 0;
-    final el = started > 0 ? ((DateTime.now().millisecondsSinceEpoch - started) / 1000).floor().clamp(0, 359999) : 0;
-    String two(int n) => n.toString().padLeft(2, '0');
-    final over = mins > 0 && el > mins * 60;
-    final main = Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(tr('MỤC {0} / {1} · ĐANG BÀN', [cur + 1, items.length]), style: TextStyle(color: Color.lerp(t.accent, t.light ? Colors.black : Colors.white, .35), fontSize: portrait ? 13 : 16, fontWeight: FontWeight.w700, letterSpacing: 1.8)),
-      SizedBox(height: portrait ? 10 : 18),
-      Text('${it['text'] ?? ''}', maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: t.text, fontSize: portrait ? 34 : 60, fontWeight: FontWeight.w800, height: 1.08)),
-      if ('${it['who'] ?? ''}'.isNotEmpty) ...[
-        SizedBox(height: portrait ? 10 : 18),
-        Row(children: [
-          CircleAvatar(radius: 16, backgroundColor: t.accent, child: Text('${it['who']}'.trim().characters.first.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700))),
-          const SizedBox(width: 10),
-          Text('${it['who']}', style: TextStyle(color: t.text, fontSize: portrait ? 16 : 20)),
-        ]),
-      ],
-      if (started > 0 || mins > 0) ...[
-        SizedBox(height: portrait ? 18 : 30),
-        Row(children: [
-          Text('${two(el ~/ 60)}:${two(el % 60)}', style: TextStyle(color: over ? const Color(0xFFF0646A) : t.text, fontSize: portrait ? 28 : 44, fontWeight: FontWeight.w800)),
-          const SizedBox(width: 16),
-          if (mins > 0) ...[
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: (el / (mins * 60)).clamp(0.0, 1.0),
-                  minHeight: 8,
-                  backgroundColor: t.surface2,
-                  valueColor: AlwaysStoppedAnimation(over ? const Color(0xFFF0646A) : t.accent),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Text(tr('trên {0}:00', [mins]), style: TextStyle(color: t.sub, fontSize: portrait ? 14 : 17)),
-          ],
-        ]),
-      ],
-    ]);
-    if (portrait) return main;
-    return Row(children: [
-      Expanded(child: main),
-      const SizedBox(width: 48),
-      SizedBox(
-        width: 400,
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          for (final (i, x) in items.take(8).indexed)
-            Container(
-              height: 56,
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: i == cur ? t.accent.withValues(alpha: .16) : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
-                border: i == cur ? Border.all(color: t.accent, width: 1.5) : null,
-              ),
-              child: Row(children: [
-                SizedBox(
-                  width: 28,
-                  child: i < cur
-                      ? const Icon(Icons.check_rounded, size: 20, color: Color(0xFF38C793))
-                      : Text('${i + 1}', style: TextStyle(color: i == cur ? t.text : t.sub, fontWeight: FontWeight.w700, fontSize: 17)),
-                ),
-                Expanded(
-                  child: Text('${x['text'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: i < cur ? t.sub : t.text, fontSize: 17, fontWeight: i == cur ? FontWeight.w700 : FontWeight.w400)),
-                ),
-                if ((x['minutes'] ?? 0) != 0) Text('${x['minutes']}′', style: TextStyle(color: t.sub, fontSize: 15)),
-              ]),
-            ),
-        ]),
-      ),
-    ]);
-  }
+  Widget build(BuildContext context) => AgendaTimeline(widget.ctx);
 }
 
 /// Thanh cuối của Chương trình: mục tiếp theo, nút mục trước / sau cho người trình chiếu.
@@ -861,84 +745,6 @@ List<Widget> _agendaFooter(BuildContext context, PageCtx ctx) {
       IconButton.filledTonal(tooltip: tr('Mục sau'), onPressed: cur < items.length - 1 ? () => ctx.act('next') : null, icon: const Icon(Icons.chevron_right_rounded)),
     ],
   ];
-}
-
-class _AgendaEditor extends StatefulWidget {
-  final PageCtx ctx;
-  const _AgendaEditor(this.ctx);
-  @override
-  State<_AgendaEditor> createState() => _AgendaEditorState();
-}
-
-class _AgendaEditorState extends State<_AgendaEditor> {
-  late List<Map<String, dynamic>> items = _items(widget.ctx);
-  final _text = TextEditingController(), _who = TextEditingController(), _min = TextEditingController();
-
-  Future<void> _save() async {
-    try {
-      await widget.ctx.api.patch(widget.ctx.page.id, {'content': {...widget.ctx.page.content, 'items': items}});
-      await widget.ctx.reload();
-    } catch (e) {
-      if (mounted) meetToast(context, '$e');
-    }
-  }
-
-  @override
-  void dispose() {
-    _text.dispose();
-    _who.dispose();
-    _min.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        ReorderableListView(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          buildDefaultDragHandles: true,
-          onReorderItem: (a, b) {
-            setState(() => items.insert(b, items.removeAt(a)));
-            _save();
-          },
-          children: [
-            for (final (i, it) in items.indexed)
-              ListTile(
-                key: ValueKey('a$i${it['text']}'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text('${i + 1}. ${it['text']}', style: const TextStyle(color: Colors.white)),
-                subtitle: Text([if ('${it['who'] ?? ''}'.isNotEmpty) it['who'], if ((it['minutes'] ?? 0) != 0) '${it['minutes']}′'].join(' · '), style: const TextStyle(color: _sub)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.close_rounded, color: _sub),
-                  onPressed: () {
-                    setState(() => items.removeAt(i));
-                    _save();
-                  },
-                ),
-              ),
-          ],
-        ),
-        Row(children: [
-          Expanded(flex: 5, child: TextField(controller: _text, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Mục mới')))),
-          const SizedBox(width: 6),
-          Expanded(flex: 3, child: TextField(controller: _who, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Người')))),
-          const SizedBox(width: 6),
-          Expanded(flex: 2, child: TextField(controller: _min, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: pageField(tr('Phút')))),
-          IconButton(
-            icon: const Icon(Icons.add_circle_rounded, color: Color(0xFF8AB4F8)),
-            onPressed: () {
-              final t = _text.text.trim();
-              if (t.isEmpty) return;
-              setState(() => items.add({'text': t, 'who': _who.text.trim(), 'minutes': int.tryParse(_min.text.trim()) ?? 0}));
-              _text.clear();
-              _who.clear();
-              _min.clear();
-              _save();
-            },
-          ),
-        ]),
-      ]);
 }
 
 // ------------------------------------------------------------------ Biên bản

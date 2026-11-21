@@ -382,16 +382,18 @@ void main() {
       expect(find.text('Hệ thống'), findsOneWidget);
       expect(find.textContaining('Mời Mai Kim trình bày'), findsOneWidget);
       await snap(t, 's1-he-thong-cho-luot');
-      await t.tap(find.byTooltip('Soạn trang này').first);
+      // Nút soạn trên sân khấu: mở app Chờ lượt (hàng chờ của chủ trì), không còn hộp soạn riêng.
+      await t.tap(find.descendant(of: find.byType(StagePageView), matching: find.byTooltip('Soạn trang này')).first);
       await settle();
+      expect(find.text('CHỦ TRÌ · HÀNG CHỜ'), findsWidgets);
       await snap(t, 's2-chinh-cho-luot');
-      Navigator.of(t.element(find.text('Tự sang trang đầu của người trình bày'))).pop();
+      Navigator.of(t.element(find.text('CHỦ TRÌ · HÀNG CHỜ').last)).pop();
       await settle();
       await t.ensureVisible(find.text('Chào mừng').last);
       await t.pump();
       await t.tap(find.text('Chào mừng').last);
       await settle();
-      expect(find.text('Đếm ngược'), findsOneWidget);
+      expect(find.text('Đếm ngược tới giờ họp'), findsOneWidget);
       await snap(t, 's3-chao-mung');
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 3));
@@ -457,11 +459,12 @@ void main() {
         await settle();
         expect(find.text('Tiến độ tòa B'), findsWidgets);
         await snap(t, '$name-2-noi-dung');
-        await t.tap(find.byTooltip('Soạn trang này').first);
+        // Nút soạn trên sân khấu: mở app Nội dung (điều khiển của chủ trì, sửa tại chỗ).
+        await t.tap(find.descendant(of: find.byType(StagePageView), matching: find.byTooltip('Soạn trang này')).first);
         await settle();
-        expect(find.text('Thêm phần'), findsOneWidget);
+        expect(find.text('Sửa nội dung'), findsWidgets);
         await snap(t, '$name-3-soan-noi-dung');
-        Navigator.of(t.element(find.text('Thêm phần'))).pop();
+        Navigator.of(t.element(find.text('Sửa nội dung').last)).pop();
         await settle();
         // Trang hệ thống Chào mừng.
         app.calls.roomStage = {
@@ -472,11 +475,11 @@ void main() {
         app.calls.notifyListeners();
         await settle();
         await snap(t, '$name-4-chao-mung');
-        await t.tap(find.byTooltip('Soạn trang này').first);
+        await t.tap(find.descendant(of: find.byType(StagePageView), matching: find.byTooltip('Soạn trang này')).first);
         await settle();
-        expect(find.text('Chào mừng (trang hệ thống)'), findsOneWidget);
+        expect(find.byKey(const ValueKey('welcome-edit')), findsWidgets);
         await snap(t, '$name-5-soan-chao-mung');
-        Navigator.of(t.element(find.text('Chào mừng (trang hệ thống)'))).pop();
+        Navigator.of(t.element(find.byKey(const ValueKey('welcome-edit')).last)).pop();
         await settle();
         if (find.byTooltip('Tương tác, thành viên, màn hình, chat, AI').hitTestable().evaluate().isEmpty) {
           await t.tapAt(Offset(size.width / 2, 120));

@@ -12,6 +12,7 @@ import 'pages_api.dart';
 import '../meet/meet_present.dart' show pickPresentPdf;
 import 'pages_overview.dart';
 import 'stage_frame.dart';
+import 'sys_apps.dart';
 import 'system_pages.dart';
 import 'types/builtin.dart' show pageField;
 
@@ -72,7 +73,15 @@ class _StagePageViewState extends State<StagePageView> {
     final id = shown.isNotEmpty ? shown : '${st['idle_page'] ?? ''}';
     final key = shown.isNotEmpty ? '${st['key'] ?? ''}' : '${st['idle_key'] ?? ''}';
     if (id.isEmpty) return const SizedBox.shrink();
-    if (sysStagePages.contains(id)) return _sysFramed(context, id, st);
+    if (sysStagePages.contains(id)) {
+      // Dải thao tác nhanh dưới ô sân khấu (mockup "mỗi trang là một app"): người xem dùng app ngay (vẫy chào, xin lượt,
+      // đã rõ…), nút mở app đầy đủ. Ô thu nhỏ / quá thấp: chỉ khung.
+      return LayoutBuilder(builder: (context, box) {
+        final strip = widget.compact || box.maxHeight < 280 || box.maxWidth < 320 ? null : sysQuickStrip(context, call, id, onOpen: () => showPagesSheet(context, call, view: id));
+        if (strip == null) return _sysFramed(context, id, st);
+        return Column(children: [Expanded(child: _sysFramed(context, id, st)), strip]);
+      });
+    }
     final mine = st['presenter'] == call.myId();
     final control = shown.isNotEmpty && (mine || call.canModerate);
     final ends = (st['ends_at'] as num?)?.toInt() ?? 0;
@@ -104,7 +113,12 @@ class _StagePageViewState extends State<StagePageView> {
     final cfg = (st['theme_cfg'] as Map?) ?? const {};
     final t = StageTheme.of(cfg);
     final sys = sysPages.firstWhere((p) => p.id == id);
-    final edit = widget.compact || !call.canModerate ? null : sysPageEditor(context, call, id);
+    // Chủ trì: mở app của trang (điều khiển, sửa tại chỗ) thay cho hộp soạn riêng.
+    final edit = widget.compact || !call.canModerate
+        ? null
+        : sysAppIds.contains(id)
+            ? () async => showPagesSheet(context, call, view: id)
+            : sysPageEditor(context, call, id);
     final code = call.meetingInfo?.code ?? '';
     final mine = st['presenter'] == call.myId();
     final Widget child;
@@ -213,13 +227,13 @@ class _StagePageViewState extends State<StagePageView> {
 }
 
 /// Mở bảng kéo lên Trang họp. [edit]: mở thẳng trình soạn trang đó; [create]: mở ngay bảng chọn loại trang mới.
-Future<void> showPagesSheet(BuildContext context, CallService call, {String? edit, bool create = false, List<PageApp> apps = const []}) => showModalBottomSheet<void>(
+Future<void> showPagesSheet(BuildContext context, CallService call, {String? edit, String? view, bool create = false, List<PageApp> apps = const []}) => showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black26,
-      builder: (ctx) => PagesPane(call: call, edit: edit, create: create, apps: apps),
+      builder: (ctx) => PagesPane(call: call, edit: edit, view: view, create: create, apps: apps),
     );
 
 /// Một app của màn họp đặt trong ô Apps (vd. Bảng trắng): không phải loại trang, chỉ mở chức năng có sẵn.
@@ -236,13 +250,15 @@ class PageApp {
 class PagesPane extends StatefulWidget {
   final CallService call;
   final String? edit;
+  /// Mở thẳng một trang để xem / dùng app (vd. trang hệ thống sys:program từ ô sân khấu).
+  final String? view;
   final bool create;
   final bool panel;
   /// App của màn họp trong ô Apps (bảng trắng…).
   final List<PageApp> apps;
   /// Trình chiếu màn hình của mình (máy tính); null = không có (điện thoại).
   final Future<void> Function()? shareScreen;
-  const PagesPane({super.key, required this.call, this.edit, this.create = false, this.panel = false, this.apps = const [], this.shareScreen});
+  const PagesPane({super.key, required this.call, this.edit, this.view, this.create = false, this.panel = false, this.apps = const [], this.shareScreen});
   @override
   State<PagesPane> createState() => _PagesPaneState();
 }
@@ -262,6 +278,7 @@ class _PagesPaneState extends State<PagesPane> {
   void initState() {
     super.initState();
     _editing = widget.edit;
+    _viewing = widget.view;
     _load();
     if (widget.create) WidgetsBinding.instance.addPostFrameCallback((_) => _new());
     call.addListener(_changed);
@@ -477,7 +494,7 @@ class _PagesPaneState extends State<PagesPane> {
     if (widget.panel) return _inPane(CustomScrollView(slivers: [const SliverToBoxAdapter(child: SizedBox(height: 10)), ..._slivers()]));
     return DraggableScrollableSheet(
       controller: _sheet,
-      initialChildSize: widget.edit != null ? .72 : .45,
+      initialChildSize: widget.edit != null || widget.view != null ? .72 : .45,
       minChildSize: .2,
       maxChildSize: 1,
       snap: true,
@@ -546,6 +563,7 @@ class _PagesPaneState extends State<PagesPane> {
             icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
             onPressed: () {
               setState(() => _editing = _viewing = null);
+              sysAppEditing.value = null;
               _load();
               _size(.45);
             },
@@ -560,7 +578,17 @@ class _PagesPaneState extends State<PagesPane> {
         _editing = id;
       });
 
-  Widget _viewer(String id) => PageHost(
+  Widget _viewer(String id) => sysAppIds.contains(id) ? _sysViewer(id) : _pageViewer(id);
+
+  /// Trang hệ thống (Chào mừng, Nội dung, Chờ lượt) thành app: người xem tương tác, chủ trì điều khiển / sửa tại chỗ.
+  Widget _sysViewer(String id) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _back(sysPages.firstWhere((p) => p.id == id).label, actions: [
+          if ((call.roomStage ?? const {})['page'] == id) const Padding(padding: EdgeInsets.only(right: 8), child: LiveBadge(size: 11)),
+        ]),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: SysAppView(call: call, id: id, panel: widget.panel)),
+      ]);
+
+  Widget _pageViewer(String id) => PageHost(
         key: ValueKey('view:$id'),
         call: call,
         id: id,

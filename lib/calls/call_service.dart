@@ -1481,12 +1481,14 @@ class CallService extends ChangeNotifier {
     '😂': '1f602',
     '🎉': '1f389',
     '😮': '1f62e',
+    '👋': '1f44b',
   };
 
   static const reactionNames = {'❤️': 'heart', '👍': '+1', '👏': 'clap', '😂': 'joy', '🎉': 'tada', '😮': 'open_mouth'};
 
   void react(String emoji) {
-    final name = reactionNames[emoji] ?? 'heart';
+    // 👋: "Vẫy chào" của trang Chào mừng (không có trên thanh cảm xúc).
+    final name = reactionNames[emoji] ?? (emoji == '👋' ? 'wave' : 'heart');
     _client?.action('react', {
       // Plugin Calls đọc thẳng `data` là EmojiData (server/websocket.go), không bọc thêm.
       'data': jsonEncode({'name': name, 'skin': '', 'unified': _reactionUnified[emoji] ?? '', 'literal': emoji}),

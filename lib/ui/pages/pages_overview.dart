@@ -13,6 +13,7 @@ import 'app_kit.dart';
 import 'page_thumb.dart';
 import 'page_types.dart';
 import 'stage_frame.dart' show showStageThemeEditor;
+import 'sys_apps.dart' show sysAppIds;
 import 'system_pages.dart';
 import 'pages_api.dart';
 import 'pages_sheet.dart' show fmtLeft;
@@ -222,8 +223,9 @@ class _PagesOverviewState extends State<PagesOverview> {
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: can ? () => _toast(call.stageAct('show', {'page': p.id})) : () => meetToast(context, tr('Chỉ người trình chiếu / chủ trì chọn bố cục sân khấu')),
-                    onLongPress: call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null,
-                    onSecondaryTap: call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null,
+                    // Trang hệ thống có app (Chào mừng, Nội dung, Chờ lượt): nhấn giữ mở app (ai cũng xem / dùng được).
+                    onLongPress: sysAppIds.contains(p.id) ? () => widget.onView(p.id) : (call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null),
+                    onSecondaryTap: sysAppIds.contains(p.id) ? () => widget.onView(p.id) : (call.canModerate ? sysPageEditor(context, call, p.id, canCompany: _sysAdmin) : null),
                     child: Container(
                       width: cw,
                       height: wide ? 118 : 92,
@@ -242,7 +244,7 @@ class _PagesOverviewState extends State<PagesOverview> {
                                     visualDensity: VisualDensity.compact,
                                     tooltip: tr('Soạn trang này'),
                                     icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white70),
-                                    onPressed: sysPageEditor(context, call, p.id, canCompany: _sysAdmin),
+                                    onPressed: sysAppIds.contains(p.id) ? () => widget.onView(p.id) : sysPageEditor(context, call, p.id, canCompany: _sysAdmin),
                                   ),
                                 ),
                             ]),

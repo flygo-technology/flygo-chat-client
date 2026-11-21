@@ -68,7 +68,8 @@ class HandoverView extends StatelessWidget {
     final h = (stage['handover'] as Map?) ?? const {};
     final c = cfgOverride ?? (stage['handover_cfg'] as Map?) ?? const {};
     final bg = '${c['bg'] ?? ''}', img = '${c['bg_image'] ?? ''}';
-    final light = img.isEmpty && bg.isNotEmpty && stageBgLight(bg, t);
+    // Không đặt nền riêng: theo bảng màu sân khấu (chế độ Sáng: chữ tối).
+    final light = img.isEmpty && (bg.isEmpty ? t.light : stageBgLight(bg, t));
     final fg = light ? const Color(0xFF141A23) : Colors.white;
     final sub = light ? const Color(0xFF4A5565) : const Color(0xFFC9D2DE);
     final card = light ? Colors.white.withValues(alpha: .8) : Colors.white.withValues(alpha: .06);
@@ -126,7 +127,7 @@ class HandoverView extends StatelessWidget {
                 if (note.isNotEmpty) Text(note, style: TextStyle(color: sub, fontSize: 14)),
               ]),
             ),
-            Text(badge, style: TextStyle(color: now ? Color.lerp(t.accent, Colors.white, .4) : sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: .8)),
+            Text(badge, style: TextStyle(color: now ? Color.lerp(t.accent, light ? Colors.black : Colors.white, .4) : sub, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: .8)),
           ]),
         );
 
@@ -299,7 +300,7 @@ class _HandoverEditorState extends State<_HandoverEditor> {
 /// Trang Chào mừng của hệ thống: dùng lại phần hiện của loại trang Chào mừng với cấu hình của cuộc họp (stage.welcome_cfg).
 PageCtx sysWelcomeCtx(CallService call, Map cfg, {bool onStage = true}) => PageCtx(
       data: PageData.from({
-        'page': {'id': 'sys-welcome', 'type': 'welcome', 'title': tr('Chào mừng'), 'owner': '', 'visibility': 'meeting', 'content': cfg},
+        'page': {'id': 'sys:welcome', 'type': 'welcome', 'title': tr('Chào mừng'), 'owner': '', 'visibility': 'meeting', 'content': cfg},
         'view': const {},
         'role': 'viewer',
         'rev': 0,
@@ -329,6 +330,9 @@ class ProgramView extends StatelessWidget {
     final cur = ((cfg['current'] as num?)?.toInt() ?? 0).clamp(0, items.isEmpty ? 0 : items.length - 1);
     final rest = items.skip(cur).fold<int>(0, (a, x) => a + ((x['minutes'] as num?)?.toInt() ?? 0));
     final can = controls && metrics == null && (call.canModerate || call.roomStage?['presenter'] == call.myId());
+    final fb = (cfg['fb'] as Map?) ?? const {};
+    final fbNow = (fb['index'] as num?)?.toInt() == cur;
+    final fbMore = fbNow ? (fb['more'] as List? ?? const []).length : 0, fbClear = fbNow ? (fb['clear'] as List? ?? const []).length : 0;
 
     Widget who(Map it, {bool big = false}) {
       final n = '${it['owner_name'] ?? ''}';
@@ -365,7 +369,14 @@ class ProgramView extends StatelessWidget {
           ),
           Expanded(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (now) Text(tr('ĐANG DIỄN RA'), style: TextStyle(color: Color.lerp(t.accent, t.light ? Colors.black : Colors.white, .35), fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6)),
+              if (now)
+                Text(
+                  // Phản hồi của người xem cho phần này (app: "Cần thêm thời gian" / "Đã rõ").
+                  fbMore + fbClear > 0 ? '${tr('ĐANG DIỄN RA')} · ${tr('{0} CẦN THÊM THỜI GIAN · {1} ĐÃ RÕ', [fbMore, fbClear])}' : tr('ĐANG DIỄN RA'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Color.lerp(t.accent, t.light ? Colors.black : Colors.white, .35), fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.6),
+                ),
               Text(
                 '${it['title']}',
                 maxLines: 1,
