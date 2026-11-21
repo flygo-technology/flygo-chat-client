@@ -257,6 +257,8 @@ void main() {
       await _settle(t);
       await _shot(t, '2-tat-ca-cao-het');
 
+      await t.ensureVisible(find.text('Kế hoạch Q4').last);
+      await t.pump();
       await t.longPress(find.text('Kế hoạch Q4').last);
       await _settle(t);
       expect(find.text('Xin lượt và chiếu'), findsOneWidget);
@@ -264,6 +266,8 @@ void main() {
       await t.tapAt(const Offset(195, 40));
       await _settle(t);
 
+      await t.ensureVisible(find.text('Hỏi đáp báo giá').last);
+      await t.pump();
       await t.tap(find.text('Hỏi đáp báo giá').last);
       await _settle(t);
       expect(find.text('Về sân khấu'), findsOneWidget);
@@ -273,6 +277,8 @@ void main() {
       await t.dragFrom(const Offset(195, 470), const Offset(0, -700));
       await _settle(t);
 
+      await t.ensureVisible(find.text('Kế hoạch Q4').last);
+      await t.pump();
       await t.tap(find.text('Kế hoạch Q4').last);
       await _settle(t);
       expect(find.text('Thời lượng (tự chạy)'), findsOneWidget);

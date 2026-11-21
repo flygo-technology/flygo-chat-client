@@ -235,6 +235,8 @@ void main() {
       expect(find.text('Dương Văn Ba (bạn)'), findsOneWidget);
       await snap(t, 'd1-tab-trang');
 
+      await t.ensureVisible(find.text('Hỏi đáp báo giá').last);
+      await t.pump();
       await t.tap(find.text('Hỏi đáp báo giá').last);
       await settle();
       expect(find.text('Về sân khấu'), findsOneWidget);
@@ -385,6 +387,8 @@ void main() {
       await snap(t, 's2-chinh-cho-luot');
       Navigator.of(t.element(find.text('Tự sang trang đầu của người trình bày'))).pop();
       await settle();
+      await t.ensureVisible(find.text('Chào mừng').last);
+      await t.pump();
       await t.tap(find.text('Chào mừng').last);
       await settle();
       expect(find.text('Đếm ngược'), findsOneWidget);
@@ -490,6 +494,8 @@ void main() {
         Navigator.of(t.element(find.text('TƯƠNG TÁC'))).pop();
         await settle();
         // Nhấn giữ thẻ trang của mình: menu Sửa / Chiếu / Công khai / Xoá.
+        await t.ensureVisible(find.text('Kế hoạch Q4').first);
+        await t.pump();
         await t.longPress(find.text('Kế hoạch Q4').first);
         await settle();
         expect(find.text('Sửa'), findsOneWidget);
@@ -995,6 +1001,66 @@ void main() {
       for (final e in errs.toSet()) {
         print('EDITOR_OVERFLOW $name $e');
       }
+    });
+  }
+
+  for (final (name, size, desktop) in [('m1-may-tinh', const Size(1440, 900), true), ('m2-dien-thoai', const Size(390, 844), false), ('m3-cua-so-nho', const Size(720, 480), true)]) {
+    testWidgets('đợt 514: $name', (t) async {
+      debugIsDesktop = desktop;
+      MeetPanelPrefs.debugSet(width: 460, tab: desktop && name != 'm3-cua-so-nho' ? 'pages' : '');
+      CallScreen.debugRoom = (_) => _room();
+      await http.runWithClient(() async {
+        final app = _app();
+        await t.runAsync(() async => app.debugSetStore(await LocalStore.memory('b514-$name')));
+        final base = {...app.calls.roomStage!, 'meeting_title': 'Giao ban tháng 12', 'theme_cfg': {'accent': '#3D7BFF', 'mode': 'dark'}};
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.dark),
+            builder: (c, nav) => RepaintBoundary(key: shotKey, child: nav!),
+            home: const CallScreen(),
+          ),
+        ));
+        Future<void> settle() async {
+          for (var i = 0; i < 10; i++) {
+            await t.pump(const Duration(milliseconds: 100));
+          }
+        }
+
+        Future<void> show(Map<String, dynamic> st, String shot) async {
+          app.calls.roomStage = {...base, ...st};
+          app.calls.notifyListeners();
+          await settle();
+          await snap(t, '$name-$shot');
+        }
+
+        await settle();
+        await show({'page': 'sys:screen', 'page_type': 'system', 'page_title': 'Chiếu màn hình', 'ends_at': 0}, '1-chieu-man-hinh');
+        await show({
+          'page': 'sys:welcome', 'page_type': 'system', 'page_title': 'Chào mừng', 'ends_at': 0,
+          'welcome_cfg': {'heading': 'Chào mừng mọi người đến buổi giao ban', 'subtitle': 'Tổng kết tiến độ tòa B và kế hoạch quý 1.', 'bg': 'brand:dark', 'show_online': true, 'countdown': true, 'countdown_to': _now + 292000},
+        }, '2-chao-mung');
+        if (name == 'm1-may-tinh') {
+          // Menu nổi tại thẻ trang (nhấn giữ / chuột phải).
+          await show({'page': 'p1', 'page_type': 'agenda', 'page_title': 'Chương trình họp', 'ends_at': _now + 200000}, '3-live');
+          await t.ensureVisible(find.text('Kế hoạch Q4').first);
+          await t.pump();
+          await t.longPress(find.text('Kế hoạch Q4').first);
+          await settle();
+          expect(find.text('Nhân bản'), findsOneWidget);
+          expect(find.text('Bật công khai'), findsOneWidget);
+          await snap(t, '$name-4-menu-the');
+        }
+        await t.pumpWidget(const SizedBox());
+        await t.pump(const Duration(seconds: 5));
+        app.calls.debugMeeting(_ch, const []);
+      }, () => _relay(host: true));
+      debugIsDesktop = null;
+      CallScreen.debugRoom = null;
     });
   }
 }

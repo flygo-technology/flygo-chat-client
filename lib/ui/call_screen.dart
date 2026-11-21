@@ -2736,7 +2736,7 @@ class _Tile extends StatelessWidget {
                     ),
                   ),
                 // Trang trên sân khấu tự có thanh đầu (tên trang) trong khung chung: ô lớn không cần nhãn.
-                if (d.key != 'stage' || small) Positioned(
+                if (!const {'stage', 'sys-screen'}.contains(d.key) || small) Positioned(
                   left: 6,
                   right: 6,
                   bottom: 6,

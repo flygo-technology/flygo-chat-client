@@ -375,12 +375,24 @@ class _WelcomeState extends State<_Welcome> {
       return Padding(
         padding: const EdgeInsets.fromLTRB(96, 120, 96, 92),
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // Vùng thấp (cửa sổ nhỏ): khối chữ + người đã vào co lại cho vừa, không tràn.
           Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Flexible(child: texts(false)),
-              const Spacer(),
-              if (people.isNotEmpty) peopleRow(false),
-            ]),
+            child: LayoutBuilder(
+              builder: (context, box) => FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.topLeft,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: box.maxWidth, minWidth: box.maxWidth, minHeight: box.maxHeight),
+                  child: IntrinsicHeight(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      texts(false),
+                      const Spacer(),
+                      if (people.isNotEmpty) ...[const SizedBox(height: 24), peopleRow(false)],
+                    ]),
+                  ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 48),
           Align(alignment: Alignment.topRight, child: timeBlock(false)),

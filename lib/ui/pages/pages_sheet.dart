@@ -447,15 +447,29 @@ class _PagesPaneState extends State<PagesPane> {
   /// máy tính, bảng kéo lên điện thoại), không phủ cả màn họp (Sếp: cấu hình ngay trên trang).
   BuildContext? _inner;
 
-  /// Khung trang có Navigator riêng: mọi bảng / hộp mở từ bên trong nằm gọn trong khung.
-  Widget _inPane(Widget child) => Navigator(
-        onGenerateRoute: (_) => PageRouteBuilder<void>(
-          pageBuilder: (context, _, _) => Builder(builder: (context) {
-            _inner = context;
-            return child;
-          }),
+  /// Khung trang có một lớp Navigator riêng (trong suốt, nằm trên nội dung): bảng / hộp mở bằng [_inner] nằm gọn trong
+  /// khung. Nội dung khung vẫn dựng bình thường (không nằm trong route, nên luôn cập nhật).
+  Widget _inPane(Widget child) => Stack(children: [
+        Positioned.fill(child: child),
+        Positioned.fill(
+          // Không có hộp nào đang mở: lớp này không nhận chạm (route nền có tấm chắn vô hình).
+          child: ValueListenableBuilder<int>(
+            valueListenable: _paneObs.depth,
+            builder: (_, d, nav) => IgnorePointer(ignoring: d <= 1, child: nav),
+            child: Navigator(
+            observers: [_paneObs],
+            onGenerateRoute: (_) => PageRouteBuilder<void>(
+              opaque: false,
+              pageBuilder: (context, _, _) => Builder(builder: (context) {
+                _inner = context;
+                return const SizedBox.shrink();
+              }),
+            ),
+          ),
+          ),
         ),
-      );
+      ]);
+  final _paneObs = _DepthObserver();
 
   @override
   Widget build(BuildContext context) {
@@ -751,4 +765,24 @@ class _EditorState extends State<_Editor> {
       ),
     ]);
   }
+}
+
+
+/// Đếm số route trong Navigator của khung trang (1 = chỉ route nền, không có hộp nào mở).
+class _DepthObserver extends NavigatorObserver {
+  final depth = ValueNotifier<int>(0);
+  int _n = 0;
+  // Cập nhật sau khung hình: route nền được đẩy ngay lúc Navigator đang dựng.
+  void _set(int d) {
+    _n += d;
+    WidgetsBinding.instance.addPostFrameCallback((_) => depth.value = _n);
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => _set(1);
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _set(-1);
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) => _set(-1);
 }
