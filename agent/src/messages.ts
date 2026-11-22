@@ -66,6 +66,22 @@ export class InlineReply {
     this.push();
     await this.chain;
   }
+  /** Đưa post đang stream xuống cuối chat / luồng (sau thẻ câu hỏi, tin chèn của người): đăng post mới cùng nội dung
+   *  rồi xoá post cũ. Không làm vậy thì sau khi Sếp trả lời, phần đang làm (spinner, bước mới) nằm phía trên thẻ câu hỏi,
+   *  cuối màn hình chỉ còn thẻ "Đã trả lời · vừa xong" như lượt đã xong (Sếp 2026-11-22: "phản hồi lâu mà không có loading"). */
+  async moveToEnd(): Promise<boolean> {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    await this.creating;
+    await this.chain;
+    if (!this.postId) return false;
+    const old = this.postId;
+    const p = await this.mm.createPost({ ...this.where, ...this.body(true) }).catch(() => null);
+    if (!p) return false;
+    this.postId = p.id;
+    this.lastSent = "";
+    await this.mm.deletePost(old).catch(() => {});
+    return true;
+  }
   /** Chờ người (duyệt / trả lời câu hỏi): ngừng sửa post; thôi chờ thì sửa một lần nếu có thay đổi. */
   hold(on: boolean) {
     this.held = on;

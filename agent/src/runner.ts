@@ -13,7 +13,7 @@ import { normHost } from "./config";
 import { join, resolve, sep } from "node:path";
 import defaultPersona from "../profiles/default/persona.md" with { type: "text" };
 import compactPersona from "../profiles/default/persona-compact.md" with { type: "text" };
-import { RunCard, agentLinkOf, type AgentLink } from "./card";
+import { RunCard, agentLinkOf, type AgentLink, type StepQuestion } from "./card";
 import { AGY_DEFAULT_MODEL, agentOptions, CONFIG_DIR, ENGINE_NAMES, engineLabel, resolveBin, type Config, type EngineName } from "./config";
 import { doctor } from "./doctor";
 import { ClaudeEngine } from "./engines/claude";
@@ -391,13 +391,15 @@ interface PendingQuestion { resolve: (a: UserAnswer | null) => void; assigner: s
 const pendingQuestions = new Map<string, PendingQuestion>(); // post_id câu hỏi -> chờ trả lời
 const askByKey = new Map<string, (qs: UserQuestion[]) => Promise<AskResult>>(); // RUN_KEY -> hỏi trong lượt đó
 
-async function askOne(where: { channel_id: string; root_id: string }, q: UserQuestion, assigner: string, signal: AbortSignal): Promise<UserAnswer | "cancelled" | "expired" | "stopped"> {
+async function askOne(where: { channel_id: string; root_id: string }, q: UserQuestion, assigner: string, signal: AbortSignal, track?: (sq: StepQuestion) => void): Promise<UserAnswer | "cancelled" | "expired" | "stopped"> {
   const options = q.options.slice(0, NUM_EMOJI.length).map((o) => ({ label: String(o.label ?? ""), description: String(o.description ?? "") }));
   const meta = { id: crypto.randomUUID(), question: q.question, header: q.header ?? "", options, multi: !!q.multi, allow_other: true };
   const list = options.map((o, i) => `${i + 1}. **${o.label}**${o.description ? ` — ${o.description}` : ""}`).join("\n");
   const hint = `_Thả ${options.length > 1 ? `1️⃣–${KEYCAP[options.length - 1]}` : "1️⃣"} để chọn${q.multi ? " (chọn nhiều rồi thả ✅)" : ""}, hoặc gõ ý khác._`;
   const base = { ...(where.root_id ? { flygo_reply: "thread" } : {}), flygo_agent_owner: assigner, flygo_agent_requester: assigner };
   const post = await mm.createPost({ ...where, message: `❓ ${q.question}\n${list}\n${hint}`, props: { ...base, flygo_agent_question: { ...meta, status: "pending" } } });
+  const sq: StepQuestion = { post_id: post.id, id: meta.id, question: meta.question, header: meta.header, options, multi: meta.multi, status: "pending" };
+  track?.(sq);
   const a = await new Promise<UserAnswer | null | "expired">((resolve) => {
     pendingQuestions.set(post.id, { resolve, assigner, q: { ...q, options }, picks: new Set(), where });
     const timer = setTimeout(() => resolve("expired"), cfg.approvalTimeoutSec * 1000);
@@ -408,14 +410,15 @@ async function askOne(where: { channel_id: string; root_id: string }, q: UserQue
   const answer = a && a !== "expired" ? answerText(a) : "";
   const done = a && a !== "expired" ? `→ ${answer}` : a === "expired" ? "_(hết giờ, không có trả lời)_" : "_(đã huỷ)_";
   await mm.patchPost(post.id, { message: `❓ ${q.question}\n${done}`, props: { ...base, flygo_agent_question: { ...meta, status, ...(answer ? { answer, choices: (a as UserAnswer).choices, ...((a as UserAnswer).other ? { other: (a as UserAnswer).other } : {}) } : {}) } } }).catch(() => {});
+  track?.({ ...sq, status, ...(answer ? { answer, choices: (a as UserAnswer).choices, ...((a as UserAnswer).other ? { other: (a as UserAnswer).other } : {}) } : {}) });
   return a === "expired" ? "expired" : a ? a : signal.aborted ? "stopped" : "cancelled";
 }
 
 /** Hỏi lần lượt từng câu; một câu bị huỷ / hết giờ thì thôi các câu sau. */
-async function askUser(where: { channel_id: string; root_id: string }, qs: UserQuestion[], assigner: string, signal: AbortSignal): Promise<AskResult> {
+async function askUser(where: { channel_id: string; root_id: string }, qs: UserQuestion[], assigner: string, signal: AbortSignal, track?: (sq: StepQuestion) => void): Promise<AskResult> {
   const answers: UserAnswer[] = [];
   for (const q of qs) {
-    const a = await askOne(where, q, assigner, signal);
+    const a = await askOne(where, q, assigner, signal, track);
     if (a === "cancelled") return { cancelled: true, reason: "Người dùng huỷ câu hỏi. Đừng hỏi lại; tự quyết theo hướng hợp lý nhất hoặc dừng và nói rõ." };
     if (a === "expired") return { cancelled: true, reason: "Hết giờ chờ người dùng trả lời. Tự quyết theo hướng hợp lý nhất và nói rõ đã chọn gì." };
     if (a === "stopped") return { cancelled: true, reason: "Lượt đã bị dừng." };
@@ -3628,9 +3631,18 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     await card.flush();
     waitingHuman++;
     reply.hold(true);
-    const r = await askUser(where, qs, post.user_id, ac.signal).finally(() => { waitingHuman--; reply.hold(false); });
-    card.step({ id: sid, kind: "approval", title: "answers" in r ? `Đã trả lời: ${r.answers.map(answerText).join(" · ").slice(0, 100)}` : `Không trả lời: ${title}`, status: "answers" in r ? "done" : "error" });
-    card.setStatus("running");
+    // step.questions: app vẽ câu hỏi + câu trả lời ngay tại bước này (post câu hỏi nằm sau mọi bước tiếp theo).
+    const questions: StepQuestion[] = [];
+    const track = (sq: StepQuestion) => {
+      const i = questions.findIndex((x) => x.post_id === sq.post_id);
+      if (i >= 0) questions[i] = sq; else questions.push(sq);
+      card.step({ id: sid, kind: "approval", title: `Chờ trả lời: ${title}`, status: "waiting", questions: [...questions] });
+    };
+    const r = await askUser(where, qs, post.user_id, ac.signal, track).finally(() => { waitingHuman--; reply.hold(false); });
+    card.step({ id: sid, kind: "approval", title: "answers" in r ? `Đã trả lời: ${r.answers.map(answerText).join(" · ").slice(0, 100)}` : `Không trả lời: ${title}`, status: "answers" in r ? "done" : "error", questions: [...questions] });
+    card.setStatus("thinking"); // "Đang suy nghĩ" tới khi model ra chữ / gọi tool tiếp
+    // Thẻ câu hỏi là post riêng nằm dưới post đang chạy: đưa post đang chạy xuống cuối để thấy ngay đang làm tiếp.
+    if (!ac.signal.aborted) await reply.moveToEnd().catch(() => false);
     return r;
   };
   runsByKey.set(runId, ask);
@@ -3708,6 +3720,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
             markSeen(p.id);
             card.step({ id: `steer-${p.id}`, kind: "tool", title: `Nhận thêm tin trong lúc làm: ${t.replace(/\s+/g, " ").slice(0, 100)}`, status: "done" });
             await mm.react(p.id, BOT_ID, "eyes").catch(() => {});
+            // Tin chèn của người nằm dưới post đang chạy: đưa post đang chạy xuống cuối (cùng chỗ: chat chính / luồng).
+            if ((p.root_id || "") === (where.root_id || "")) await reply.moveToEnd().catch(() => false);
             return true;
           } : undefined;
         },

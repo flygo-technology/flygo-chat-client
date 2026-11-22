@@ -19,6 +19,12 @@ export interface Step {
   seg?: number; // số đoạn chữ của agent đã bắt đầu trước bước này (app xen bước giữa các đoạn props.flygo_agent.texts)
   posts?: string[]; // kind "files": tin chứa tệp đã gửi (app vẽ ảnh / tệp ngay tại bước này trong câu trả lời)
   agent_link?: AgentLink; // bước nhắn / nhận trả lời từ agent khác (agent_send): app vẽ chip nguồn / đích
+  questions?: StepQuestion[]; // bước hỏi người dùng (ask-*): app vẽ câu hỏi + câu trả lời ngay tại bước, ẩn post câu hỏi đã trả lời
+}
+/** Câu hỏi của bước ask-* (runner 0.7.17+): post_id = post câu hỏi (props.flygo_agent_question), status theo câu trả lời. */
+export interface StepQuestion {
+  post_id: string; id: string; question: string; header: string; options: { label: string; description: string }[]; multi: boolean;
+  status: "pending" | "answered" | "cancelled" | "expired"; answer?: string; choices?: string[]; other?: string;
 }
 /** Mốc tin giữa agent (props.flygo_agent_link trên post, step.agent_link trên thẻ): app hiện chip "từ / tới phiên nào". */
 export interface AgentEnd { session?: string; name?: string; bot?: string; bot_id?: string; agent?: string }
