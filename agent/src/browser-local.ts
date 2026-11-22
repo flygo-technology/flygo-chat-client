@@ -119,7 +119,8 @@ export function kysoLaunch(a: { tax?: string; profile?: string; url?: string }, 
   if (url && !/^https?:\/\//i.test(url)) return { error: "url phải là http(s)" };
   if (profile && !/^[\w.@-]+\/[\w.@-]+$/.test(profile)) return { error: "profile phải dạng <agentId>/<tokenId>" };
   const flags = ["--hidden", ...(tax ? [`--profile-tax=${tax}`] : profile ? [`--profile=${profile}`] : []), ...(url ? [`--url=${url}`] : [])];
-  if (os === "darwin") return { cmd: "open", args: ["-g", "-a", KYSO_APP, "--args", ...flags] };
+  // -n: app đang chạy thì open -a bỏ qua --args; mở tiến trình mới, nó chuyển argv cho tiến trình đang chạy (second-instance) rồi thoát.
+  if (os === "darwin") return { cmd: "open", args: ["-n", "-g", "-a", KYSO_APP, "--args", ...flags] };
   if (os === "win32") {
     const bases = [env["ProgramFiles"], env["ProgramFiles(x86)"], env.LOCALAPPDATA && join(env.LOCALAPPDATA, "Programs")].filter(Boolean) as string[];
     const exe = bases.map((b) => join(b, KYSO_APP, `${KYSO_APP}.exe`)).find((p) => existsSync(p));
