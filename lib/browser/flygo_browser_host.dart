@@ -21,7 +21,6 @@ import 'package:crypto/crypto.dart' as hash;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -39,6 +38,47 @@ const _kEngineName = 'Trinh duyet Ky so da nang';
 /// Bản engine đầu tiên có chế độ --managed: bản cài riêng cũ hơn mà chạy với cờ lạ sẽ mở cửa sổ chọn công ty thay vì nối lại.
 const _kMinManagedEngine = '1.3.0';
 
+/// Bí mật của trình duyệt Flygo (token Gateway theo máy chủ / profile): tệp JSON trong thư mục app, chỉ chủ máy đọc được.
+/// Không dùng Keychain: bản macOS thiếu entitlement keychain nên ghi lỗi (đã gây ghép cặp lặp vô hạn, 2026-11-23).
+class FlygoSecrets {
+  FlygoSecrets._();
+  static Map<String, dynamic>? _cache;
+  static Future<void> _lock = Future.value();
+
+  static Future<File> _file() async {
+    final dir = Directory('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}flygo-browser')..createSync(recursive: true);
+    return File('${dir.path}${Platform.pathSeparator}secrets.json');
+  }
+
+  static Future<Map<String, dynamic>> _load() async {
+    if (_cache != null) return _cache!;
+    try {
+      final f = await _file();
+      _cache = f.existsSync() ? Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map) : {};
+    } catch (_) {
+      _cache = {};
+    }
+    return _cache!;
+  }
+
+  static Future<String?> read(String key) async => (await _load())[key] as String?;
+
+  /// Ghi tuần tự, tệp tạm rồi đổi tên (không để tệp dở dang).
+  static Future<void> write(String key, String? value) {
+    final next = _lock.then((_) async {
+      final m = await _load();
+      value == null ? m.remove(key) : m[key] = value;
+      final f = await _file();
+      final tmp = File('${f.path}.tmp');
+      await tmp.writeAsString(jsonEncode(m), flush: true);
+      if (!Platform.isWindows) await Process.run('chmod', ['600', tmp.path]);
+      await tmp.rename(f.path);
+    });
+    _lock = next.catchError((Object _) {});
+    return next;
+  }
+}
+
 class FlygoBrowserHost {
   FlygoBrowserHost._();
   static final instance = FlygoBrowserHost._();
@@ -54,7 +94,6 @@ class FlygoBrowserHost {
   int _nextId = 1;
   final _pending = <int, Completer<dynamic>>{};
   Completer<void>? _connected;
-  final _secure = const FlutterSecureStorage();
 
   /// Profile đang mở trong engine (từ sự kiện profiles): [{key, company, taxCode, …}].
   final profiles = ValueNotifier<List<Map<String, dynamic>>>(const []);
@@ -360,8 +399,21 @@ class FlygoBrowserHost {
   }
 
   // ------------------------------------------------------------------ token tự động hoá (Gateway) theo (máy chủ, profile)
+  final _pairing = <String>{};
+  final _pairedAt = <String, DateTime>{};
+
   Future<void> _bridge(String profileKey, String? only) async {
     if (profileKey.isEmpty || chatToken == null) return;
+    // Engine hỏi lại mỗi 5 giây khi chưa có token: một lượt ghép mỗi (máy chủ, profile), tạo mới tối đa 1 lần / phút.
+    if (!_pairing.add(profileKey)) return;
+    try {
+      await _bridgeOnce(profileKey, only);
+    } finally {
+      _pairing.remove(profileKey);
+    }
+  }
+
+  Future<void> _bridgeOnce(String profileKey, String? only) async {
     final prof = profiles.value.firstWhere((p) => p['key'] == profileKey, orElse: () => const {});
     final company = '${prof['company'] ?? prof['taxCode'] ?? profileKey}';
     final machine = Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), '');
@@ -370,11 +422,14 @@ class FlygoBrowserHost {
       final storeKey = 'flygo-browser-bridge:$server|$profileKey';
       Map<String, dynamic>? saved;
       try {
-        final raw = await _secure.read(key: storeKey);
+        final raw = await FlygoSecrets.read(storeKey);
         if (raw != null) saved = Map<String, dynamic>.from(jsonDecode(raw) as Map);
       } catch (_) {}
       // Engine báo cần token (không có, hoặc Gateway từ chối 4401/4403): ghép lại, thay bản ghi cũ.
       if (saved == null || only != null) {
+        final last = _pairedAt[storeKey];
+        if (last != null && DateTime.now().difference(last) < const Duration(minutes: 1)) continue;
+        _pairedAt[storeKey] = DateTime.now();
         final client = {'type': 'integrated', 'name': 'Ký số · $company · $machine'.substring(0, min(60, 'Ký số · $company · $machine'.length)), 'engine': 'Electron', 'os': Platform.isMacOS ? 'macOS' : 'Windows'};
         try {
           final current = server == kServerUrl.replaceAll(RegExp(r'/+$'), '');
@@ -384,9 +439,10 @@ class FlygoBrowserHost {
               ? await MyBrowsers.pair(tok, client: client, replace: saved?['client_id'] as String?)
               : await MyBrowsers.pairOn(server, tok, client: client, replace: saved?['client_id'] as String?);
           saved = {'client_id': (r['client'] as Map?)?['id'], 'token': r['token'], 'ws_url': r['ws_url']};
-          await _secure.write(key: storeKey, value: jsonEncode(saved));
+          await FlygoSecrets.write(storeKey, jsonEncode(saved));
+          log('đã ghép $server cho $profileKey (${saved['client_id']})');
         } catch (e) {
-          debugPrint('[flygo-browser] ghép $server cho $profileKey: $e');
+          log('LỖI ghép $server cho $profileKey: $e');
           continue;
         }
       }

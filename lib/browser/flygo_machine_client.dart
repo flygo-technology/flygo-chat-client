@@ -8,7 +8,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../auth/auth_service.dart';
@@ -25,7 +24,6 @@ class FlygoMachineClient {
   Future<bool> Function(String requester, String what)? askConsent;
 
   final _conns = <String, _Conn>{};
-  final _secure = const FlutterSecureStorage();
   bool _started = false;
 
   static String get machine => Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), '');
@@ -65,13 +63,13 @@ class FlygoMachineClient {
     final key = 'flygo-machine:$server';
     if (!fresh) {
       try {
-        final raw = await _secure.read(key: key);
+        final raw = await FlygoSecrets.read(key);
         if (raw != null) return Map<String, dynamic>.from(jsonDecode(raw) as Map);
       } catch (_) {}
     }
     String? old;
     try {
-      old = (jsonDecode(await _secure.read(key: key) ?? '{}') as Map)['client_id'] as String?;
+      old = (jsonDecode(await FlygoSecrets.read(key) ?? '{}') as Map)['client_id'] as String?;
     } catch (_) {}
     final current = server == kServerUrl.replaceAll(RegExp(r'/+$'), '');
     final tok = current ? chatToken : await TokenStore.readFor(server);
@@ -87,7 +85,7 @@ class FlygoMachineClient {
     final j = Map<String, dynamic>.from(jsonDecode(r.body) as Map);
     if (r.statusCode != 200 || j['token'] == null) throw HttpException('${j['error'] ?? r.statusCode}');
     final saved = {'client_id': (j['client'] as Map?)?['id'], 'token': j['token'], 'ws_url': j['ws_url']};
-    await _secure.write(key: key, value: jsonEncode(saved));
+    await FlygoSecrets.write(key, jsonEncode(saved));
     return saved;
   }
 
