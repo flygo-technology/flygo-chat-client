@@ -87,7 +87,7 @@ class MyBrowsers {
     final r = await http.post(Uri.parse('$root/__apps/gateway/api/pair'),
         headers: {'Authorization': 'Bearer $ticket', 'Content-Type': 'application/json', 'User-Agent': kUserAgent},
         body: jsonEncode({
-          'client': {'type': 'extension', 'kind': 'browser', for (final k in ['name', 'engine', 'os', 'profile']) if (client[k] is String) k: client[k]},
+          'client': {'type': client['type'] == 'integrated' ? 'integrated' : 'extension', 'kind': 'browser', for (final k in ['name', 'engine', 'os', 'profile']) if (client[k] is String) k: client[k]},
           if (replace != null && RegExp(r'^[A-Za-z0-9_-]{12}$').hasMatch(replace)) 'replace': replace,
           'machine_name': Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), ''),
         })).timeout(const Duration(seconds: 15));
@@ -98,7 +98,8 @@ class MyBrowsers {
   static Future<Map<String, dynamic>> pair(String chatToken, {required Map<String, dynamic> client, String? replace}) async {
     final r = await http.post(Uri.parse('$base/api/pair'), headers: await _headers(chatToken, json: true), body: jsonEncode({
       'client': {
-        'type': 'extension', 'kind': 'browser',
+        // Trình duyệt tích hợp (trình duyệt Flygo / Ký số) tự xưng "integrated"; còn lại là extension Chrome.
+        'type': client['type'] == 'integrated' ? 'integrated' : 'extension', 'kind': 'browser',
         for (final k in ['name', 'engine', 'os', 'profile']) if (client[k] is String) k: client[k],
       },
       if (replace != null && RegExp(r'^[A-Za-z0-9_-]{12}$').hasMatch(replace)) 'replace': replace,

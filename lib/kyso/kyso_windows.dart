@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:window_to_front/window_to_front.dart';
 
+import '../browser/flygo_browser_host.dart';
 import '../browser/browser_page.dart';
 import '../browser/flygo_id.dart';
 import '../config.dart';
@@ -199,6 +200,9 @@ class _KysoSpaceWindowPageState extends State<KysoSpaceWindowPage> {
 /// Mở space Ký số: máy tính mở cửa sổ riêng (một cửa sổ mỗi công ty, bấm lại thì hiện cửa sổ đó); điện thoại đẩy
 /// trang trình duyệt lên.
 Future<void> openKysoSpace(BuildContext context, BrowserSpace s, {NavigatorState? navigator}) async {
+  // Máy tính: trình duyệt Flygo (engine Chromium riêng do app quản lý) nếu có; không có thì cửa sổ Ký số WebView như cũ.
+  final mst = s.extensionEnv[kKysoApp]?['MST'];
+  if (FlygoBrowserHost.supported && mst != null && mst.isNotEmpty && await FlygoBrowserHost.instance.open(tax: mst, url: s.home)) return;
   if (KysoWindows.supported && await KysoWindows.open(s.space.id)) return;
   if (!context.mounted) return;
   final id = KysoApi.flygoId;

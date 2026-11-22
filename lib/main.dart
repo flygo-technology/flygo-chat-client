@@ -5,6 +5,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'browser/browser_pairing.dart';
+import 'browser/flygo_browser_host.dart';
 import 'ui/shell_highlight.dart' show registerAiFontLicenses;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -449,8 +450,13 @@ class _RootState extends State<Root> {
       ShareIntake.start(navigatorKey, session);
       // Extension Flygo Browser Bridge trên máy này tự ghép cặp với tài khoản đang đăng nhập.
       BrowserPairing.start(a, navigatorKey);
+      // Trình duyệt Flygo (engine riêng): mở Ký số / ghép tự động hoá bằng phiên chat này.
+      FlygoBrowserHost.instance.chatToken = a.token;
     }
-    if (a == null) BrowserPairing.stop();
+    if (a == null) {
+      BrowserPairing.stop();
+      if (FlygoBrowserHost.instance.chatToken != null) unawaited(FlygoBrowserHost.instance.logout());
+    }
     if (a != null && a.sessionExpired) _expired();
   }
 
