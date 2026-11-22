@@ -23,6 +23,7 @@ import '../data/models.dart';
 import '../state/drafts.dart';
 import '../state/app_state.dart';
 import '../state/date_jump.dart';
+import 'agent_bg_procs.dart';
 import 'agent_link.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
@@ -1881,7 +1882,8 @@ class _AgentWorkingState extends State<_AgentWorking> with SingleTickerProviderS
   Widget build(BuildContext context) {
     const orange = Color(0xFFD97757);
     final steps = [for (final s in (widget.run?['steps'] as List? ?? const [])) (s as Map)];
-    final tasks = steps.where((s) => s['status'] == 'running').length;
+    // Bước đang chạy + tiến trình nền còn chạy (runner 0.7.18+).
+    final tasks = steps.where((s) => s['status'] == 'running').length + agentBgOf(widget.run).where((t) => t['status'] == 'running').length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 2),
       child: Row(children: [
@@ -2877,6 +2879,9 @@ class _Bubble extends StatelessWidget {
         ])
       else
         Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.only(top: 3), child: meta)),
+      // Tiến trình nền của lượt (lệnh chạy ngầm, đầu ra trực tiếp): runner vá tin kể cả sau khi lượt xong.
+      if (!hidden && agentRun != null && agentBgOf(agentRun).isNotEmpty)
+        AgentBgTasks(key: ValueKey('bg-${post.id}'), tasks: agentBgOf(agentRun), openKey: post.id),
       // Kế hoạch việc của lượt chạy: luôn ở cuối tin, dưới câu trả lời và các bước (Sếp, 2026-11-22).
       if (!hidden && combined && agentTodosOf(agentRun).isNotEmpty)
         AgentTodoList(key: ValueKey('todos-${post.id}'), todos: agentTodosOf(agentRun), active: agentRunActive(agentRun)),
