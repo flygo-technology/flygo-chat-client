@@ -18,7 +18,7 @@ Future<bool> openInFlygoBrowser(BuildContext context, {String? tax, String? prof
     barrierDismissible: false,
     barrierColor: Colors.black26,
     transitionDuration: const Duration(milliseconds: 80),
-    pageBuilder: (ctx, _, _) => _Loading(title: title, url: url, onCancel: () => Navigator.of(ctx).pop()),
+    pageBuilder: (ctx, _, _) => FlygoBrowserLoadingCard(title: title, url: url, onCancel: () => Navigator.of(ctx).pop()),
   );
   var cancelled = false;
   unawaited(dialog.then((_) => cancelled = !done));
@@ -29,8 +29,9 @@ Future<bool> openInFlygoBrowser(BuildContext context, {String? tax, String? prof
 }
 
 
-class _Loading extends StatelessWidget {
-  const _Loading({required this.title, required this.url, required this.onCancel});
+/// Thẻ màn hình chờ (công khai để chụp ảnh xem trước).
+class FlygoBrowserLoadingCard extends StatelessWidget {
+  const FlygoBrowserLoadingCard({super.key, required this.title, required this.url, required this.onCancel});
   final String title;
   final String? url;
   final VoidCallback onCancel;

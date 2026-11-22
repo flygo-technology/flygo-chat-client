@@ -17,7 +17,13 @@ import 'theme.dart';
 /// điều khiển (tag @trình-duyệt khi chat với agent). Bật/tắt cho cả tài khoản, đổi tên, mặc định, dừng agent, gỡ;
 /// MCP token cho agent ngoài (Claude Code, Codex, Cursor…).
 class MyBrowsersPage extends StatefulWidget {
-  const MyBrowsersPage({super.key});
+  const MyBrowsersPage({super.key, this.debugBrowsers, this.debugProfiles});
+
+  /// Dữ liệu giả cho ảnh xem trước (test): bỏ qua tải từ Gateway / Flygo ID.
+  @visibleForTesting
+  final List<MyBrowser>? debugBrowsers;
+  @visibleForTesting
+  final List<Map<String, dynamic>>? debugProfiles;
   @override
   State<MyBrowsersPage> createState() => _MyBrowsersPageState();
 }
@@ -33,6 +39,11 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
   @override
   void initState() {
     super.initState();
+    if (widget.debugBrowsers != null) {
+      _list = widget.debugBrowsers!;
+      _loading = false;
+      return;
+    }
     _load();
   }
 
@@ -151,7 +162,7 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
                   for (final b in _list.where((b) => b.integrated && (b.machineName.isEmpty ? '?' : b.machineName) == m)) _card(pal, b),
                 ],
                 if (!_list.any((b) => b.integrated)) Padding(padding: const EdgeInsets.all(8), child: Text(tr('Chưa có. Bấm ô Ký số của công ty trên máy tính để Flygo Chat mở trình duyệt tích hợp.'), style: TextStyle(color: pal.sub, fontSize: 13))),
-                if (FlygoBrowserHost.supported) _profiles(pal),
+                if (FlygoBrowserHost.supported || widget.debugProfiles != null) _profiles(pal),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 22, 4, 6),
                   child: Text(tr('AGENT NGOÀI (MCP TOKEN)'),
@@ -202,24 +213,27 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
 
   /// Profile công ty (space Ký số của tài khoản): mở / xem; thêm, đổi tên, xoá công ty làm ở trang quản trị Ký số.
   Widget _profiles(Pal pal) => FutureBuilder<List<Map<String, dynamic>>>(
-        future: FlygoBrowserHost.instance.kysoSpaces(),
+        future: widget.debugProfiles != null ? Future.value(widget.debugProfiles) : FlygoBrowserHost.instance.kysoSpaces(),
         builder: (_, snap) {
           final ps = snap.data ?? const [];
           return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _section(pal, tr('PROFILE CÔNG TY'), tr('Mỗi công ty (token ký số) là một profile của trình duyệt tích hợp.')),
-            for (final p in ps)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.business_rounded),
-                  title: Text('${p['company'] ?? p['name']}'),
-                  subtitle: Text([if ('${p['taxCode']}'.isNotEmpty) 'MST ${p['taxCode']}', Uri.tryParse('${p['server']}')?.host ?? ''].where((x) => x.isNotEmpty).join(' · ')),
-                  trailing: TextButton(
-                      onPressed: () => openInFlygoBrowser(context, tax: '${p['taxCode']}'.isEmpty ? null : '${p['taxCode']}', title: '${p['company'] ?? p['name']}'),
-                      child: Text(tr('Mở'))),
-                ),
-              ),
+            for (final p in ps) _ProfileTile(space: p, preview: widget.debugProfiles != null),
             if (snap.connectionState == ConnectionState.done && ps.isEmpty)
               Padding(padding: const EdgeInsets.all(8), child: Text(tr('Tài khoản chưa có công ty Ký số nào.'), style: TextStyle(color: pal.sub, fontSize: 13))),
+            // Thêm / bớt công ty = quyền Ký số do quản trị cấp (Flygo ID), không làm trên máy.
+            TextButton.icon(
+              icon: const Icon(Icons.add_rounded),
+              label: Text(tr('Thêm công ty')),
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (c) => AlertDialog(
+                  title: Text(tr('Thêm công ty')),
+                  content: Text(tr('Công ty Ký số do quản trị cấp quyền (token ký số của công ty). Nhờ quản trị thêm bạn vào công ty trong trang quản trị Ký số; công ty sẽ tự hiện ở đây.')),
+                  actions: [TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Đã hiểu')))],
+                ),
+              ),
+            ),
           ]);
         },
       );
@@ -299,4 +313,123 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
           ]),
         ),
       );
+}
+
+/// Một công ty Ký số: Mở, Đổi tên (tên riêng trên máy này), Xoá dữ liệu đăng nhập trang trên máy này (hỏi trước, kho mật khẩu giữ).
+class _ProfileTile extends StatefulWidget {
+  const _ProfileTile({required this.space, this.preview = false});
+  final Map<String, dynamic> space;
+  final bool preview;
+  @override
+  State<_ProfileTile> createState() => _ProfileTileState();
+}
+
+class _ProfileTileState extends State<_ProfileTile> {
+  Map<String, dynamic>? _info;
+
+  String get _tax => '${widget.space['taxCode'] ?? ''}';
+  String get _company => '${widget.space['company'] ?? widget.space['name']}';
+  String? get _key => widget.preview ? 'preview' : FlygoBrowserHost.instance.profileFor(_tax)?['key'] as String?;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.preview) {
+      _info = widget.space['info'] as Map<String, dynamic>?;
+    } else {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    final k = _key;
+    if (k == null) return;
+    final i = await FlygoBrowserHost.instance.profileInfo(k);
+    if (mounted) setState(() => _info = i);
+  }
+
+  static String _size(num b) => b >= 1 << 20 ? '${(b / (1 << 20)).toStringAsFixed(1)} MB' : '${(b / 1024).ceil()} KB';
+
+  Future<void> _rename() async {
+    final k = _key;
+    if (k == null) return;
+    final ctl = TextEditingController(text: '${_info?['label'] ?? ''}');
+    final v = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Đổi tên trên máy này')),
+        content: TextField(controller: ctl, autofocus: true, decoration: InputDecoration(hintText: _company, helperText: tr('Để trống = dùng tên công ty.'))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Huỷ'))),
+          FilledButton(onPressed: () => Navigator.pop(c, ctl.text.trim()), child: Text(tr('Lưu'))),
+        ],
+      ),
+    );
+    if (v == null) return;
+    await _run(() => FlygoBrowserHost.instance.profileRename(k, v));
+  }
+
+  Future<void> _clear() async {
+    final k = _key;
+    if (k == null) return;
+    final bytes = (_info?['siteDataBytes'] as num?) ?? 0;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Xoá dữ liệu của {0}?', [_company])),
+        content: Text([
+          tr('Xoá dữ liệu đăng nhập các trang (cookie) của công ty này trên máy này. Mật khẩu đã lưu trong kho công ty vẫn giữ.'),
+          if (bytes > 0) tr('Dung lượng: {0}.', [_size(bytes)]),
+          if (_info?['open'] == true) tr('Cửa sổ công ty đang mở sẽ đóng.'),
+        ].join('\n\n')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('Huỷ'))),
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error), onPressed: () => Navigator.pop(c, true), child: Text(tr('Xoá dữ liệu'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _run(() => FlygoBrowserHost.instance.profileClear(k));
+  }
+
+  Future<void> _run(Future<void> Function() f) async {
+    try {
+      await f();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Không làm được: {0}', ['$e']))));
+    }
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = '${_info?['label'] ?? ''}';
+    final bytes = (_info?['siteDataBytes'] as num?) ?? 0;
+    final local = _key != null;
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.business_rounded),
+        title: Text(label.isNotEmpty ? label : _company),
+        subtitle: Text([
+          if (label.isNotEmpty) _company,
+          if (_tax.isNotEmpty) 'MST $_tax',
+          Uri.tryParse('${widget.space['server']}')?.host ?? '',
+          if (_info?['hasSiteData'] == true) tr('dữ liệu trên máy {0}', [_size(bytes)]),
+        ].where((x) => x.isNotEmpty).join(' · ')),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          TextButton(onPressed: () => openInFlygoBrowser(context, tax: _tax.isEmpty ? null : _tax, title: label.isNotEmpty ? label : _company), child: Text(tr('Mở'))),
+          PopupMenuButton<String>(
+            enabled: local,
+            tooltip: local ? null : tr('Chưa mở công ty này trên máy này'),
+            onSelected: (v) => v == 'rename' ? _rename() : _clear(),
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'rename', child: Text(tr('Đổi tên trên máy này'))),
+              PopupMenuItem(enabled: _info?['hasSiteData'] != false, value: 'clear', child: Text(tr('Xoá dữ liệu trên máy này'))),
+            ],
+          ),
+        ]),
+      ),
+    );
+  }
 }

@@ -194,6 +194,39 @@ class FlygoBrowserHost {
   /// Giao diện đặt: mở có màn hình chờ (xem openKysoWithLoading).
   void Function({String? tax, String? profile, String? url})? onLinkOpen;
 
+  /// Profile engine (đã mở ít nhất một lần trên máy này) của công ty có MST [tax].
+  Map<String, dynamic>? profileFor(String? tax) {
+    if (tax == null || tax.isEmpty) return null;
+    for (final p in profiles.value) {
+      if ('${p['taxCode']}' == tax) return p;
+    }
+    return null;
+  }
+
+  /// Dữ liệu cục bộ của profile: {label, open, hasSiteData, siteDataBytes, vaultShared}. null khi engine chưa chạy.
+  Future<Map<String, dynamic>?> profileInfo(String profileKey) async {
+    if (_ws == null) return null;
+    try {
+      return Map<String, dynamic>.from(await request('profile_info', {'profileKey': profileKey}) as Map);
+    } catch (e) {
+      log('profile_info $profileKey: $e');
+      return null;
+    }
+  }
+
+  /// Tên hiển thị riêng trên máy này (rỗng = về tên công ty).
+  Future<void> profileRename(String profileKey, String label) async {
+    if (!connected && !await _launch(quiet: true)) throw StateError('trình duyệt Flygo chưa chạy');
+    await request('profile_rename', {'profileKey': profileKey, 'label': label});
+  }
+
+  /// Xoá dữ liệu trang (cookie, storage, cache) của profile trên máy này; kho mật khẩu công ty giữ nguyên.
+  Future<void> profileClear(String profileKey) async {
+    if (!connected && !await _launch(quiet: true)) throw StateError('trình duyệt Flygo chưa chạy');
+    await request('profile_clear', {'profileKey': profileKey, 'confirm': true}, const Duration(seconds: 60));
+    log('đã xoá dữ liệu profile $profileKey');
+  }
+
   /// Agent / runner cần mở ở nền (không cướp focus).
   Future<bool> openBackground({String? tax, String? profile, String? url}) => open(tax: tax, profile: profile, url: url, background: true);
 
