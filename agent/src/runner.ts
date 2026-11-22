@@ -3630,7 +3630,9 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     reply.hold(true);
     const r = await askUser(where, qs, post.user_id, ac.signal).finally(() => { waitingHuman--; reply.hold(false); });
     card.step({ id: sid, kind: "approval", title: "answers" in r ? `Đã trả lời: ${r.answers.map(answerText).join(" · ").slice(0, 100)}` : `Không trả lời: ${title}`, status: "answers" in r ? "done" : "error" });
-    card.setStatus("running");
+    card.setStatus("thinking"); // "Đang suy nghĩ" tới khi model ra chữ / gọi tool tiếp
+    // Thẻ câu hỏi là post riêng nằm dưới post đang chạy: đưa post đang chạy xuống cuối để thấy ngay đang làm tiếp.
+    if (!ac.signal.aborted) await reply.moveToEnd().catch(() => false);
     return r;
   };
   runsByKey.set(runId, ask);
@@ -3708,6 +3710,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
             markSeen(p.id);
             card.step({ id: `steer-${p.id}`, kind: "tool", title: `Nhận thêm tin trong lúc làm: ${t.replace(/\s+/g, " ").slice(0, 100)}`, status: "done" });
             await mm.react(p.id, BOT_ID, "eyes").catch(() => {});
+            // Tin chèn của người nằm dưới post đang chạy: đưa post đang chạy xuống cuối (cùng chỗ: chat chính / luồng).
+            if ((p.root_id || "") === (where.root_id || "")) await reply.moveToEnd().catch(() => false);
             return true;
           } : undefined;
         },

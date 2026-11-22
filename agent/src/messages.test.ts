@@ -12,3 +12,25 @@ test("mention before plain text stays on the same line", () => {
     expect(mentionPrefix("ba", m)).toBe("@ba ");
   }
 });
+
+test("moveToEnd: post đang chạy được đăng lại ở cuối (sau thẻ câu hỏi), post cũ bị xoá, sửa tiếp vào post mới", async () => {
+  const { InlineReply } = await import("./messages");
+  const { RunCard } = await import("./card");
+  const log: string[] = [];
+  let n = 0;
+  const mm: any = {
+    createPost: async (p: any) => { const id = `p${++n}`; log.push(`create ${id} streaming=${p.props.flygo_agent_message.streaming}`); return { id }; },
+    patchPost: async (id: string) => { log.push(`patch ${id}`); return { id }; },
+    deletePost: async (id: string) => { log.push(`delete ${id}`); },
+  };
+  const where = { channel_id: "c", root_id: "" };
+  const reply = new InlineReply(mm, where, "run1", "claude", { id: "u", username: "ba" }, false);
+  reply.card = new RunCard(mm, where, "run1", "claude", "t", "u", () => reply.touch());
+  expect(await reply.ensurePost()).toBe("p1");
+  expect(await reply.moveToEnd()).toBe(true);
+  expect(reply.id).toBe("p2");
+  expect(log).toEqual(["create p1 streaming=true", "create p2 streaming=true", "delete p1"]);
+  reply.update({ id: "m1", delta: "tiếp" });
+  await new Promise((r) => setTimeout(r, 600));
+  expect(log.at(-1)).toBe("patch p2");
+});
