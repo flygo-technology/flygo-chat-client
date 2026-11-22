@@ -121,7 +121,7 @@ function supportsStreamInput(bin: string): Promise<boolean> {
 
 /** Tool flygo_chat luôn chạy không cần duyệt (kể cả khi cấu hình tự đặt allowedTools): đăng artifact vào chính phiên;
  *  mcp_add tự mở hộp duyệt riêng trên app nên không xin duyệt hai lần; browser_open_profiles chỉ mở Chrome của chủ máy. */
-const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles"];
+const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open"];
 
 /** Quyền của lượt Claude. fullAccess / "luôn cho phép" / bypassPermissions: không hỏi, không deny (như trước).
  *  Lượt TeamWork không cần duyệt (twBypass): --permission-mode bypassPermissions NHƯNG vẫn giữ deny (cấu hình + TW_CLAUDE_DENY);

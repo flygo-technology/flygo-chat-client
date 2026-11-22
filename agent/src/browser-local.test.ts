@@ -35,3 +35,11 @@ test("userDataDirs theo hệ điều hành", () => {
   expect(userDataDirs("linux", "/home/a")[0].dir).toBe("/home/a/.config/google-chrome");
   expect(userDataDirs("win32", "C:\\Users\\a", { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" })[0].dir).toContain("Chrome");
 });
+
+test("kysoLaunch: mở nền đúng profile, kiểm url / profile", async () => {
+  const { kysoLaunch } = await import("./browser-local");
+  expect(kysoLaunch({ tax: "0110804395", url: "https://e-declaration.customs.gov.vn:8443/eclare-ui/" }, "darwin"))
+    .toEqual({ cmd: "open", args: ["-g", "-a", "Trinh duyet Ky so da nang", "--args", "--hidden", "--profile-tax=0110804395", "--url=https://e-declaration.customs.gov.vn:8443/eclare-ui/"] });
+  expect(kysoLaunch({ url: "javascript:alert(1)" }, "darwin")).toEqual({ error: "url phải là http(s)" });
+  expect(kysoLaunch({ profile: "a/b; rm -rf" }, "darwin")).toEqual({ error: "profile phải dạng <agentId>/<tokenId>" });
+});

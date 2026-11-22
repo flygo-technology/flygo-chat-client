@@ -23,6 +23,21 @@ export const BROWSER_LOCAL_TOOLS = [
       },
     },
   },
+  {
+    name: "integrated_browser_open",
+    description: "Mở TRÌNH DUYỆT TÍCH HỢP trên MÁY NÀY ở nền (không cướp focus): Trình duyệt Ký số đa năng, đúng profile công ty (tax = MST hoặc profile = <agentId>/<tokenId>, "
+      + "xem vn_flygo_clients__integrated_browser_list), url tuỳ chọn. Khi mở, trình duyệt tự đăng ký với Gateway qua Flygo Chat trên máy này; gọi vn_flygo_clients__browser_wait_online rồi "
+      + "browser_select và dùng các tool browser_* như Chrome. Ký số / mã PIN luôn do người dùng xác nhận trên trình duyệt; agent không đọc, không nhập.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", enum: ["kyso-desktop"], description: "Trình duyệt cần mở (mặc định kyso-desktop = Trình duyệt Ký số đa năng)" },
+        tax: { type: "string", description: "MST của công ty (profile token)" },
+        profile: { type: "string", description: "Hoặc profile <agentId>/<tokenId>" },
+        url: { type: "string", description: "Trang mở sẵn (http/https)" },
+      },
+    },
+  },
 ];
 export const BROWSER_LOCAL_TOOL_NAMES = new Set(BROWSER_LOCAL_TOOLS.map((t) => t.name));
 
@@ -94,7 +109,37 @@ export function launchCommand(p: ChromeProfile, os: Os = OS): { cmd: string; arg
   return exe ? { cmd: exe, args: [prof] } : null;
 }
 
+const KYSO_APP = "Trinh duyet Ky so da nang";
+
+/** Lệnh mở Trình duyệt Ký số đa năng (cờ do app Ký số đọc: --hidden, --profile-tax / --profile, --url; lần mở sau chuyển cho tiến trình đang chạy). */
+export function kysoLaunch(a: { tax?: string; profile?: string; url?: string }, os: Os = OS, env = process.env): { cmd: string; args: string[] } | { error: string } {
+  const tax = String(a.tax ?? "").replace(/[^\d-]/g, "");
+  const profile = String(a.profile ?? "").trim();
+  const url = String(a.url ?? "").trim();
+  if (url && !/^https?:\/\//i.test(url)) return { error: "url phải là http(s)" };
+  if (profile && !/^[\w.@-]+\/[\w.@-]+$/.test(profile)) return { error: "profile phải dạng <agentId>/<tokenId>" };
+  const flags = ["--hidden", ...(tax ? [`--profile-tax=${tax}`] : profile ? [`--profile=${profile}`] : []), ...(url ? [`--url=${url}`] : [])];
+  if (os === "darwin") return { cmd: "open", args: ["-g", "-a", KYSO_APP, "--args", ...flags] };
+  if (os === "win32") {
+    const bases = [env["ProgramFiles"], env["ProgramFiles(x86)"], env.LOCALAPPDATA && join(env.LOCALAPPDATA, "Programs")].filter(Boolean) as string[];
+    const exe = bases.map((b) => join(b, KYSO_APP, `${KYSO_APP}.exe`)).find((p) => existsSync(p));
+    return exe ? { cmd: exe, args: flags } : { error: `chưa cài ${KYSO_APP} trên máy này` };
+  }
+  return { error: "Trình duyệt Ký số đa năng chỉ có trên macOS / Windows" };
+}
+
 export async function browserLocalTool(name: string, a: any): Promise<string> {
+  if (name === "integrated_browser_open") {
+    if (a?.app && a.app !== "kyso-desktop") return `Chưa hỗ trợ mở ${a.app} (hiện có: kyso-desktop).`;
+    const c = kysoLaunch(a ?? {});
+    if ("error" in c) return `Không mở được: ${c.error}.`;
+    if (OS === "darwin" && !existsSync(`/Applications/${KYSO_APP}.app`) && !existsSync(join(homedir(), "Applications", `${KYSO_APP}.app`)))
+      return `Máy này chưa cài ${KYSO_APP}.`;
+    const child = spawn(c.cmd, c.args, { detached: true, stdio: "ignore" });
+    child.on("error", () => {});
+    child.unref();
+    return `Đã mở Trình duyệt Ký số đa năng ở nền${a?.tax ? ` (MST ${a.tax})` : a?.profile ? ` (profile ${a.profile})` : ""}. Gọi vn_flygo_clients__browser_wait_online (tên dạng "Ký số · <công ty> · <máy>") rồi browser_select và làm tiếp. Cần Flygo Chat đang chạy trên máy này để trình duyệt tự đăng ký.`;
+  }
   if (name !== "browser_open_profiles") throw new Error(`không có tool ${name}`);
   const want = Array.isArray(a?.profiles) ? a.profiles.map(String) : [];
   const found = findProfiles(want);
