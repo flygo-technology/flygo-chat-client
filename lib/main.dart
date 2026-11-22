@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'browser/browser_pairing.dart';
 import 'browser/flygo_browser_host.dart';
+import 'browser/flygo_browser_loading.dart';
 import 'ui/shell_highlight.dart' show registerAiFontLicenses;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -451,7 +452,15 @@ class _RootState extends State<Root> {
       // Extension Flygo Browser Bridge trên máy này tự ghép cặp với tài khoản đang đăng nhập.
       BrowserPairing.start(a, navigatorKey);
       // Trình duyệt Flygo (engine riêng): mở Ký số / ghép tự động hoá bằng phiên chat này.
-      FlygoBrowserHost.instance.chatToken = a.token;
+      FlygoBrowserHost.instance
+        ..chatToken = a.token
+        ..attachLinks()
+        ..onLinkOpen = ({String? tax, String? profile, String? url}) {
+          final ctx = navigatorKey.currentContext;
+          if (ctx != null) unawaited(openInFlygoBrowser(ctx, tax: tax, profile: profile, title: tr('Trình duyệt Ký số'), url: url));
+        };
+      // Tải sẵn + chạy ẩn trình duyệt Flygo sau khi đăng nhập (lần bấm đầu mở ngay).
+      Future.delayed(const Duration(seconds: 15), FlygoBrowserHost.instance.prewarm);
     }
     if (a == null) {
       BrowserPairing.stop();

@@ -20,6 +20,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart' as hash;
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -63,19 +64,96 @@ class FlygoBrowserHost {
 
   bool get connected => _ws != null;
 
+  /// Bước đang làm khi mở (màn hình chờ hiện ngay khi bấm): tải trình duyệt / khởi động / đăng nhập / mở trang.
+  final stage = ValueNotifier<String>('');
+
+  /// Tiến độ tải trình duyệt 0..1 (null = không tải).
+  final download = ValueNotifier<double?>(null);
+
+  Stopwatch? _clock;
+  bool _warmClick = false;
+
+  // ------------------------------------------------------------------ nhật ký + đo thời gian
+  /// Ghi một dòng vào tệp nhật ký trình duyệt Flygo (macOS ~/Library/Logs/Flygo Chat/flygo-browser.log, Windows
+  /// %LOCALAPPDATA%\Flygo\logs\flygo-browser.log): IPC, lỗi, và thời gian từ lúc bấm tới từng bước.
+  void log(String msg) {
+    final t = _clock == null ? '' : ' +${_clock!.elapsedMilliseconds}ms${_warmClick ? ' (ấm)' : ' (lạnh)'}';
+    final line = '${DateTime.now().toIso8601String()}$t $msg';
+    debugPrint('[flygo-browser] $line');
+    try {
+      final dir = Platform.isWindows ? '${Platform.environment['LOCALAPPDATA']}\\Flygo\\logs' : '${Platform.environment['HOME']}/Library/Logs/Flygo Chat';
+      Directory(dir).createSync(recursive: true);
+      final f = File('$dir${Platform.pathSeparator}flygo-browser.log');
+      if (f.existsSync() && f.lengthSync() > 2 * 1024 * 1024) f.renameSync('${f.path}.1');
+      f.writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
+  }
+
+  void _stage(String s) {
+    stage.value = s;
+    log('bước: $s');
+  }
+
   // ------------------------------------------------------------------ mở
   /// Mở công ty (MST) / profile trong trình duyệt Flygo, kèm url. false = không mở được (nơi gọi dùng WebView).
   Future<bool> open({String? tax, String? profile, String? url, bool background = false}) async {
     if (!supported) return false;
+    _clock = Stopwatch()..start();
+    _warmClick = connected;
+    log('mở: tax=${tax ?? ''} profile=${profile ?? ''} url=${url ?? ''} engine ${connected ? 'đang chạy' : 'chưa chạy'}');
     try {
-      if (!connected && !await _launch()) return false;
-      await request('open', {'tax': ?tax, 'profile': ?profile, 'url': ?url, 'background': background}, const Duration(seconds: 30));
+      if (!connected && !await _launch()) {
+        log('KẾT QUẢ: không khởi động được trình duyệt → WebView');
+        return false;
+      }
+      _stage('Đang mở trang…');
+      final r = await request('open', {'tax': ?tax, 'profile': ?profile, 'url': ?url, 'background': background}, const Duration(seconds: 45));
+      log('KẾT QUẢ: cửa sổ đã hiện ($r)');
       return true;
     } catch (e) {
-      debugPrint('[flygo-browser] open: $e');
+      log('KẾT QUẢ: lỗi mở: $e');
       return false;
+    } finally {
+      _clock = null;
+      stage.value = '';
     }
   }
+
+  // ------------------------------------------------------------------ khởi động sẵn
+  bool _warming = false;
+
+  /// Sau khi đăng nhập (máy tính): tải sẵn trình duyệt và chạy ẩn ở nền (không cửa sổ) nếu người dùng có space Ký số, để
+  /// lần bấm đầu mở ngay. Gọi nhiều lần cũng chỉ chạy một lần.
+  Future<void> prewarm() async {
+    if (!supported || _warming || connected || chatToken == null) return;
+    _warming = true;
+    try {
+      if ((await _spaces()).isEmpty) return; // không dùng Ký số: không tốn RAM
+      log('khởi động sẵn');
+      await _launch(quiet: true);
+    } catch (e) {
+      log('khởi động sẵn lỗi: $e');
+    } finally {
+      _warming = false;
+    }
+  }
+
+  // ------------------------------------------------------------------ liên kết flygochat://kyso?tax=…&url=…
+  /// macOS: liên kết mở vào app đang chạy qua kênh "flygo/link" (AppDelegate). Đăng nhập Google cũng dùng kênh này và
+  /// đặt handler riêng trong lúc đăng nhập; gọi lại hàm này sau khi đăng nhập xong.
+  void attachLinks() {
+    if (!Platform.isMacOS) return;
+    const MethodChannel('flygo/link').setMethodCallHandler((call) async {
+      final u = Uri.tryParse('${call.arguments}');
+      if (call.method != 'open' || u == null || u.host != 'kyso') return;
+      final tax = u.queryParameters['tax'], profile = u.queryParameters['profile'], url = u.queryParameters['url'];
+      if ((tax ?? profile ?? '').isEmpty || (url != null && !RegExp(r'^https?://').hasMatch(url))) return;
+      onLinkOpen?.call(tax: tax, profile: profile, url: url);
+    });
+  }
+
+  /// Giao diện đặt: mở có màn hình chờ (xem openKysoWithLoading).
+  void Function({String? tax, String? profile, String? url})? onLinkOpen;
 
   /// Agent / runner cần mở ở nền (không cướp focus).
   Future<bool> openBackground({String? tax, String? profile, String? url}) => open(tax: tax, profile: profile, url: url, background: true);
@@ -104,15 +182,31 @@ class FlygoBrowserHost {
   // ------------------------------------------------------------------ khởi chạy engine
   DateTime? _failedAt;
 
-  Future<bool> _launch() async {
+  Future<bool>? _launching;
+
+  /// Một lần khởi động tại một thời điểm (khởi động sẵn và lần bấm dùng chung).
+  Future<bool> _launch({bool quiet = false}) {
+    final f = _launching;
+    if (f != null) {
+      if (!quiet) _stage('Đang khởi động trình duyệt…');
+      return f;
+    }
+    return _launching = _doLaunch(quiet: quiet).whenComplete(() => _launching = null);
+  }
+
+  Future<bool> _doLaunch({bool quiet = false}) async {
     // Lần trước không chạy được: không thử lại (mỗi lần chờ tới 40 giây) trong 30 phút, mở WebView ngay.
     if (_failedAt != null && DateTime.now().difference(_failedAt!) < const Duration(minutes: 30)) return false;
+    if (!quiet) _stage('Đang chuẩn bị trình duyệt…');
     final exe = await _engineExecutable();
     if (exe == null) return false;
     await _listen();
+    if (connected) return true; // vừa nối xong trong lúc tải
+    if (!quiet) _stage('Đang khởi động trình duyệt…');
     _connected = Completer<void>();
     final env = Map<String, String>.from(Platform.environment)..['FLYGO_HOST_KEY'] = _key;
     try {
+      log('chạy $exe');
       await Process.start(exe, ['--managed', '--host-port=${_server!.port}', '--background'], environment: env, mode: ProcessStartMode.detached);
     } catch (e) {
       debugPrint('[flygo-browser] không chạy được $exe: $e');
@@ -121,6 +215,7 @@ class FlygoBrowserHost {
     try {
       await _connected!.future.timeout(const Duration(seconds: 40));
       _failedAt = null;
+      log('trình duyệt đã nối IPC');
       return true;
     } on TimeoutException {
       debugPrint('[flygo-browser] engine không nối lại trong 40 giây');
@@ -192,6 +287,7 @@ class FlygoBrowserHost {
       final c = _pending.remove(id);
       if (c == null) return;
       if (m['error'] != null) {
+        log('engine trả lỗi: ${(m['error'] as Map?)?['message'] ?? m['error']}');
         c.completeError(Exception('${(m['error'] as Map?)?['message'] ?? m['error']}'));
       } else {
         c.complete(m['result']);
@@ -199,6 +295,7 @@ class FlygoBrowserHost {
       return;
     }
     if (method == null) return;
+    log('engine → $method${id != null ? ' (yêu cầu)' : ''} ${jsonEncode(params).substring(0, min(160, jsonEncode(params).length))}');
     if (id != null) {
       // Yêu cầu của engine.
       try {
@@ -226,6 +323,7 @@ class FlygoBrowserHost {
       case 'spaces':
         return {'spaces': await _spaces()};
       case 'need_credential':
+        if (_clock != null) _stage('Đang đăng nhập Ký số…');
         final id = await _flygoId();
         final space = '${p['space'] ?? ''}';
         if (space.isEmpty) throw ArgumentError('thiếu space');
@@ -422,8 +520,17 @@ class FlygoBrowserHost {
     final req = await HttpClient().getUrl(Uri.parse('$base/$file'));
     final res = await req.close();
     if (res.statusCode != 200) throw HttpException('tải engine lỗi ${res.statusCode}');
+    final total = res.contentLength;
+    var got0 = 0;
+    _stage('Đang tải trình duyệt Ký số (lần đầu)…');
     final sink = tmp.openWrite();
-    await res.pipe(sink);
+    await res.map((chunk) {
+      got0 += chunk.length;
+      if (total > 0) download.value = got0 / total;
+      return chunk;
+    }).pipe(sink);
+    download.value = null;
+    log('đã tải engine ${(got0 / 1048576).toStringAsFixed(1)} MB');
     final got = hash.sha256.convert(await tmp.readAsBytes()).toString();
     if (got != want) {
       tmp.deleteSync();
