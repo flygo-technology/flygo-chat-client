@@ -39,6 +39,8 @@ export interface TurnHooks {
   todos?(list: Todo[]): void;
   /** Engine cho phép đưa tin mới vào lượt đang chạy (Codex turn/steer): fn khi lượt bắt đầu, null khi lượt kết thúc. */
   steerable?(fn: ((text: string) => Promise<boolean>) | null): void;
+  /** Một lần gọi tool đã xong (có input + kết quả): runner nhận diện tác vụ nền (bg-tasks.ts). */
+  toolDone?(t: { id: string; name: string; input: any; result: string; isError: boolean }): void;
 }
 
 export interface TurnInput {

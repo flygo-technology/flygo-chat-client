@@ -4,6 +4,7 @@
 // - Tin trong luồng -> trả lời trong luồng: thẻ tiến trình (props.flygo_agent) + tin stream (props.flygo_agent_message).
 // - Duyệt quyền: post "Cần Sếp duyệt" trong chủ đề, chủ bot bấm Xác nhận / Từ chối (reaction +1 / -1).
 // - Chế độ --json: in sự kiện JSON từng dòng ra stdout cho app Flygo Chat (log ra stderr).
+import { BgTracker, detectLaunch } from "./bg-tasks";
 import { resolvePermMode } from "./perm-mode";
 import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
@@ -3654,6 +3655,15 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   // "Luôn cho phép" đang bật: không lặp bước trong mỗi thẻ (chỉ hiện ở lượt bật); app hiện huy hiệu theo props.flygo_bypass.
   const bypass = isBypass(root);
   card.bypassOf = () => isBypass(root);
+  // Tác vụ nền (bg-tasks.ts): trong lượt cập nhật theo thẻ; lượt xong mà còn chạy thì sửa props của post cuối, giãn nhịp ≥ 2,5 s.
+  let turnOver = false, bgTimer: Timer | null = null, bgLast = 0;
+  const bgPush = () => {
+    if (!turnOver) { card.bgChanged(); return; }
+    if (bgTimer) return;
+    bgTimer = setTimeout(() => { bgTimer = null; bgLast = Date.now(); void reply.patchProps(); }, Math.max(0, 2500 - (Date.now() - bgLast)));
+  };
+  const bg = new BgTracker(dir, bgPush);
+  card.bg = () => bg.tasks;
   if (research) card.mode = "research";
   if ((post as any).via_mcp) card.step({ id: "bridge", kind: "approval", title: "🔗 Yêu cầu từ agent ngoài (Token MCP), thay chủ phiên", status: "done" });
   if (!bypass && mode === "bypassPermissions" && want.mode === "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
@@ -3706,6 +3716,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       {
         step: (s) => card.step(s),
         todos: (t) => card.setTodos(t),
+        toolDone: (t) => { const l = detectLaunch(t.name, t.input, t.result); if (l && !t.isError) { bg.add(l); log(`run ${runId}: tác vụ nền ${l.kind} ${l.host} ${l.file ?? "(không tệp)"}`); } },
         text: (t) => { reply.update(t); twp?.setText(reply.current); },
         approval: ask,
         ask: askQ,
@@ -3766,6 +3777,10 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     session.status = cancelled ? "cancelled" : "error";
     log(`run ${runId} ${session.status}: ${e?.message ?? e}`);
   } finally {
+    // Tác vụ nền: của Claude Code dừng cùng lượt; tách nền (nohup …) theo tiếp, cập nhật post cuối tới khi xong / hết giờ.
+    turnOver = true;
+    bg.endTurn();
+    if (bg.tasks.length) { if (bg.active) log(`run ${runId}: theo tiếp ${bg.tasks.filter((t) => t.status === "running").length} tác vụ nền sau lượt`); void reply.patchProps(); }
     emit({ event: "run_finished", run_id: runId, root_id: root, status: session.status });
     clearInterval(typingTimer);
     running.delete(root);

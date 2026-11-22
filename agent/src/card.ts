@@ -79,6 +79,11 @@ export class RunCard {
     private onChange?: () => void,
   ) {}
 
+  /** Tác vụ nền của lượt (bg-tasks.ts, runner gán): props.flygo_agent.bg. */
+  bg: (() => import("./bg-tasks").BgTask[]) | null = null;
+  /** Tác vụ nền đổi: cập nhật thẻ như một bước. */
+  bgChanged() { this.touch(); }
+
   /** "Luôn cho phép" của phạm vi lượt này (runner gán): thẻ ở chat chính mang props.flygo_bypass để app hiện huy hiệu. */
   bypassOf: (() => boolean) | null = null;
 
@@ -182,6 +187,7 @@ export class RunCard {
         ended_at: this.endedAt || undefined,
         ...this.segView(),
         ...(this.todos.length ? { todos: this.todos } : {}),
+        ...(this.bg?.().length ? { bg: this.bg!() } : {}),
         ...(this.wrapUp ? { wrap_up: this.wrapUp } : {}),
         ...(this.mode ? { mode: this.mode } : {}),
         usage: this.usage,

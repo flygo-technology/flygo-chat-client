@@ -37,3 +37,11 @@ test("bước hỏi người dùng mang step.questions trong props (app vẽ câ
   expect(st.questions).toEqual([{ ...q, status: "answered", answer: "B", choices: ["B"] }]);
   expect(st.status).toBe("done");
 });
+
+test("thẻ mang props.flygo_agent.bg khi có tác vụ nền", async () => {
+  const { RunCard } = await import("./card");
+  const card = new RunCard({} as any, { channel_id: "c", root_id: "" }, "r", "claude", "t", "u", () => {});
+  expect((card.props() as any).flygo_agent.bg).toBeUndefined();
+  card.bg = () => [{ id: "bg-1", kind: "detached", command: "nohup x &", status: "running", started_at: 1, updated_at: 2, tail: "ok" }];
+  expect((card.props() as any).flygo_agent.bg[0]).toMatchObject({ id: "bg-1", status: "running", tail: "ok" });
+});

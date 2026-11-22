@@ -322,6 +322,7 @@ export class ClaudeEngine implements Engine {
             for (const c of ev.message?.content ?? []) {
               if (c.type !== "tool_result") continue;
               const t = tools.get(c.tool_use_id);
+              if (t) try { hooks.toolDone?.({ id: c.tool_use_id, name: t.name, input: t.input, result: resultText(c.content), isError: !!c.is_error }); } catch {}
               if (!t || hidden(t.name, t.input)) continue;
               const d = describe(t.name, t.input);
               hooks.step({ id: c.tool_use_id, kind: d.kind, title: d.title, label: d.label, status: c.is_error ? "error" : "done", detail: resultText(c.content).slice(-600) });

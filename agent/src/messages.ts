@@ -51,6 +51,12 @@ export class InlineReply {
   }
 
   get id() { return this.postId; }
+  private finalId = "";
+  /** Sau khi lượt xong (tác vụ nền còn chạy): sửa props của post hiện tại (post cuối, hoặc post giữ thẻ khi lỗi) theo thẻ mới. */
+  async patchProps() {
+    if (!this.postId) return;
+    await this.mm.patchPost(this.postId, { props: this.body(false, true).props }).catch(() => {});
+  }
   /** chữ agent đã viết tới giờ */
   get current() { return this.text; }
   /** id post đang stream (tạo ngay nếu chưa có). */
@@ -133,7 +139,9 @@ export class InlineReply {
     }
     const b = this.body(false, true);
     const prefix = this.mention ? mentionPrefix(this.owner.username, b.message) : "";
-    await this.mm.createPost({ ...this.where, message: prefix + b.message, props: b.props }, this.mention ? [this.owner.username] : []);
+    const fin = await this.mm.createPost({ ...this.where, message: prefix + b.message, props: b.props }, this.mention ? [this.owner.username] : []);
+    this.finalId = fin?.id ?? "";
     if (this.postId) await this.mm.deletePost(this.postId).catch(() => {});
+    if (this.finalId) this.postId = this.finalId;
   }
 }
