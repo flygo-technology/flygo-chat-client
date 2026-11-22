@@ -323,7 +323,7 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
         await _guard(() => app.setAiArchived(c, a == 'archive'));
       case 'delete':
         final ok = await _confirm(tr('Xoá phiên "{0}"?', [aiSessionLabel(c)]), tr('Phiên bị xoá khỏi danh sách, trợ lý dừng làm việc ở phiên này.'));
-        if (ok == true) await _guard(() => app.archiveChannel(c.id));
+        if (ok == true && mounted) await deleteAiSession(context, c);
       case 'hide':
         final ok = await _confirm(tr('Xoá đoạn chat với {0}?', [e.bot?.displayName ?? '']),
             tr('Đoạn chat ẩn khỏi danh sách. Trợ lý vẫn còn, nhắn lại là hiện lại.'));
@@ -613,7 +613,7 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
     final selected = c.id == widget.selectedId ||
         (c.aiGroup != null && c.aiGroup == widget.selectedId && c.aiThread == null && app.aiChannelFor(c.aiGroup!)?.id == c.id);
     // Máy tính: kéo phiên vào vùng nội dung để mở thành một ô.
-    return PaneDragSource(
+    return DeletingSession(deleting: app.deletingChannels.contains(c.id), child: PaneDragSource(
       content: PaneContent.chat(c.id),
       child: Material(
       color: selected ? pal.accent.withValues(alpha: .12) : Colors.transparent,
@@ -652,7 +652,7 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
         ),
       ),
     ),
-    );
+    ));
   }
 
   /// Chưa có trợ lý AI nào: chỉ hiện lời nhắc, không có nút thêm.

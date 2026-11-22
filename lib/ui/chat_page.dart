@@ -129,6 +129,37 @@ class ChatPage extends StatefulWidget {
 final chatSearchRequest = ValueNotifier<String?>(null);
 
 class _ChatPageState extends State<ChatPage> {
+  /// Kênh đã từng có (để phân biệt "đang tải" với "vừa bị xoá"), đang rời trang vì kênh bị xoá, lúc bắt đầu chờ kênh.
+  bool _hadChannel = false, _leaving = false;
+  DateTime? _waitingSince;
+
+  /// Kênh đang xoá / vừa bị xoá: rời trang ngay (không quay vòng chờ mãi). Có nút đóng (ô trên máy tính) thì đóng ô,
+  /// không thì quay lại trang trước; không quay lại được thì hiện dòng "đã xoá".
+  void _leaveDeleted() {
+    if (_leaving) return;
+    _leaving = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.onClose != null) {
+        widget.onClose!();
+      } else {
+        // Gỡ đúng trang của chat này (có thể đang có trang khác đè lên, vd. trang cột phải trên điện thoại).
+        final nav = Navigator.of(context);
+        final route = ModalRoute.of(context);
+        if (route != null && nav.canPop()) {
+          route.isCurrent ? nav.pop() : nav.removeRoute(route);
+        } else {
+          setState(() {});
+        }
+      }
+    });
+  }
+
+  Widget _gone(Pal pal, String text) => Scaffold(
+        backgroundColor: pal.bg,
+        appBar: widget.onClose != null || !Navigator.of(context).canPop() ? null : AppBar(backgroundColor: pal.bg, elevation: 0),
+        body: Center(child: Text(text, style: TextStyle(color: pal.sub))),
+      );
   /// Chat riêng với bot chưa nằm trong danh sách bot của mình: tải lại danh sách một lần rồi mới hiện dòng chặn
   /// (bot vừa tạo trên máy khác, hoặc danh sách tải từ trước khi tạo bot).
   final Set<String> _botOwnerRefreshed = {};
@@ -722,7 +753,23 @@ class _ChatPageState extends State<ChatPage> {
     final app = context.watch<AppState>();
     final pal = Pal.of(context);
     final ch = app.channels[widget.channelId];
-    if (ch == null) return Scaffold(backgroundColor: pal.bg, body: const Center(child: CircularProgressIndicator()));
+    // Phiên đang xoá (đã bấm Xoá) hoặc vừa bị xoá: rời trang ngay, danh sách hiện "Đang xoá…" (trước đây trang quay vòng mãi).
+    if ((ch == null && _hadChannel) || app.deletingChannels.contains(widget.channelId)) {
+      _leaveDeleted();
+      return _gone(pal, app.deletingChannels.contains(widget.channelId) ? tr('Đang xoá…') : tr('Cuộc trò chuyện đã bị xoá.'));
+    }
+    if (ch == null) {
+      // Chưa có kênh (đang tải): chờ tối đa 10 giây rồi báo, không quay vòng mãi.
+      final since = _waitingSince ??= DateTime.now();
+      if (DateTime.now().difference(since) > const Duration(seconds: 10)) return _gone(pal, tr('Không mở được cuộc trò chuyện.'));
+      Future.delayed(const Duration(seconds: 10, milliseconds: 100), () {
+        if (mounted && app.channels[widget.channelId] == null) setState(() {});
+      });
+      return Scaffold(backgroundColor: pal.bg, body: const Center(child: CircularProgressIndicator()));
+    }
+    _hadChannel = true;
+    _leaving = false;
+    _waitingSince = null;
     final claude = claudeStyleFor(app, ch);
     final title = app.channelTitle(ch);
     final other = app.me == null ? null : ch.otherUserId(app.me!.id);
