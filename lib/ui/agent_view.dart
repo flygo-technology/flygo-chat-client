@@ -134,8 +134,17 @@ class AgentRunCard extends StatefulWidget {
   final String? openKey;
   /// Các bước đã hiện ở dòng thời gian ([AgentTimeline]): thẻ không mở danh sách bước nữa.
   final bool stepsElsewhere;
+  /// Kế hoạch việc (todos) vẽ ở thẻ này; false khi tin tự vẽ kế hoạch ở cuối tin ([AgentTodoList] dưới câu trả lời).
+  final bool showTodos;
   const AgentRunCard(
-      {super.key, required this.run, this.compact = false, this.name, this.openKey, this.stepsElsewhere = false, this.quiet = false});
+      {super.key,
+      required this.run,
+      this.compact = false,
+      this.name,
+      this.openKey,
+      this.stepsElsewhere = false,
+      this.quiet = false,
+      this.showTodos = true});
   /// Chat 1-1 với trợ lý (kiểu Claude): không có biểu tượng trạng thái / vòng xoay ở đầu tin.
   final bool quiet;
   @override
@@ -269,7 +278,6 @@ class _AgentRunCardState extends State<AgentRunCard> {
             padding: const EdgeInsets.only(top: 4),
             child: Text(error, style: const TextStyle(fontSize: 13, color: Colors.redAccent)),
           ),
-        if (todos.isNotEmpty) AgentTodoList(todos: todos, active: active),
         AnimatedSize(
           duration: const Duration(milliseconds: 180),
           alignment: Alignment.topLeft,
@@ -283,13 +291,19 @@ class _AgentRunCardState extends State<AgentRunCard> {
                   ),
                 ),
         ),
+        // Kế hoạch luôn ở cuối, dưới các bước (Sếp: "Kế hoạch nếu có thì luôn hiện ở cuối của tin nhắn").
+        if (todos.isNotEmpty && widget.showTodos) AgentTodoList(todos: todos, active: active),
       ],
     );
   }
 }
 
+/// Kế hoạch việc của lượt chạy (props.flygo_agent.todos), rỗng nếu không có.
+List<Map<String, dynamic>> agentTodosOf(Map<String, dynamic> run) =>
+    [for (final t in (run['todos'] as List? ?? const [])) if (t is Map) t.cast<String, dynamic>()];
+
 /// Danh sách việc agent tự lập trong lượt (props.flygo_agent.todos, runner 0.6.79+): checklist
-/// chưa làm / đang làm / xong. Lượt đang chạy thì mở sẵn; lượt đã xong thu gọn thành một dòng, bấm để mở.
+/// chưa làm / đang làm / xong, luôn ở cuối tin. Ngắn thì hiện hết; dài thì chỉ việc đang làm, bấm để xem hết.
 class AgentTodoList extends StatefulWidget {
   final List<Map<String, dynamic>> todos;
   final bool active;
@@ -298,14 +312,23 @@ class AgentTodoList extends StatefulWidget {
   State<AgentTodoList> createState() => _AgentTodoListState();
 }
 
+/// Kế hoạch dài hơn số việc này thì mặc định chỉ hiện việc đang làm (bấm để xem hết).
+const kTodoCompactOver = 5;
+
 class _AgentTodoListState extends State<AgentTodoList> {
-  bool? _open; // null: theo trạng thái lượt
+  bool? _open; // null: theo độ dài kế hoạch
 
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    final open = _open ?? true; // mặc định mở, bấm để thu gọn
-    final done = widget.todos.where((t) => t['status'] == 'completed').length;
+    final todos = widget.todos;
+    final long = todos.length > kTodoCompactOver;
+    final open = _open ?? !long; // ngắn: mở sẵn; dài: gọn về việc đang làm
+    final done = todos.where((t) => t['status'] == 'completed').length;
+    // Việc đang làm; chưa có thì việc chưa làm đầu tiên; xong hết thì việc cuối.
+    final current = todos.where((t) => t['status'] == 'in_progress').firstOrNull ??
+        todos.where((t) => t['status'] != 'completed').firstOrNull ??
+        todos.last;
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
@@ -326,7 +349,7 @@ class _AgentTodoListState extends State<AgentTodoList> {
                 Icon(Icons.checklist_rounded, size: 16, color: pal.sub),
                 const SizedBox(width: 6),
                 Text(tr('Kế hoạch việc'), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: pal.sub)),
-                Text(' · $done/${widget.todos.length}', style: TextStyle(fontSize: 13, color: pal.sub)),
+                Text(' · $done/${todos.length}', style: TextStyle(fontSize: 13, color: pal.sub)),
                 const SizedBox(width: 2),
                 Icon(open ? Icons.expand_more : Icons.chevron_right, size: 18, color: pal.sub),
               ]),
@@ -337,8 +360,24 @@ class _AgentTodoListState extends State<AgentTodoList> {
               padding: const EdgeInsets.only(top: 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [for (final t in widget.todos) _TodoRow(todo: t, active: widget.active)],
+                children: [for (final t in todos) _TodoRow(todo: t, active: widget.active)],
               ),
+            )
+          else
+            // Gọn: chỉ việc đang làm (vẫn cập nhật trực tiếp), kèm số việc còn lại; bấm tiêu đề để xem hết.
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _TodoRow(key: const ValueKey('todo-current'), todo: current, active: widget.active),
+                if (todos.length > 1)
+                  InkWell(
+                    onTap: () => setState(() => _open = true),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 26, top: 1, bottom: 2),
+                      child: Text(tr('+ {0} việc khác', [todos.length - 1]), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+                    ),
+                  ),
+              ]),
             ),
         ],
       ),
@@ -418,7 +457,7 @@ class _AgentWrapUpState extends State<AgentWrapUp> {
 class _TodoRow extends StatelessWidget {
   final Map<String, dynamic> todo;
   final bool active;
-  const _TodoRow({required this.todo, required this.active});
+  const _TodoRow({super.key, required this.todo, required this.active});
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);

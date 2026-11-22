@@ -2747,6 +2747,7 @@ class _Bubble extends StatelessWidget {
             openKey: post.id,
             compact: true,
             quiet: claude,
+            showTodos: false, // kế hoạch vẽ ở cuối tin (dưới chữ và các bước)
             stepsElsewhere: hasAgentTimeline(agentRun),
             name: !showName
                 ? null
@@ -2876,6 +2877,9 @@ class _Bubble extends StatelessWidget {
         ])
       else
         Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.only(top: 3), child: meta)),
+      // Kế hoạch việc của lượt chạy: luôn ở cuối tin, dưới câu trả lời và các bước (Sếp, 2026-11-22).
+      if (!hidden && combined && agentTodosOf(agentRun).isNotEmpty)
+        AgentTodoList(key: ValueKey('todos-${post.id}'), todos: agentTodosOf(agentRun), active: agentRunActive(agentRun)),
       // Ghi chú dán lên tin (bấm giữ ghi chú: sao chép / sửa / xoá).
       if (!hidden && notesOfPost(post).isNotEmpty) MessageNotes(app: app, post: post, width: maxW - 22),
       // Tóm tắt cuối lượt của trợ lý (wrap_up): câu hỏi + nút bấm trả lời nhanh.
