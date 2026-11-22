@@ -12,6 +12,7 @@
 // Tệp ở chat khác (0.6.71): chat_get_files(post_id) tải tệp của một tin bất kỳ; chat_send / chat_reply nhận file_ids để gửi lại tệp có sẵn.
 // Lịch sử & bản ghi (0.6.73): chat_history(from?, to?) đọc theo khoảng thời gian; chat_export xuất cả lịch sử ra tệp;
 // session_transcript đọc bản ghi phiên AI (engine trên máy hoặc tin trên Flygo Chat), đã che bí mật.
+import { cleanText } from "./safe-text";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -1195,7 +1196,7 @@ async function callTool(req: any): Promise<any> {
       await Bun.write(path, buf);
       const textual = isTextFile(info.mime_type, info.name);
       const head = `Tệp ${info.name} (${info.mime_type}, ${info.size}B) đã lưu tại: ${path}`;
-      if (textual && buf.length <= 300_000) return text(`${head}\n\n--- nội dung ---\n${new TextDecoder().decode(buf).slice(0, 100_000)}`);
+      if (textual && buf.length <= 300_000) return text(`${head}\n\n--- nội dung ---\n${cleanText(new TextDecoder().decode(buf)).slice(0, 100_000)}`); // bỏ NUL / ký tự điều khiển
       return text(`${head}\nĐây không phải tệp văn bản thuần (hoặc quá lớn) — hãy đọc tệp từ đường dẫn trên bằng công cụ phù hợp.`);
     }
     case "chat_send_files": {

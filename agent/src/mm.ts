@@ -1,3 +1,4 @@
+import { cleanDeep, shrinkPost } from "./safe-text";
 // Client máy chủ chat tối giản: REST + WebSocket (tự kết nối lại).
 
 const WS_PING_MS = 30_000;
@@ -31,11 +32,20 @@ export class MM {
   constructor(public url: string, private token: string) {}
 
   async api<T = any>(method: string, path: string, body?: any): Promise<T> {
-    const r = await fetch(`${this.url}/api/v4${path}`, {
+    // Mọi chuỗi gửi lên đều làm sạch (NUL / ký tự điều khiển / surrogate lẻ làm Postgres từ chối cả tin).
+    const send = (b: any) => fetch(`${this.url}/api/v4${path}`, {
       method,
       headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: b === undefined ? undefined : JSON.stringify(b),
     });
+    const clean = body === undefined ? undefined : cleanDeep(body);
+    let r = await send(clean);
+    // Đăng / sửa tin bị máy chủ từ chối (500 lưu tin, 400 quá dài…): thử lại một lần với bản rút gọn.
+    if (!r.ok && clean && typeof clean === "object" && (r.status === 500 || r.status === 400) && /^\/posts(\/[a-z0-9]+\/patch|\/[a-z0-9]+)?$/.test(path) && method !== "GET") {
+      const first = `${r.status} ${(await r.text()).slice(0, 200)}`;
+      r = await send(shrinkPost(clean));
+      if (!r.ok) throw new Error(`${method} ${path} -> ${first}; gửi lại bản rút gọn -> ${r.status} ${(await r.text()).slice(0, 200)}`);
+    }
     if (!r.ok) throw new Error(`${method} ${path} -> ${r.status} ${(await r.text()).slice(0, 300)}`);
     return (r.status === 204 ? undefined : await r.json()) as T;
   }

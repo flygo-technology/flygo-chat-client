@@ -3739,11 +3739,16 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     if (out) out.error = cancelled ? "đã dừng" : card.error;
     card.interrupted = cancelled && stopping;
     card.setStatus(cancelled ? (stopping ? "stopped" : "cancelled") : "error");
-    await card.finish();
+    // Mỗi bước chốt lượt tự bắt lỗi: một bước hỏng (vd. máy chủ từ chối lưu tin) không được để thẻ kẹt "Brewing" mãi.
+    await card.finish().catch((x) => log(`run ${runId}: chốt thẻ lỗi: ${x?.message ?? x}`));
     void twp?.finish("failed", [reply.current.trim(), cancelled ? "(đã dừng)" : `Lỗi: ${card.error}`].filter(Boolean).join("\n\n"));
     // Runner tắt giữa lượt: đăng lại thành tin có lời nhắn (có thông báo), giữ phần chữ đã viết.
-    await reply.finish(cancelled && stopping ? [reply.current.trim(), STOP_NOTE].filter(Boolean).join("\n\n") : "");
-    if (!cancelled) await mm.createPost({ ...where, message: `❌ Em gặp lỗi: ${card.error}`, props: { ...(post.root_id ? { flygo_reply: "thread" } : {}), flygo_agent_owner: post.user_id } });
+    await reply.finish(cancelled && stopping ? [reply.current.trim(), STOP_NOTE].filter(Boolean).join("\n\n") : "").catch((x) => log(`run ${runId}: chốt câu trả lời lỗi: ${x?.message ?? x}`));
+    const postFail = /POST \/posts|PUT \/posts/.test(card.error);
+    const errProps = { ...(post.root_id ? { flygo_reply: "thread" } : {}), flygo_agent_owner: post.user_id };
+    if (!cancelled) await mm.createPost({ ...where, message: postFail ? `❌ Không gửi được câu trả lời: ${card.error}` : `❌ Em gặp lỗi: ${card.error}`, props: errProps })
+      .catch(() => mm.createPost({ ...where, message: "❌ Không gửi được câu trả lời (máy chủ từ chối lưu tin). Sếp nhắn lại để em làm tiếp.", props: errProps }))
+      .catch((x) => log(`run ${runId}: không đăng được tin lỗi: ${x?.message ?? x}`));
     session.status = cancelled ? "cancelled" : "error";
     log(`run ${runId} ${session.status}: ${e?.message ?? e}`);
   } finally {
