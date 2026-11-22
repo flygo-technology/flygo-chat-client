@@ -1297,15 +1297,8 @@ class _AgentQuestionCardState extends State<AgentQuestionCard> {
             Text(tr('Đã huỷ'), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.sub)),
           ])
         else if (answered)
-          Row(children: [
-            const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF2E9D5B)),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                  answer is String && answer.isNotEmpty ? tr('Đã trả lời: {0}', [answer]) : tr('Đã trả lời'),
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2E9D5B))),
-            ),
-          ])
+          // Đã trả lời: giữ đủ các lựa chọn đã đưa ra, lựa chọn của mình có ✓ và in đậm, kèm ý khác.
+          AgentAnswerOptions(q: {...q, if (q['choices'] == null && _picked.isNotEmpty) 'choices': _picked.toList()}, answer: answer is String ? answer : null)
         else ...[
           for (final o in options) optionTile(o),
           if (allowOther)
@@ -1358,6 +1351,155 @@ class _AgentQuestionCardState extends State<AgentQuestionCard> {
       ]),
     );
   }
+}
+
+/// Các lựa chọn của một câu hỏi đã trả lời: lựa chọn được chọn có ✓ và in đậm, còn lại mờ; ý khác (gõ tay) ở cuối.
+/// [answer]: chuỗi trả lời cũ ("A, B, ý khác") khi runner chưa lưu choices / other.
+class AgentAnswerOptions extends StatelessWidget {
+  final Map<String, dynamic> q;
+  final String? answer;
+  const AgentAnswerOptions({super.key, required this.q, this.answer});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    const green = Color(0xFF2E9D5B);
+    final options = [
+      for (final o in (q['options'] as List? ?? const []))
+        o is Map ? ('${o['label'] ?? ''}', '${o['description'] ?? ''}') : ('$o', ''),
+    ];
+    final ans = answer ?? (q['answer'] is String ? q['answer'] as String : '');
+    final choices = <String>{
+      for (final c in (q['choices'] as List? ?? const [])) '$c',
+      // Runner cũ chỉ lưu chuỗi trả lời: lựa chọn nào có trong chuỗi thì coi là đã chọn.
+      if (q['choices'] == null)
+        for (final o in options)
+          if (o.$1.isNotEmpty && (ans == o.$1 || ans.split(RegExp(r'\s*[,·]\s*')).contains(o.$1))) o.$1,
+    };
+    var other = '${q['other'] ?? ''}'.trim();
+    if (other.isEmpty && choices.isEmpty && ans.isNotEmpty) other = ans;
+    final status = q['status'] as String? ?? 'answered';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      for (final o in options)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(choices.contains(o.$1) ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                  size: 18, color: choices.contains(o.$1) ? green : pal.sub.withValues(alpha: .6)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(o.$1,
+                    style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: choices.contains(o.$1) ? FontWeight.w700 : FontWeight.w400,
+                        color: choices.contains(o.$1) ? pal.text : pal.sub)),
+                if (o.$2.isNotEmpty) Text(o.$2, style: TextStyle(fontSize: 12.5, color: pal.sub)),
+              ]),
+            ),
+          ]),
+        ),
+      if (other.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Padding(padding: EdgeInsets.only(top: 1), child: Icon(Icons.edit_note_rounded, size: 18, color: green)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text.rich(TextSpan(children: [
+                TextSpan(text: tr('Ý khác: '), style: TextStyle(color: pal.sub)),
+                TextSpan(text: other, style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+              ]), style: const TextStyle(fontSize: 14.5)),
+            ),
+          ]),
+        ),
+      if (status == 'cancelled' || status == 'expired')
+        Text(status == 'cancelled' ? tr('Đã huỷ') : tr('Câu hỏi đã hết hạn'),
+            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: pal.sub)),
+    ]);
+  }
+}
+
+/// Câu hỏi đã trả lời, nằm đúng chỗ đã hỏi trong dòng thời gian của lượt chạy (không ghim xuống cuối thẻ).
+class AgentAnsweredQuestion extends StatelessWidget {
+  final Map<String, dynamic> q;
+  const AgentAnsweredQuestion({super.key, required this.q});
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: BoxDecoration(
+        color: pal.accent.withValues(alpha: .05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: pal.accent.withValues(alpha: .2)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(padding: const EdgeInsets.only(top: 1), child: Icon(Icons.help_outline_rounded, size: 17, color: pal.accentText)),
+          const SizedBox(width: 6),
+          Expanded(child: Text('${q['question'] ?? ''}', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: pal.text))),
+        ]),
+        const SizedBox(height: 8),
+        AgentAnswerOptions(q: q),
+      ]),
+    );
+  }
+}
+
+/// Câu hỏi (đã có trả lời / huỷ / hết hạn) của một bước hỏi trong lượt chạy. Runner 0.7.17+: step.questions; runner cũ:
+/// tìm tin câu hỏi (props.flygo_agent_question) cùng chat có nội dung khớp tiêu đề bước ("Chờ trả lời: …" / "Đã trả lời: …").
+/// Mỗi câu kèm '_post' = id tin câu hỏi (để ẩn tin đó khỏi danh sách tin).
+List<Map<String, dynamic>> stepAnsweredQuestions(Map<String, dynamic> step, List<MmPost> posts) {
+  final out = <Map<String, dynamic>>[];
+  final qs = step['questions'];
+  if (qs is List && qs.isNotEmpty) {
+    for (final x in qs) {
+      if (x is! Map) continue;
+      final q = x.cast<String, dynamic>();
+      if ((q['status'] as String? ?? 'pending') == 'pending') continue;
+      // Bước chỉ có phần đầu (đang hỏi): lấy nốt trả lời từ tin câu hỏi.
+      final post = posts.where((p) => p.id == q['post_id']).firstOrNull;
+      out.add({...?agentQuestionOf(post ?? MmPost(const {})), ...q, '_post': q['post_id'] ?? ''});
+    }
+    return out;
+  }
+  if (step['kind'] != 'approval') return out;
+  final title = '${step['title'] ?? ''}';
+  final detail = '${step['detail'] ?? ''}';
+  String after(String s, String head) => s.startsWith(head) ? s.substring(head.length).trim() : '';
+  final asked = after(title, 'Chờ trả lời:');
+  final answered = after(title, 'Đã trả lời:').isNotEmpty ? after(title, 'Đã trả lời:') : after(detail, 'Đã trả lời:');
+  if (asked.isEmpty && answered.isEmpty) return out;
+  final firstAsk = asked.split(' · ').first.replaceAll(RegExp(r'…$'), '');
+  for (final p in posts) {
+    final q = agentQuestionOf(p);
+    if (q == null || (q['status'] as String? ?? 'pending') == 'pending') continue;
+    final text = '${q['question'] ?? ''}';
+    final ans = '${q['answer'] ?? ''}';
+    final hit = firstAsk.length >= 8 ? text.startsWith(firstAsk) : (answered.length >= 3 && ans.startsWith(answered.split(' · ').first));
+    if (hit) out.add({...q, '_post': p.id});
+  }
+  return out;
+}
+
+/// Tin câu hỏi [p] đã trả lời và đã hiện ngay trong dòng thời gian của lượt chạy hỏi nó: không hiện riêng nữa.
+bool questionShownInline(MmPost p, List<MmPost> posts) {
+  final q = agentQuestionOf(p);
+  if (q == null || (q['status'] as String? ?? 'pending') == 'pending') return false;
+  for (final r in posts) {
+    final run = agentRunOf(r);
+    if (run == null || agentMessageOf(r) == null || !hasAgentTimeline(run)) continue;
+    for (final s in (run['steps'] as List? ?? const [])) {
+      if (s is Map && stepAnsweredQuestions(s.cast<String, dynamic>(), posts).any((x) => x['_post'] == p.id)) return true;
+    }
+  }
+  return false;
 }
 
 /// Lượt chạy có dòng thời gian (runner 0.6.19+: props.flygo_agent.texts + step.seg).
@@ -1422,28 +1564,49 @@ class _AgentTimelineState extends State<AgentTimeline> {
     // viết trước nó): khi đó mọi đoạn hiện ở đây theo đúng thứ tự, nội dung tin bên dưới ẩn đi ([agentTextsInTimeline]).
     final shown = texts.isEmpty ? 0 : (agentTextsInTimeline(run) ? texts.length : texts.length - 1);
     final children = <Widget>[];
+    // Tin cùng chat (tìm tin câu hỏi của bước hỏi, runner cũ). Tính một lần cho mỗi lần dựng.
+    final chatPosts = widget.channelId == null ? const <MmPost>[] : context.read<AppState>().postsOf(widget.channelId!);
+    final qCache = <int, List<Map<String, dynamic>>>{};
+    List<Map<String, dynamic>> questionsOf(int i) => qCache[i] ??= stepAnsweredQuestions(steps[i], chatPosts);
     void group(int k, bool Function(int) inGroup) {
       // Giữ chỉ số gốc của bước trong lượt: làm khoá mở chi tiết (bước chỉ được nối thêm vào cuối).
       final idx = [for (var i = 0; i < steps.length; i++) if (inGroup((steps[i]['seg'] as num).toInt())) i];
       if (idx.isEmpty) return;
-      // Kiểu Claude, lượt đã xong: một dòng tóm tắt; bấm để mở (khoá g<k> = đã mở). Bước gửi tệp (ảnh) vẫn hiện.
+      // Câu hỏi đã trả lời: hiện đủ ngay tại bước hỏi (đúng thứ tự thời gian), không phải thẻ ghim cuối tin.
+      final asked = {for (final i in idx) if (questionsOf(i).isNotEmpty) i};
+      // Kiểu Claude, lượt đã xong: một dòng tóm tắt; bấm để mở (khoá g<k> = đã mở). Bước gửi tệp (ảnh) và câu hỏi
+      // đã trả lời vẫn hiện, xen đúng chỗ: các bước trước câu hỏi tóm tắt một dòng, câu hỏi, rồi các bước sau.
       if (widget.summary && !active) {
         final opened = _open.contains('g$k');
-        final plain = [for (final i in idx) if (steps[i]['kind'] != 'files') steps[i]];
-        if (plain.isNotEmpty) {
-          children.add(AgentStepsSummary(steps: plain, open: opened, onTap: () => _toggle('g$k')));
-          if (!opened) {
-            for (final i in idx) {
-              if (steps[i]['kind'] == 'files' && steps[i]['posts'] is List && widget.channelId != null) {
-                children.add(AgentInlineFiles(
-                    key: ValueKey('files-$i'),
-                    channelId: widget.channelId!,
-                    postIds: [for (final id in steps[i]['posts'] as List) '$id'],
-                    label: stepShortLabel(steps[i])));
-              }
-            }
-            return;
+        final plain = [for (final i in idx) if (steps[i]['kind'] != 'files' && !asked.contains(i)) steps[i]];
+        if (plain.isNotEmpty && opened) {
+          children.add(AgentStepsSummary(steps: plain, open: true, onTap: () => _toggle('g$k')));
+        } else if (plain.isNotEmpty || asked.isNotEmpty) {
+          var chunk = <Map<String, dynamic>>[];
+          void flush() {
+            if (chunk.isNotEmpty) children.add(AgentStepsSummary(steps: chunk, open: false, onTap: () => _toggle('g$k')));
+            chunk = [];
           }
+
+          for (final i in idx) {
+            if (asked.contains(i)) {
+              flush();
+              for (final q in questionsOf(i)) {
+                children.add(AgentAnsweredQuestion(key: ValueKey('q-$i-${q['_post']}'), q: q));
+              }
+            } else if (steps[i]['kind'] == 'files' && steps[i]['posts'] is List && widget.channelId != null) {
+              flush();
+              children.add(AgentInlineFiles(
+                  key: ValueKey('files-$i'),
+                  channelId: widget.channelId!,
+                  postIds: [for (final id in steps[i]['posts'] as List) '$id'],
+                  label: stepShortLabel(steps[i])));
+            } else if (steps[i]['kind'] != 'files') {
+              chunk.add(steps[i]);
+            }
+          }
+          flush();
+          return;
         }
       }
       // Mặc định hiện đủ các bước; người dùng bấm "Thu gọn" thì nhóm gọn lại (khoá f<k> = đã thu gọn).
@@ -1462,6 +1625,10 @@ class _AgentTimelineState extends State<AgentTimeline> {
               postIds: [for (final id in steps[visible[j]]['posts'] as List) '$id'],
               label: stepShortLabel(steps[visible[j]]),
             )
+          else if (asked.contains(visible[j]))
+            Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              for (final q in questionsOf(visible[j])) AgentAnsweredQuestion(key: ValueKey('q-${visible[j]}-${q['_post']}'), q: q),
+            ])
           else
           AgentStepRow(
             key: ValueKey('step-${visible[j]}'),

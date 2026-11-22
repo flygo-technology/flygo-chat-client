@@ -472,6 +472,8 @@ class _ChatPageState extends State<ChatPage> {
         .visiblePostsOf(ch.id)
         // Tệp trợ lý gửi giữa câu trả lời (props.flygo_agent_inline): đã vẽ ngay trong dòng thời gian của câu trả lời.
         .where((p) => !p.threadOnly && !(claude && _quietSystem.contains(p.type)) && p.props['flygo_agent_inline'] is! String)
+        // Câu hỏi của trợ lý đã trả lời và đã hiện ngay tại bước hỏi trong dòng thời gian: không hiện riêng ở dưới.
+        .where((p) => !p.props.containsKey('flygo_agent_question') || !questionShownInline(p, app.postsOf(ch.id)))
         .toList();
   }
 
