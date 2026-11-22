@@ -2031,6 +2031,24 @@ class AppState extends ChangeNotifier {
     _dropChannel(channelId);
   }
 
+  /// Phiên AI đang xoá (đã bấm Xoá, chờ máy chủ): danh sách hiện mờ + "Đang xoá…", trang chat của phiên tự đóng.
+  final Set<String> deletingChannels = {};
+
+  /// Xoá phiên: đánh dấu "đang xoá" ngay (giao diện không chờ), gọi máy chủ có hạn giờ để không bao giờ quay mãi;
+  /// lỗi / quá giờ thì bỏ dấu (phiên hiện lại như cũ) và ném lỗi cho nơi gọi báo + thử lại.
+  Future<void> deleteChannelOptimistic(String channelId, {Duration timeout = const Duration(seconds: 20)}) async {
+    deletingChannels.add(channelId);
+    aiSelected.removeWhere((_, v) => v == channelId);
+    notifyListeners();
+    try {
+      await api.delete('/channels/$channelId').timeout(timeout);
+      _dropChannel(channelId);
+    } finally {
+      deletingChannels.remove(channelId);
+      notifyListeners();
+    }
+  }
+
   /// Ẩn tin nhắn riêng / nhóm nhỏ khỏi danh sách (giống "xóa đoạn chat").
   Future<void> hideConversation(String channelId) async {
     final c = channels[channelId];

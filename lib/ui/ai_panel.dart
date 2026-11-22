@@ -736,7 +736,7 @@ class AiSessionTile extends StatelessWidget {
     final preview = last == null ? '' : app.previewText(last).replaceAll('\n', ' ');
     final at = last?.createAt ?? (c.lastPostAt > 0 ? c.lastPostAt : c.createAt);
     final busy = st == AiSessionState.running || st == AiSessionState.approval;
-    return Padding(
+    return DeletingSession(deleting: app.deletingChannels.contains(c.id), child: Padding(
       padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 10, vertical: compact ? 1 : 2),
       child: Material(
         color: selected ? pal.accent.withValues(alpha: .12) : Colors.transparent,
@@ -811,7 +811,7 @@ class AiSessionTile extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 
   Future<void> _sessionOptions(BuildContext context, MmChannel c) async {
@@ -926,12 +926,69 @@ Future<void> runAiSessionAction(BuildContext context, MmChannel c, String action
             ],
           ),
         );
-        if (ok != true) return;
-        app.aiSelected.removeWhere((_, v) => v == c.id);
-        await app.archiveChannel(c.id);
+        if (ok != true || !context.mounted) return;
+        await deleteAiSession(context, c);
     }
   } catch (_) {
     messenger.showSnackBar(toast(Text(tr('Không thực hiện được. Kiểm tra kết nối mạng.'))));
+  }
+}
+
+/// Xoá phiên (đã xác nhận): danh sách hiện "Đang xoá…" và trang chat của phiên tự quay lại ngay; máy chủ xác nhận thì
+/// phiên biến mất. Lỗi / quá giờ: phiên hiện lại như cũ, báo lỗi kèm nút "Thử lại".
+Future<void> deleteAiSession(BuildContext context, MmChannel c) async {
+  final app = context.read<AppState>();
+  final messenger = ScaffoldMessenger.of(context);
+  final name = aiSessionLabel(c);
+  try {
+    await app.deleteChannelOptimistic(c.id);
+  } catch (_) {
+    messenger.showSnackBar(SnackBar(
+      duration: const Duration(seconds: 8),
+      content: Row(children: [
+        const Icon(Icons.error_outline_rounded, size: 22, color: Color(0xFFFF6B6B)),
+        const SizedBox(width: 12),
+        Expanded(child: Text(tr('Không xoá được phiên "{0}". Kiểm tra kết nối mạng.', [name]))),
+      ]),
+      action: SnackBarAction(
+        label: tr('Thử lại'),
+        onPressed: () async {
+          try {
+            await app.deleteChannelOptimistic(c.id);
+          } catch (_) {
+            messenger.showSnackBar(toast(Text(tr('Không xoá được phiên "{0}". Kiểm tra kết nối mạng.', [name]))));
+          }
+        },
+      ),
+    ));
+  }
+}
+
+/// Phiên đang xoá trong danh sách: mờ đi, không bấm được, vòng xoay + "Đang xoá…".
+class DeletingSession extends StatelessWidget {
+  final bool deleting;
+  final Widget child;
+  const DeletingSession({super.key, required this.deleting, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    if (!deleting) return child;
+    final pal = Pal.of(context);
+    return Stack(alignment: Alignment.centerRight, children: [
+      IgnorePointer(child: Opacity(opacity: .4, child: child)),
+      Padding(
+        padding: const EdgeInsets.only(right: 18),
+        child: Container(
+          key: const ValueKey('session-deleting'),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(color: pal.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: pal.divider)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.6, color: pal.sub)),
+            const SizedBox(width: 6),
+            Text(tr('Đang xoá…'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
+          ]),
+        ),
+      ),
+    ]);
   }
 }
 
