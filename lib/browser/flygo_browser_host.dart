@@ -103,6 +103,9 @@ class FlygoBrowserHost {
 
   bool get connected => _ws != null;
 
+  /// Phiên bản engine đang chạy (theo hello).
+  String? engineVersion;
+
   /// Bước đang làm khi mở (màn hình chờ hiện ngay khi bấm): tải trình duyệt / khởi động / đăng nhập / mở trang.
   final stage = ValueNotifier<String>('');
 
@@ -170,12 +173,58 @@ class FlygoBrowserHost {
       if ((await _spaces()).isEmpty) return; // không dùng Ký số: không tốn RAM
       log('khởi động sẵn');
       await _launch(quiet: true);
+      // Kiểm tra bản mới ngay sau khởi động sẵn, rồi mỗi 6 giờ.
+      _updateTimer ??= Timer.periodic(const Duration(hours: 6), (_) => unawaited(checkUpdate()));
+      unawaited(Future<void>.delayed(const Duration(minutes: 1), checkUpdate));
     } catch (e) {
       log('khởi động sẵn lỗi: $e');
     } finally {
       _warming = false;
     }
   }
+
+  // ------------------------------------------------------------------ cập nhật engine
+  Timer? _updateTimer;
+  bool _updating = false;
+
+  /// Tải bản engine mới trên kênh (nếu có) ở nền; thay bản đang chạy chỉ khi rảnh: không cửa sổ công ty nào mở, không
+  /// ký chờ, không agent điều khiển. Chưa rảnh thì thử lại sau 10 phút; engine đang tắt thì lần khởi động sau dùng bản mới.
+  Future<void> checkUpdate() async {
+    if (!supported || _updating) return;
+    _updating = true;
+    try {
+      final root = await _installRoot();
+      final have = _newestInstalled(root);
+      final haveVer = have == null ? null : _verOfPath(have);
+      if (await _install(root, quiet: true, newerThan: haveVer) != null) log('đã tải engine mới (đang có ${haveVer ?? 'không'})');
+      final newest = _newestInstalled(root);
+      final newestVer = newest == null ? null : _verOfPath(newest);
+      if (!connected || newestVer == null || engineVersion == null || _cmp(newestVer, engineVersion!) <= 0) return;
+      if (profiles.value.isNotEmpty) {
+        log('có engine $newestVer, đợi đóng cửa sổ công ty để thay');
+        Timer(const Duration(minutes: 10), () => unawaited(checkUpdate()));
+        return;
+      }
+      final r = Map<String, dynamic>.from(await request('quit', {'ifIdle': true}) as Map);
+      if (r['quitting'] != true) {
+        log('engine chưa rảnh ($r), thử lại sau');
+        Timer(const Duration(minutes: 10), () => unawaited(checkUpdate()));
+        return;
+      }
+      for (var i = 0; i < 50 && connected; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      log('thay engine $engineVersion → $newestVer');
+      await _launch(quiet: true);
+    } catch (e) {
+      log('kiểm tra cập nhật engine lỗi: $e');
+    } finally {
+      _updating = false;
+    }
+  }
+
+  /// `<root>/<ver>/…` → ver.
+  static String? _verOfPath(String exe) => RegExp(r'[\\/](\d+\.\d+\.\d+)[\\/]').firstMatch(exe)?.group(1);
 
   // ------------------------------------------------------------------ liên kết flygochat://kyso?tax=…&url=…
   /// macOS: liên kết mở vào app đang chạy qua kênh "flygo/link" (AppDelegate). Đăng nhập Google cũng dùng kênh này và
@@ -323,6 +372,7 @@ class FlygoBrowserHost {
             return;
           }
           hello = true;
+          engineVersion = m['version'] as String?;
           _ws?.close();
           _ws = ws;
           ws.add(jsonEncode({'t': 'welcome'}));
@@ -594,7 +644,7 @@ class FlygoBrowserHost {
   }
 
   /// Tải engine theo kyso-engine.json của máy chủ (kiểm sha256 + chữ ký ed25519 bằng khoá ghim), giải nén vào `<ver>/`.
-  Future<String?> _install(Directory root) async {
+  Future<String?> _install(Directory root, {bool quiet = false, String? newerThan}) async {
     final key = _platformKey;
     if (key == null) return null;
     final base = staticBase('flygo-update');
@@ -606,6 +656,7 @@ class FlygoBrowserHost {
     final want = ((m['sha256'] as Map?)?[key] as String?)?.toLowerCase();
     final sig = (m['sig'] as Map?)?[key] as String?;
     if (!RegExp(r'^\d+\.\d+\.\d+$').hasMatch(ver) || file == null || want == null || sig == null) return null;
+    if (newerThan != null && _cmp(ver, newerThan) <= 0) return null;
     if (!await _verifySig(want, sig)) throw StateError('chữ ký gói engine không khớp khoá Ký số');
     root.createSync(recursive: true);
     final tmp = File('${root.path}${Platform.pathSeparator}.download-$ver');
@@ -614,11 +665,11 @@ class FlygoBrowserHost {
     if (res.statusCode != 200) throw HttpException('tải engine lỗi ${res.statusCode}');
     final total = res.contentLength;
     var got0 = 0;
-    _stage('Đang tải trình duyệt Ký số (lần đầu)…');
+    if (!quiet) _stage('Đang tải trình duyệt Ký số (lần đầu)…');
     final sink = tmp.openWrite();
     await res.map((chunk) {
       got0 += chunk.length;
-      if (total > 0) download.value = got0 / total;
+      if (total > 0 && !quiet) download.value = got0 / total;
       return chunk;
     }).pipe(sink);
     download.value = null;
