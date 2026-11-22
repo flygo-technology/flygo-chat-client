@@ -338,15 +338,33 @@ class FlygoBrowserHost {
     if (!quiet) _stage('Đang khởi động trình duyệt…');
     _connected = Completer<void>();
     final env = Map<String, String>.from(Platform.environment)..['FLYGO_HOST_KEY'] = _key;
+    final args = ['--managed', '--host-port=${_server!.port}', '--background', '--host-file=${_hostFile!.path}', '--host-pid=$pid'];
     try {
       log('chạy $exe');
-      await Process.start(exe, ['--managed', '--host-port=${_server!.port}', '--background'], environment: env, mode: ProcessStartMode.detached);
+      await Process.start(exe, args, environment: env, mode: ProcessStartMode.detached);
     } catch (e) {
       debugPrint('[flygo-browser] không chạy được $exe: $e');
       return false;
     }
+    // Engine một bản mỗi người dùng: engine cũ mồ côi (Flygo Chat trước đã thoát) nhận lệnh chạy thay cho bản mới. Bản
+    // engine biết --host-file thì tự nối lại (nhận nuôi); không nối trong 8 giây thì tắt nó (SIGTERM) rồi chạy lại.
     try {
-      await _connected!.future.timeout(const Duration(seconds: 40));
+      await _connected!.future.timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      final orphans = await _orphanEngines();
+      if (orphans.isNotEmpty) {
+        log('engine mồ côi ${orphans.join(',')} không nối lại: tắt rồi chạy lại');
+        for (final o in orphans) {
+          Process.killPid(o);
+        }
+        for (var i = 0; i < 50 && orphans.any(_alive); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+        if (!connected) await Process.start(exe, args, environment: env, mode: ProcessStartMode.detached);
+      }
+    }
+    try {
+      await _connected!.future.timeout(const Duration(seconds: 32));
       _failedAt = null;
       log('trình duyệt đã nối IPC');
       return true;
@@ -357,11 +375,36 @@ class FlygoBrowserHost {
     }
   }
 
+  File? _hostFile;
+
+  /// Tiến trình chính của engine chế độ managed đang chạy (của người dùng này), trừ engine đang nối.
+  Future<List<int>> _orphanEngines() async {
+    try {
+      final r = Platform.isWindows
+          ? await Process.run('powershell', ['-NoProfile', '-Command',
+              "Get-CimInstance Win32_Process -Filter \"Name='$_kEngineName.exe'\" | Where-Object { \$_.CommandLine -like '*--managed*' -and \$_.CommandLine -notlike '*--type=*' } | ForEach-Object { \$_.ProcessId }"])
+          : await Process.run('pgrep', ['-f', 'MacOS/$_kEngineName --managed']);
+      return [
+        for (final l in '${r.stdout}'.split(RegExp(r'\s+')))
+          if (int.tryParse(l) case final p? when p != enginePid || !connected) p,
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _listen() async {
     if (_server != null) return;
     final rnd = Random.secure();
     _key = base64Url.encode(List<int>.generate(32, (_) => rnd.nextInt(256)));
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    // Tệp nhận nuôi (chỉ chủ máy đọc): engine mồ côi / engine mất kết nối đọc cổng + khoá mới ở đây để nối lại.
+    final dir = Directory('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}flygo-browser')..createSync(recursive: true);
+    _hostFile = File('${dir.path}${Platform.pathSeparator}host.json');
+    final tmp = File('${_hostFile!.path}.tmp');
+    await tmp.writeAsString(jsonEncode({'port': _server!.port, 'key': _key, 'pid': pid, 'at': DateTime.now().millisecondsSinceEpoch}), flush: true);
+    if (!Platform.isWindows) await Process.run('chmod', ['600', tmp.path]);
+    await tmp.rename(_hostFile!.path);
     _server!.listen((req) async {
       if (req.uri.path != '/kyso-engine' || !WebSocketTransformer.isUpgradeRequest(req) || req.headers.value('origin') != null) {
         req.response.statusCode = 404;
