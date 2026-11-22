@@ -105,6 +105,13 @@ class FlygoBrowserHost {
 
   /// Phiên bản engine đang chạy (theo hello).
   String? engineVersion;
+  int? enginePid;
+
+  /// Tiến trình còn sống không (engine chỉ cho một bản mỗi người dùng: chạy bản mới khi bản cũ chưa thoát thì nó chỉ
+  /// chuyển lệnh cho bản cũ rồi tự thoát).
+  static bool _alive(int pid) => Platform.isWindows
+      ? '${Process.runSync('tasklist', ['/FI', 'PID eq $pid', '/NH']).stdout}'.contains('$pid')
+      : Process.runSync('kill', ['-0', '$pid']).exitCode == 0;
 
   /// Bước đang làm khi mở (màn hình chờ hiện ngay khi bấm): tải trình duyệt / khởi động / đăng nhập / mở trang.
   final stage = ValueNotifier<String>('');
@@ -211,10 +218,15 @@ class FlygoBrowserHost {
         Timer(const Duration(minutes: 10), () => unawaited(checkUpdate()));
         return;
       }
-      for (var i = 0; i < 50 && connected; i++) {
+      final pid = enginePid, old = engineVersion;
+      for (var i = 0; i < 75 && (connected || (pid != null && _alive(pid))); i++) {
         await Future<void>.delayed(const Duration(milliseconds: 200));
       }
-      log('thay engine $engineVersion → $newestVer');
+      if (pid != null && _alive(pid)) {
+        log('engine $old (pid $pid) chưa thoát sau 15 giây, để lần sau');
+        return;
+      }
+      log('thay engine $old → $newestVer');
       await _launch(quiet: true);
     } catch (e) {
       log('kiểm tra cập nhật engine lỗi: $e');
@@ -373,6 +385,7 @@ class FlygoBrowserHost {
           }
           hello = true;
           engineVersion = m['version'] as String?;
+          enginePid = (m['pid'] as num?)?.toInt();
           _ws?.close();
           _ws = ws;
           ws.add(jsonEncode({'t': 'welcome'}));
