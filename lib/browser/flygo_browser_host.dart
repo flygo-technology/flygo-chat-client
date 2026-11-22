@@ -174,15 +174,16 @@ class FlygoBrowserHost {
   /// Sau khi đăng nhập (máy tính): tải sẵn trình duyệt và chạy ẩn ở nền (không cửa sổ) nếu người dùng có space Ký số, để
   /// lần bấm đầu mở ngay. Gọi nhiều lần cũng chỉ chạy một lần.
   Future<void> prewarm() async {
-    if (!supported || _warming || connected || chatToken == null) return;
+    if (!supported || _warming || chatToken == null) return;
+    // Kiểm tra bản mới sau khởi động sẵn (hoặc khi đã nhận nuôi engine cũ), rồi mỗi 6 giờ.
+    _updateTimer ??= Timer.periodic(const Duration(hours: 6), (_) => unawaited(checkUpdate()));
+    unawaited(Future<void>.delayed(const Duration(minutes: 1), checkUpdate));
+    if (connected) return;
     _warming = true;
     try {
       if ((await _spaces()).isEmpty) return; // không dùng Ký số: không tốn RAM
       log('khởi động sẵn');
       await _launch(quiet: true);
-      // Kiểm tra bản mới ngay sau khởi động sẵn, rồi mỗi 6 giờ.
-      _updateTimer ??= Timer.periodic(const Duration(hours: 6), (_) => unawaited(checkUpdate()));
-      unawaited(Future<void>.delayed(const Duration(minutes: 1), checkUpdate));
     } catch (e) {
       log('khởi động sẵn lỗi: $e');
     } finally {
@@ -242,6 +243,9 @@ class FlygoBrowserHost {
   /// macOS: liên kết mở vào app đang chạy qua kênh "flygo/link" (AppDelegate). Đăng nhập Google cũng dùng kênh này và
   /// đặt handler riêng trong lúc đăng nhập; gọi lại hàm này sau khi đăng nhập xong.
   void attachLinks() {
+    // Mở cổng IPC + ghi host.json ngay khi khởi động: engine còn chạy từ Flygo Chat trước (mất host) đọc tệp này mỗi 5 giây
+    // và nối lại; nó tự tắt nếu 10 giây không thấy host mới, nên không đợi tới lúc khởi động sẵn (+15 giây).
+    if (supported) unawaited(_listen().catchError((Object e) => log('mở cổng IPC lỗi: $e')));
     if (!Platform.isMacOS) return;
     const MethodChannel('flygo/link').setMethodCallHandler((call) async {
       final u = Uri.tryParse('${call.arguments}');
