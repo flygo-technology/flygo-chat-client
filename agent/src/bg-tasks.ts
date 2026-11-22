@@ -52,9 +52,13 @@ export function outputFileOf(cmd: string): string | null {
   // > file / >> file / &> file / 1> file (bỏ 2>&1, > /dev/null)
   const reds = [...c.matchAll(/(?:^|[^0-9&>])(?:[1&]?>>?|>>?)\s*(['"]?[^\s'"|;&<>]+['"]?)/g)].map((m) => unquote(m[1])).filter((f) => f && !/^&\d$/.test(f) && f !== "/dev/null");
   const flag = /(?:--log(?:-file)?|--logfile|--output|--out-file|-o|--log-path)(?:=|\s+)(['"]?[^\s'"|;&<>]+['"]?)/.exec(c);
-  if (reds.length) return reds[reds.length - 1];
-  if (tee) return unquote(tee[1]);
-  if (flag) return unquote(flag[1]);
+  // Bỏ "tệp" là biến / biểu thức shell ($L, $(…), `…`, {…}): không đọc được đúng đường dẫn.
+  const ok = (f: string) => !!f && !/[$`{}()*?\[\]"']/.test(f);
+  const pick = reds.filter(ok);
+  if (pick.length) return pick[pick.length - 1];
+  if (reds.length) return null;
+  if (tee && ok(unquote(tee[1]))) return unquote(tee[1]);
+  if (flag && ok(unquote(flag[1]))) return unquote(flag[1]);
   if (/\bnohup\b/.test(c)) return "nohup.out";
   return null;
 }

@@ -25,3 +25,22 @@ test("lỗi thật sau khi gửi lại: báo rõ cả hai lần", async () => {
   const mm = new MM("https://x", "t");
   await expect(mm.patchPost("abc123", { message: "x" })).rejects.toThrow(/gửi lại bản rút gọn/);
 });
+
+test("user(): đọc lỗi trả bản tạm nhưng không nhớ; lần sau đọc lại được bản thật", async () => {
+  let n = 0;
+  globalThis.fetch = (async () => (++n === 1 ? new Response("down", { status: 502 }) : new Response(JSON.stringify({ id: "b1", username: "ba-claude", bot_description: "[flygo-agent engine=claude]" }), { status: 200 }))) as any;
+  const mm = new MM("https://x", "t");
+  const a = await mm.user("b1");
+  expect(a.bot_description).toBeUndefined();
+  const b = await mm.user("b1");
+  expect(b.bot_description).toContain("flygo-agent");
+  expect(await mm.user("b1")).toBe(b); // bản thật được nhớ
+  expect(n).toBe(2);
+});
+
+test("mỗi lần gọi API có hạn chờ (không treo hàng đợi 5 phút)", async () => {
+  let sig: AbortSignal | undefined;
+  globalThis.fetch = (async (_u: any, init: any) => { sig = init.signal; return new Response("{}", { status: 200 }); }) as any;
+  await new MM("https://x", "t").api("GET", "/users/me");
+  expect(sig).toBeInstanceOf(AbortSignal);
+});

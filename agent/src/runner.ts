@@ -1705,8 +1705,18 @@ function onCloseMarker(post: Post) {
   log(`${closed ? "đóng" : "mở lại"} ${post.root_id ? `luồng ${post.root_id}` : `kênh ${post.channel_id}`}`);
 }
 
+/** Số việc đang chờ / chạy của mỗi khoá phiên (để ghi log khi xếp hàng, phát hiện kẹt). */
+const queueDepth = new Map<string, number>();
 function enqueue(root: string, job: () => Promise<void>) {
-  const next = (queues.get(root) ?? Promise.resolve()).then(job, job).catch((e) => log(`job error ${e}`));
+  queueDepth.set(root, (queueDepth.get(root) ?? 0) + 1);
+  const t0 = Date.now();
+  const run = async () => {
+    const waited = Date.now() - t0;
+    if (waited > 60_000) log(`hàng đợi ${root}: việc chờ ${Math.round(waited / 1000)}s mới chạy`);
+    await job();
+  };
+  const next = (queues.get(root) ?? Promise.resolve()).then(run, run).catch((e) => log(`job error ${e}`))
+    .finally(() => { const n = (queueDepth.get(root) ?? 1) - 1; if (n > 0) queueDepth.set(root, n); else queueDepth.delete(root); });
   queues.set(root, next);
 }
 
@@ -1766,7 +1776,8 @@ const onlyMeAnd = (humans: Iterable<string>, bots: Iterable<string>, userId: str
 async function aiResponder(post: Post): Promise<string | null> {
   const m = await channelMembers(post.channel_id);
   const bots: any[] = [];
-  for (const id of m.bots) { const u = await mm.user(id); if (/\[flygo-agent/i.test(u.bot_description ?? "")) bots.push(u); }
+  // Chính bot này luôn là trợ lý (không phụ thuộc đọc được mô tả của mình: đọc lỗi thì trước đây bot tự loại mình, im lặng).
+  for (const id of m.bots) { const u = await mm.user(id); if (id === BOT_ID || /\[flygo-agent/i.test(u.bot_description ?? "")) bots.push(u); }
   if (!bots.length) return null;
   const lastAnswer = (ps: Post[]) => [...ps].reverse().find((p) => p.id !== post.id && p.props?.flygo_agent_message && bots.some((b) => b.id === p.user_id))?.user_id;
   if (post.root_id) { const t = lastAnswer(await mm.thread(post.root_id).catch(() => [] as Post[])); if (t) return t; }
@@ -1863,10 +1874,11 @@ async function onPosted(post: Post, channelType: string) {
   // Chat AI riêng (cột phải) nhiều bot: tin không tag bot nào -> bot trả lời gần nhất (trong luồng / chat đó) nhận; chưa ai thì bot tạo sớm nhất.
   let aiPick = false;
   if (!mentioned && allowed && aiOf(await mm.channel(post.channel_id))) {
-    if (isArchived(await mm.channel(post.channel_id))) return; // phiên đã lưu trữ: chỉ trả lời khi được @tag (khôi phục phiên để nói tiếp như thường)
+    if (isArchived(await mm.channel(post.channel_id))) { log(`bỏ qua tin ${post.id}: phiên AI đã lưu trữ (cần @tag)`); return; } // phiên đã lưu trữ: chỉ trả lời khi được @tag (khôi phục phiên để nói tiếp như thường)
     if ((await taggedAgents(post.message)).length) return; // tag bot khác: bot đó trả lời
-    aiPick = (await aiResponder(post)) === BOT_ID;
-    if (!aiPick) return;
+    const pick = await aiResponder(post);
+    aiPick = pick === BOT_ID;
+    if (!aiPick) { log(`bỏ qua tin ${post.id} ở chat AI ${post.channel_id}: bot trả lời là ${pick ?? "(không xác định)"}`); return; }
   }
   // Trích dẫn tin của chính bot này (không tag bot khác) = nói với bot này, như có @tag.
   const quotedMe = !mentioned && !!(post as any).quote_of && (await mm.api<Post>("GET", `/posts/${(post as any).quote_of}`).catch(() => null))?.user_id === BOT_ID
@@ -1898,8 +1910,10 @@ async function onPosted(post: Post, channelType: string) {
     await mm.createPost({ channel_id: post.channel_id, root_id: threadRootOf(post), message: `⏸ @${BOT_NAME} đang tạm tắt, chưa nhận việc mới. Bật lại trên app để em làm tiếp.`, props: { ...(threadRootOf(post) ? { flygo_reply: "thread" } : {}), flygo_agent_owner: post.user_id, flygo_agent_paused: true } }).catch(() => {});
     return;
   }
-  if (await trySteer(post, root, text)) return;
+  if (await trySteer(post, root, text)) { log(`tin ${post.id}: chèn vào lượt đang chạy (${root})`); return; }
   enqueuedPosts.add(post.id);
+  const busy = queueDepth.get(root) ?? 0;
+  log(`tin ${post.id}: xếp hàng ${root}${busy ? ` (đang có ${busy} việc trước)` : ""}`);
   enqueue(root, () => runTurn(post, root, text));
 }
 
