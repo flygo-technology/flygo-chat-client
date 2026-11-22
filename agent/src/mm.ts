@@ -26,6 +26,9 @@ export function defuseMentions(text: string, allow: string[] = []): string {
 const quiet = <T extends { message?: string; props?: Record<string, any> }>(p: T, allow: string[] = []): T =>
   ({ ...p, ...(p.message !== undefined ? { message: defuseMentions(p.message, allow) } : {}), props: { ...(p.props ?? {}), disable_group_highlight: true } });
 
+/** Hạn chờ mỗi lần gọi API máy chủ chat. */
+export const MM_TIMEOUT_MS = 45_000;
+
 export class MM {
   private users = new Map<string, any>();
   private channels = new Map<string, any>();
@@ -33,10 +36,12 @@ export class MM {
 
   async api<T = any>(method: string, path: string, body?: any): Promise<T> {
     // Mọi chuỗi gửi lên đều làm sạch (NUL / ký tự điều khiển / surrogate lẻ làm Postgres từ chối cả tin).
+    // Có hạn chờ: không có thì một lần gọi treo giữ cả hàng đợi tới 5 phút (hạn mặc định của Bun), 2026-11-22.
     const send = (b: any) => fetch(`${this.url}/api/v4${path}`, {
       method,
       headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
       body: b === undefined ? undefined : JSON.stringify(b),
+      signal: AbortSignal.timeout(MM_TIMEOUT_MS),
     });
     const clean = body === undefined ? undefined : cleanDeep(body);
     let r = await send(clean);
@@ -52,9 +57,15 @@ export class MM {
 
   me() { return this.api("GET", "/users/me"); }
 
+  /** Người dùng (có cache). Đọc lỗi thì trả bản tạm { id, username: id } nhưng KHÔNG lưu cache: trước đây bản tạm (không có
+   *  bot_description) bị nhớ mãi, bot không còn nhận ra chính mình là trợ lý trong chat AI và im lặng bỏ mọi tin (2026-11-22). */
   async user(id: string) {
-    if (!this.users.has(id)) this.users.set(id, await this.api("GET", `/users/${id}`).catch(() => ({ id, username: id })));
-    return this.users.get(id);
+    const c = this.users.get(id);
+    if (c) return c;
+    const u = await this.api("GET", `/users/${id}`).catch(() => null);
+    if (!u) return { id, username: id, _fallback: true };
+    this.users.set(id, u);
+    return u;
   }
   async displayName(id: string) {
     const u = await this.user(id);

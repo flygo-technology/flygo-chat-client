@@ -13,6 +13,8 @@ test("tìm tệp output trong lệnh", () => {
   expect(outputFileOf("curl -o /tmp/x.bin https://a &")).toBe("/tmp/x.bin");
   expect(outputFileOf("./x > /dev/null 2>&1 &")).toBeNull();
   expect(outputFileOf("ls -la")).toBeNull();
+  expect(outputFileOf('nohup ./x > "$L" 2>&1 &')).toBeNull(); // biến shell: không đoán
+  expect(outputFileOf("nohup ./x > $(date).log &")).toBeNull();
 });
 
 test("nhận ra lệnh tách nền, bỏ qua && / 2>&1", () => {
