@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'browser/browser_pairing.dart';
 import 'browser/flygo_browser_host.dart';
 import 'browser/flygo_browser_loading.dart';
+import 'browser/flygo_machine_client.dart';
 import 'ui/shell_highlight.dart' show registerAiFontLicenses;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -459,12 +460,31 @@ class _RootState extends State<Root> {
           final ctx = navigatorKey.currentContext;
           if (ctx != null) unawaited(openInFlygoBrowser(ctx, tax: tax, profile: profile, title: tr('Trình duyệt Ký số'), url: url));
         };
+      // Nhận lệnh khởi động trình duyệt tích hợp từ xa (Gateway, client "machine"); người khác yêu cầu thì hỏi chủ máy.
+      FlygoMachineClient.instance.askConsent = (who, what) async {
+        final ctx = navigatorKey.currentContext;
+        if (ctx == null || !ctx.mounted) return false;
+        return await showDialog<bool>(
+              context: ctx,
+              builder: (c) => AlertDialog(
+                title: Text(tr('Mở trình duyệt trên máy này?')),
+                content: Text(tr('{0} muốn mở {1} trên máy này.', [who, what])),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('Từ chối'))),
+                  FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('Cho phép lần này'))),
+                ],
+              ),
+            ) ==
+            true;
+      };
+      unawaited(FlygoMachineClient.instance.start(a.token));
       // Tải sẵn + chạy ẩn trình duyệt Flygo sau khi đăng nhập (lần bấm đầu mở ngay).
       Future.delayed(const Duration(seconds: 15), FlygoBrowserHost.instance.prewarm);
     }
     if (a == null) {
       BrowserPairing.stop();
       if (FlygoBrowserHost.instance.chatToken != null) unawaited(FlygoBrowserHost.instance.logout());
+      FlygoMachineClient.instance.stop();
     }
     if (a != null && a.sessionExpired) _expired();
   }

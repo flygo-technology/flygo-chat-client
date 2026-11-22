@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../browser/flygo_browser_host.dart';
+import '../browser/flygo_browser_loading.dart';
+import '../browser/flygo_machine_client.dart';
 import '../browser/my_browsers.dart';
 import '../state/app_state.dart';
 import 'common.dart';
@@ -137,8 +140,18 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
                   subtitle: Text(tr('Tắt thì mọi agent dừng điều khiển mọi trình duyệt của bạn.'), style: TextStyle(color: pal.sub, fontSize: 12.5)),
                   onChanged: (v) => _act(() => MyBrowsers.setPrefs(_token, aiEnabled: v), v ? tr('Đã bật') : tr('Đã tắt')),
                 ),
-                for (final b in _list) _card(pal, b),
-                if (_list.isEmpty && _error == null) _install(pal),
+                // Hai nhóm (Sếp 2026-11-22): trình duyệt ngoài (Chrome / Edge có extension) và trình duyệt tích hợp (Flygo / Ký số,
+                // theo máy + công ty, khởi động từ xa được).
+                _section(pal, tr('TRÌNH DUYỆT NGOÀI'), tr('Chrome / Edge có extension Flygo Browser Bridge.')),
+                for (final b in _list.where((b) => !b.integrated)) _card(pal, b),
+                if (!_list.any((b) => !b.integrated) && _error == null) _install(pal),
+                _section(pal, tr('TRÌNH DUYỆT TÍCH HỢP'), tr('Trình duyệt Flygo (Ký số) do Flygo Chat quản lý, mỗi công ty một profile. Đang tắt thì bấm Khởi động, kể cả máy khác (Flygo Chat trên máy đó đang chạy).')),
+                for (final m in _machines()) ...[
+                  Padding(padding: const EdgeInsets.fromLTRB(6, 8, 4, 2), child: Text(m, style: TextStyle(fontWeight: FontWeight.w600, color: pal.sub))),
+                  for (final b in _list.where((b) => b.integrated && (b.machineName.isEmpty ? '?' : b.machineName) == m)) _card(pal, b),
+                ],
+                if (!_list.any((b) => b.integrated)) Padding(padding: const EdgeInsets.all(8), child: Text(tr('Chưa có. Bấm ô Ký số của công ty trên máy tính để Flygo Chat mở trình duyệt tích hợp.'), style: TextStyle(color: pal.sub, fontSize: 13))),
+                if (FlygoBrowserHost.supported) _profiles(pal),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 22, 4, 6),
                   child: Text(tr('AGENT NGOÀI (MCP TOKEN)'),
@@ -165,6 +178,52 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
     );
   }
 
+  List<String> _machines() => {for (final b in _list.where((b) => b.integrated)) b.machineName.isEmpty ? '?' : b.machineName}.toList()..sort();
+
+  Widget _section(Pal pal, String title, String sub) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 18, 4, 4),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: TextStyle(fontSize: 12.5, letterSpacing: .5, fontWeight: FontWeight.w700, color: pal.sub)),
+          const SizedBox(height: 2),
+          Text(sub, style: TextStyle(fontSize: 12, color: pal.sub)),
+        ]),
+      );
+
+  /// Khởi động trình duyệt tích hợp: máy này thì mở thẳng (màn hình chờ), máy khác thì nhờ Flygo Chat bên đó qua Gateway.
+  Future<void> _start(MyBrowser b) async {
+    if (b.machineName.toLowerCase() == FlygoMachineClient.machine.toLowerCase()) {
+      final ok = await openInFlygoBrowser(context, tax: b.tax.isEmpty ? null : b.tax, profile: b.tax.isEmpty && b.profile.isNotEmpty ? b.profile : null, title: b.name);
+      if (!ok && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Không khởi động được trình duyệt tích hợp'))));
+      await _load();
+      return;
+    }
+    await _act(() => MyBrowsers.start(_token, b.id), tr('Đã khởi động {0}', [b.name]));
+  }
+
+  /// Profile công ty (space Ký số của tài khoản): mở / xem; thêm, đổi tên, xoá công ty làm ở trang quản trị Ký số.
+  Widget _profiles(Pal pal) => FutureBuilder<List<Map<String, dynamic>>>(
+        future: FlygoBrowserHost.instance.kysoSpaces(),
+        builder: (_, snap) {
+          final ps = snap.data ?? const [];
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _section(pal, tr('PROFILE CÔNG TY'), tr('Mỗi công ty (token ký số) là một profile của trình duyệt tích hợp.')),
+            for (final p in ps)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.business_rounded),
+                  title: Text('${p['company'] ?? p['name']}'),
+                  subtitle: Text([if ('${p['taxCode']}'.isNotEmpty) 'MST ${p['taxCode']}', Uri.tryParse('${p['server']}')?.host ?? ''].where((x) => x.isNotEmpty).join(' · ')),
+                  trailing: TextButton(
+                      onPressed: () => openInFlygoBrowser(context, tax: '${p['taxCode']}'.isEmpty ? null : '${p['taxCode']}', title: '${p['company'] ?? p['name']}'),
+                      child: Text(tr('Mở'))),
+                ),
+              ),
+            if (snap.connectionState == ConnectionState.done && ps.isEmpty)
+              Padding(padding: const EdgeInsets.all(8), child: Text(tr('Tài khoản chưa có công ty Ký số nào.'), style: TextStyle(color: pal.sub, fontSize: 13))),
+          ]);
+        },
+      );
+
   Widget _card(Pal pal, MyBrowser b) {
     final use = b.inUseBy;
     final status = use != null
@@ -190,6 +249,17 @@ class _MyBrowsersPageState extends State<MyBrowsersPage> {
                 Text(status, style: TextStyle(fontSize: 12.5, color: use != null ? const Color(0xFFFF2BD6) : pal.sub)),
               ]),
             ),
+            // Trình duyệt tích hợp đang tắt: khởi động (máy khác cần Flygo Chat bên đó đang chạy).
+            if (b.integrated && !b.online)
+              Tooltip(
+                message: b.startReady || b.machineName.toLowerCase() == FlygoMachineClient.machine.toLowerCase()
+                    ? tr('Khởi động trình duyệt tích hợp')
+                    : tr('Flygo Chat trên máy {0} đang tắt', [b.machineName]),
+                child: FilledButton.tonal(
+                  onPressed: b.startReady || b.machineName.toLowerCase() == FlygoMachineClient.machine.toLowerCase() ? () => _start(b) : null,
+                  child: Text(tr('Khởi động')),
+                ),
+              ),
             PopupMenuButton<String>(
               onSelected: (v) => switch (v) {
                 'rename' => _rename(b),

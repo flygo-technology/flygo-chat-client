@@ -344,6 +344,9 @@ class FlygoBrowserHost {
     return id;
   }
 
+  /// Công ty Ký số của tài khoản (cho màn Trình duyệt của tôi).
+  Future<List<Map<String, dynamic>>> kysoSpaces() => _spaces().catchError((Object _) => <Map<String, dynamic>>[]);
+
   /// Space Ký số của người dùng: {id, name, company, server (env SERVER), tokenId (env TOKEN), taxCode (env MST)}.
   Future<List<Map<String, dynamic>>> _spaces() async {
     final id = await _flygoId();
@@ -362,7 +365,7 @@ class FlygoBrowserHost {
     final prof = profiles.value.firstWhere((p) => p['key'] == profileKey, orElse: () => const {});
     final company = '${prof['company'] ?? prof['taxCode'] ?? profileKey}';
     final machine = Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), '');
-    for (final server in await _bridgeServers()) {
+    for (final server in await bridgeServers()) {
       if (only != null && only.replaceAll(RegExp(r'/+$'), '') != server) continue;
       final storeKey = 'flygo-browser-bridge:$server|$profileKey';
       Map<String, dynamic>? saved;
@@ -392,7 +395,7 @@ class FlygoBrowserHost {
   }
 
   /// Máy chủ đã đăng nhập trong app có Gateway bridge (`<máy chủ>/__apps/gateway`).
-  Future<List<String>> _bridgeServers() async {
+  Future<List<String>> bridgeServers() async {
     final out = <String>[];
     final urls = {kServerUrl.replaceAll(RegExp(r'/+$'), ''), for (final e in ServerList.items) e.url.replaceAll(RegExp(r'/+$'), '')};
     for (final u in urls) {

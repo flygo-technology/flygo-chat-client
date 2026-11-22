@@ -26,6 +26,15 @@ class MyBrowser {
   Map<String, dynamic>? get inUseBy => raw['in_use_by'] as Map<String, dynamic>?;
   int get lastSeen => (raw['last_seen'] as num?)?.toInt() ?? 0;
 
+  /// external = Chrome / Edge có extension; integrated = trình duyệt Flygo / Ký số (khởi động từ xa được).
+  bool get integrated => raw['category'] == 'integrated' || raw['type'] == 'integrated';
+  bool get remoteStartable => raw['remote_startable'] == true || integrated;
+
+  /// Flygo Chat trên máy của trình duyệt đang chạy (nhận được lệnh khởi động).
+  bool get startReady => raw['start_ready'] == true;
+  String get tax => '${raw['tax'] ?? ''}';
+  String get profile => '${raw['profile'] ?? ''}';
+
   /// props.flygo_browser của tin gửi cho agent.
   Map<String, dynamic> get tag => {'id': id, 'slug': slug, 'name': name};
 }
@@ -120,6 +129,15 @@ class MyBrowsers {
   }
 
   /// Dừng agent đang điều khiển trình duyệt này.
+  /// Khởi động trình duyệt tích hợp đang tắt (Flygo Chat trên máy đó mở ở nền) và chờ nó online. Trả {ok, online}.
+  static Future<Map<String, dynamic>> start(String chatToken, String id, {String? url}) async {
+    final r = await http
+        .post(Uri.parse('$base/api/browsers/$id?action=start'), headers: await _headers(chatToken, json: true), body: jsonEncode({'url': ?url}))
+        .timeout(const Duration(seconds: 75));
+    _at = DateTime.fromMillisecondsSinceEpoch(0);
+    return Map<String, dynamic>.from(_decode(r) as Map);
+  }
+
   static Future<void> stop(String chatToken, String id) async =>
       _decode(await http.post(Uri.parse('$base/api/browsers/$id?action=stop'), headers: await _headers(chatToken)));
 
