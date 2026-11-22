@@ -35,6 +35,9 @@ const kKysoPinnedKey = 'wXbUm7eOYr8JYzBCc+m5JYFsn9RA0hJAmCPjQ7297YI=';
 const kKysoApp = 'vn.flygo.kyso';
 const _kEngineName = 'Trinh duyet Ky so da nang';
 
+/// Bản engine đầu tiên có chế độ --managed: bản cài riêng cũ hơn mà chạy với cờ lạ sẽ mở cửa sổ chọn công ty thay vì nối lại.
+const _kMinManagedEngine = '1.3.0';
+
 class FlygoBrowserHost {
   FlygoBrowserHost._();
   static final instance = FlygoBrowserHost._();
@@ -99,7 +102,11 @@ class FlygoBrowserHost {
   }
 
   // ------------------------------------------------------------------ khởi chạy engine
+  DateTime? _failedAt;
+
   Future<bool> _launch() async {
+    // Lần trước không chạy được: không thử lại (mỗi lần chờ tới 40 giây) trong 30 phút, mở WebView ngay.
+    if (_failedAt != null && DateTime.now().difference(_failedAt!) < const Duration(minutes: 30)) return false;
     final exe = await _engineExecutable();
     if (exe == null) return false;
     await _listen();
@@ -113,10 +120,11 @@ class FlygoBrowserHost {
     }
     try {
       await _connected!.future.timeout(const Duration(seconds: 40));
+      _failedAt = null;
       return true;
     } on TimeoutException {
-      // Bản engine cũ (chưa có --managed) không gọi lại: dùng WebView.
       debugPrint('[flygo-browser] engine không nối lại trong 40 giây');
+      _failedAt = DateTime.now();
       return false;
     }
   }
@@ -285,7 +293,7 @@ class FlygoBrowserHost {
     }
   }
 
-  /// Máy chủ đã đăng nhập trong app có Gateway bridge (<máy chủ>/__apps/gateway).
+  /// Máy chủ đã đăng nhập trong app có Gateway bridge (`<máy chủ>/__apps/gateway`).
   Future<List<String>> _bridgeServers() async {
     final out = <String>[];
     final urls = {kServerUrl.replaceAll(RegExp(r'/+$'), ''), for (final e in ServerList.items) e.url.replaceAll(RegExp(r'/+$'), '')};
@@ -332,7 +340,7 @@ class FlygoBrowserHost {
     return Directory('${(await getApplicationSupportDirectory()).path}/kyso-engine');
   }
 
-  /// File chạy engine: bản app tải về (kyso-engine/<ver>/), không có thì thử tải theo kênh cập nhật, rồi tới bản cài riêng
+  /// File chạy engine: bản app tải về (`kyso-engine/<ver>/`), không có thì thử tải theo kênh cập nhật, rồi tới bản cài riêng
   /// (Trình duyệt Ký số đa năng đã cài sẵn, phải đủ mới để có --managed).
   Future<String?> _engineExecutable() async {
     final root = await _installRoot();
@@ -377,12 +385,25 @@ class FlygoBrowserHost {
               if (b != null) '$b\\$_kEngineName\\$_kEngineName.exe',
           ];
     for (final c in cands) {
-      if (File(c).existsSync()) return c;
+      if (File(c).existsSync() && _cmp(_versionOf(c) ?? '0.0.0', _kMinManagedEngine) >= 0) return c;
     }
     return null;
   }
 
-  /// Tải engine theo kyso-engine.json của máy chủ (kiểm sha256 + chữ ký ed25519 bằng khoá ghim), giải nén vào <ver>/.
+  /// Phiên bản của bản cài riêng (macOS: Info.plist; Windows: thông tin tệp exe).
+  static String? _versionOf(String exe) {
+    try {
+      final r = Platform.isMacOS
+          ? Process.runSync('defaults', ['read', '${exe.substring(0, exe.indexOf('.app/') + 4)}/Contents/Info', 'CFBundleShortVersionString'])
+          : Process.runSync('powershell', ['-NoProfile', '-Command', '(Get-Item "$exe").VersionInfo.ProductVersion']);
+      final v = RegExp(r'\d+\.\d+\.\d+').firstMatch('${r.stdout}')?.group(0);
+      return v;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Tải engine theo kyso-engine.json của máy chủ (kiểm sha256 + chữ ký ed25519 bằng khoá ghim), giải nén vào `<ver>/`.
   Future<String?> _install(Directory root) async {
     final key = _platformKey;
     if (key == null) return null;
@@ -427,7 +448,7 @@ class FlygoBrowserHost {
     try {
       final pub = SimplePublicKey(base64.decode(kKysoPinnedKey), type: KeyPairType.ed25519);
       final sig = Signature(base64.decode(base64.normalize(sigB64.replaceAll('-', '+').replaceAll('_', '/'))), publicKey: pub);
-      return Ed25519().verify(utf8.encode(sha256Hex), signature: sig);
+      return await Ed25519().verify(utf8.encode(sha256Hex), signature: sig);
     } catch (_) {
       return false;
     }
