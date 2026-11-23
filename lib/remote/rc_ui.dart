@@ -49,6 +49,15 @@ class RemoteControlUi {
       if (nav == null) return false;
       return await nav.push<bool>(MaterialPageRoute(fullscreenDialog: true, builder: (_) => const RcPermissionPage())) ?? false;
     };
+    s.permissionNotice = (p, from) {
+      final ctx = _nav?.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      if (isDesktop) {
+        unawaited(DesktopTray.show());
+        WindowToFront.activate();
+      }
+      showDialog<void>(context: ctx, builder: (_) => RcPermissionNotice(fromName: from));
+    };
     s.toast = (text) {
       final ctx = _nav?.currentContext;
       if (ctx != null) ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(toast(Text(text)));
@@ -171,6 +180,7 @@ class RcPermissionPage extends StatefulWidget {
 
 class _RcPermissionPageState extends State<RcPermissionPage> {
   RcPermissions _p = const RcPermissions(accessibility: false, screen: false);
+  bool? _screenWasMissing;
   Timer? _poll;
 
   @override
@@ -188,7 +198,7 @@ class _RcPermissionPageState extends State<RcPermissionPage> {
 
   Future<void> _check() async {
     final p = await RcNative.permissions();
-    if (mounted) setState(() => _p = p);
+    if (mounted) setState(() => (_p = p, _screenWasMissing ??= !p.screen));
   }
 
   @override
@@ -226,9 +236,120 @@ class _RcPermissionPageState extends State<RcPermissionPage> {
         Row(mainAxisAlignment: MainAxisAlignment.end, children: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('Hủy'))),
           const SizedBox(width: 8),
+          // Ghi màn hình vừa bật chỉ có hiệu lực sau khi mở lại app.
+          if (_screenWasMissing == true) ...[
+            OutlinedButton(onPressed: RcNative.relaunch, child: Text(tr('Mở lại Flygo Chat'))),
+            const SizedBox(width: 8),
+          ],
           FilledButton(onPressed: _p.ok ? () => Navigator.pop(context, true) : null, child: Text(tr('Tiếp tục'))),
         ]),
       ]),
+    );
+  }
+}
+
+/// Câu báo trên máy điều khiển khi máy kia thiếu quyền macOS ([missing]: 'screen' | 'accessibility' | 'both' | null),
+/// kèm các bước bật.
+String rcPermissionText(String name, String? missing) {
+  final what = switch (missing) {
+    'screen' => tr('Ghi màn hình'),
+    'accessibility' => tr('Trợ năng'),
+    'both' => tr('Ghi màn hình và Trợ năng'),
+    _ => null,
+  };
+  if (what == null) return tr('Máy của {0} chưa cấp quyền điều khiển. Thử lại sau khi họ cấp quyền.', [name]);
+  final steps = tr('Trên máy đó: Cài đặt hệ thống › Quyền riêng tư & Bảo mật › {0} › bật Flygo Chat.', [what]);
+  final relaunch = missing != 'accessibility' ? '\n${tr('Bật Ghi màn hình xong cần mở lại Flygo Chat trên máy đó.')}' : '';
+  return '${tr('Máy {0} chưa bật quyền {1} cho Flygo Chat.', [name, what])}\n$steps$relaunch';
+}
+
+/// Máy này (macOS) vừa được yêu cầu điều khiển nhưng thiếu quyền: báo ngay, nút mở đúng mục Cài đặt cho từng quyền
+/// (kèm hộp xin quyền của hệ điều hành) và "Mở lại Flygo Chat" (Ghi màn hình chỉ có hiệu lực sau khi mở lại app).
+class RcPermissionNotice extends StatefulWidget {
+  final String fromName;
+  /// Chỉ cho kiểm thử: quyền hiện tại (không hỏi hệ điều hành).
+  final RcPermissions? debugPermissions;
+  const RcPermissionNotice({super.key, required this.fromName, this.debugPermissions});
+  @override
+  State<RcPermissionNotice> createState() => _RcPermissionNoticeState();
+}
+
+class _RcPermissionNoticeState extends State<RcPermissionNotice> {
+  late RcPermissions _p = widget.debugPermissions ?? const RcPermissions(accessibility: false, screen: false);
+  /// Lúc mở hộp thoại Ghi màn hình còn thiếu: bật xong (kể cả trong lúc hộp đang mở) vẫn cần mở lại app.
+  bool _screenWasMissing = false;
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _screenWasMissing = !_p.screen;
+    if (widget.debugPermissions != null) return;
+    _check(first: true);
+    _poll = Timer.periodic(const Duration(seconds: 1), (_) => _check());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _check({bool first = false}) async {
+    final p = await RcNative.permissions();
+    if (!mounted) return;
+    setState(() {
+      _p = p;
+      if (first) _screenWasMissing = !p.screen;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    Widget item(bool ok, String kind, IconData icon, String title, String body) => ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(icon, color: ok ? const Color(0xFF34C759) : pal.sub),
+          title: Text(title),
+          subtitle: Text(body),
+          trailing: ok
+              ? const Icon(Icons.check_circle, color: Color(0xFF34C759))
+              : FilledButton.tonal(
+                  key: ValueKey('rc-perm-open-$kind'),
+                  onPressed: () async {
+                    await RcNative.request(kind);
+                    await RcNative.openSettings(kind);
+                  },
+                  child: Text(tr('Mở Cài đặt')),
+                ),
+        );
+    return AlertDialog(
+      icon: const Icon(Icons.desktop_access_disabled_outlined, size: 36),
+      title: Text(tr('Flygo Chat chưa có quyền điều khiển máy này')),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            tr('{0} vừa yêu cầu điều khiển máy này nhưng macOS chưa cho phép. Bật Flygo Chat trong Cài đặt hệ thống › Quyền riêng tư & Bảo mật, rồi thử lại.',
+                [widget.fromName]),
+            style: TextStyle(color: pal.sub, height: 1.35),
+          ),
+          const SizedBox(height: 10),
+          item(_p.screen, 'screen', Icons.screenshot_monitor_outlined, tr('Ghi màn hình'), tr('Để gửi hình màn hình.')),
+          item(_p.accessibility, 'accessibility', Icons.mouse_outlined, tr('Trợ năng'), tr('Để dùng chuột và bàn phím từ xa.')),
+          if (_screenWasMissing)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(tr('Bật Ghi màn hình xong, macOS cần mở lại Flygo Chat thì quyền mới có hiệu lực.'),
+                  style: TextStyle(color: pal.sub, fontSize: 12.5)),
+            ),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Để sau'))),
+        if (_screenWasMissing)
+          FilledButton(key: const ValueKey('rc-perm-relaunch'), onPressed: RcNative.relaunch, child: Text(tr('Mở lại Flygo Chat'))),
+      ],
     );
   }
 }
@@ -497,7 +618,7 @@ class _RcControllerPageState extends State<RcControllerPage> {
     if (o != null && o != RcRequestOutcome.accepted) {
       return switch (o) {
         RcRequestOutcome.declined => tr('{0} đã từ chối', [name]),
-        RcRequestOutcome.permission => tr('Máy của {0} chưa cấp quyền điều khiển. Thử lại sau khi họ cấp quyền.', [name]),
+        RcRequestOutcome.permission => rcPermissionText(name, _svc.endMissing),
         RcRequestOutcome.timeout => tr('{0} không trả lời', [name]),
         // Máy của chính mình từ chối "không hỗ trợ": thường là chưa cấp quyền Ghi màn hình / Trợ năng hoặc app trên máy đó chưa sẵn sàng.
         RcRequestOutcome.unsupported when _svc.own => tr('Máy {0} chưa sẵn sàng để điều khiển. Mở Flygo Chat trên máy đó và cấp quyền Ghi màn hình + Trợ năng (macOS), rồi thử lại.', [name]),
@@ -509,7 +630,7 @@ class _RcControllerPageState extends State<RcControllerPage> {
       };
     }
     return switch (_svc.endReason) {
-      'permission' => tr('Máy của {0} chưa cấp quyền điều khiển. Thử lại sau khi họ cấp quyền.', [name]),
+      'permission' => rcPermissionText(name, _svc.endMissing),
       'capture' => tr('Máy kia không chụp được màn hình'),
       'network' || 'gone' || 'signal' => tr('Mất kết nối với máy kia'),
       'cancelled' => tr('Máy kia đã huỷ phiên điều khiển'),

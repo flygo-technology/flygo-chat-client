@@ -67,6 +67,21 @@ class RcNative {
     } catch (_) {}
   }
 
+  /// macOS: quyền Ghi màn hình chỉ có hiệu lực sau khi mở lại app. Mở lại Flygo Chat (gói .app đang chạy) rồi thoát.
+  static Future<void> relaunch() async {
+    if (!isMac) return;
+    final exe = Platform.resolvedExecutable;
+    final i = exe.indexOf('.app/');
+    if (i < 0) return;
+    final app = exe.substring(0, i + 4);
+    try {
+      await Process.start('/bin/sh', ['-c', 'sleep 1; open "\$1"', 'relaunch', app], mode: ProcessStartMode.detached);
+      exit(0);
+    } catch (e) {
+      debugPrint('[rc] relaunch: $e');
+    }
+  }
+
   /// Mở đúng mục trong Cài đặt hệ thống (Quyền riêng tư & Bảo mật).
   static Future<void> openSettings(String kind) async {
     try {
