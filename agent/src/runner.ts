@@ -639,7 +639,7 @@ writeFileSync(localFile, JSON.stringify({ port: http.port, key: localKey, server
 const mcpCtx = new Map<string, Record<string, string>>(); // khoá phiên -> env MCP của lượt đang chạy
 /** Env MCP của lượt: đăng ký theo khoá phiên để MCP cũ hỏi lại được (/ctx). */
 function mcpEnvFor(scope: string, e: Record<string, string>) {
-  const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile, FLYGO_CMD_TIMEOUT_SEC: String(cmdTimeoutSec()), FLYGO_CMD_TIMEOUT_MAX_SEC: String(cmdTimeoutMaxSec()) };
+  const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile, FLYGO_CMD_TIMEOUT_SEC: String(cmdTimeoutSec()), FLYGO_CMD_TIMEOUT_MAX_SEC: String(cmdTimeoutMaxSec()), FLYGO_ADB: cfg.adbDevices?.length ? "1" : "0" };
   mcpCtx.set(scope, full);
   return full;
 }
@@ -2637,10 +2637,11 @@ async function adbRunnerTool(name: string, a: any): Promise<{ text: string; imag
   const o = orchRuns.get(String(a.key ?? ""));
   if (!o) return { text: "Phiên không còn chạy.", error: true };
   if (!isOwner(o.assigner ?? "")) return { text: "Chỉ chủ bot mới điều khiển được điện thoại.", error: true };
+  if (!cfg.adbDevices?.length) return { text: "Bot này chưa được cấp điện thoại nào (cấu hình adbDevices).", error: true };
   if (!adbInst) {
     const bin = adbPath();
     if (!bin) return { text: "Máy này chưa cài adb (Android platform-tools).", error: true };
-    adbInst = new Adb(realExec(bin), new Locks(), undefined, new U2(bin, realExec(bin)));
+    adbInst = new Adb(realExec(bin), new Locks(), undefined, new U2(bin, realExec(bin)), () => (cfg.adbDevices ?? []).map(String));
   }
   const ask = runsByKey.get(String(a.key));
   const who = await mm.displayName(o.assigner ?? "").catch(() => "");

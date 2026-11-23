@@ -619,8 +619,8 @@ async function gatewayTools(): Promise<any[]> {
   return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }: any) => ({ name, ...(title ? { title } : {}), description, inputSchema, ...(outputSchema ? { outputSchema } : {}), ...(annotations ? { annotations } : {}) }));
 }
 
-// Điện thoại Android qua adb (adb-tools.ts): chỉ hiện khi máy này có adb (cố định theo máy: không phá prompt cache); FLYGO_ADB=0 để tắt.
-const HAS_ADB = process.env.FLYGO_ADB !== "0" && !!adbPath();
+// Điện thoại Android qua adb (adb-tools.ts): chỉ hiện khi bot được cấp máy (adbDevices -> FLYGO_ADB=1) và máy này có adb (cố định: không phá prompt cache).
+const HAS_ADB = process.env.FLYGO_ADB === "1" && !!adbPath();
 
 server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx(); return {
   tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...BROWSER_LOCAL_TOOLS, ...(HAS_ADB ? ADB_TOOLS : []), ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,

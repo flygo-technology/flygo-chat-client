@@ -24,6 +24,8 @@ export interface Config {
   computerUse?: boolean;
   /** Ghi đè / thêm MCP điều khiển máy: { "<tên>": { command, args?, env? } | false }. */
   desktopMcp?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> } | false>;
+  /** Điện thoại / emulator Android bot được điều khiển qua adb_* (serial, vd ["emulator-5560"]). Mặc định không máy nào: tool adb_* bị ẩn. */
+  adbDevices?: string[];
   skillsDir?: string; // thư mục skill (SKILL.md) chép vào thư mục làm việc
   workspaceRoot: string; // nơi tạo thư mục làm việc theo chat (mỗi chat một thư mục "<tên chat>-<id>")
   projectRoots: string[]; // chat được gắn thư mục code ([flygo-project path=…] / "@bot dự án <path>") chỉ khi path nằm dưới các thư mục này; rỗng = tắt

@@ -92,7 +92,8 @@ const ctx = (over: Partial<AdbCtx> = {}): AdbCtx & { asked: string[]; log: any[]
   const asked: string[] = [], log: any[] = [];
   return { holder: "bot:1", label: "bot", workdir: tmpdir(), approve: async (t) => { asked.push(t); return false; }, audit: (e) => log.push(e), asked, log, ...over };
 };
-const mk = (f = fake()) => new Adb(f.exec, new Locks(mkdtempSync(join(tmpdir(), "adb-locks-"))), async () => {});
+const ALLOW = () => ["emu", "R5CR618NHTA"];
+const mk = (f = fake(), allow = ALLOW) => new Adb(f.exec, new Locks(mkdtempSync(join(tmpdir(), "adb-locks-"))), async () => {}, undefined, allow);
 
 test("tap theo mã phần tử: chạm đúng tâm, trả màn hình mới, ghi nhật ký", async () => {
   const f = fake(), adb = mk(f), c = ctx();
@@ -137,7 +138,7 @@ test("màn hình không idle: xin duyệt chép u2.jar; từ chối thì báo d�
   const base = f.exec;
   const exec: Exec = async (args, o) => (args[2] === "shell" && args[3].includes("uiautomator dump") ? { code: 0, out: Buffer.from(""), err: "" } : base(args, o));
   const { U2 } = await import("./adb-tools");
-  const adb = new Adb(exec, new Locks(mkdtempSync(join(tmpdir(), "adb-locks-"))), async () => {}, new U2("adb", exec, mkdtempSync(join(tmpdir(), "u2-"))));
+  const adb = new Adb(exec, new Locks(mkdtempSync(join(tmpdir(), "adb-locks-"))), async () => {}, new U2("adb", exec, mkdtempSync(join(tmpdir(), "u2-"))), ALLOW);
   const c = ctx();
   await expect(adb.tool("adb_snapshot", {}, c)).rejects.toThrow("image=true");
   expect(c.asked[0]).toContain("uiautomator2");
@@ -147,4 +148,16 @@ test("u2 trả cả thanh trạng thái: bỏ com.android.systemui trừ khi all
   const xml = `<hierarchy><node package="com.android.systemui" class="android.widget.TextView" text="3:05" bounds="[0,0][100,50]" /><node package="com.x" class="android.widget.Button" text="OK" clickable="true" bounds="[0,100][100,200]" /></hierarchy>`;
   expect(elements(parseXml(xml)).map((e) => e.label)).toEqual(["OK"]);
   expect(elements(parseXml(xml), undefined, true).map((e) => e.label)).toEqual(["3:05", "OK"]);
+});
+
+test("adbDevices: máy ngoài danh sách bị ẩn hẳn (không liệt kê, không chọn được); danh sách rỗng = không máy nào", async () => {
+  const f = fake("List of devices attached\nemulator-5560 device model:sdk_gphone64_arm64\nR5CR618NHTA device model:SM_G998B\n");
+  const adb = mk(f, () => ["emulator-5560"]);
+  expect((await adb.tool("adb_devices", {}, ctx())).text).not.toContain("R5CR618NHTA");
+  await expect(adb.tool("adb_tap", { device: "R5CR618NHTA", x: 1, y: 1 }, ctx())).rejects.toThrow("được phép");
+  await expect(adb.tool("adb_tap", { device: "SM_G998B", x: 1, y: 1 }, ctx())).rejects.toThrow("được phép");
+  await adb.tool("adb_snapshot", {}, ctx()); // chỉ còn một máy được phép: tự chọn
+  expect(f.calls.some((c) => c.includes("R5CR618NHTA"))).toBe(false);
+  const none = mk(f, () => []);
+  await expect(none.tool("adb_snapshot", {}, ctx())).rejects.toThrow("không có điện thoại");
 });

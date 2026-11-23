@@ -328,13 +328,15 @@ export class U2 {
 
 export class Adb {
   private last = new Map<string, Screen>();
-  constructor(public exec: Exec, public locks = new Locks(), private sleep = (ms: number) => Bun.sleep(ms), public u2?: U2) {}
+  /** allow: serial được phép (cấu hình adbDevices của bot); máy ngoài danh sách bị ẩn hẳn, không đọc / bấm được. */
+  constructor(public exec: Exec, public locks = new Locks(), private sleep = (ms: number) => Bun.sleep(ms), public u2?: U2, public allow: () => string[] = () => []) {}
   private approveU2 = new Map<string, AdbCtx>(); // máy -> ngữ cảnh lượt đang làm (xin duyệt chép u2.jar)
 
   async devices(): Promise<Device[]> {
     const r = await this.exec(["devices", "-l"], { timeoutMs: 10_000 });
     if (r.code !== 0) throw new Error(`adb devices lỗi: ${r.err.trim() || r.code}`);
-    return parseDevices(r.out.toString());
+    const ok = new Set(this.allow());
+    return parseDevices(r.out.toString()).filter((d) => ok.has(d.serial));
   }
 
   async sh(serial: string, cmd: string, timeoutMs = 20_000): Promise<string> {
@@ -349,7 +351,7 @@ export class Adb {
     const w = String(want ?? "").trim();
     if (w) {
       const d = ds.find((x) => x.serial === w) ?? ds.find((x) => x.model.toLowerCase().includes(w.toLowerCase()));
-      if (!d) throw new Error(`không thấy máy "${w}" (đang online: ${ds.map((x) => `${x.serial} ${x.model}`).join(", ") || "không có"})`);
+      if (!d) throw new Error(`không thấy máy "${w}" trong các máy bot được phép dùng (đang online: ${ds.map((x) => `${x.serial} ${x.model}`).join(", ") || "không có"})`);
       return d.serial;
     }
     const mine = ds.filter((d) => this.locks.get(d.serial)?.holder === holder);
@@ -433,7 +435,7 @@ export class Adb {
   private async run(name: string, a: any, ctx: AdbCtx, setSerial: (s: string) => void): Promise<AdbResult> {
     if (name === "adb_devices") {
       const ds = await this.devices();
-      if (!ds.length) return { text: "Không có điện thoại / emulator nào nối adb với máy này." };
+      if (!ds.length) return { text: "Không có điện thoại / emulator nào (trong danh sách adbDevices của bot) đang nối adb với máy này." };
       return { text: ds.map((d) => { const l = this.locks.get(d.serial); return `${d.serial} · ${d.model || d.product || "?"} · ${d.state}${l ? ` · đang giữ: ${l.holder === ctx.holder ? "bạn" : l.label}` : ""}`; }).join("\n") };
     }
     const serial = await this.pick(a.device, ctx.holder);
