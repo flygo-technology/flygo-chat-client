@@ -253,6 +253,12 @@ class FlygoBrowserHost {
   // ------------------------------------------------------------------ liên kết flygochat://kyso?tax=…&url=…
   /// macOS: liên kết mở vào app đang chạy qua kênh "flygo/link" (AppDelegate). Đăng nhập Google cũng dùng kênh này và
   /// đặt handler riêng trong lúc đăng nhập; gọi lại hàm này sau khi đăng nhập xong.
+  /// Gọi sớm nhất lúc app khởi động (trước đăng nhập): mở cổng IPC + ghi host.json để engine còn chạy từ Flygo Chat trước
+  /// nhận nuôi ngay, không đợi đăng nhập xong.
+  void startIpcEarly() {
+    if (supported) unawaited(_listen().catchError((Object e) => log('mở cổng IPC lỗi: $e')));
+  }
+
   void attachLinks() {
     // Mở cổng IPC + ghi host.json ngay khi khởi động: engine còn chạy từ Flygo Chat trước (mất host) đọc tệp này mỗi 5 giây
     // và nối lại; nó tự tắt nếu 10 giây không thấy host mới, nên không đợi tới lúc khởi động sẵn (+15 giây).

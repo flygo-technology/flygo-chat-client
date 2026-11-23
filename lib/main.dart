@@ -151,6 +151,8 @@ Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   registerAiFontLicenses();
   initMark('ensureInitialized xong');
+  // Trình duyệt Flygo: mở cổng IPC + host.json ngay (engine cũ nhận nuôi kịp, kể cả khi app vừa bị macOS giữ tạm dừng).
+  FlygoBrowserHost.instance.startIpcEarly();
   // macOS: bản ký Developer ID không mang entitlement (không sandbox), mà file_picker kiểm entitlement
   // files.user-selected trước khi mở hộp chọn tệp nên báo lỗi và không mở gì (Sếp, bản 452: đăng bài, đính kèm).
   if (Platform.isMacOS) unawaited(FilePicker.skipEntitlementsChecks().catchError((_) {}));
