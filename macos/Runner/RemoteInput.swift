@@ -9,6 +9,8 @@ import FlutterMacOS
 ///   - inject: chuột / bàn phím / chữ qua CGEventPost
 ///   - showBar / hideBar: thanh đỏ luôn nổi trên cùng + phím tắt dừng Cmd+Shift+F12 (Carbon, không cần quyền)
 ///   - fullscreen: cửa sổ app toàn màn hình (máy điều khiển)
+///   - secureInput: Secure Input đang bật hoặc ô đang nhập là ô mật khẩu (phím CGEventPost bị chặn)
+///   - pasteSecret: dán mật khẩu qua bộ nhớ tạm (đánh dấu ẩn) bằng mục Sửa › Dán của app đang mở, xoá sau vài giây
 final class RemoteInput: NSObject {
   static var shared: RemoteInput?
 
@@ -53,6 +55,10 @@ final class RemoteInput: NSObject {
         NSWorkspace.shared.open(url)
       }
       result(nil)
+    case "secureInput":
+      result(IsSecureEventInputEnabled() || focusedIsSecureField())
+    case "pasteSecret":
+      result(pasteSecret(args["text"] as? String ?? "", clearAfter: (args["clearAfter"] as? NSNumber)?.doubleValue ?? 20))
     case "screens":
       result(["screens": screens()])
     case "inject":
@@ -94,6 +100,69 @@ final class RemoteInput: NSObject {
   private func post(_ ev: CGEvent?) {
     guard let ev = ev else { return }
     ev.post(tap: .cghidEventTap)
+  }
+
+  /// Ô đang nhập (Trợ năng) là ô mật khẩu.
+  private func focusedIsSecureField() -> Bool {
+    let system = AXUIElementCreateSystemWide()
+    var focused: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+          let el = focused, CFGetTypeID(el) == AXUIElementGetTypeID() else { return false }
+    var sub: CFTypeRef?
+    AXUIElementCopyAttributeValue(el as! AXUIElement, kAXSubroleAttribute as CFString, &sub)
+    return (sub as? String) == (kAXSecureTextFieldSubrole as String)
+  }
+
+  /// Mục menu có phím tắt Cmd+V (không kèm phím khác) và đang bật, tìm trong thanh menu của app [pid].
+  private func pasteMenuItem(_ pid: pid_t) -> AXUIElement? {
+    let app = AXUIElementCreateApplication(pid)
+    var bar: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString, &bar) == .success, let root = bar else { return nil }
+    func attr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
+      var v: CFTypeRef?
+      return AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success ? v : nil
+    }
+    func search(_ el: AXUIElement, depth: Int) -> AXUIElement? {
+      if depth > 4 { return nil }
+      if (attr(el, kAXMenuItemCmdCharAttribute) as? String)?.uppercased() == "V",
+         (attr(el, kAXMenuItemCmdModifiersAttribute) as? NSNumber)?.intValue ?? 0 == 0,
+         (attr(el, kAXEnabledAttribute) as? Bool) ?? false {
+        return el
+      }
+      for c in (attr(el, kAXChildrenAttribute) as? [AXUIElement]) ?? [] {
+        if let hit = search(c, depth: depth + 1) { return hit }
+      }
+      return nil
+    }
+    return search(root as! AXUIElement, depth: 0)
+  }
+
+  /// Dán [text] vào ô đang chọn của app đang mở. Secure Input chặn phím gửi từ phần mềm (kể cả Cmd+V), nên bấm mục
+  /// Sửa › Dán bằng Trợ năng; app không có mục đó mới thử Cmd+V. Bộ nhớ tạm đánh dấu ẩn (trình quản lý bộ nhớ tạm bỏ
+  /// qua) và xoá sau [clearAfter] giây nếu chưa ai chép gì khác. Không ghi nội dung ra nhật ký.
+  private func pasteSecret(_ text: String, clearAfter: Double) -> String {
+    if text.isEmpty { return "" }
+    let pb = NSPasteboard.general
+    pb.clearContents()
+    pb.setString(text, forType: .string)
+    pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+    pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+    let count = pb.changeCount
+    DispatchQueue.main.asyncAfter(deadline: .now() + max(5, min(clearAfter, 120))) {
+      if NSPasteboard.general.changeCount == count { NSPasteboard.general.clearContents() }
+    }
+    if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier, let item = pasteMenuItem(pid),
+       AXUIElementPerformAction(item, kAXPressAction as CFString) == .success {
+      return "menu"
+    }
+    let v = CGKeyCode(kVK_ANSI_V)
+    guard let down = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: true),
+          let up = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: false) else { return "" }
+    down.flags = .maskCommand
+    up.flags = .maskCommand
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
+    return "keys"
   }
 
   private func inject(_ e: [String: Any]) {

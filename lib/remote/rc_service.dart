@@ -109,6 +109,13 @@ class RemoteControlService extends ChangeNotifier {
   String remotePlatform = '';
   /// Màn hình của máy kia (máy kia gửi sau khi kết nối) và màn hình đang xem.
   List<RcDisplay> screens = const [];
+
+  /// Máy điều khiển: ô đang nhập ở máy kia (macOS) là ô mật khẩu / Secure Input đang bật, phím gõ từ xa bị chặn.
+  bool remoteSecure = false;
+
+  /// Máy bị điều khiển: trạng thái Secure Input đã báo cho máy kia, và bộ đếm hỏi lại mỗi giây.
+  bool _secureSent = false;
+  Timer? _secureTimer;
   String screenId = '';
   /// Đã xin đổi sang màn hình này, đang chờ máy kia xác nhận.
   String? switchingTo;
@@ -338,6 +345,7 @@ class RemoteControlService extends ChangeNotifier {
     endReason = null;
     endMissing = null;
     _sendMissing = null;
+    remoteSecure = false;
     startedAt = null;
     sid = null;
     remotePlatform = '';
@@ -454,8 +462,20 @@ class RemoteControlService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Dán mật khẩu vào ô đang chọn của máy kia (người dùng gõ trong hộp thoại "Dán mật khẩu", không qua bộ nhớ tạm của
+  /// máy này).
+  void pasteSecret(String secret) => sendInput(RcPasteSecret(secret));
+
   void _onHostMessage(String raw) {
     if (role != RcRole.controller) return;
+    final secure = rcSecureDecode(raw);
+    if (secure != null) {
+      if (secure != remoteSecure) {
+        remoteSecure = secure;
+        notifyListeners();
+      }
+      return;
+    }
     final m = RcHostMessage.decode(raw);
     if (m == null) return;
     screens = List.unmodifiable(m.screens);
@@ -625,6 +645,12 @@ class RemoteControlService extends ChangeNotifier {
     if (sid != s) return;
     _ready();
     RcNative.onStop = () => stop(reason: 'stopped');
+    // macOS: ô mật khẩu bật Secure Input thì phím gõ từ xa bị chặn: báo máy điều khiển để hiện "Dán mật khẩu".
+    if (RcNative.isMac) {
+      _secureSent = false;
+      _secureTimer?.cancel();
+      _secureTimer = Timer.periodic(const Duration(seconds: 1), (_) => unawaited(_checkSecure()));
+    }
     hotkey = await RcNative.showBar(
       text: _barText,
       stop: tr('Dừng'),
@@ -660,12 +686,27 @@ class RemoteControlService extends ChangeNotifier {
       unawaited(_switchScreen(i.id));
       return;
     }
+    if (i is RcPasteSecret && RcNative.isMac) {
+      unawaited(RcNative.pasteSecret(i.secret).then((via) {
+        if (via.isEmpty) toast?.call(tr('Không dán được mật khẩu vào ô đang chọn.'));
+      }));
+      return;
+    }
     unawaited(RcNative.inject(inj.map(i)));
+  }
+
+  Future<void> _checkSecure({bool force = false}) async {
+    if (role != RcRole.host || _host == null) return;
+    final on = await RcNative.secureInput();
+    if (role != RcRole.host || (on == _secureSent && !force)) return;
+    _secureSent = on;
+    _host?.send(rcSecureEncode(on));
   }
 
   /// Gửi danh sách màn hình và màn hình đang chia sẻ cho máy điều khiển.
   void _sendScreens() {
     if (role != RcRole.host || _hostScreens.isEmpty) return;
+    if (RcNative.isMac) unawaited(_checkSecure(force: true));
     _host?.send(RcHostMessage(_hostScreenId, [for (final e in _hostScreens) e.display]).encode());
   }
 
@@ -832,6 +873,9 @@ class RemoteControlService extends ChangeNotifier {
       _sig?.send({'t': 'end', 'sid': s, 'reason': reason, if (reason == 'permission' && _sendMissing != null) 'missing': _sendMissing});
     }
     _sendMissing = null;
+    _secureTimer?.cancel();
+    _secureTimer = null;
+    _secureSent = false;
     final wasRole = role, started = startedAt, ch = channelId;
     if (wasRole == RcRole.host) {
       final inj = _injector;
