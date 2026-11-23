@@ -209,7 +209,7 @@ class FlygoBrowserHost {
   /// Tải bản engine mới trên kênh (nếu có) ở nền; thay bản đang chạy chỉ khi rảnh: không cửa sổ công ty nào mở, không
   /// ký chờ, không agent điều khiển. Chưa rảnh thì thử lại sau 10 phút; engine đang tắt thì lần khởi động sau dùng bản mới.
   Future<void> checkUpdate() async {
-    if (!supported || _updating) return;
+    if (!supported || _updating || (_server == null && await _otherHostAlive())) return;
     _updating = true;
     try {
       final root = await _installRoot();
@@ -408,8 +408,23 @@ class FlygoBrowserHost {
     }
   }
 
+  /// Một Flygo Chat khác (vd bản mở thêm qua LaunchServices) đang làm chủ engine theo host.json: bản này không khởi động /
+  /// cập nhật engine (hai bản cùng làm thì tranh tệp tải và engine, 2026-11-23).
+  Future<bool> _otherHostAlive() async {
+    try {
+      final dir = '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}flygo-browser';
+      final f = File('$dir${Platform.pathSeparator}host.json');
+      if (!f.existsSync()) return false;
+      final p = ((jsonDecode(await f.readAsString()) as Map)['pid'] as num?)?.toInt();
+      return p != null && p != pid && _alive(p);
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _listen() async {
     if (_server != null) return;
+    if (await _otherHostAlive()) throw StateError('một Flygo Chat khác đang chạy trình duyệt Ký số');
     final rnd = Random.secure();
     _key = base64Url.encode(List<int>.generate(32, (_) => rnd.nextInt(256)));
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -748,7 +763,7 @@ class FlygoBrowserHost {
     if (newerThan != null && _cmp(ver, newerThan) <= 0) return null;
     if (!await _verifySig(want, sig)) throw StateError('chữ ký gói engine không khớp khoá Ký số');
     root.createSync(recursive: true);
-    final tmp = File('${root.path}${Platform.pathSeparator}.download-$ver');
+    final tmp = File('${root.path}${Platform.pathSeparator}.download-$ver-$pid');
     final req = await HttpClient().getUrl(Uri.parse('$base/$file'));
     final res = await req.close();
     if (res.statusCode != 200) throw HttpException('tải engine lỗi ${res.statusCode}');
