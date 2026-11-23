@@ -41,6 +41,7 @@ import { describe as schedDescribe, HISTORY_MAX, nextRun, normalize as schedNorm
 import { spawn } from "./spawn";
 import { createGatewayRuns } from "./gateway";
 import { bilingualOf } from "./bilingual";
+import { Adb, auditWriter, adbPath, Locks, realExec, U2, type AdbCtx } from "./adb-tools";
 
 // Tiền tố id plugin của máy chủ chat.
 const PLUGIN_VENDOR = "matter" + "most";
@@ -581,6 +582,9 @@ const http = Bun.serve({
     if (url.pathname.startsWith("/sess_op/") && req.method === "POST") { // session_rename / session_fork / session_new / project_*
       const r = await sessOpTool(url.pathname.slice(9), await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
       return Response.json({ text: r });
+    }
+    if (url.pathname.startsWith("/adb/") && req.method === "POST") { // điện thoại Android (adb-tools.ts)
+      return Response.json(await adbRunnerTool(url.pathname.slice(5), await req.json()).catch((e: any) => ({ text: `Lỗi: ${e?.message ?? e}`, error: true })));
     }
     if (url.pathname.startsWith("/chat_op/") && req.method === "POST") { // bộ công cụ chat (chat-ops.ts)
       const r = await chatOpTool(url.pathname.slice(9), await req.json()).catch((e: any) => `Lỗi: ${e?.message ?? e}`);
@@ -2624,6 +2628,33 @@ async function spawnTask(ctx: OrchRun, ch: any, ai: ReturnType<typeof aiOf>, a: 
     }).catch((e) => log(`việc ngầm ${c.id}: không báo về được: ${e?.message ?? e}`));
   });
   return `Đã giao việc chạy ngầm "${title}" (phiên con id ${c.id}, ${sessLink(first.id)}). Phiên con tự làm; xong sẽ tự báo kết quả về phiên này. Không cần chờ: làm tiếp việc khác hoặc trả lời ngắn là đã giao.`;
+}
+
+// Điện thoại Android: chỉ chủ bot; khoá máy theo bot + phiên (tệp dùng chung mọi runner trên máy); nhật ký ~/.config/flygo-agent/adb-audit.jsonl.
+let adbInst: Adb | null = null;
+const adbAudit = auditWriter();
+async function adbRunnerTool(name: string, a: any): Promise<{ text: string; image?: string; error?: boolean }> {
+  const o = orchRuns.get(String(a.key ?? ""));
+  if (!o) return { text: "Phiên không còn chạy.", error: true };
+  if (!isOwner(o.assigner ?? "")) return { text: "Chỉ chủ bot mới điều khiển được điện thoại.", error: true };
+  if (!adbInst) {
+    const bin = adbPath();
+    if (!bin) return { text: "Máy này chưa cài adb (Android platform-tools).", error: true };
+    adbInst = new Adb(realExec(bin), new Locks(), undefined, new U2(bin, realExec(bin)));
+  }
+  const ask = runsByKey.get(String(a.key));
+  const who = await mm.displayName(o.assigner ?? "").catch(() => "");
+  const ctx: AdbCtx = {
+    holder: `${BOT_ID}:${o.root}`, label: `@${BOT_NAME}${who ? ` (${who})` : ""}`, workdir: o.dir,
+    approve: async (title, detail) => {
+      if (!ask) return false;
+      log(`xin duyệt adb: ${oneLine(title, 160)}`);
+      return (await ask({ kind: "tool", title, detail, tool: `mcp__flygo_chat__${name}` })) === "accept";
+    },
+    audit: (e) => adbAudit({ bot: BOT_NAME, assigner: o.assigner, session: o.root, ...e }),
+  };
+  try { return await adbInst.tool(name, a, ctx); }
+  catch (e: any) { return { text: `Lỗi: ${e?.message ?? e}`, error: true }; }
 }
 
 async function chatOpTool(op: string, a: any): Promise<string> {

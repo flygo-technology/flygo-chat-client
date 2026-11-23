@@ -26,6 +26,7 @@ import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
 import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
 import { BROWSER_LOCAL_TOOLS, BROWSER_LOCAL_TOOL_NAMES, browserLocalTool } from "./browser-local";
+import { ADB_TOOLS, ADB_TOOL_NAMES, adbPath } from "./adb-tools";
 
 export async function runMcpChat() {
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`thiếu env ${k}`); return v; };
@@ -618,8 +619,11 @@ async function gatewayTools(): Promise<any[]> {
   return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }: any) => ({ name, ...(title ? { title } : {}), description, inputSchema, ...(outputSchema ? { outputSchema } : {}), ...(annotations ? { annotations } : {}) }));
 }
 
+// Điện thoại Android qua adb (adb-tools.ts): chỉ hiện khi máy này có adb (cố định theo máy: không phá prompt cache); FLYGO_ADB=0 để tắt.
+const HAS_ADB = process.env.FLYGO_ADB !== "0" && !!adbPath();
+
 server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx(); return {
-  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...BROWSER_LOCAL_TOOLS, ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
+  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...BROWSER_LOCAL_TOOLS, ...(HAS_ADB ? ADB_TOOLS : []), ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
     ...(await gatewayTools())],
 }; });
 const CHAT_TOOLS = [
@@ -1030,6 +1034,11 @@ async function callTool(req: any): Promise<any> {
     return text(r.text ?? JSON.stringify(r));
   }
   if (String(req.params.name).startsWith("meeting_")) return text(await meetingTool(req.params.name, a).catch((e) => `Lỗi: ${e?.message ?? e}`));
+  // Điện thoại Android: runner kiểm chủ bot, giữ khoá máy, xin duyệt thao tác nhạy cảm, ghi nhật ký.
+  if (ADB_TOOL_NAMES.has(req.params.name)) {
+    const r = await runner(`/adb/${req.params.name}`, a).catch((e) => ({ text: `Lỗi: ${e?.message ?? e}` }));
+    return { content: [{ type: "text", text: String(r.text ?? "") }, ...(r.image ? [{ type: "image", data: r.image, mimeType: "image/png" }] : [])], ...(r.error ? { isError: true } : {}) };
+  }
   // Mở profile Chrome có extension Flygo trên máy này (trình duyệt Flygo đang tắt): chỉ mở Chrome, không cần duyệt.
   if (BROWSER_LOCAL_TOOL_NAMES.has(req.params.name)) return text(await browserLocalTool(req.params.name, a).catch((e) => `Lỗi: ${e?.message ?? e}`));
   if (FS_TOOL_NAMES.has(req.params.name)) {

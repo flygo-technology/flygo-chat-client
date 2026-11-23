@@ -14,6 +14,7 @@ import type { Engine, EngineInventory, TurnHooks, TurnInput, TurnResult } from "
 import { CHAT_OP_SELF_STEP, CHAT_OP_TOOLS } from "../chat-ops";
 import { spawn, spawnSync } from "../spawn";
 import { claudeLimits, type UsageLimits } from "../limits";
+import { ADB_TOOLS } from "../adb-tools";
 
 // Claude không có API liệt kê model qua CLI: danh sách cố định (alias + id đầy đủ, app gửi id đầy đủ).
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -122,7 +123,9 @@ function supportsStreamInput(bin: string): Promise<boolean> {
 
 /** Tool flygo_chat luôn chạy không cần duyệt (kể cả khi cấu hình tự đặt allowedTools): đăng artifact vào chính phiên;
  *  mcp_add tự mở hộp duyệt riêng trên app nên không xin duyệt hai lần; browser_open_profiles chỉ mở Chrome của chủ máy. */
-const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open"];
+const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open",
+  // adb_*: runner tự kiểm chủ bot + xin duyệt cài / gỡ / xoá dữ liệu / shell ghi / nút gửi, thanh toán (adb-tools.ts).
+  ...ADB_TOOLS.map((t) => `mcp__flygo_chat__${t.name}`)];
 
 /** Quyền của lượt Claude. fullAccess / "luôn cho phép" / bypassPermissions: không hỏi, không deny (như trước).
  *  Lượt TeamWork không cần duyệt (twBypass): --permission-mode bypassPermissions NHƯNG vẫn giữ deny (cấu hình + TW_CLAUDE_DENY);
