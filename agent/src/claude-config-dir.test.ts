@@ -30,6 +30,6 @@ test("kiểm tra đăng nhập (auth status) chạy với env của bot: tài kh
 });
 
 test("engine claude tìm phiên trong <CLAUDE_CONFIG_DIR của bot>/projects", () => {
-  const e = new ClaudeEngine({ env: { CLAUDE_CONFIG_DIR: "/bot2" }, claude: {} } as any);
+  const e = new ClaudeEngine({ env: { CLAUDE_CONFIG_DIR: "/bot2" }, claude: {} } as any, { command: "x", args: [] }, () => {});
   expect(e.projectsDir()).toBe("/bot2/projects");
 });
