@@ -1,6 +1,7 @@
 // Engine Claude: mỗi lượt chạy `claude -p --output-format stream-json`, nói tiếp bằng --resume.
 // Quyền: công cụ ngoài allowedTools được hỏi qua tool MCP flygo_chat.approve (--permission-prompt-tool)
 // -> runner hiện yêu cầu duyệt trên Flygo.
+import { claudeConfigDir } from "../config";
 import { badgeOf } from "../cmd-limits";
 import { claudeReadOnly, desktopMcp } from "../desktop-mcp";
 import { mergeDeny, TW_CLAUDE_DENY } from "../teamwork";
@@ -47,8 +48,7 @@ function describe(name: string, input: any): { kind: "command" | "file" | "tool"
 
 /** claude --resume tìm phiên trong ~/.claude/projects/<cwd>: thư mục làm việc đổi (đổi tên chat, gắn dự án, kênh bí mật về chat cha)
  *  thì chép file phiên sang thư mục mới để vẫn nói tiếp được. */
-function adoptSession(id: string, cwd: string) {
-  const root = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+function adoptSession(id: string, cwd: string, root: string) {
   const want = join(root, cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${id}.jsonl`);
   if (existsSync(want) || !existsSync(root)) return;
   for (const d of readdirSync(root)) {
@@ -58,8 +58,7 @@ function adoptSession(id: string, cwd: string) {
 }
 
 /** File phiên trên máy (thư mục dự án bất kỳ). */
-function sessionFile(id: string): string | null {
-  const root = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+function sessionFile(id: string, root: string): string | null {
   if (!existsSync(root)) return null;
   for (const d of readdirSync(root)) { const f = join(root, d, `${id}.jsonl`); if (existsSync(f)) return f; }
   return null;
@@ -103,12 +102,12 @@ const streamUserMsg = (text: string) => JSON.stringify({ type: "user", message: 
 /** `claude` cũ (trước khi có `--input-format stream-json`) thì không chèn tin giữa lượt được: kiểm một lần theo bin rồi nhớ.
  *  Không đọc được help thì coi như không hỗ trợ (chạy đường cũ: prompt làm tham số, không steering). */
 const streamInputCache = new Map<string, Promise<boolean>>();
-function supportsStreamInput(bin: string): Promise<boolean> {
+function supportsStreamInput(bin: string, env?: Record<string, string>): Promise<boolean> {
   let p = streamInputCache.get(bin);
   if (!p) {
     p = (async () => {
       try {
-        const proc = spawn([bin, "--help"], { env: { ...process.env }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+        const proc = spawn([bin, "--help"], { env: { ...process.env, ...(env ?? {}) }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
         const timer = setTimeout(() => { try { proc.kill(); } catch {} }, 15_000);
         const out = await new Response(proc.stdout).text().catch(() => "");
         await proc.exited.catch(() => {});
@@ -167,6 +166,8 @@ export class ClaudeEngine implements Engine {
   private initSkills: string[] = []; // kỹ năng claude nạp (sự kiện init của lượt gần nhất)
   private limits: UsageLimits | null = null; // hạn mức gói Claude (rate_limit_event của lượt gần nhất)
   async usageLimits() { return this.limits; }
+  /** <CLAUDE_CONFIG_DIR của bot>/projects: nơi Claude Code của bot này lưu phiên. */
+  projectsDir() { return join(claudeConfigDir(this.cfg), "projects"); }
 
   async inventory(): Promise<EngineInventory> {
     return {
@@ -184,7 +185,7 @@ export class ClaudeEngine implements Engine {
     private botName: () => string = () => "") {}
 
   async contextTokens(id: string) {
-    const f = sessionFile(id);
+    const f = sessionFile(id, this.projectsDir());
     if (!f) return null;
     return tailTokens(f, (ev) => {
       const u = ev?.type === "assistant" ? ev.message?.usage : null;
@@ -217,7 +218,7 @@ export class ClaudeEngine implements Engine {
     const bin = resolveBin(this.cfg.claude.bin);
     // stream-json ở chiều vào: prompt (và tin chèn giữa lượt) đưa qua stdin, không truyền prompt làm tham số.
     // claude cũ không có --input-format thì chạy đường cũ (prompt làm tham số, không chèn được tin giữa lượt).
-    const streamIn = await supportsStreamInput(bin);
+    const streamIn = await supportsStreamInput(bin, this.cfg.env);
     const args = [
       bin, "-p",
       ...(streamIn ? ["--input-format", "stream-json"] : [input.prompt]),
@@ -241,8 +242,9 @@ export class ClaudeEngine implements Engine {
       args.push("--tools", t.join(","));
     }
     if (input.effort) args.push("--effort", input.effort);
-    if (input.sessionId) { adoptSession(input.sessionId, input.cwd); args.push("--resume", input.sessionId); }
-    else if (input.forkFrom && sessionFile(input.forkFrom)) { adoptSession(input.forkFrom, input.cwd); args.push("--resume", input.forkFrom, "--fork-session"); } // phiên mới mang ngữ cảnh phiên cha
+    const pdir = this.projectsDir();
+    if (input.sessionId) { adoptSession(input.sessionId, input.cwd, pdir); args.push("--resume", input.sessionId); }
+    else if (input.forkFrom && sessionFile(input.forkFrom, pdir)) { adoptSession(input.forkFrom, input.cwd, pdir); args.push("--resume", input.forkFrom, "--fork-session"); } // phiên mới mang ngữ cảnh phiên cha
     args.push("--name", input.title);
     if (this.cfg.claude.chrome) args.push("--chrome");
 

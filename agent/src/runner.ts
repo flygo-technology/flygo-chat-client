@@ -10,7 +10,7 @@ import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { normHost } from "./config";
+import { claudeConfigDir, claudeEnv, normHost } from "./config";
 import { join, resolve, sep } from "node:path";
 import defaultPersona from "../profiles/default/persona.md" with { type: "text" };
 import compactPersona from "../profiles/default/persona-compact.md" with { type: "text" };
@@ -224,7 +224,7 @@ writeFileSync(lockPath, String(process.pid));
 cleanups.push(() => { liveBots.delete(BOT_ID); try { if (readFileSync(lockPath, "utf8") === String(process.pid)) unlinkSync(lockPath); } catch {} });
 
 // ---- engine có sẵn trên máy ----
-const report = await doctor({ codex: cfg.codex.bin, claude: cfg.claude.bin, agy: cfg.agy.bin, codexSkipLogin: cfg.codex.skipLoginCheck });
+const report = await doctor({ codex: cfg.codex.bin, claude: cfg.claude.bin, agy: cfg.agy.bin, codexSkipLogin: cfg.codex.skipLoginCheck, claudeEnv: cfg.env });
 // Bot chạy qua Cổng AI (cfg.flygoAi): claude chỉ cần cài, không cần đăng nhập gói Claude trên máy.
 const available = ENGINE_NAMES.filter((e) => report[e].installed && (report[e].loggedIn || (e === "claude" && !!cfg.flygoAi)));
 if (cfg.flygoAi && cfg.engine !== "claude") log(`Cổng AI chỉ dùng cho engine claude; bot ${cfg.engine} bỏ qua flygoAi`);
@@ -1220,7 +1220,7 @@ async function quietAsk(target: any, fromLabel: string, msg: string, waitMs: num
     if (sess.engine === "claude") {
       const proc = spawn([resolveBin(cfg.claude.bin), "-p", "--resume", sess.session_id, "--output-format", "text",
         "--setting-sources", "project,local", "--strict-mcp-config", "--allowedTools", "Read", "Grep", "Glob", "LS"],
-        { cwd: dir, stdout: "pipe", stderr: "pipe", stdin: "pipe", env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } });
+        { cwd: dir, stdout: "pipe", stderr: "pipe", stdin: "pipe", env: claudeEnv(cfg, { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }) });
       proc.stdin.write(note);
       proc.stdin.end();
       const timer = setTimeout(() => proc.kill(), waitMs);
@@ -2756,7 +2756,7 @@ async function sessionTool(op: string, a: any): Promise<string> {
 function engineTranscriptFile(engine: string, id: string): string | null {
   if (!id || /[\\/]/.test(id)) return null;
   if (engine === "claude") {
-    const root = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+    const root = join(claudeConfigDir(cfg), "projects"); // CLAUDE_CONFIG_DIR riêng của bot (tài khoản Claude thứ hai)
     try { for (const d of readdirSync(root)) { const f = join(root, d, `${id}.jsonl`); if (existsSync(f)) return f; } } catch {}
     return null;
   }
@@ -4393,7 +4393,7 @@ async function translateOnce(text: string, to: string): Promise<{ ok: boolean; t
     } else {
       const proc = spawn([resolveBin(cfg.claude.bin), "-p", "--model", "sonnet", "--output-format", "text", "--setting-sources", "",
         "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--system-prompt", system],
-        { cwd: homedir(), stdout: "pipe", stderr: "pipe", stdin: "pipe" });
+        { cwd: homedir(), stdout: "pipe", stderr: "pipe", stdin: "pipe", env: claudeEnv(cfg) });
       // Tin đi qua stdin (tin bắt đầu bằng "-" không bị hiểu nhầm thành cờ).
       proc.stdin.write(input);
       proc.stdin.end();

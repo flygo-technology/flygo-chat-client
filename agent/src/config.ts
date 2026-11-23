@@ -215,3 +215,13 @@ export function codexAppServerArgs(cfg: Config): string[] {
   if (cfg.codex.network !== false && !a.some((x) => x.startsWith("sandbox_workspace_write.network_access"))) a.push("-c", "sandbox_workspace_write.network_access=true");
   return a;
 }
+
+/** Thư mục cấu hình Claude Code của bot: env riêng của bot (CLAUDE_CONFIG_DIR, vd. tài khoản Claude thứ hai) > env tiến trình > ~/.claude.
+ *  Runner chung chạy nhiều bot trong một tiến trình nên KHÔNG dựa vào process.env cho thứ riêng của bot. */
+export function claudeConfigDir(cfg: { env?: Record<string, string> } | null | undefined): string {
+  const raw = cfg?.env?.CLAUDE_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  return raw === "~" ? homedir() : raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+}
+/** Env cho mọi lần gọi CLI claude của bot (auth status, phiên phụ, đặt tên…): env tiến trình + env riêng của bot. */
+export const claudeEnv = (cfg: { env?: Record<string, string> } | null | undefined, extra: Record<string, string> = {}) =>
+  ({ ...process.env, ...(cfg?.env ?? {}), ...extra }) as Record<string, string>;

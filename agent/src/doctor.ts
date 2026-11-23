@@ -47,11 +47,11 @@ async function checkCodex(bin = "codex", skipLogin = false): Promise<EngineCheck
   return { installed: true, path, version: v.out.split("\n").pop(), loggedIn: s.code === 0, account: s.code === 0 ? s.out.split("\n").pop() : undefined, error: s.code === 0 ? undefined : s.out.slice(0, 200) };
 }
 
-async function checkClaude(bin = "claude"): Promise<EngineCheck> {
+async function checkClaude(bin = "claude", env?: Record<string, string>): Promise<EngineCheck> {
   const path = resolveBin(bin);
   if (path === bin && !(await Bun.file(bin).exists())) return { installed: false, loggedIn: false };
-  const v = await run([path, "--version"]);
-  const s = await run([path, "auth", "status"]);
+  const v = await run([path, "--version"], 15000, env);
+  const s = await run([path, "auth", "status"], 15000, env); // env của bot: CLAUDE_CONFIG_DIR riêng (tài khoản Claude thứ hai) phải được kiểm đúng
   let loggedIn = false, account: string | undefined;
   try { const j = JSON.parse(s.out); loggedIn = !!j.loggedIn; account = j.email ?? j.authMethod; } catch { loggedIn = s.code === 0; }
   return { installed: true, path, version: v.out.split("\n")[0], loggedIn, account, error: loggedIn ? undefined : s.out.slice(0, 200) };
@@ -70,7 +70,7 @@ export async function checkAgy(bin = "agy"): Promise<EngineCheck> {
   return { installed: true, path, version: v.out.split("\n").pop(), loggedIn, account, error: loggedIn ? undefined : s.out.split("\n").filter((l) => !/^Fetching/i.test(l)).join(" ").slice(0, 200) };
 }
 
-export async function doctor(bins: { codex?: string; claude?: string; agy?: string; codexSkipLogin?: boolean } = {}): Promise<DoctorReport> {
-  const [codex, claude, agy] = await Promise.all([checkCodex(bins.codex, bins.codexSkipLogin), checkClaude(bins.claude), checkAgy(bins.agy)]);
+export async function doctor(bins: { codex?: string; claude?: string; agy?: string; codexSkipLogin?: boolean; claudeEnv?: Record<string, string> } = {}): Promise<DoctorReport> {
+  const [codex, claude, agy] = await Promise.all([checkCodex(bins.codex, bins.codexSkipLogin), checkClaude(bins.claude, bins.claudeEnv), checkAgy(bins.agy)]);
   return { codex, claude, agy, platform: `${process.platform}-${process.arch}`, hostname: (await import("node:os")).hostname() };
 }
