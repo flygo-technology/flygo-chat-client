@@ -30,13 +30,16 @@ const _bytesPerSec = _rate * 2;
 
 /// Mở màn hình ghi âm. Trả về VoiceResult: path (gửi ghi âm) hoặc text + send (gửi phiên âm).
 /// [allowAudio] false (chat với trợ lý): chỉ chuyển giọng nói thành chữ, không có nút "Gửi ghi âm".
-Future<VoiceResult?> showVoiceStudio(BuildContext context, AppState app, {bool allowAudio = true}) => Navigator.of(context)
-    .push<VoiceResult>(AppPageRoute(fullscreenDialog: true, builder: (_) => _VoiceStudio(app: app, allowAudio: allowAudio)));
+/// [whisperFinal] (chat với trợ lý, Sếp 2026-11-23): nhận dạng trên máy chỉ để xem trực tiếp; dừng ghi thì gửi cả bản ghi
+/// cho Whisper của máy chủ (`stt.<tên miền>`) và thay bằng kết quả đó. Lỗi / không có bản ghi: giữ chữ của máy.
+Future<VoiceResult?> showVoiceStudio(BuildContext context, AppState app, {bool allowAudio = true, bool whisperFinal = false}) => Navigator.of(context)
+    .push<VoiceResult>(AppPageRoute(fullscreenDialog: true, builder: (_) => _VoiceStudio(app: app, allowAudio: allowAudio, whisperFinal: whisperFinal)));
 
 class _VoiceStudio extends StatefulWidget {
   final AppState app;
   final bool allowAudio;
-  const _VoiceStudio({required this.app, this.allowAudio = true});
+  final bool whisperFinal;
+  const _VoiceStudio({required this.app, this.allowAudio = true, this.whisperFinal = false});
   @override
   State<_VoiceStudio> createState() => _VoiceStudioState();
 }
@@ -319,15 +322,45 @@ class _VoiceStudioState extends State<_VoiceStudio> {
 
   /// Phiên âm đã do bộ nhận dạng trên máy làm xong (không gửi máy chủ nữa).
   bool _offDone = false;
+  /// Đã thay phiên âm bằng kết quả Whisper của cả bản ghi (không làm lại).
+  bool _whisperDone = false;
 
   /// Dừng ghi và chờ nhận diện xong phần còn lại.
   Future<void> _finishTranscript() async {
     await _stop();
-    if (_device || _offDone) return;
+    if (_device || _offDone) {
+      if (widget.whisperFinal && !_whisperDone && !_audioOff && _audio.length >= _bytesPerSec ~/ 2) {
+        _job ??= _whisperAll();
+        if (mounted) setState(() {});
+        await _job;
+      }
+      return;
+    }
     await _job;
     _transcribe(last: true);
     if (_job != null) setState(() {});
     await _job;
+  }
+
+  /// Cả bản ghi → Whisper máy chủ; thành công thì thay chữ của bộ nhận dạng trên máy.
+  Future<void> _whisperAll() async {
+    try {
+      final f = await _wav(Uint8List.fromList(_audio.toBytes()), 'stt-all');
+      final text = await transcribeAudio(widget.app.api, f.path).timeout(const Duration(seconds: 25));
+      f.delete().catchError((_) => f);
+      _whisperDone = true;
+      if (mounted && text.trim().isNotEmpty) {
+        setState(() {
+          _committed = text.trim();
+          _partial = '';
+        });
+      }
+    } catch (e) {
+      debugPrint('[stt] whisper: $e');
+    } finally {
+      _job = null;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _sendAudio() async {

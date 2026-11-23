@@ -6065,7 +6065,7 @@ class _ComposerState extends State<_Composer> {
     _focus.unfocus();
     // Chat với trợ lý: chỉ đọc thành chữ, không gửi tin thoại (Sếp: tránh bấm nhầm).
     final app = context.read<AppState>();
-    if (mounted) await _handleVoice(await showVoiceStudio(context, app, allowAudio: !_agentChat(app)));
+    if (mounted) await _handleVoice(await showVoiceStudio(context, app, allowAudio: !_agentChat(app), whisperFinal: _agentChat(app)));
   }
 
   // ---------------------------------------------------------------- đọc chính tả
@@ -6251,7 +6251,7 @@ class _ComposerState extends State<_Composer> {
         _desktop ? await _pickDocuments(media: true) : await _gallery();
       case AttachAction.voice:
         final app = context.read<AppState>();
-        await _handleVoice(await showVoiceStudio(context, app, allowAudio: !_agentChat(app)));
+        await _handleVoice(await showVoiceStudio(context, app, allowAudio: !_agentChat(app), whisperFinal: _agentChat(app)));
       case AttachAction.location:
         await _sendLocation();
       case AttachAction.liveLocation:
