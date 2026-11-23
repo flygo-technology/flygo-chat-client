@@ -12,7 +12,7 @@ export const FS_TOOLS = [
   { name: "file_copy", description: "Sao chép tệp hoặc thư mục (đệ quy) tới đích. overwrite=true để ghi đè đích đã có. Cần duyệt.", inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, overwrite: { type: "boolean" } }, required: ["from", "to"] } },
   { name: "file_move", description: "Di chuyển / đổi tên tệp hoặc thư mục. overwrite=true để thay đích đã có (đích cũ vào thùng rác). Cần duyệt.", inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, overwrite: { type: "boolean" } }, required: ["from", "to"] } },
   { name: "file_trash", description: "XOÁ tệp / thư mục bằng cách chuyển vào THÙNG RÁC của máy (khôi phục được). Luôn dùng tool này để xoá, không dùng rm / del. Cần duyệt.", inputSchema: { type: "object", properties: { path: { type: "string" }, paths: { type: "array", items: { type: "string" } } } } },
-  { name: "run_command", description: "Chạy một lệnh shell trên máy (bash -lc trên macOS / Linux, PowerShell trên Windows) trong cwd, trả stdout + stderr + mã thoát. timeout_sec mặc định 120 (tối đa 1800). Không dùng để xoá tệp (dùng file_trash). Cần duyệt.", inputSchema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, timeout_sec: { type: "number" } }, required: ["command"] } },
+  { name: "run_command", description: "Chạy một lệnh shell trên máy (bash -lc trên macOS / Linux, PowerShell trên Windows) trong cwd, trả stdout + stderr + mã thoát. Quá timeout_sec (mặc định 120, tối đa 1800) thì lệnh bị DỪNG (cả tiến trình con) và trả phần output đã có. Lệnh nhanh: kiểm kích thước trước (du -sh); tìm chữ bằng rg -l (giới hạn thư mục, -g '*.log', không quét data/, node_modules, .git, tệp nhị phân lớn) thay vì grep -r; find có -maxdepth; cắt output bằng head; bọc lệnh có thể lâu bằng timeout N; việc thật sự lâu thì chạy nền rồi xem lại. Không dùng để xoá tệp (dùng file_trash). Cần duyệt.", inputSchema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, timeout_sec: { type: "number" } }, required: ["command"] } },
 ];
 export const FS_TOOL_NAMES = new Set(FS_TOOLS.map((t) => t.name));
 export const FS_READ_ONLY = ["file_read"];
@@ -48,16 +48,43 @@ function uniqueIn(dir: string, name: string): string {
   return t;
 }
 
-function run(cmd: string, args: string[], timeoutMs = 60_000): Promise<{ code: number; out: string }> {
+/** Hạn mặc định của run_command (giây): FLYGO_CMD_TIMEOUT_SEC (runner đặt theo cấu hình bot commandTimeoutSec), không có thì 120. */
+export const defaultCmdTimeoutSec = () => Math.min(1800, Math.max(5, Number(process.env.FLYGO_CMD_TIMEOUT_SEC) || 120));
+export const CMD_HINT = "Lệnh nhanh: kiểm kích thước trước (du -sh); tìm chữ bằng rg -l (giới hạn thư mục, -g '*.log', không quét data/, node_modules, .git, tệp nhị phân lớn) thay vì grep -r; find có -maxdepth; cắt output bằng head; bọc lệnh có thể lâu bằng timeout N; việc thật sự lâu thì chạy nền rồi xem lại.";
+
+/** Dừng cả cây tiến trình: nhóm tiến trình (macOS / Linux, spawn detached) hoặc taskkill /T (Windows). */
+function killGroup(c: ReturnType<typeof spawn>) {
+  if (!c.pid) return;
+  if (platform() === "win32") { try { spawn("taskkill", ["/T", "/F", "/PID", String(c.pid)], { stdio: "ignore", windowsHide: true }); } catch {} return; }
+  try { process.kill(-c.pid, "SIGTERM"); } catch { try { c.kill("SIGTERM"); } catch {} }
+  setTimeout(() => { try { process.kill(-c.pid!, "SIGKILL"); } catch {} }, 2000).unref?.();
+}
+
+export function run(cmd: string, args: string[], timeoutMs = 60_000): Promise<{ code: number; out: string; timedOut: boolean }> {
   return new Promise((res) => {
-    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    let out = "";
+    // detached: lệnh là trưởng nhóm tiến trình riêng, hết giờ thì dừng cả các tiến trình con (grep / find dưới bash -lc).
+    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: platform() !== "win32" });
+    let out = "", timedOut = false, done = false;
     const add = (b: Buffer) => { if (out.length < MAX_OUT * 2) out += b.toString(); };
-    c.stdout.on("data", add); c.stderr.on("data", add);
-    const t = setTimeout(() => { try { c.kill("SIGKILL"); } catch {} out += `\n[hết giờ sau ${Math.round(timeoutMs / 1000)} giây]`; }, timeoutMs);
-    c.on("error", (e) => { clearTimeout(t); res({ code: -1, out: String(e?.message ?? e) }); });
-    c.on("close", (code) => { clearTimeout(t); res({ code: code ?? -1, out }); });
+    c.stdout?.on("data", add); c.stderr?.on("data", add);
+    const finish = (code: number) => { if (done) return; done = true; clearTimeout(t); res({ code, out, timedOut }); };
+    const t = setTimeout(() => {
+      timedOut = true;
+      killGroup(c);
+      // Tiến trình cháu có thể giữ ống output: không chờ "close" quá 3 s.
+      setTimeout(() => finish(-1), 3000).unref?.();
+    }, timeoutMs);
+    c.on("error", (e) => { out += String(e?.message ?? e); finish(-1); });
+    c.on("close", (code) => finish(code ?? -1));
   });
+}
+
+/** Kết quả run_command khi hết giờ: nói rõ cho agent + gợi ý lệnh nhanh hơn + phần output đã có. */
+export function timeoutReport(command: string, sec: number, out: string): string {
+  const cmd = command.replace(/\s+/g, " ").trim();
+  return `⏱ Lệnh chạy quá ${sec} s nên đã bị dừng (cả tiến trình con): ${cmd.length > 300 ? cmd.slice(0, 300) + "…" : cmd}\n`
+    + `Hãy thu hẹp phạm vi / dùng lệnh nhanh hơn (rg -l với -g, giới hạn thư mục, head, find -maxdepth, timeout N), hoặc chạy nền nếu thật sự cần lâu.\n`
+    + `--- output tới lúc dừng ---\n${out.trim() || "(chưa có output)"}\n⏱ đã dừng sau ${sec} s`;
 }
 
 /** Chuyển [p] vào thùng rác của hệ điều hành; trả mô tả nơi đã đưa vào. */
@@ -152,11 +179,12 @@ export async function fsTool(name: string, a: any, approve: (name: string, input
     }
     case "run_command": {
       const dir = a.cwd ? absPath(a.cwd, cwd) : cwd;
-      const ms = Math.min(1800, Math.max(1, Number(a.timeout_sec ?? 120))) * 1000;
+      const sec = Math.min(1800, Math.max(1, Number(a.timeout_sec ?? defaultCmdTimeoutSec())));
       const r = platform() === "win32"
-        ? await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Set-Location -LiteralPath '${dir.replace(/'/g, "''")}'; ${a.command}`], ms)
-        : await run("bash", ["-lc", `cd ${JSON.stringify(dir)} && ${a.command}`], ms);
+        ? await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Set-Location -LiteralPath '${dir.replace(/'/g, "''")}'; ${a.command}`], sec * 1000)
+        : await run("bash", ["-lc", `cd ${JSON.stringify(dir)} && ${a.command}`], sec * 1000);
       const out = r.out.length > MAX_OUT ? r.out.slice(0, MAX_OUT / 2) + "\n[…cắt bớt…]\n" + r.out.slice(-MAX_OUT / 2) : r.out;
+      if (r.timedOut) return timeoutReport(String(a.command), sec, out.slice(-8000));
       return `Mã thoát ${r.code}\n${out}`;
     }
   }

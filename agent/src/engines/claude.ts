@@ -243,7 +243,10 @@ export class ClaudeEngine implements Engine {
     if (this.cfg.claude.chrome) args.push("--chrome");
 
     const gate = this.cfg.flygoAi ? await flygoAiEnv(this.cfg, await this.emailOf(input.requester || this.cfg.ownerUserIds[0] || "").catch(() => ""), this.botName()) : {};
-    const proc = spawn(args, { env: { ...process.env, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
+    // Bash của Claude Code: hạn mặc định theo commandTimeoutSec của bot (120 s), tối đa 10 phút; chạy nền (run_in_background) không tính.
+    const cmdMs = String(Math.min(1800, Math.max(5, Number(input.mcpEnv.FLYGO_CMD_TIMEOUT_SEC) || 120)) * 1000);
+    const bashTimeouts = { BASH_DEFAULT_TIMEOUT_MS: process.env.BASH_DEFAULT_TIMEOUT_MS ?? cmdMs, BASH_MAX_TIMEOUT_MS: process.env.BASH_MAX_TIMEOUT_MS ?? "600000" };
+    const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
 

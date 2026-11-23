@@ -97,6 +97,12 @@ export class RunCard {
   }
 
   step(s: Omit<Step, "started_at"> & { started_at?: number }) {
+    // Lệnh bị dừng vì quá hạn (run_command: "⏱ đã dừng sau N s"; Bash của Claude Code: "Command timed out after …"): ghi rõ trên bước.
+    const to = s.status !== "running" && s.detail ? (/⏱ đã dừng sau (\d+) s/.exec(s.detail) ?? /Command timed out after (\d+(?:\.\d+)?)\s*(m|s|ms)\b/i.exec(s.detail)) : null;
+    if (to && !s.title.startsWith("⏱")) {
+      const sec = to[2] === "m" ? Math.round(Number(to[1]) * 60) : to[2] === "ms" ? Math.round(Number(to[1]) / 1000) : Math.round(Number(to[1]));
+      s = { ...s, title: `⏱ ${s.title} · đã dừng sau ${sec} s`, label: `⏱ đã dừng sau ${sec} s` };
+    }
     const old = this.steps.find((x) => x.id === s.id);
     const max = s.kind === "message" ? 4000 : MAX_DETAIL; // câu trả lời của agent khác (A2A): giữ dài hơn để xem lại
     const detail = s.detail && s.detail.length > max ? s.detail.slice(0, max) + "…" : s.detail;

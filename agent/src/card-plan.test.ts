@@ -45,3 +45,16 @@ test("thẻ mang props.flygo_agent.bg khi có tác vụ nền", async () => {
   card.bg = () => [{ id: "bg-1", kind: "detached", command: "nohup x &", status: "running", started_at: 1, updated_at: 2, tail: "ok" }];
   expect((card.props() as any).flygo_agent.bg[0]).toMatchObject({ id: "bg-1", status: "running", tail: "ok" });
 });
+
+test("bước lệnh bị dừng vì quá hạn hiện ⏱ trên thẻ (run_command và Bash của Claude Code)", async () => {
+  const { RunCard } = await import("./card");
+  const card = new RunCard({} as any, { channel_id: "c", root_id: "" }, "r", "claude", "t", "u", () => {});
+  card.step({ id: "a", kind: "command", title: "grep -rln 129846 data/", status: "done", detail: "…\n⏱ đã dừng sau 120 s" });
+  card.step({ id: "b", kind: "command", title: "find / -name x", status: "error", detail: "Command timed out after 2m 0.0s" });
+  card.step({ id: "c", kind: "command", title: "ls", status: "done", detail: "a b" });
+  const st = (card.props() as any).flygo_agent.steps;
+  expect(st[0].title).toBe("⏱ grep -rln 129846 data/ · đã dừng sau 120 s");
+  expect(st[0].label).toBe("⏱ đã dừng sau 120 s");
+  expect(st[1].title).toContain("⏱ find / -name x");
+  expect(st[2].title).toBe("ls");
+});

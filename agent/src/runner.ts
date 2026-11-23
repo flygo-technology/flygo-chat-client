@@ -635,10 +635,13 @@ writeFileSync(localFile, JSON.stringify({ port: http.port, key: localKey, server
 const mcpCtx = new Map<string, Record<string, string>>(); // khoá phiên -> env MCP của lượt đang chạy
 /** Env MCP của lượt: đăng ký theo khoá phiên để MCP cũ hỏi lại được (/ctx). */
 function mcpEnvFor(scope: string, e: Record<string, string>) {
-  const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile };
+  const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile, FLYGO_CMD_TIMEOUT_SEC: String(cmdTimeoutSec()) };
   mcpCtx.set(scope, full);
   return full;
 }
+
+/** Hạn lệnh tiền cảnh của bot (giây): cấu hình commandTimeoutSec, mặc định 120. */
+const cmdTimeoutSec = () => Math.min(1800, Math.max(5, Number(cfg.commandTimeoutSec) || 120));
 
 // ---- dựng ngữ cảnh & thư mục làm việc ----
 // Bot chạy qua Cổng AI (tính tiền theo token): bản gọn (~1/3), tool nạp khi cần qua tool search.
