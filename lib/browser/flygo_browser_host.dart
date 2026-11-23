@@ -159,7 +159,15 @@ class FlygoBrowserHost {
         return false;
       }
       _stage('Đang mở trang…');
-      final r = await request('open', {'tax': ?tax, 'profile': ?profile, 'url': ?url, 'background': background}, const Duration(seconds: 45));
+      dynamic r;
+      try {
+        r = await request('open', {'tax': ?tax, 'profile': ?profile, 'url': ?url, 'background': background}, const Duration(seconds: 45));
+      } catch (e) {
+        // profileKey cũ (engine đổi định dạng): mở lại theo MST.
+        if (profile == null || tax == null || tax.isEmpty || e is TimeoutException) rethrow;
+        log('mở theo profile lỗi ($e), thử lại theo MST');
+        r = await request('open', {'tax': tax, 'url': ?url, 'background': background}, const Duration(seconds: 45));
+      }
       log('KẾT QUẢ: cửa sổ đã hiện ($r)');
       return true;
     } catch (e) {
@@ -576,9 +584,12 @@ class FlygoBrowserHost {
       // (phần sau dấu "/" cuối) trên cùng máy chủ thì thay bản ghép cũ, không tạo client trùng trên Gateway.
       String? replaceOld;
       if (saved == null) {
+        // Engine 1.3.4+ báo khoá cũ trong profiles[].aliases; khớp theo đó hoặc theo phần token cuối khoá.
+        final aliases = {for (final a in (prof['aliases'] as List? ?? const [])) '$a'};
         final tail = profileKey.substring(profileKey.lastIndexOf('/') + 1);
         for (final k in await FlygoSecrets.keys()) {
-          if (k == storeKey || !k.startsWith('flygo-browser-bridge:$server|') || !k.endsWith('/$tail')) continue;
+          if (k == storeKey || !k.startsWith('flygo-browser-bridge:$server|')) continue;
+          if (!aliases.contains(k.substring('flygo-browser-bridge:$server|'.length)) && !k.endsWith('/$tail')) continue;
           try {
             replaceOld = (jsonDecode(await FlygoSecrets.read(k) ?? '{}') as Map)['client_id'] as String?;
           } catch (_) {}
