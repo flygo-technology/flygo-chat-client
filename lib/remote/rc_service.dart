@@ -40,6 +40,13 @@ const kRcLogProp = 'flygo_rc_log';
 
 enum RcRole { none, controller, host }
 
+/// Quyền còn thiếu gửi cho máy điều khiển: 'both' | 'screen' | 'accessibility'; null = đủ quyền.
+String? rcMissingOf(RcPermissions p) => p.ok
+    ? null
+    : !p.accessibility && !p.screen
+        ? 'both'
+        : (!p.screen ? 'screen' : 'accessibility');
+
 class RemoteControlService extends ChangeNotifier {
   RemoteControlService._();
   static final instance = RemoteControlService._();
@@ -51,6 +58,10 @@ class RemoteControlService extends ChangeNotifier {
   void Function()? openController;
   /// macOS: màn hình giải thích + xin quyền Trợ năng / Ghi màn hình; true khi đủ quyền.
   Future<bool> Function()? ensurePermissions;
+
+  /// macOS, máy bị điều khiển thiếu quyền (kể cả máy của chính mình, không ai bấm hộp xin quyền): báo ngay trên máy này,
+  /// có nút mở đúng mục Cài đặt và mở lại app. Không chờ (phiên đã dừng).
+  void Function(RcPermissions missing, String fromName)? permissionNotice;
   /// Báo ngắn cho người dùng (toast).
   void Function(String text)? toast;
   /// Máy tính: mở cửa sổ điều khiển riêng (tiến trình app khác) với tham số [rcWindowArgs].
@@ -71,6 +82,11 @@ class RemoteControlService extends ChangeNotifier {
   RcRequestOutcome? outcome;
   /// Lý do kết thúc phiên (máy kia bấm Dừng, mất kết nối...).
   String? endReason;
+
+  /// Phiên dừng vì máy bị điều khiển thiếu quyền: quyền nào ('accessibility' | 'screen' | 'both'); null = không rõ
+  /// (máy kia bản cũ).
+  String? endMissing;
+  String? _sendMissing;
   RcConsent? incoming;
   String _ref = '';
   Timer? _reqTimer;
@@ -320,6 +336,8 @@ class RemoteControlService extends ChangeNotifier {
     _via = via;
     outcome = null;
     endReason = null;
+    endMissing = null;
+    _sendMissing = null;
     startedAt = null;
     sid = null;
     remotePlatform = '';
@@ -556,10 +574,16 @@ class RemoteControlService extends ChangeNotifier {
     if (!invited) _sig?.send({'t': 'accept', 'sid': s, 'platform': RcSignal.platformName});
     // macOS: cần quyền Trợ năng (điều khiển chuột / phím) và Ghi màn hình. Linux: máy chủ X thiếu XTest thì không
     // có gì để người dùng bật trong app, dừng luôn.
-    if (!(await RcNative.permissions()).ok) {
+    final perms = await RcNative.permissions();
+    if (!perms.ok) {
       final ok = prompt && RcNative.isMac && await (ensurePermissions?.call() ?? Future.value(false));
       if (sid != s) return;
-      if (!ok) return stop(reason: 'permission');
+      if (!ok) {
+        // Máy của chính mình (không hiện trang xin quyền): báo trên máy này để lần sau bật được.
+        if (!prompt && RcNative.isMac) permissionNotice?.call(perms, peerName);
+        _sendMissing = rcMissingOf(await RcNative.permissions());
+        return stop(reason: 'permission');
+      }
     }
     List<DesktopCapturerSource> sources;
     try {
@@ -736,7 +760,12 @@ class RemoteControlService extends ChangeNotifier {
         unawaited((role == RcRole.host ? _host : _viewer)?.onRemoteSignal(data));
         return;
       case 'end':
-        if (s == sid) _finish(remote: true, reason: '${m['reason'] ?? 'ended'}', notifyPeer: false);
+        if (s == sid) {
+          final miss = '${m['missing'] ?? ''}';
+          _finish(remote: true, reason: '${m['reason'] ?? 'ended'}', notifyPeer: false);
+          endMissing = const {'accessibility', 'screen', 'both'}.contains(miss) ? miss : null;
+          notifyListeners();
+        }
         return;
     }
     // Cửa sổ điều khiển nhận phiên không được (người mời đã huỷ, quá giờ).
@@ -799,7 +828,10 @@ class RemoteControlService extends ChangeNotifier {
   void _doFinish({required bool remote, required String reason, required bool notifyPeer}) {
     _reqTimer?.cancel();
     final s = sid;
-    if (notifyPeer && s != null) _sig?.send({'t': 'end', 'sid': s, 'reason': reason});
+    if (notifyPeer && s != null) {
+      _sig?.send({'t': 'end', 'sid': s, 'reason': reason, if (reason == 'permission' && _sendMissing != null) 'missing': _sendMissing});
+    }
+    _sendMissing = null;
     final wasRole = role, started = startedAt, ch = channelId;
     if (wasRole == RcRole.host) {
       final inj = _injector;
