@@ -25,7 +25,7 @@ export const BROWSER_LOCAL_TOOLS = [
   },
   {
     name: "integrated_browser_open",
-    description: "Mở TRÌNH DUYỆT TÍCH HỢP trên MÁY NÀY ở nền (không cướp focus): Trình duyệt Ký số đa năng, đúng profile công ty (tax = MST hoặc profile = <agentId>/<tokenId>, "
+    description: "Dự phòng cục bộ: mở TRÌNH DUYỆT TÍCH HỢP trên MÁY NÀY ở nền (không cướp focus); trình duyệt ở máy khác (hoặc mặc định) dùng vn_flygo_clients__integrated_browser_start để khởi động từ xa. Trình duyệt Ký số đa năng, đúng profile công ty (tax = MST hoặc profile = <agentId>/<tokenId>, "
       + "xem vn_flygo_clients__integrated_browser_list), url tuỳ chọn. Khi mở, trình duyệt tự đăng ký với Gateway qua Flygo Chat trên máy này; gọi vn_flygo_clients__browser_wait_online rồi "
       + "browser_select và dùng các tool browser_* như Chrome. Ký số / mã PIN luôn do người dùng xác nhận trên trình duyệt; agent không đọc, không nhập.",
     inputSchema: {

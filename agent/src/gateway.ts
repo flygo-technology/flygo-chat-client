@@ -41,6 +41,9 @@ export function createGatewayRuns(o: {
   const f = o.fetchImpl ?? fetch;
   const now = o.now ?? Date.now;
   const runs = new Map<string, Run>();
+  /** Danh sách tool lấy được lần gần nhất: mạng chập chờn lúc đầu lượt thì agent vẫn thấy tool (gọi lỗi thì báo rõ), không
+   * kết luận nhầm "không có tool trình duyệt" (2026-11-23). */
+  let lastTools: GatewayTool[] = [];
   const server = o.serverUrl.replace(/\/+$/, "");
   const enabled = !!(o.flygoId?.url && o.flygoId?.gatewayUrl);
   const idUrl = (o.flygoId?.url ?? "").replace(/\/+$/, "");
@@ -135,15 +138,15 @@ export function createGatewayRuns(o: {
     return run.pending;
   }
 
-  async function rpc(run: Run, method: string, params: unknown, retried = false): Promise<any> {
+  async function rpc(run: Run, method: string, params: unknown, retried = false, timeoutMs = 120_000): Promise<any> {
     const t = await fresh(run);
     const r = await f(o.flygoId!.gatewayUrl, {
       method: "POST",
       headers: { Authorization: `Bearer ${t.token}`, "content-type": "application/json", Accept: "application/json, text/event-stream", ...(run.ctx ? { "X-Flygo-Context": run.ctx } : {}) },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    if (r.status === 401 && !retried) { run.ticket = undefined; return rpc(run, method, params, true); }
+    if (r.status === 401 && !retried) { run.ticket = undefined; return rpc(run, method, params, true, timeoutMs); }
     if (!r.ok) throw new GatewayError(`gateway: HTTP ${r.status}`);
     return r.json();
   }
@@ -176,11 +179,22 @@ export function createGatewayRuns(o: {
     async tools(key: string): Promise<GatewayTool[]> {
       const run = runs.get(key);
       if (!run) return [];
-      try {
-        const j = await rpc(run, "tools/list", {});
-        if (j.error) throw new GatewayError(j.error.message);
-        return (j.result?.tools ?? []) as GatewayTool[];
-      } catch (e) { note(key, run, e); return []; }
+      for (let i = 0; i < 2; i++) {
+        try {
+          const j = await rpc(run, "tools/list", {}, false, 20_000);
+          if (j.error) throw new GatewayError(j.error.message);
+          const tools = (j.result?.tools ?? []) as GatewayTool[];
+          if (tools.length) lastTools = tools;
+          return tools;
+        } catch (e) {
+          if (i === 1) {
+            note(key, run, e);
+            if (lastTools.length) o.log(`gateway ${key}: dùng danh sách tool lần trước (${lastTools.length} tool)`);
+            return lastTools;
+          }
+        }
+      }
+      return lastTools;
     },
     /** tools/call qua gateway. Trả result MCP; lỗi trả result isError để agent đọc được. */
     async call(key: string, name: string, args: unknown): Promise<any> {

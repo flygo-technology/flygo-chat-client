@@ -3,7 +3,8 @@ import { createGatewayRuns } from "./gateway";
 
 const SERVER = "https://chat.test", ID = "https://chat.test/flygo-id", GW = "http://gw.test/mcp";
 
-function setup(opts: { receipt?: string | null; gatewayDown?: boolean; expiresIn?: number } = {}) {
+function setup(opts: { receipt?: string | null; gatewayDown?: boolean; expiresIn?: number; failLists?: number } = {}) {
+  let failLists = opts.failLists ?? 0;
   let t = 1_000_000;
   const calls: { url: string; body?: any; auth?: string; ctx?: string }[] = [];
   const logs: string[] = [];
@@ -18,6 +19,7 @@ function setup(opts: { receipt?: string | null; gatewayDown?: boolean; expiresIn
     if (url === `${ID}/v1/token/agent`) return Response.json({ token: `tk${++n}`, expires_in: opts.expiresIn ?? 600, scope: [] });
     if (url === GW) {
       if (opts.gatewayDown) return new Response("down", { status: 502 });
+      if (body.method === "tools/list" && failLists-- > 0) throw new Error("The operation timed out.");
       if (body.method === "tools/list") return Response.json({ jsonrpc: "2.0", id: 1, result: { tools: [{ name: "vn_x__read", inputSchema: { type: "object" }, _meta: { "vn.flygo/kind": "read" } }] } });
       if (body.params.name === "vn_x__nope") return Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32003, message: "no", data: { kind: "forbidden" } } });
       return Response.json({ jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "ok" }] } });
@@ -25,10 +27,20 @@ function setup(opts: { receipt?: string | null; gatewayDown?: boolean; expiresIn
     return new Response("nf", { status: 404 });
   }) as typeof fetch;
   const gw = createGatewayRuns({ flygoId: { url: ID, gatewayUrl: GW }, serverUrl: SERVER, botToken: "bot-tok", log: (s) => logs.push(s), fetchImpl, now: () => t });
-  return { gw, calls, logs, advance: (ms: number) => { t += ms; } };
+  return { gw, calls, logs, advance: (ms: number) => { t += ms; }, failNext: (k: number) => { failLists = k; } };
 }
 
 describe("gateway runs", () => {
+  test("tools/list lỗi một lần: thử lại; lỗi hẳn: dùng danh sách lần trước (không để agent tưởng mất tool)", async () => {
+    const { gw, failNext, logs } = setup({ receipt: "rc.jwt", failLists: 1 });
+    gw.start("r1", "p1");
+    expect((await gw.tools("r1")).map((x) => x.name)).toEqual(["vn_x__read"]);
+    gw.start("r2", "p2");
+    failNext(2);
+    expect((await gw.tools("r2")).map((x) => x.name)).toEqual(["vn_x__read"]);
+    expect(logs.some((l) => l.includes("dùng danh sách tool lần trước"))).toBe(true);
+  });
+
   test("không có flygoId thì tắt hẳn", async () => {
     const gw = createGatewayRuns({ serverUrl: SERVER, botToken: "x", log: () => {}, fetchImpl: (async () => { throw new Error("không được gọi"); }) as any });
     gw.start("r1", "p1");
