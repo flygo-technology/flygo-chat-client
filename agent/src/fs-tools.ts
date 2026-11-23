@@ -1,6 +1,7 @@
 // Bộ công cụ tệp + lệnh dùng chung cho mọi engine (Sếp, 2026-11-10): đọc, ghi, sao chép, di chuyển, xoá (luôn vào
 // thùng rác của hệ điều hành, không xoá hẳn) và chạy lệnh. Ghi / chép / chuyển / xoá / chạy lệnh xin người giao việc
 // duyệt qua runner như mọi thay đổi khác; đọc thì không, trừ thư mục khoá / token (cấm hẳn).
+import { commandLimit, envDefaultSec, envMaxSec, type Limit } from "./cmd-limits";
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, appendFileSync, readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
@@ -12,7 +13,7 @@ export const FS_TOOLS = [
   { name: "file_copy", description: "Sao chép tệp hoặc thư mục (đệ quy) tới đích. overwrite=true để ghi đè đích đã có. Cần duyệt.", inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, overwrite: { type: "boolean" } }, required: ["from", "to"] } },
   { name: "file_move", description: "Di chuyển / đổi tên tệp hoặc thư mục. overwrite=true để thay đích đã có (đích cũ vào thùng rác). Cần duyệt.", inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, overwrite: { type: "boolean" } }, required: ["from", "to"] } },
   { name: "file_trash", description: "XOÁ tệp / thư mục bằng cách chuyển vào THÙNG RÁC của máy (khôi phục được). Luôn dùng tool này để xoá, không dùng rm / del. Cần duyệt.", inputSchema: { type: "object", properties: { path: { type: "string" }, paths: { type: "array", items: { type: "string" } } } } },
-  { name: "run_command", description: "Chạy một lệnh shell trên máy (bash -lc trên macOS / Linux, PowerShell trên Windows) trong cwd, trả stdout + stderr + mã thoát. Quá timeout_sec (mặc định 120, tối đa 1800) thì lệnh bị DỪNG (cả tiến trình con) và trả phần output đã có. Lệnh nhanh: kiểm kích thước trước (du -sh); tìm chữ bằng rg -l (giới hạn thư mục, -g '*.log', không quét data/, node_modules, .git, tệp nhị phân lớn) thay vì grep -r; find có -maxdepth; cắt output bằng head; bọc lệnh có thể lâu bằng timeout N; việc thật sự lâu thì chạy nền rồi xem lại. Không dùng để xoá tệp (dùng file_trash). Cần duyệt.", inputSchema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, timeout_sec: { type: "number" } }, required: ["command"] } },
+  { name: "run_command", description: "Chạy một lệnh shell trên máy (bash -lc trên macOS / Linux, PowerShell trên Windows) trong cwd, trả stdout + stderr + mã thoát. LUÔN ước tính thời gian chạy và đặt timeout_sec phù hợp cho từng lệnh: expected_sec = ước tính (giây), timeout_sec = hạn cứng (thiếu thì gấp 3 lần ước tính, tối thiểu 30). Quá hạn thì lệnh bị DỪNG (cả tiến trình con) và trả phần output đã có; việc lâu hơn vài phút thì chạy nền. Lệnh nhanh: kiểm kích thước trước (du -sh); tìm chữ bằng rg -l (giới hạn thư mục, -g '*.log', không quét data/, node_modules, .git, tệp nhị phân lớn) thay vì grep -r; find có -maxdepth; cắt output bằng head; bọc lệnh có thể lâu bằng timeout N; việc thật sự lâu thì chạy nền rồi xem lại. Không dùng để xoá tệp (dùng file_trash). Cần duyệt.", inputSchema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, expected_sec: { type: "number", description: "ước tính lệnh chạy bao lâu (giây)" }, timeout_sec: { type: "number", description: "hạn cứng (giây); thiếu thì max(3 × expected_sec, 30)" } }, required: ["command"] } },
 ];
 export const FS_TOOL_NAMES = new Set(FS_TOOLS.map((t) => t.name));
 export const FS_READ_ONLY = ["file_read"];
@@ -49,7 +50,7 @@ function uniqueIn(dir: string, name: string): string {
 }
 
 /** Hạn mặc định của run_command (giây): FLYGO_CMD_TIMEOUT_SEC (runner đặt theo cấu hình bot commandTimeoutSec), không có thì 120. */
-export const defaultCmdTimeoutSec = () => Math.min(1800, Math.max(5, Number(process.env.FLYGO_CMD_TIMEOUT_SEC) || 120));
+export const defaultCmdTimeoutSec = envDefaultSec;
 export const CMD_HINT = "Lệnh nhanh: kiểm kích thước trước (du -sh); tìm chữ bằng rg -l (giới hạn thư mục, -g '*.log', không quét data/, node_modules, .git, tệp nhị phân lớn) thay vì grep -r; find có -maxdepth; cắt output bằng head; bọc lệnh có thể lâu bằng timeout N; việc thật sự lâu thì chạy nền rồi xem lại.";
 
 /** Dừng cả cây tiến trình: nhóm tiến trình (macOS / Linux, spawn detached) hoặc taskkill /T (Windows). */
@@ -79,11 +80,12 @@ export function run(cmd: string, args: string[], timeoutMs = 60_000): Promise<{ 
   });
 }
 
-/** Kết quả run_command khi hết giờ: nói rõ cho agent + gợi ý lệnh nhanh hơn + phần output đã có. */
-export function timeoutReport(command: string, sec: number, out: string): string {
+/** Kết quả run_command khi hết giờ: ước tính vs thực tế, gợi ý (thu hẹp / tăng hạn / chạy nền), phần output đã có. */
+export function timeoutReport(command: string, sec: number, out: string, lim?: Limit): string {
   const cmd = command.replace(/\s+/g, " ").trim();
-  return `⏱ Lệnh chạy quá ${sec} s nên đã bị dừng (cả tiến trình con): ${cmd.length > 300 ? cmd.slice(0, 300) + "…" : cmd}\n`
-    + `Hãy thu hẹp phạm vi / dùng lệnh nhanh hơn (rg -l với -g, giới hạn thư mục, head, find -maxdepth, timeout N), hoặc chạy nền nếu thật sự cần lâu.\n`
+  const est = lim?.expected !== undefined ? `Ước tính ${lim.expected} s, hạn ${sec} s, đã chạy ${sec} s.` : lim?.source === "default" ? `Không đặt hạn nên dùng mặc định ${sec} s.` : `Hạn ${sec} s.`;
+  return `⏱ Lệnh chạy quá ${sec} s nên đã bị dừng (cả tiến trình con): ${cmd.length > 300 ? cmd.slice(0, 300) + "…" : cmd}\n${est}\n`
+    + `Chọn một: thu hẹp phạm vi / dùng lệnh nhanh hơn (rg -l với -g, giới hạn thư mục, head, find -maxdepth); đặt timeout_sec lớn hơn nếu lệnh đúng là cần lâu${lim?.capped ? ` (tối đa ${envMaxSec()} s)` : ""}; hoặc chạy nền rồi xem lại tệp log.\n`
     + `--- output tới lúc dừng ---\n${out.trim() || "(chưa có output)"}\n⏱ đã dừng sau ${sec} s`;
 }
 
@@ -179,13 +181,17 @@ export async function fsTool(name: string, a: any, approve: (name: string, input
     }
     case "run_command": {
       const dir = a.cwd ? absPath(a.cwd, cwd) : cwd;
-      const sec = Math.min(1800, Math.max(1, Number(a.timeout_sec ?? defaultCmdTimeoutSec())));
+      const lim = commandLimit(a);
+      const sec = lim.sec;
+      const t0 = Date.now();
       const r = platform() === "win32"
         ? await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Set-Location -LiteralPath '${dir.replace(/'/g, "''")}'; ${a.command}`], sec * 1000)
         : await run("bash", ["-lc", `cd ${JSON.stringify(dir)} && ${a.command}`], sec * 1000);
       const out = r.out.length > MAX_OUT ? r.out.slice(0, MAX_OUT / 2) + "\n[…cắt bớt…]\n" + r.out.slice(-MAX_OUT / 2) : r.out;
-      if (r.timedOut) return timeoutReport(String(a.command), sec, out.slice(-8000));
-      return `Mã thoát ${r.code}\n${out}`;
+      if (r.timedOut) return timeoutReport(String(a.command), sec, out.slice(-8000), lim);
+      const took = Math.round((Date.now() - t0) / 100) / 10;
+      const note = lim.source === "default" ? `\n(Lệnh này không có ước tính: lần sau hãy đặt expected_sec / timeout_sec cho từng lệnh.)` : "";
+      return `Mã thoát ${r.code} · xong sau ${took} s\n${out}${note}`;
     }
   }
   throw new Error(`tool lạ: ${name}`);

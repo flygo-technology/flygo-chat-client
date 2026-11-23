@@ -33,7 +33,7 @@ test("fs-tools: keys and tokens are off limits", async () => {
 test("fs-tools: trash refuses home and root, run_command reports exit code", async () => {
   await expect(fsTool("file_trash", { path: "~" }, yes)).rejects.toThrow("thư mục nhà");
   const d = mkdtempSync(join(tmpdir(), "fst-"));
-  expect(await fsTool("run_command", { command: "echo hi; exit 3" }, yes, d)).toContain("Mã thoát 3\nhi");
+  expect(await fsTool("run_command", { command: "echo hi; exit 3" }, yes, d)).toMatch(/^Mã thoát 3 · xong sau [\d.]+ s\nhi/);
   expect(await fsTool("run_command", { command: "echo hi" }, no, d)).toContain("không duyệt");
 });
 
@@ -41,22 +41,28 @@ test("run_command quá hạn: dừng cả tiến trình con, trả output đã c
   const { fsTool } = await import("./fs-tools");
   const dir = (await import("node:os")).tmpdir();
   const t0 = Date.now();
-  // bash -lc → sh → sleep: phải dừng cả cây, không chờ sleep 30
-  const r = await fsTool("run_command", { command: "echo bat-dau; sh -c 'sleep 30'; echo khong-toi", timeout_sec: 1 }, async () => true, dir);
+  // bash -lc → sh → sleep: phải dừng cả cây, không chờ sleep 37.31
+  const r = await fsTool("run_command", { command: "echo bat-dau; sh -c 'sleep 37.31'; echo khong-toi", timeout_sec: 1 }, async () => true, dir);
   expect(Date.now() - t0).toBeLessThan(8000);
   expect(r).toContain("⏱ Lệnh chạy quá 1 s nên đã bị dừng");
+  expect(r).toContain("Hạn 1 s.");
+  expect(r).toContain("đặt timeout_sec lớn hơn");
   expect(r).toContain("rg -l");
   expect(r).toContain("bat-dau");
   expect(r.split("--- output tới lúc dừng ---")[1]).not.toContain("khong-toi");
   expect(r.trim().endsWith("⏱ đã dừng sau 1 s")).toBe(true);
-  // tiến trình sleep 30 không còn sót
-  const left = Bun.spawnSync(["pgrep", "-f", "sleep 30"]).stdout.toString().trim();
+  // tiến trình sleep không còn sót (mẫu neo ^…$: không khớp dòng lệnh shell khác)
+  const left = Bun.spawnSync(["pgrep", "-f", "^sleep 37\\.31$"]).stdout.toString().trim();
   expect(left).toBe("");
 });
 
 test("run_command thường: mã thoát + output như cũ; hạn mặc định theo FLYGO_CMD_TIMEOUT_SEC", async () => {
   const { fsTool, defaultCmdTimeoutSec } = await import("./fs-tools");
-  expect(await fsTool("run_command", { command: "echo ok" }, async () => true, (await import("node:os")).tmpdir())).toBe("Mã thoát 0\nok\n");
+  const plain = await fsTool("run_command", { command: "echo ok" }, async () => true, (await import("node:os")).tmpdir());
+  expect(plain).toMatch(/^Mã thoát 0 · xong sau [\d.]+ s\nok\n/);
+  expect(plain).toContain("lần sau hãy đặt expected_sec / timeout_sec"); // không ước tính: nhắc
+  const est = await fsTool("run_command", { command: "echo ok", expected_sec: 2 }, async () => true, (await import("node:os")).tmpdir());
+  expect(est).not.toContain("lần sau hãy đặt");
   const old = process.env.FLYGO_CMD_TIMEOUT_SEC;
   process.env.FLYGO_CMD_TIMEOUT_SEC = "45"; expect(defaultCmdTimeoutSec()).toBe(45);
   delete process.env.FLYGO_CMD_TIMEOUT_SEC; expect(defaultCmdTimeoutSec()).toBe(120);

@@ -1,6 +1,7 @@
 // Engine Claude: mỗi lượt chạy `claude -p --output-format stream-json`, nói tiếp bằng --resume.
 // Quyền: công cụ ngoài allowedTools được hỏi qua tool MCP flygo_chat.approve (--permission-prompt-tool)
 // -> runner hiện yêu cầu duyệt trên Flygo.
+import { badgeOf } from "../cmd-limits";
 import { claudeReadOnly, desktopMcp } from "../desktop-mcp";
 import { mergeDeny, TW_CLAUDE_DENY } from "../teamwork";
 import { normTodos } from "../todos";
@@ -244,8 +245,10 @@ export class ClaudeEngine implements Engine {
 
     const gate = this.cfg.flygoAi ? await flygoAiEnv(this.cfg, await this.emailOf(input.requester || this.cfg.ownerUserIds[0] || "").catch(() => ""), this.botName()) : {};
     // Bash của Claude Code: hạn mặc định theo commandTimeoutSec của bot (120 s), tối đa 10 phút; chạy nền (run_in_background) không tính.
-    const cmdMs = String(Math.min(1800, Math.max(5, Number(input.mcpEnv.FLYGO_CMD_TIMEOUT_SEC) || 120)) * 1000);
-    const bashTimeouts = { BASH_DEFAULT_TIMEOUT_MS: process.env.BASH_DEFAULT_TIMEOUT_MS ?? cmdMs, BASH_MAX_TIMEOUT_MS: process.env.BASH_MAX_TIMEOUT_MS ?? "600000" };
+    const maxSec = Math.max(30, Number(input.mcpEnv.FLYGO_CMD_TIMEOUT_MAX_SEC) || 1800);
+    const cmdMs = String(Math.min(maxSec, Math.max(5, Number(input.mcpEnv.FLYGO_CMD_TIMEOUT_SEC) || 120)) * 1000);
+    // Agent tự đặt timeout cho từng lệnh Bash (persona); đây chỉ là mặc định khi không đặt và trần commandTimeoutMaxSec.
+    const bashTimeouts = { BASH_DEFAULT_TIMEOUT_MS: process.env.BASH_DEFAULT_TIMEOUT_MS ?? cmdMs, BASH_MAX_TIMEOUT_MS: process.env.BASH_MAX_TIMEOUT_MS ?? String(maxSec * 1000) };
     const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
@@ -316,7 +319,8 @@ export class ClaudeEngine implements Engine {
                 if (c.name === "TodoWrite") { const t = normTodos(c.input); if (t) hooks.todos?.(t); }
                 if (hidden(c.name, c.input)) continue; // report_out / câu hỏi: runner tự ghi bước
                 const d = describe(c.name, c.input);
-                hooks.step({ id: c.id, kind: d.kind, title: d.title, label: d.label, status: "running" });
+                const badge = badgeOf(c.name, c.input); // "⏱ dự kiến N s · giới hạn M s" trên bước lệnh
+                hooks.step({ id: c.id, kind: d.kind, title: badge ? `${d.title} · ${badge}` : d.title, label: d.label, status: "running" });
               } else if (c.type === "text" && c.text?.trim()) {
                 hooks.text({ id: ev.message?.id ?? String(ev.uuid), full: c.text, done: true });
               }
@@ -328,7 +332,8 @@ export class ClaudeEngine implements Engine {
               if (t) try { hooks.toolDone?.({ id: c.tool_use_id, name: t.name, input: t.input, result: resultText(c.content), isError: !!c.is_error }); } catch {}
               if (!t || hidden(t.name, t.input)) continue;
               const d = describe(t.name, t.input);
-              hooks.step({ id: c.tool_use_id, kind: d.kind, title: d.title, label: d.label, status: c.is_error ? "error" : "done", detail: resultText(c.content).slice(-600) });
+              const badge = badgeOf(t.name, t.input);
+              hooks.step({ id: c.tool_use_id, kind: d.kind, title: badge ? `${d.title} · ${badge}` : d.title, label: d.label, status: c.is_error ? "error" : "done", detail: resultText(c.content).slice(-600) });
             }
           } else if (ev.type === "result") {
             final = ev.result ?? "";

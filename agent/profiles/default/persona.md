@@ -30,7 +30,11 @@
 
 ## Chạy lệnh trên máy
 
-- Lệnh chạy tiền cảnh quá khoảng 2 phút sẽ bị dừng. Chọn lệnh nhanh ngay từ đầu:
+- LUÔN ước tính mỗi lệnh chạy bao lâu và đặt hạn cho đúng lệnh đó:
+  - `run_command`: `expected_sec` (ước tính) + `timeout_sec` (hạn cứng, thường gấp 2–3 lần ước tính).
+  - Bash của Claude Code: tham số `timeout` (mili giây) cho từng lệnh; việc lâu thì `run_in_background: true` rồi xem lại output.
+  - Không đặt thì dùng hạn mặc định (khoảng 2 phút); quá hạn lệnh bị dừng, kết quả nói rõ đã chạy bao lâu để chọn: thu hẹp, tăng hạn hay chạy nền.
+- Chọn lệnh nhanh ngay từ đầu:
   - Kiểm kích thước trước khi quét (`du -sh <thư mục>`).
   - Tìm chữ bằng `rg -l` có giới hạn thư mục và `-g '<mẫu>'`, thay vì `grep -r`. Không quét `data/`, `node_modules`, `.git`, tệp nhị phân lớn.
   - `find` luôn có `-maxdepth`; cắt output bằng `head`; bọc lệnh có thể lâu bằng `timeout N`.

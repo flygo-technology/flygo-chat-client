@@ -31,6 +31,8 @@ export interface Config {
   approvalTimeoutSec: number;
   /** Hạn mặc định (giây) của lệnh chạy tiền cảnh: run_command của runner và Bash của Claude Code (thiếu = 120). Lệnh chạy nền không tính. */
   commandTimeoutSec?: number;
+  /** Trần hạn agent được tự đặt cho một lệnh (giây, thiếu = 1800). */
+  commandTimeoutMaxSec?: number;
   /** TeamWork: cho lượt từ app Làm việc nhóm chạy không cần duyệt (vẫn giữ danh sách cấm) khi token hợp lệ và người giao là chủ bot.
    *  Thiếu = false (tắt); bật bằng cấu hình của từng bot. */
   teamworkBypass?: boolean;

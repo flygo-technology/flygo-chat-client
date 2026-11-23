@@ -104,6 +104,10 @@ export class RunCard {
       s = { ...s, title: `⏱ ${s.title} · đã dừng sau ${sec} s`, label: `⏱ đã dừng sau ${sec} s` };
     }
     const old = this.steps.find((x) => x.id === s.id);
+    // Bước lệnh có hạn ("⏱ … giới hạn M s") xong bình thường: ghi thời gian thực tế.
+    if (old && !to && s.status !== "running" && s.status !== "waiting" && /⏱ (dự kiến \d+ s · )?giới hạn \d+ s/.test(s.title) && !/ · xong sau /.test(s.title)) {
+      s = { ...s, title: `${s.title} · xong sau ${Math.max(0, Math.round((Date.now() - old.started_at) / 1000))} s` };
+    }
     const max = s.kind === "message" ? 4000 : MAX_DETAIL; // câu trả lời của agent khác (A2A): giữ dài hơn để xem lại
     const detail = s.detail && s.detail.length > max ? s.detail.slice(0, max) + "…" : s.detail;
     if (old) {
