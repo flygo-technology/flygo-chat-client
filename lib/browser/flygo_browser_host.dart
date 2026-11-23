@@ -63,6 +63,9 @@ class FlygoSecrets {
 
   static Future<String?> read(String key) async => (await _load())[key] as String?;
 
+  /// Các khoá đang lưu (để tìm bản ghép cũ khi engine đổi định dạng profileKey).
+  static Future<List<String>> keys() async => (await _load()).keys.toList();
+
   /// Ghi tuần tự, tệp tạm rồi đổi tên (không để tệp dở dang).
   static Future<void> write(String key, String? value) {
     final next = _lock.then((_) async {
@@ -569,6 +572,21 @@ class FlygoBrowserHost {
         if (raw != null) saved = Map<String, dynamic>.from(jsonDecode(raw) as Map);
       } catch (_) {}
       // Engine báo cần token (không có, hoặc Gateway từ chối 4401/4403): ghép lại, thay bản ghi cũ.
+      // Engine đổi định dạng profileKey (1.3.3: "fid:<máy chủ>/misa:<hash>" → "server/misa:<hash>"): cùng token ký số
+      // (phần sau dấu "/" cuối) trên cùng máy chủ thì thay bản ghép cũ, không tạo client trùng trên Gateway.
+      String? replaceOld;
+      if (saved == null) {
+        final tail = profileKey.substring(profileKey.lastIndexOf('/') + 1);
+        for (final k in await FlygoSecrets.keys()) {
+          if (k == storeKey || !k.startsWith('flygo-browser-bridge:$server|') || !k.endsWith('/$tail')) continue;
+          try {
+            replaceOld = (jsonDecode(await FlygoSecrets.read(k) ?? '{}') as Map)['client_id'] as String?;
+          } catch (_) {}
+          await FlygoSecrets.write(k, null);
+          log('profileKey đổi: thay bản ghép cũ $k (${replaceOld ?? '?'})');
+          break;
+        }
+      }
       if (saved == null || only != null) {
         final last = _pairedAt[storeKey];
         if (last != null && DateTime.now().difference(last) < const Duration(minutes: 1)) continue;
@@ -579,8 +597,8 @@ class FlygoBrowserHost {
           final tok = current ? chatToken! : await TokenStore.readFor(server);
           if (tok == null) continue;
           final r = current
-              ? await MyBrowsers.pair(tok, client: client, replace: saved?['client_id'] as String?)
-              : await MyBrowsers.pairOn(server, tok, client: client, replace: saved?['client_id'] as String?);
+              ? await MyBrowsers.pair(tok, client: client, replace: saved?['client_id'] as String? ?? replaceOld)
+              : await MyBrowsers.pairOn(server, tok, client: client, replace: saved?['client_id'] as String? ?? replaceOld);
           saved = {'client_id': (r['client'] as Map?)?['id'], 'token': r['token'], 'ws_url': r['ws_url']};
           await FlygoSecrets.write(storeKey, jsonEncode(saved));
           log('đã ghép $server cho $profileKey (${saved['client_id']})');
