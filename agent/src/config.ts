@@ -96,7 +96,8 @@ export interface Config {
   // Chuyển tiếp TCP bằng bun (macOS chặn Local Network với binary codex/node). Chỉ codex-shared dùng.
   forwards: Array<{ listen: number; host: string; port: number }>;
   /** Flygo ID + Flygo Gateway của máy chủ chat: tool MCP theo quyền của người nhờ (xem gateway.ts). Không có = tắt. */
-  flygoId?: { url: string; gatewayUrl: string };
+  /** Thiếu = suy từ serverUrl (defaultFlygoId); null = tắt hẳn. */
+  flygoId?: { url: string; gatewayUrl: string } | null;
   /**
    * Cổng AI công ty (vn.flygo.ai, 0.7.6): bot engine claude gọi model qua cổng thay vì gói Claude của máy. Mỗi lượt gửi kèm
    * email người nhờ (X-Flygo-User) để tính vào hạn mức của chính người đó. keyFile: khoá ứng dụng fgk_… có quyền gọi thay
@@ -225,3 +226,13 @@ export function claudeConfigDir(cfg: { env?: Record<string, string> } | null | u
 /** Env cho mọi lần gọi CLI claude của bot (auth status, phiên phụ, đặt tên…): env tiến trình + env riêng của bot. */
 export const claudeEnv = (cfg: { env?: Record<string, string> } | null | undefined, extra: Record<string, string> = {}) =>
   ({ ...process.env, ...(cfg?.env ?? {}), ...extra }) as Record<string, string>;
+
+/** Flygo ID + Gateway mặc định của máy chủ chat khi cấu hình bot không ghi (Sếp 2026-11-23: mọi agent của chủ có đủ tool, mọi engine /
+ *  mọi máy): <server>/flygo-id và <server>/__apps/flygo-gateway/mcp (route công khai qua sso-shim). null trong cấu hình = tắt hẳn. */
+export function flygoIdOf(cfg: { flygoId?: { url: string; gatewayUrl: string } | null; serverUrl: string }): { url: string; gatewayUrl: string } | undefined {
+  if (cfg.flygoId === null) return undefined;
+  if (cfg.flygoId?.url && cfg.flygoId?.gatewayUrl) return cfg.flygoId;
+  const s = (cfg.serverUrl ?? "").replace(/\/+$/, "");
+  if (!/^https?:\/\//.test(s)) return undefined;
+  return { url: cfg.flygoId?.url || `${s}/flygo-id`, gatewayUrl: cfg.flygoId?.gatewayUrl || `${s}/__apps/flygo-gateway/mcp` };
+}

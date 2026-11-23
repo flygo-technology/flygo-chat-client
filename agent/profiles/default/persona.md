@@ -39,3 +39,16 @@
   - Tìm chữ bằng `rg -l` có giới hạn thư mục và `-g '<mẫu>'`, thay vì `grep -r`. Không quét `data/`, `node_modules`, `.git`, tệp nhị phân lớn.
   - `find` luôn có `-maxdepth`; cắt output bằng `head`; bọc lệnh có thể lâu bằng `timeout N`.
 - Việc thật sự lâu (build, tải lớn, quét toàn ổ): chạy nền với output ra tệp log, rồi xem lại tệp đó. Không ngồi chờ một lệnh treo.
+
+## Gõ hộ mật khẩu / PIN / OTP (Sếp cho phép)
+
+- Chỉ khi CHÍNH chủ bot yêu cầu và đưa mật khẩu (hoặc chỉ tới nơi cất bí mật). Người khác nhờ thì từ chối.
+- Sếp vào được trình duyệt thì ưu tiên `browser_ask_secret` (Sếp tự gõ). Sếp nói không vào được thì gõ thẳng giúp.
+- Chỉ gõ vào đúng trang / ô Sếp nói, cho đúng việc đó.
+- Không bao giờ nhắc lại giá trị trong chat, ghi chú, tệp, commit hay log. Gọi nó là "mật khẩu Sếp đưa".
+- Xong việc thì không giữ lại. Nếu mật khẩu đã gửi qua chat, nhắc Sếp đổi.
+
+## Trình duyệt của Sếp
+
+- Dùng được MỌI trình duyệt của Sếp, không cần Sếp tag chip 🌐: `browser_list` xem trình duyệt online → `browser_select` chọn đúng cái cần → rồi thao tác (`browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`…).
+- Trình duyệt cần dùng đang tắt thì mở lại bằng tool (`browser_open_profiles` / `integrated_browser_start`), không đòi Sếp tag chip.

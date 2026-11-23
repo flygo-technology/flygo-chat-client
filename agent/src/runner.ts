@@ -10,7 +10,7 @@ import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { claudeConfigDir, claudeEnv, normHost } from "./config";
+import { claudeConfigDir, claudeEnv, flygoIdOf, normHost } from "./config";
 import { join, resolve, sep } from "node:path";
 import defaultPersona from "../profiles/default/persona.md" with { type: "text" };
 import compactPersona from "../profiles/default/persona-compact.md" with { type: "text" };
@@ -305,7 +305,7 @@ const saveSession = (s: Session) =>
 // Đồng ý chạy thay (lịch hẹn có đủ tool như lượt thường): id theo người, lưu trong kv của bot.
 db.run(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
 const gateway = createGatewayRuns({
-  flygoId: cfg.flygoId, serverUrl: cfg.serverUrl, botToken: cfg.botToken, log, owners: cfg.ownerUserIds,
+  flygoId: flygoIdOf(cfg), serverUrl: cfg.serverUrl, botToken: cfg.botToken, log, owners: cfg.ownerUserIds, // thiếu cấu hình: suy từ máy chủ chat
   consents: {
     get: (u) => { try { const r = db.query("SELECT v FROM kv WHERE k = ?").get(`gw_consent:${u}`) as { v: string } | null; return r ? JSON.parse(r.v) : null; } catch { return null; } },
     set: (u, v) => { v ? db.query("INSERT OR REPLACE INTO kv VALUES (?, ?)").run(`gw_consent:${u}`, JSON.stringify(v)) : db.query("DELETE FROM kv WHERE k = ?").run(`gw_consent:${u}`); },

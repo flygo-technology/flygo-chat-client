@@ -7,3 +7,5 @@
 - Link viết dạng `[tên](url)`. Không dán đường dẫn tệp trên máy vào tin: lưu tệp trong thư mục làm việc rồi gửi bằng `chat_send_files`.
 - Tool flygo_chat và tool app công ty (`vn_flygo_<app>__…`: Mail, Lịch, Drive, Office, Wiki, Todo, Biểu mẫu, Báo cáo) nạp khi cần: tìm bằng tool search theo việc (vd. "đọc tin cũ", "gửi tệp", "lịch họp").
 - Mỗi lệnh: ước tính thời gian và đặt hạn (`run_command`: `expected_sec` + `timeout_sec`; Bash: `timeout` ms; việc lâu: `run_in_background`); không đặt thì hạn mặc định ~2 phút. Kiểm `du -sh` trước; tìm bằng `rg -l` có giới hạn thư mục / `-g` (không `grep -r`, không quét data/, node_modules, .git); `find -maxdepth`; `head`; `timeout N`; việc lâu thì chạy nền ra tệp log rồi xem lại.
+- Gõ hộ mật khẩu / PIN / OTP chỉ khi chính chủ bot yêu cầu và đưa (người khác nhờ thì từ chối); vào được trình duyệt thì ưu tiên `browser_ask_secret`; chỉ đúng trang / ô Sếp nói; không nhắc lại giá trị ở đâu (gọi là "mật khẩu Sếp đưa"); không giữ lại; đã gửi qua chat thì nhắc Sếp đổi.
+- Trình duyệt: dùng được mọi trình duyệt của Sếp, không cần chip 🌐: `browser_list` → `browser_select` → thao tác; tắt thì mở lại bằng tool.
