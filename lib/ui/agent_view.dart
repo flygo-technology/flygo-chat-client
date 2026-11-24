@@ -1254,141 +1254,189 @@ class _AgentQuestionCardState extends State<AgentQuestionCard> {
     final allowOther = q['allow_other'] != false;
     final answered = (q['status'] as String? ?? 'pending') != 'pending' || _sent;
     final answer = q['answer'];
-    Widget optionTile((String, String) o) {
-      final sel = _picked.contains(o.$1);
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Material(
-          color: sel ? pal.accent.withValues(alpha: .16) : pal.text.withValues(alpha: .05),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12), side: BorderSide(color: sel ? pal.accent : Colors.transparent, width: 1.4)),
-          child: InkWell(
-            customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            // Chọn xong mới gửi bằng nút Xác nhận (cả một lựa chọn lẫn nhiều lựa chọn).
-            onTap: answered
-                ? null
-                : () => setState(() {
-                      if (!multi) {
-                        _picked
-                          ..clear()
-                          ..add(o.$1);
-                        _other = false;
-                      } else {
-                        sel ? _picked.remove(o.$1) : _picked.add(o.$1);
-                      }
-                    }),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              child: Row(children: [
-                Icon(
-                    multi
-                        ? (sel ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded)
-                        : (sel ? Icons.radio_button_checked : Icons.radio_button_unchecked),
-                    size: 20,
-                    color: sel ? pal.accentText : pal.sub),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(o.$1, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: pal.text)),
-                    if (o.$2.isNotEmpty) Text(o.$2, style: TextStyle(fontSize: 13, color: pal.sub)),
-                  ]),
-                ),
-              ]),
-            ),
-          ),
-        ),
-      );
+    final expired = q['status'] == 'expired' && _sentById[_id] == null;
+    final cancelled = answered && (_sentById[_id] == 'cancelled' || q['status'] == 'cancelled');
+    // Kiểu "chọn đáp án" của Claude: lựa chọn đánh số xếp dọc; một lựa chọn = bấm là gửi, nhiều lựa chọn = tích rồi Gửi;
+    // "Khác" là dòng cuối, gõ rồi gửi ngay trong dòng. Hết hạn: giữ nguyên giao diện, chỉ làm mờ (Sếp 25/11).
+    final live = !answered && !expired;
+    final canSendOther = _otherCtl.text.trim().isNotEmpty;
+    void pick(String label) {
+      if (!live) return;
+      if (!multi) {
+        setState(() => _picked
+          ..clear()
+          ..add(label));
+        _submit(app, [label], '');
+        return;
+      }
+      setState(() => _picked.contains(label) ? _picked.remove(label) : _picked.add(label));
     }
 
-    return Container(
-      margin: const EdgeInsets.only(top: 8, bottom: 14),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-          color: pal.accent.withValues(alpha: .06),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: pal.accent.withValues(alpha: .25))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          Icon(Icons.help_outline_rounded, size: 18, color: pal.accentText),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(q['question'] as String? ?? '',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: pal.text)),
+    Widget badge(int n, bool sel) => Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: sel ? pal.accent : pal.text.withValues(alpha: .07),
+            borderRadius: BorderRadius.circular(7),
           ),
-        ]),
-        if (!answered)
+          child: multi && sel
+              ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+              : Text('$n',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: sel ? Colors.white : pal.sub,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+        );
+
+    Widget row({required int n, required bool sel, required Widget child, VoidCallback? onTap, Key? key}) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Material(
+            key: key,
+            color: sel ? pal.accent.withValues(alpha: .10) : pal.surface,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: sel ? pal.accent.withValues(alpha: .8) : pal.divider, width: sel ? 1.3 : 1)),
+            child: InkWell(
+              customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              hoverColor: pal.accent.withValues(alpha: .06),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  badge(n, sel),
+                  const SizedBox(width: 12),
+                  Expanded(child: child),
+                ]),
+              ),
+            ),
+          ),
+        );
+
+    Widget optionRow(int i, (String, String) o) => row(
+          key: ValueKey('q-opt-$i'),
+          n: i + 1,
+          sel: _picked.contains(o.$1),
+          onTap: live ? () => pick(o.$1) : null,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(o.$1, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.text, height: 1.3)),
+            if (o.$2.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(o.$2, style: TextStyle(fontSize: 13, color: pal.sub, height: 1.35)),
+              ),
+          ]),
+        );
+
+    // Dòng "Khác": bấm để gõ; Enter (hoặc nút gửi) gửi kèm các lựa chọn đã tích (nhiều lựa chọn).
+    Widget otherRow() => row(
+          key: const ValueKey('q-other'),
+          n: options.length + 1,
+          sel: _other,
+          onTap: live && !_other
+              ? () => setState(() {
+                    _other = true;
+                    if (!multi) _picked.clear();
+                  })
+              : null,
+          child: _other && live
+              ? Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _otherCtl,
+                      autofocus: true,
+                      minLines: 1,
+                      maxLines: 4,
+                      style: TextStyle(fontSize: 14.5, color: pal.text),
+                      decoration: InputDecoration(
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        hintText: tr('Nhập câu trả lời khác…'),
+                        hintStyle: TextStyle(color: pal.sub),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => canSendOther ? _submit(app, multi ? _picked.toList() : const [], _otherCtl.text) : null,
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('q-other-send'),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: tr('Gửi'),
+                    onPressed: canSendOther ? () => _submit(app, multi ? _picked.toList() : const [], _otherCtl.text) : null,
+                    icon: Icon(Icons.arrow_upward_rounded, size: 20, color: canSendOther ? pal.accentText : pal.sub),
+                  ),
+                ])
+              : Text(tr('Khác…'), style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.sub, height: 1.3)),
+        );
+
+    final header = '${q['header'] ?? ''}'.trim();
+    final card = Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 14),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+          color: pal.text.withValues(alpha: .03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: pal.divider)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        if (header.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: pal.accent.withValues(alpha: .12), borderRadius: BorderRadius.circular(6)),
+              child: Text(header, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: pal.accentText)),
+            ),
+          ),
+        Text(q['question'] as String? ?? '', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: pal.text, height: 1.35)),
+        if (live && multi)
           Padding(
             padding: const EdgeInsets.only(top: 2),
-            child: Text(multi ? tr('Chọn một hoặc nhiều, rồi bấm Xác nhận') : tr('Chọn một, rồi bấm Xác nhận'),
-                style: TextStyle(fontSize: 12.5, color: pal.sub)),
+            child: Text(tr('Chọn một hoặc nhiều, rồi bấm Gửi'), style: TextStyle(fontSize: 12.5, color: pal.sub)),
           ),
         const SizedBox(height: 10),
-        if (q['status'] == 'expired' && _sentById[_id] == null)
-          Row(children: [
-            Icon(Icons.timer_off_outlined, size: 18, color: pal.sub),
-            const SizedBox(width: 6),
-            Text(tr('Câu hỏi đã hết hạn'), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.sub)),
-          ])
-        else if (answered && (_sentById[_id] == 'cancelled' || q['status'] == 'cancelled'))
-          Row(children: [
-            Icon(Icons.cancel_rounded, size: 18, color: pal.sub),
-            const SizedBox(width: 6),
-            Text(tr('Đã huỷ'), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.sub)),
-          ])
+        if (cancelled)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(children: [
+              Icon(Icons.cancel_rounded, size: 18, color: pal.sub),
+              const SizedBox(width: 6),
+              Text(tr('Đã huỷ'), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: pal.sub)),
+            ]),
+          )
         else if (answered)
           // Đã trả lời: giữ đủ các lựa chọn đã đưa ra, lựa chọn của mình có ✓ và in đậm, kèm ý khác.
-          AgentAnswerOptions(q: {...q, if (q['choices'] == null && _picked.isNotEmpty) 'choices': _picked.toList()}, answer: answer is String ? answer : null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: AgentAnswerOptions(
+                q: {...q, if (q['choices'] == null && _picked.isNotEmpty) 'choices': _picked.toList()}, answer: answer is String ? answer : null),
+          )
         else ...[
-          for (final o in options) optionTile(o),
-          if (allowOther)
-            _other
-                ? Row(children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _otherCtl,
-                        autofocus: true,
-                        minLines: 1,
-                        maxLines: 4,
-                        style: TextStyle(color: pal.text),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: tr('Nhập câu trả lời khác…'),
-                          filled: true,
-                          fillColor: pal.surface,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                  ])
-                : TextButton.icon(
-                    onPressed: () => setState(() {
-                      _other = true;
-                      if (!multi) _picked.clear();
-                    }),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: Text(tr('Khác…')),
-                  ),
-          const SizedBox(height: 4),
-          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+          for (final (i, o) in options.indexed) optionRow(i, o),
+          if (allowOther) otherRow(),
+          Row(children: [
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.redAccent, minimumSize: const Size(64, 44)),
-              onPressed: () => _cancel(app),
-              child: Text(tr('Huỷ')),
+              key: const ValueKey('q-skip'),
+              style: TextButton.styleFrom(foregroundColor: pal.sub, minimumSize: const Size(56, 40)),
+              onPressed: live ? () => _cancel(app) : null,
+              child: Text(tr('Bỏ qua')),
             ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(shape: const StadiumBorder()),
-              onPressed: _picked.isEmpty && (!_other || _otherCtl.text.trim().isEmpty)
-                  ? null
-                  : () => _submit(app, _picked.toList(), _other ? _otherCtl.text : ''),
-              icon: const Icon(Icons.check_rounded, size: 18),
-              label: Text(tr('Xác nhận')),
-            ),
+            const Spacer(),
+            if (multi)
+              FilledButton(
+                key: const ValueKey('q-submit'),
+                style: FilledButton.styleFrom(shape: const StadiumBorder(), visualDensity: VisualDensity.compact),
+                onPressed: live && (_picked.isNotEmpty || (_other && canSendOther))
+                    ? () => _submit(app, _picked.toList(), _other ? _otherCtl.text : '')
+                    : null,
+                child: Text(tr('Gửi')),
+              ),
           ]),
         ],
       ]),
     );
+    // Hết hạn: cùng giao diện, mờ đi và không bấm được.
+    return expired ? IgnorePointer(child: Opacity(key: const ValueKey('q-expired'), opacity: .45, child: card)) : card;
   }
 }
 

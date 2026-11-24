@@ -160,12 +160,13 @@ export const hidden = (name: string, input: any) => HIDDEN.has(name) || (/^(Writ
 const resultText = (c: any) => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => x.text ?? "").join("\n") : "");
 
 /** Một tin user dạng stream-json để ghi vào stdin của claude (-p --input-format stream-json). */
-const streamUserMsg = (text: string) => JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }) + "\n";
+const streamUserMsg = (text: string, uuid?: string) => JSON.stringify({ type: "user", ...(uuid ? { uuid } : {}), message: { role: "user", content: [{ type: "text", text }] } }) + "\n";
 
 /** `claude` cũ (trước khi có `--input-format stream-json`) thì không chèn tin giữa lượt được: kiểm một lần theo bin rồi nhớ.
- *  Không đọc được help thì coi như không hỗ trợ (chạy đường cũ: prompt làm tham số, không steering). */
-const streamInputCache = new Map<string, Promise<boolean>>();
-function supportsStreamInput(bin: string, env?: Record<string, string>): Promise<boolean> {
+ *  Không đọc được help thì coi như không hỗ trợ (chạy đường cũ: prompt làm tham số, không steering).
+ *  replay: có `--replay-user-messages` (claude phát lại tin user lúc thật sự đọc -> biết lúc tin chèn được điều hướng). */
+const streamInputCache = new Map<string, Promise<{ stream: boolean; replay: boolean }>>();
+function supportsStreamInput(bin: string, env?: Record<string, string>): Promise<{ stream: boolean; replay: boolean }> {
   let p = streamInputCache.get(bin);
   if (!p) {
     p = (async () => {
@@ -175,8 +176,8 @@ function supportsStreamInput(bin: string, env?: Record<string, string>): Promise
         const out = await new Response(proc.stdout).text().catch(() => "");
         await proc.exited.catch(() => {});
         clearTimeout(timer);
-        return /--input-format\b/.test(out);
-      } catch { return false; }
+        return { stream: /--input-format\b/.test(out), replay: /--replay-user-messages\b/.test(out) };
+      } catch { return { stream: false, replay: false }; }
     })();
     streamInputCache.set(bin, p);
   }
@@ -302,10 +303,10 @@ export class ClaudeEngine implements Engine {
     const bin = resolveBin(this.cfg.claude.bin);
     // stream-json ở chiều vào: prompt (và tin chèn giữa lượt) đưa qua stdin, không truyền prompt làm tham số.
     // claude cũ không có --input-format thì chạy đường cũ (prompt làm tham số, không chèn được tin giữa lượt).
-    const streamIn = await supportsStreamInput(bin, this.cfg.env);
+    const { stream: streamIn, replay } = await supportsStreamInput(bin, this.cfg.env);
     const args = [
       bin, "-p",
-      ...(streamIn ? ["--input-format", "stream-json"] : [input.prompt]),
+      ...(streamIn ? ["--input-format", "stream-json", ...(replay ? ["--replay-user-messages"] : [])] : [input.prompt]),
       "--output-format", "stream-json", "--verbose", "--include-partial-messages",
       "--setting-sources", "project,local",
       "--settings", settings,
@@ -357,14 +358,19 @@ export class ClaudeEngine implements Engine {
     const stdin = proc.stdin; // FileSink khi stdin:"pipe" (streamIn), undefined khi "ignore"
     let turnEnded = false;
     let stdinOpen = streamIn;
+    const readAcks = new Map<string, () => void>(); // uuid tin chèn -> báo runner khi claude đọc tin
     const endStdin = () => { if (stdinOpen) { stdinOpen = false; try { stdin?.end(); } catch {} } };
     if (streamIn && stdin) {
       try { stdin.write(streamUserMsg(input.prompt)); stdin.flush(); } catch {}
       // Tin mới của người dùng trong lúc lượt đang chạy: chèn thẳng vào lượt (đưa thêm một tin user vào stdin) thay vì xếp hàng.
-      hooks.steerable?.(async (text) => {
+      hooks.steerable?.(async (text, onRead) => {
         if (turnEnded || !stdinOpen) return false;
-        try { stdin.write(streamUserMsg(text)); stdin.flush(); return true; }
+        const uuid = crypto.randomUUID();
+        try { stdin.write(streamUserMsg(text, uuid)); stdin.flush(); }
         catch { return false; }
+        // claude phát lại tin (isReplay, cùng uuid) đúng lúc đọc nó (sau bước đang chạy); claude cũ không phát lại thì coi như đọc ngay.
+        if (onRead) { if (replay) readAcks.set(uuid, onRead); else onRead(); }
+        return true;
       });
     }
 
@@ -415,6 +421,8 @@ export class ClaudeEngine implements Engine {
               }
             }
           } else if (ev.type === "user") {
+            const ack = ev.isReplay && ev.uuid ? readAcks.get(ev.uuid) : undefined;
+            if (ack) { readAcks.delete(ev.uuid); try { ack(); } catch {} }
             for (const c of ev.message?.content ?? []) {
               if (c.type !== "tool_result") continue;
               const t = tools.get(c.tool_use_id);

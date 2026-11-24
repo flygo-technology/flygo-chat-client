@@ -105,7 +105,35 @@ Widget _wrap(AppState app, Brightness b, [Key? key]) => ChangeNotifierProvider<A
       ),
     );
 
+Widget _bare(Widget child) => MaterialApp(
+      theme: buildTheme(Brightness.light),
+      locale: const Locale('vi'),
+      supportedLocales: const [Locale('vi'), Locale('en')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: Scaffold(body: SingleChildScrollView(child: child)),
+    );
+
 void main() {
+  testWidgets('nút Dừng: chỉ trên tác vụ đang chạy, hỏi lại rồi gọi onStop; không có onStop thì không có nút', (t) async {
+    final stopped = <String>[];
+    await t.pumpWidget(_bare(AgentBgTasks(tasks: _tasks(), openKey: 'p-stop', onStop: (id) async {
+      stopped.add(id);
+      return null;
+    })));
+    expect(find.byKey(const ValueKey('bg-stop')), findsNWidgets(2)); // t1, t2 đang chạy; t4 đã xong
+    await t.tap(find.byKey(const ValueKey('bg-stop')).first);
+    await t.pump(const Duration(milliseconds: 400)); // vòng xoay "đang chạy" quay mãi: không pumpAndSettle
+    expect(find.text('Dừng tác vụ nền?'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('bg-stop-confirm')));
+    await t.pump(const Duration(milliseconds: 400));
+    await t.pump(const Duration(milliseconds: 400));
+    expect(stopped, ['t1']);
+
+    await t.pumpWidget(_bare(AgentBgTasks(tasks: _tasks(), openKey: 'p-nostop')));
+    expect(find.byKey(const ValueKey('bg-stop')), findsNothing);
+    await t.pumpWidget(const SizedBox.shrink());
+  });
+
   test('elapsed time', () {
     expect(bgElapsed({'started_at': 0, 'ended_at': 134000, 'status': 'done'}, DateTime(2026)), '2m14s');
     expect(bgElapsed({'started_at': 0, 'ended_at': 3780000, 'status': 'done'}, DateTime(2026)), '1h03m');

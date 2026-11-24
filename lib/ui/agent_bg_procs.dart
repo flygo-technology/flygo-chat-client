@@ -15,6 +15,9 @@ List<Map<String, dynamic>> agentBgOf(Map<String, dynamic>? run) =>
 
 bool _running(Map<String, dynamic> t) => (t['status'] as String? ?? 'running') == 'running';
 
+/// Thẻ chạy còn tác vụ nền đang chạy (kể cả khi lượt đã xong).
+bool agentBgRunning(Map<String, dynamic>? run) => agentBgOf(run).any(_running);
+
 /// "2m14s", "1h03m", "8s".
 String bgElapsed(Map<String, dynamic> t, DateTime now) {
   final start = (t['started_at'] as num?)?.toInt();
@@ -36,13 +39,18 @@ class AgentBgTasks extends StatefulWidget {
 
   /// Khoá giữ trạng thái mở (id tin + id tiến trình): tin được vá liên tục, widget có thể bị tạo lại.
   final String openKey;
-  const AgentBgTasks({super.key, required this.tasks, required this.openKey});
+
+  /// Dừng một tác vụ nền (chủ bot / người giao việc; runner 0.7.27+): trả null khi xong, chuỗi lỗi khi không dừng được.
+  /// null = không hiện nút Dừng.
+  final Future<String?> Function(String taskId)? onStop;
+  const AgentBgTasks({super.key, required this.tasks, required this.openKey, this.onStop});
   @override
   State<AgentBgTasks> createState() => _AgentBgTasksState();
 }
 
 class _AgentBgTasksState extends State<AgentBgTasks> {
   static final _open = <String>{}; // '<openKey>:<task id>' đang mở đầu ra; '<openKey>:*' mục đã xong đang mở
+  static final _stopping = <String>{}; // '<openKey>:<task id>' đã bấm Dừng, chờ runner vá thẻ
   Timer? _tick;
 
   @override
@@ -77,6 +85,38 @@ class _AgentBgTasksState extends State<AgentBgTasks> {
   }
 
   void _toggle(String k) => setState(() => _open.contains(k) ? _open.remove(k) : _open.add(k));
+
+  /// Bấm Dừng: hỏi lại (dừng tiến trình là việc không hoàn tác) rồi nhờ runner dừng; lỗi thì báo ngay dưới đáy màn hình.
+  Future<void> _stop(Map<String, dynamic> t) async {
+    final stop = widget.onStop;
+    final id = '${t['id'] ?? ''}';
+    final k = '${widget.openKey}:$id';
+    if (stop == null || id.isEmpty || _stopping.contains(k)) return;
+    final cmd = '${t['label'] ?? t['command'] ?? ''}'.trim();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('Dừng tác vụ nền?')),
+        content: Text(tr('Dừng tiến trình đang chạy "{0}" (và các tiến trình con của nó)?', [cmd])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: Text(tr('Hủy'))),
+          TextButton(
+              key: const ValueKey('bg-stop-confirm'),
+              style: TextButton.styleFrom(foregroundColor: _red),
+              onPressed: () => Navigator.pop(d, true),
+              child: Text(tr('Dừng'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _stopping.add(k));
+    final err = await stop(id);
+    if (!mounted) return;
+    setState(() => _stopping.remove(k));
+    if (err != null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(tr('Không dừng được: {0}', [err]))));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +164,8 @@ class _AgentBgTasksState extends State<AgentBgTasks> {
               elapsed: bgElapsed(t, now),
               open: _open.contains('${widget.openKey}:${t['id']}'),
               onTap: () => _toggle('${widget.openKey}:${t['id']}'),
+              stopping: _stopping.contains('${widget.openKey}:${t['id']}'),
+              onStop: widget.onStop != null && _running(t) ? () => _stop(t) : null,
             ),
       ]),
     );
@@ -135,7 +177,12 @@ class _BgTaskRow extends StatelessWidget {
   final String elapsed;
   final bool open;
   final VoidCallback onTap;
-  const _BgTaskRow({super.key, required this.task, required this.elapsed, required this.open, required this.onTap});
+  final bool stopping;
+
+  /// Nút Dừng (chỉ tác vụ đang chạy, người có quyền dừng).
+  final VoidCallback? onStop;
+  const _BgTaskRow(
+      {super.key, required this.task, required this.elapsed, required this.open, required this.onTap, this.stopping = false, this.onStop});
 
   @override
   Widget build(BuildContext context) {
@@ -184,6 +231,21 @@ class _BgTaskRow extends StatelessWidget {
                 if (note.isNotEmpty) Text(note, style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: pal.sub)),
               ]),
             ),
+            if (stopping)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 1, 6, 0),
+                child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.7, color: pal.sub)),
+              )
+            else if (onStop != null)
+              Tooltip(
+                message: tr('Dừng tác vụ nền'),
+                child: InkWell(
+                  key: const ValueKey('bg-stop'),
+                  customBorder: const CircleBorder(),
+                  onTap: onStop,
+                  child: const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 0), child: Icon(Icons.stop_circle_outlined, size: 18, color: _red)),
+                ),
+              ),
             Icon(open ? Icons.expand_more : Icons.chevron_right, size: 18, color: pal.sub),
           ]),
         ),

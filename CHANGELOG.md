@@ -2,6 +2,15 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+521 (runner 0.7.27)
+
+- Runner 0.7.26: the Claude model list comes from Claude Code itself (stream-json `initialize`, same list as /model), so new models such as Fable 5.2 show up without a runner change; the built-in fallback list now has Fable 5.2.
+- Background tasks: a Stop button on each running task in the run card (owner or the person who started the turn, with a confirm). The app calls the relay ext route (`action: bg_stop`); the runner stops the processes writing the task's output file (local, or over ssh on the task's host), children first, SIGTERM then SIGKILL, and never touches claude / codex / the runner itself.
+- Messages sent while the assistant is working: the bot marks them "Đã vào hàng chờ" (bot reaction hourglass_flowing_sand), and "Đã điều hướng" (twisted_rightwards_arrows) once the agent actually reads them. Claude Code is run with `--replay-user-messages`, so the label flips at the moment it reads the message, and the running answer moves below that message then, so you can see where the steering happened. The app shows these as a label at the top of the message, not as reactions.
+- Messages with files (images…) sent while the assistant is working are now steered into the running turn too (with the usual attachment note), instead of waiting for the next turn.
+- The Stop button stays visible while any background task of the run is still running (also after the turn ended); Stop (🛑 on the run card) stops the turn and every running background task of that card.
+- Assistant multiple-choice questions: redesigned like Claude's answer picker (numbered rows, one tap sends for single choice, tick + Gửi for multiple, "Khác…" row at the end, Bỏ qua). Expired questions keep the same look, dimmed and not clickable.
+
 ## 1.0.5+479 (runner 0.6.95)
 
 ### Unreleased (feat/agent-team)

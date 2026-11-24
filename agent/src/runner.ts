@@ -1676,10 +1676,28 @@ const MAIN_IDLE_MS = cfg.mainIdleHours > 0 ? cfg.mainIdleHours * 3600_000 : Infi
 // root_id -> lượt đang chạy; posts(): các post của lượt (thẻ, tin stream) để nhận 🛑 dừng
 const running = new Map<string, { ac: AbortController; assigner: string; channel_id: string; posts: () => string[]; steer?: (post: Post, text: string) => Promise<boolean> }>();
 
-/** Lượt Codex đang chạy ở khoá này nhận tin mới: đưa thẳng vào lượt (steering), không xếp hàng lượt sau. Tin có tệp thì vẫn xếp hàng. */
+/** Nhãn hàng chờ trên tin người dùng (app đọc cảm xúc của bot): ⏳ = "Đã vào hàng chờ", 🔀 = "Đã điều hướng". */
+const QUEUED_EMOJI = "hourglass_flowing_sand", STEERED_EMOJI = "twisted_rightwards_arrows";
+const queuedMarks = new Set<string>();
+function markQueued(postId: string) {
+  if (queuedMarks.has(postId)) return;
+  queuedMarks.add(postId);
+  mm.react(postId, BOT_ID, QUEUED_EMOJI).catch(() => {});
+}
+function unmarkQueued(postId: string) {
+  if (!queuedMarks.delete(postId)) return Promise.resolve();
+  return mm.unreact(postId, BOT_ID, QUEUED_EMOJI).catch(() => {});
+}
+async function markSteered(postId: string) {
+  await unmarkQueued(postId);
+  await mm.react(postId, BOT_ID, STEERED_EMOJI).catch(() => {});
+}
+
+/** Lượt đang chạy ở khoá này nhận tin mới: đưa thẳng vào lượt (steering), không xếp hàng lượt sau. Tin có tệp (ảnh…) cũng
+ *  chèn được: kèm ghi chú tệp đính kèm như lượt thường, agent tự tải bằng chat_read_file. */
 async function trySteer(post: Post, root: string, text: string): Promise<boolean> {
   const cur = running.get(root);
-  if (!cur?.steer || !text.trim() || (post as any).file_ids?.length) return false;
+  if (!cur?.steer || (!text.trim() && !(post as any).file_ids?.length)) return false;
   return cur.steer(post, text).catch(() => false);
 }
 
@@ -1919,6 +1937,9 @@ async function onPosted(post: Post, channelType: string) {
     await mm.createPost({ channel_id: post.channel_id, root_id: threadRootOf(post), message: `⏸ @${BOT_NAME} đang tạm tắt, chưa nhận việc mới. Bật lại trên app để em làm tiếp.`, props: { ...(threadRootOf(post) ? { flygo_reply: "thread" } : {}), flygo_agent_owner: post.user_id, flygo_agent_paused: true } }).catch(() => {});
     return;
   }
+  // Agent đang làm ở chỗ này: tin mới vào hàng chờ (⏳ -> app hiện nhãn "Đã vào hàng chờ"); agent đọc tin thì đổi sang
+  // 🔀 "Đã điều hướng" (tin chèn vào lượt) hoặc bỏ ⏳ khi lượt của chính tin này bắt đầu.
+  if (running.has(root)) markQueued(post.id);
   if (await trySteer(post, root, text)) { log(`tin ${post.id}: chèn vào lượt đang chạy (${root})`); return; }
   enqueuedPosts.add(post.id);
   const busy = queueDepth.get(root) ?? 0;
@@ -3119,8 +3140,44 @@ async function mcpAddRequest(ctx: { channelId: string; assigner: string; card?: 
   return text;
 }
 
+/** Tác vụ nền đang theo dõi: id -> bộ theo dõi của lượt + người giao việc (nút Dừng trên thẻ, app gọi ext action bg_stop). */
+const bgTasks = new Map<string, { bg: BgTracker; assigner: string; at: number; posts: () => string[] }>();
+setInterval(() => { // dọn tác vụ đã xong quá 1 giờ
+  const n = Date.now();
+  for (const [id, x] of bgTasks) { const t = x.bg.tasks.find((k) => k.id === id); if (!t || (t.status !== "running" && n - (t.ended_at ?? x.at) > 3600_000)) bgTasks.delete(id); }
+}, 10 * 60_000).unref?.();
+
+/** 🛑 trên thẻ chạy: dừng mọi tác vụ nền đang chạy của thẻ (chủ bot hoặc người giao lượt). */
+async function stopBgOfPost(postId: string, userId: string) {
+  const name = (await mm.user(userId).catch(() => null as any))?.username;
+  const jobs: Promise<any>[] = [];
+  for (const [id, x] of bgTasks) {
+    if (!x.posts().includes(postId) || !(isOwner(userId) || userId === x.assigner)) continue;
+    const t = x.bg.tasks.find((k) => k.id === id);
+    if (t?.status !== "running") continue;
+    jobs.push(x.bg.stop(id, name ? `@${name}` : "người dùng").then((r) => {
+      // Không có tệp output (không biết tiến trình): thôi theo dõi để thẻ không treo "đang chạy".
+      if (!r.ok) x.bg.finish(t, "killed", `đã ngừng theo dõi (${r.error ?? "không dừng được tiến trình"})`);
+      log(`🛑 tác vụ nền ${id}: ${r.ok ? `dừng ${r.pids?.length ?? 0} tiến trình` : r.error}`);
+    }));
+  }
+  await Promise.all(jobs);
+}
+
+/** App bấm Dừng trên một tác vụ nền của thẻ chạy: chủ bot hoặc người giao lượt đó. */
+async function bgStop(userId: string, taskId: string): Promise<any> {
+  const x = bgTasks.get(taskId);
+  if (!x) return { ok: false, status: 404, error: "không còn theo dõi tác vụ nền này (runner đã khởi động lại hoặc tác vụ đã xong lâu)" };
+  if (!(isOwner(userId) || userId === x.assigner)) return { ok: false, status: 403, error: "chỉ chủ bot hoặc người giao việc" };
+  const name = (await mm.user(userId).catch(() => null as any))?.username;
+  const r = await x.bg.stop(taskId, name ? `@${name}` : "người dùng");
+  log(`dừng tác vụ nền ${taskId} theo yêu cầu ${userId}: ${r.ok ? `ok, ${r.pids?.length ?? 0} tiến trình` : r.error}`);
+  return r;
+}
+
 /** Thao tác MCP từ app (qua relay). Chỉ chủ bot. Không bao giờ trả khoá / token. */
 async function extAction(userId: string, body: any): Promise<any> {
+  if (String(body.action ?? "") === "bg_stop") return bgStop(userId, String(body.task_id ?? ""));
   if (!isOwner(userId)) return { ok: false, status: 403, error: "chỉ chủ bot" };
   const action = String(body.action ?? "");
   const ext = body.ext ?? {};
@@ -3474,7 +3531,7 @@ async function refTool(op: string, a: any): Promise<string> {
 }
 
 async function runTurn(post: Post, root: string, rawText: string, out?: { text?: string; error?: string; onStart?: (ac: AbortController) => void; bridged?: boolean; noSlot?: boolean; link?: AgentLink }) {
-  markSeen(post.id); enqueuedPosts.delete(post.id);
+  markSeen(post.id); enqueuedPosts.delete(post.id); unmarkQueued(post.id);
   if (await isClosed(post)) return; // đóng trong lúc đang xếp hàng
   const threadRoot = threadRootOf(post);
   const inline = !threadRoot; // trả lời ở chat chính
@@ -3714,6 +3771,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     bgTimer = setTimeout(() => { bgTimer = null; bgLast = Date.now(); void reply.patchProps(); }, Math.max(0, 2500 - (Date.now() - bgLast)));
   };
   const bg = new BgTracker(dir, bgPush);
+  const unreadSteers = new Set<string>(); // tin chèn agent chưa kịp đọc: hết lượt thì bỏ nhãn hàng chờ
   card.bg = () => bg.tasks;
   if (research) card.mode = "research";
   if ((post as any).via_mcp) card.step({ id: "bridge", kind: "approval", title: "🔗 Yêu cầu từ agent ngoài (Token MCP), thay chủ phiên", status: "done" });
@@ -3767,7 +3825,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       {
         step: (s) => card.step(s),
         todos: (t) => card.setTodos(t),
-        toolDone: (t) => { const l = detectLaunch(t.name, t.input, t.result); if (l && !t.isError) { bg.add(l); log(`run ${runId}: tác vụ nền ${l.kind} ${l.host} ${l.file ?? "(không tệp)"}`); } },
+        toolDone: (t) => { const l = detectLaunch(t.name, t.input, t.result); if (l && !t.isError) { const bt = bg.add(l); if (bt) bgTasks.set(bt.id, { bg, assigner: post.user_id, at: Date.now(), posts: () => [reply.id].filter(Boolean) }); log(`run ${runId}: tác vụ nền ${l.kind} ${l.host} ${l.file ?? "(không tệp)"}`); } },
         text: (t) => { reply.update(t); twp?.setText(reply.current); },
         approval: ask,
         ask: askQ,
@@ -3777,13 +3835,22 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
           if (!r || r.ac !== ac) return;
           r.steer = fn ? async (p, t) => {
             const who = await mm.displayName(p.user_id).catch(() => "");
-            const ok = await fn(`(Tin nhắn mới${who ? ` của ${who}` : ""} gửi trong lúc em đang làm lượt này: đọc và điều chỉnh việc đang làm cho phù hợp.)\n${t}`);
+            // Agent đọc tin (sau bước đang chạy): đổi nhãn "Đã điều hướng" và đưa post đang chạy xuống dưới tin này, để phần trả lời
+            // sau điều hướng nằm sau tin của người (nhìn là biết điều hướng lúc nào).
+            let read = false;
+            const onRead = () => {
+              if (read || ac.signal.aborted) return;
+              read = true;
+              unreadSteers.delete(p.id);
+              const nf = ((p as any).file_ids?.length ?? 0) as number;
+              card.step({ id: `steer-${p.id}`, kind: "tool", title: `Nhận thêm tin trong lúc làm: ${[t.replace(/\s+/g, " ").slice(0, 100), nf ? `📎 ${nf} tệp` : ""].filter(Boolean).join(" ")}`, status: "done" });
+              void markSteered(p.id);
+              if ((p.root_id || "") === (where.root_id || "")) void reply.moveToEnd().catch(() => false);
+            };
+            const ok = await fn(`(Tin nhắn mới${who ? ` của ${who}` : ""} gửi trong lúc em đang làm lượt này: đọc và điều chỉnh việc đang làm cho phù hợp.)\n${t || "(chỉ gửi tệp)"}${filesNote(p)}`, onRead);
             if (!ok) return false;
+            if (!read) unreadSteers.add(p.id);
             markSeen(p.id);
-            card.step({ id: `steer-${p.id}`, kind: "tool", title: `Nhận thêm tin trong lúc làm: ${t.replace(/\s+/g, " ").slice(0, 100)}`, status: "done" });
-            await mm.react(p.id, BOT_ID, "eyes").catch(() => {});
-            // Tin chèn của người nằm dưới post đang chạy: đưa post đang chạy xuống cuối (cùng chỗ: chat chính / luồng).
-            if ((p.root_id || "") === (where.root_id || "")) await reply.moveToEnd().catch(() => false);
             return true;
           } : undefined;
         },
@@ -3831,6 +3898,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     // Tác vụ nền: của Claude Code dừng cùng lượt; tách nền (nohup …) theo tiếp, cập nhật post cuối tới khi xong / hết giờ.
     turnOver = true;
     bg.endTurn();
+    for (const id of unreadSteers) void unmarkQueued(id);
     if (bg.tasks.length) { if (bg.active) log(`run ${runId}: theo tiếp ${bg.tasks.filter((t) => t.status === "running").length} tác vụ nền sau lượt`); void reply.patchProps(); }
     emit({ event: "run_finished", run_id: runId, root_id: root, status: session.status });
     clearInterval(typingTimer);
@@ -3944,6 +4012,8 @@ const typing = mm.connect((ev) => {
         log(`dừng lượt theo 🛑 trên ${r.post_id}`);
         x.ac.abort();
       }
+      // Nút Dừng còn hiện khi lượt đã xong mà tác vụ nền vẫn chạy: 🛑 dừng toàn bộ tác vụ nền của thẻ đó.
+      stopBgOfPost(r.post_id, r.user_id).catch((e) => log(`dừng tác vụ nền: ${e?.message ?? e}`));
       return;
     }
     if (!pendingApprovals.has(r.post_id) && ["+1", "-1", "unlock", "white_check_mark", "x"].includes(r.emoji_name) && r.user_id !== BOT_ID) { onStaleApproval(r).catch((e) => log(`duyệt cũ: ${e}`)); return; }

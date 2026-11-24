@@ -86,6 +86,9 @@ export class MM {
   react(postId: string, userId: string, emoji: string) {
     return this.api("POST", "/reactions", { user_id: userId, post_id: postId, emoji_name: emoji });
   }
+  unreact(postId: string, userId: string, emoji: string) {
+    return this.api("DELETE", `/users/${userId}/posts/${postId}/reactions/${encodeURIComponent(emoji)}`);
+  }
 
   /** Bài trong thread (gốc + trả lời), sắp theo thời gian. */
   async thread(rootId: string): Promise<Post[]> {

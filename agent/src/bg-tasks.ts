@@ -215,4 +215,80 @@ export class BgTracker {
   }
 
   stopAll() { for (const t of this.tasks) this.finish(t, "killed", "đã ngừng theo dõi"); }
+
+  /** Người dùng bấm Dừng trên một tác vụ nền: dừng các tiến trình đang ghi vào tệp output của nó (máy này hoặc qua ssh),
+   *  rồi đánh dấu "đã dừng". Không có tệp output thì không biết tiến trình nào nên không dừng. */
+  async stop(id: string, by = "người dùng", kill: KillWriters = killWriters): Promise<{ ok: boolean; error?: string; pids?: number[] }> {
+    const t = this.tasks.find((x) => x.id === id);
+    if (!t) return { ok: false, error: "không có tác vụ nền này" };
+    if (t.status !== "running") return { ok: true, pids: [] };
+    if (!t.output_file) return { ok: false, error: "tác vụ không có tệp output nên không biết tiến trình nào để dừng" };
+    const r = await kill(t.output_file, t.host ?? "local");
+    if (!r.ok) return r;
+    this.finish(t, "killed", r.pids?.length ? `${by} đã dừng (${r.pids.length} tiến trình)` : "không còn tiến trình nào ghi tệp output, coi như đã dừng");
+    return r;
+  }
 }
+
+// ------------------------------------------------------------------ dừng tiến trình
+
+export type KillWriters = (file: string, host: string) => Promise<{ ok: boolean; error?: string; pids?: number[] }>;
+/** Không bao giờ dừng các tiến trình này dù chúng mở tệp (engine, runner, công cụ chỉ đọc / chỉ mục của hệ thống). */
+const KEEP = /^(claude|codex|flygo-agent|tail|less|cat|lsof|ssh|sshd|Finder|mds|mds_stores|mdworker.*)$/i;
+
+const sh = async (cmd: string[], ms = 15_000): Promise<string> => {
+  const p = Bun.spawn(cmd, { stdout: "pipe", stderr: "ignore" });
+  const timer = setTimeout(() => { try { p.kill(); } catch {} }, ms);
+  try { return await new Response(p.stdout).text(); } finally { clearTimeout(timer); await p.exited.catch(() => {}); }
+};
+
+/** Đọc `lsof -F pca`: tiến trình (pid, tên) đang mở tệp để GHI (chế độ w / u). */
+export function parseLsofWriters(out: string): { pid: number; cmd: string }[] {
+  const res: { pid: number; cmd: string }[] = [];
+  let pid = 0, cmd = "";
+  for (const line of out.split("\n")) {
+    const k = line[0], v = line.slice(1);
+    if (k === "p") { pid = Number(v); cmd = ""; }
+    else if (k === "c") cmd = v;
+    else if (k === "a" && (v === "w" || v === "u") && pid && !res.some((x) => x.pid === pid)) res.push({ pid, cmd });
+  }
+  return res;
+}
+
+/** Tiến trình con cháu của [pid] (pgrep -P, đệ quy), con trước cha. */
+async function descendants(pid: number, depth = 0): Promise<number[]> {
+  if (depth > 6) return [];
+  const kids = (await sh(["pgrep", "-P", String(pid)], 5000).catch(() => "")).split("\n").map(Number).filter((n) => n > 0);
+  const out: number[] = [];
+  for (const k of kids) out.push(...(await descendants(k, depth + 1)), k);
+  return out;
+}
+
+/** Dừng các tiến trình đang ghi [file]: SIGTERM cả cây, 3 giây sau còn sống thì SIGKILL. Trên máy khác: cùng việc đó qua ssh. */
+export const killWriters: KillWriters = async (file, host) => {
+  if (host !== "local") {
+    const q = `'${file.replace(/'/g, `'\\''`)}'`;
+    // Máy xa: lsof (hoặc fuser) tìm tiến trình mở tệp, bỏ tail / ssh / lsof; dừng cả con cháu.
+    const script = `F=${q}; P=$( (lsof -t -- "$F" 2>/dev/null || fuser "$F" 2>/dev/null) | tr -s ' ' '\\n' | sort -u ); K=""; ` +
+      `for p in $P; do c=$(ps -o comm= -p $p 2>/dev/null | xargs basename 2>/dev/null); case "$c" in tail|ssh|sshd|lsof|less|cat|claude|codex|flygo-agent) continue;; esac; ` +
+      `K="$K $(pgrep -P $p 2>/dev/null | tr '\\n' ' ') $p"; done; [ -n "$K" ] && kill -TERM $K 2>/dev/null; sleep 3; [ -n "$K" ] && kill -KILL $K 2>/dev/null; echo "PIDS:$K"`;
+    const out = await sh(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, script], 30_000).catch((e) => `ERR:${e?.message ?? e}`);
+    const m = /PIDS:(.*)/.exec(out);
+    if (!m) return { ok: false, error: `không dừng được qua ssh tới ${host}` };
+    return { ok: true, pids: m[1].trim().split(/\s+/).map(Number).filter((n) => n > 0) };
+  }
+  const writers = parseLsofWriters(await sh(["lsof", "-F", "pca", "--", file]).catch(() => ""));
+  const mine = new Set([process.pid, process.ppid]);
+  const targets: number[] = [];
+  for (const w of writers) {
+    if (mine.has(w.pid) || KEEP.test(w.cmd)) continue;
+    for (const p of [...(await descendants(w.pid)), w.pid]) if (!mine.has(p) && !targets.includes(p)) targets.push(p);
+  }
+  const alive = (p: number) => { try { process.kill(p, 0); return true; } catch { return false; } };
+  for (const p of targets) try { process.kill(p, "SIGTERM"); } catch {}
+  if (targets.length) {
+    await Bun.sleep(3000);
+    for (const p of targets) if (alive(p)) try { process.kill(p, "SIGKILL"); } catch {}
+  }
+  return { ok: true, pids: targets };
+};

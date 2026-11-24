@@ -3670,4 +3670,12 @@ const Map<String, String> en = {
   'Số tài khoản ngân hàng': 'Bank account numbers',
   'CCCD / CMND': 'Vietnamese ID numbers (CCCD / CMND)',
   'Mã OTP': 'OTP codes',
+  'Dừng tác vụ nền?': 'Stop background task?',
+  'Dừng tiến trình đang chạy "{0}" (và các tiến trình con của nó)?': 'Stop the running process "{0}" (and its child processes)?',
+  'Không dừng được: {0}': 'Couldn\'t stop: {0}',
+  'Dừng tác vụ nền': 'Stop background task',
+  'lỗi không rõ': 'unknown error',
+  'Đã vào hàng chờ': 'Queued',
+  'Đã điều hướng': 'Steered',
+  'Chọn một hoặc nhiều, rồi bấm Gửi': 'Pick one or more, then tap Send',
 };

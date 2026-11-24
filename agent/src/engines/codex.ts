@@ -505,11 +505,12 @@ export class CodexEngine implements Engine {
       });
       turnId = tr.turn?.id ?? turnId;
       // Tin mới của người dùng trong lúc lượt đang chạy: đưa thẳng vào lượt (turn/steer) thay vì xếp hàng lượt sau.
-      hooks.steerable?.(async (text) => {
+      hooks.steerable?.(async (text, onRead) => {
         if (!turnId) return false;
         try {
           await this.call("turn/steer", { threadId, expectedTurnId: turnId, input: [{ type: "text", text, text_elements: [] }] });
           lastEvent = Date.now();
+          onRead?.(); // Codex nhận tin vào lượt ngay khi turn/steer xong
           return true;
         } catch (e: any) {
           this.log(`codex: turn/steer ${turnId}: ${e?.message ?? e}`);

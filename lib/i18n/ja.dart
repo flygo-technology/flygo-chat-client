@@ -2607,4 +2607,12 @@ const Map<String, String> ja = {
   'Số tài khoản ngân hàng': '銀行口座番号',
   'CCCD / CMND': 'ベトナムの身分証番号 (CCCD / CMND)',
   'Mã OTP': 'OTP コード',
+  'Dừng tác vụ nền?': 'バックグラウンドタスクを停止しますか？',
+  'Dừng tiến trình đang chạy "{0}" (và các tiến trình con của nó)?': '実行中のプロセス「{0}」（とその子プロセス）を停止しますか？',
+  'Không dừng được: {0}': '停止できませんでした: {0}',
+  'Dừng tác vụ nền': 'バックグラウンドタスクを停止',
+  'lỗi không rõ': '不明なエラー',
+  'Đã vào hàng chờ': '待機中',
+  'Đã điều hướng': '反映済み',
+  'Chọn một hoặc nhiều, rồi bấm Gửi': '1つ以上選んで「送信」を押してください',
 };

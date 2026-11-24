@@ -37,8 +37,10 @@ export interface TurnHooks {
   session(id: string): void; // engine báo session/thread id ngay khi có
   /** Danh sách việc agent tự lập (TodoWrite / plan): bản mới nhất thay bản cũ. */
   todos?(list: Todo[]): void;
-  /** Engine cho phép đưa tin mới vào lượt đang chạy (Codex turn/steer): fn khi lượt bắt đầu, null khi lượt kết thúc. */
-  steerable?(fn: ((text: string) => Promise<boolean>) | null): void;
+  /** Engine cho phép đưa tin mới vào lượt đang chạy (Codex turn/steer): fn khi lượt bắt đầu, null khi lượt kết thúc.
+   *  fn trả true = đã nhận vào hàng chờ của lượt; onRead gọi khi agent thật sự đọc tin (Claude: lúc phát lại tin user,
+   *  Codex: ngay khi turn/steer xong) -> runner đổi nhãn "Đã điều hướng". */
+  steerable?(fn: ((text: string, onRead?: () => void) => Promise<boolean>) | null): void;
   /** Một lần gọi tool đã xong (có input + kết quả): runner nhận diện tác vụ nền (bg-tasks.ts). */
   toolDone?(t: { id: string; name: string; input: any; result: string; isError: boolean }): void;
 }

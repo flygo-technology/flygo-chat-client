@@ -2607,4 +2607,12 @@ const Map<String, String> zh = {
   'Số tài khoản ngân hàng': '银行账号',
   'CCCD / CMND': '越南身份证号 (CCCD / CMND)',
   'Mã OTP': 'OTP 验证码',
+  'Dừng tác vụ nền?': '停止后台任务？',
+  'Dừng tiến trình đang chạy "{0}" (và các tiến trình con của nó)?': '停止正在运行的进程“{0}”（及其子进程）？',
+  'Không dừng được: {0}': '无法停止：{0}',
+  'Dừng tác vụ nền': '停止后台任务',
+  'lỗi không rõ': '未知错误',
+  'Đã vào hàng chờ': '已排队',
+  'Đã điều hướng': '已转向',
+  'Chọn một hoặc nhiều, rồi bấm Gửi': '选择一项或多项，然后点“发送”',
 };

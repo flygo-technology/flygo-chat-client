@@ -24,12 +24,13 @@ import '../state/drafts.dart';
 import '../state/app_state.dart';
 import '../state/date_jump.dart';
 import 'agent_bg_procs.dart';
+import 'agent_steer_label.dart';
 import 'agent_link.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
 import 'agent_side_panel.dart';
 import 'artifact_view.dart';
-import 'mcp_page.dart' show McpAddCard;
+import 'mcp_page.dart' show ExtApi, McpAddCard;
 import 'voice_mode.dart';
 import 'shell_highlight.dart' show aiAnswerStyle;
 import 'ai_panel.dart';
@@ -2516,7 +2517,8 @@ class _Bubble extends StatelessWidget {
               isQuestion &&
               (const {'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'white_check_mark', '-1', 'x', '+1'}
                   .contains(k))))
-        : post.reactions;
+        // Tin gửi lúc trợ lý đang làm: ⏳ / 🔀 của bot hiện thành nhãn ở đầu tin, không thành cảm xúc.
+        : withoutSteerReactions(app, post, post.reactions);
     final bubbleColor = bubbleChoice != null
         ? bubbleChoice.fill
         : fileOnly
@@ -2713,7 +2715,7 @@ class _Bubble extends StatelessWidget {
         body,
         // Đang chạy: nút Dừng cho chủ bot (thả 🛑 lên tin, runner dừng lượt này).
         // Chat với trợ lý (kiểu Claude / ChatGPT): nút gửi ở ô nhập thành nút dừng, không có nút Dừng ở đây.
-        if (runActive && post.props['flygo_agent_owner'] == app.me?.id && !claude)
+        if ((runActive || agentBgRunning(agentRun)) && post.props['flygo_agent_owner'] == app.me?.id && !claude)
           Padding(
             padding: const EdgeInsets.only(top: 6, bottom: 12),
             child: _AgentStopButton(post: post),
@@ -2786,7 +2788,10 @@ class _Bubble extends StatelessWidget {
         : post.priority == 'important'
             ? const PriorityStrip(urgent: false)
             : null;
+    final steer = steerStateOf(app, post);
     final content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      // Tin gửi trong lúc trợ lý đang làm: "Đã vào hàng chờ" rồi "Đã điều hướng" khi trợ lý đọc tin.
+      if (steer != null) SteerLabel(state: steer),
       // Trả lời của trợ lý AI: một dòng "trạng thái · logo · tên bot · mô hình · mức suy nghĩ" (bấm để xem các bước).
       if (combined)
         Padding(
@@ -2928,7 +2933,18 @@ class _Bubble extends StatelessWidget {
         Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.only(top: 3), child: meta)),
       // Tiến trình nền của lượt (lệnh chạy ngầm, đầu ra trực tiếp): runner vá tin kể cả sau khi lượt xong.
       if (!hidden && agentRun != null && agentBgOf(agentRun).isNotEmpty)
-        AgentBgTasks(key: ValueKey('bg-${post.id}'), tasks: agentBgOf(agentRun), openKey: post.id),
+        AgentBgTasks(
+          key: ValueKey('bg-${post.id}'),
+          tasks: agentBgOf(agentRun),
+          openKey: post.id,
+          // Nút Dừng cho chủ bot / người giao lượt này: app nhờ runner (qua relay) dừng tiến trình đang ghi tệp output.
+          onStop: post.props['flygo_agent_owner'] == app.me?.id || app.isMyBot(post.userId)
+              ? (id) async {
+                  final r = await ExtApi.call(app, post.userId, {'action': 'bg_stop', 'task_id': id, 'post_id': post.id});
+                  return r['ok'] == true ? null : '${r['error'] ?? tr('lỗi không rõ')}';
+                }
+              : null,
+        ),
       // Kế hoạch việc của lượt chạy: luôn ở cuối tin, dưới câu trả lời và các bước (Sếp, 2026-11-22).
       if (!hidden && combined && agentTodosOf(agentRun).isNotEmpty)
         AgentTodoList(key: ValueKey('todos-${post.id}'), todos: agentTodosOf(agentRun), active: agentRunActive(agentRun)),
@@ -5103,8 +5119,11 @@ class _ComposerState extends State<_Composer> {
     // postsOf: tin mới nhất ở đầu danh sách.
     final posts = app.postsOf(widget.channelId);
     for (final p in posts.take(30)) {
-      final st = agentRunOf(p)?['status'];
+      final run = agentRunOf(p);
+      final st = run?['status'];
       if (st == 'thinking' || st == 'running' || st == 'queued') return p;
+      // Lượt đã xong mà tác vụ nền còn chạy: nút Dừng vẫn hiện, bấm là dừng toàn bộ tác vụ nền.
+      if (agentBgRunning(run)) return p;
     }
     return null;
   }
@@ -5118,10 +5137,7 @@ class _ComposerState extends State<_Composer> {
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
-          onTap: () async {
-            final already = running.reactions['octagonal_sign']?.contains(app.me?.id) ?? false;
-            if (!already) await app.toggleReaction(running, 'octagonal_sign');
-          },
+          onTap: () => stopAgentRun(app, running),
           child: SizedBox(width: size, height: size, child: Icon(Icons.stop_rounded, size: size * .55, color: sendFg)),
         ),
       );
@@ -7053,6 +7069,14 @@ class _ComposerState extends State<_Composer> {
   }
 }
 
+/// Dừng lượt chạy của trợ lý: thả 🛑 lên tin của lượt (runner dừng lượt đang chạy và toàn bộ tác vụ nền của thẻ).
+/// Đã thả 🛑 trước đó (vd. dừng lượt rồi, còn tác vụ nền) thì gỡ rồi thả lại để runner nhận lệnh mới.
+Future<void> stopAgentRun(AppState app, MmPost post) async {
+  final already = post.reactions['octagonal_sign']?.contains(app.me?.id) ?? false;
+  if (already) await app.toggleReaction(post, 'octagonal_sign');
+  await app.toggleReaction(post, 'octagonal_sign');
+}
+
 /// Nút "Dừng" dưới câu trả lời đang chạy của trợ lý AI (chỉ chủ bot thấy).
 /// Nút "Tiếp tục" cho lượt bị dừng giữa chừng: thả ▶️ (arrow_forward), runner chạy lại đúng lượt đó.
 class _AgentResumeButton extends StatefulWidget {
@@ -7113,9 +7137,7 @@ class _AgentStopButtonState extends State<_AgentStopButton> {
           ? null
           : () async {
               setState(() => _sent = true);
-              final app = context.read<AppState>();
-              final already = widget.post.reactions['octagonal_sign']?.contains(app.me?.id) ?? false;
-              if (!already) await app.toggleReaction(widget.post, 'octagonal_sign');
+              await stopAgentRun(context.read<AppState>(), widget.post);
             },
       icon: _sent
           ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: pal.sub))

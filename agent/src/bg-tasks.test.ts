@@ -94,3 +94,28 @@ test("tác vụ nền của Claude Code dừng cùng lượt; ssh dùng tail -F 
   tr.stopAll();
   expect(b.status).toBe("killed");
 });
+
+// ---- Dừng tác vụ nền (nút Dừng trên thẻ) ----
+import { parseLsofWriters as _parseLsof, BgTracker as _Tracker } from "./bg-tasks";
+
+test("lsof -F pca: chỉ lấy tiến trình mở tệp để ghi", () => {
+  const out = "p100\ncbash\nf1\naw\np200\nctail\nf3\nar\np300\ncnode\nf1\nau\nf2\nau\n";
+  expect(_parseLsof(out)).toEqual([{ pid: 100, cmd: "bash" }, { pid: 300, cmd: "node" }]);
+});
+
+test("stop: dừng tiến trình ghi tệp output rồi đánh dấu đã dừng; không tệp thì báo lỗi", async () => {
+  const tr = new _Tracker("/tmp", () => {}, undefined, () => 1000, 60_000);
+  const a = tr.add({ kind: "detached", command: "nohup ./srv > /tmp/x-never.log 2>&1 &", host: "local", file: "/tmp/x-never.log" })!;
+  const calls: string[] = [];
+  const r = await tr.stop(a.id, "@sep", async (f, h) => { calls.push(`${h}:${f}`); return { ok: true, pids: [42] }; });
+  expect(r).toEqual({ ok: true, pids: [42] });
+  expect(calls).toEqual(["local:/tmp/x-never.log"]);
+  expect(a.status).toBe("killed");
+  expect(a.note).toContain("@sep");
+  expect((await tr.stop(a.id, "x", async () => ({ ok: false, error: "không gọi" }))).ok).toBe(true); // đã dừng: không gọi lại
+  const b = tr.add({ kind: "bash_bg", command: "sleep 100", host: "local" })!;
+  expect((await tr.stop(b.id)).ok).toBe(false);
+  expect(b.status).toBe("running");
+  expect((await tr.stop("bg-khong-co")).ok).toBe(false);
+  tr.stopAll();
+});
