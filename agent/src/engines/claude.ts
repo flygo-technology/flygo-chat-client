@@ -17,14 +17,77 @@ import { spawn, spawnSync } from "../spawn";
 import { claudeLimits, type UsageLimits } from "../limits";
 import { ADB_TOOLS } from "../adb-tools";
 
-// Claude không có API liệt kê model qua CLI: danh sách cố định (alias + id đầy đủ, app gửi id đầy đủ).
+// Danh sách model lấy từ chính Claude Code (yêu cầu `initialize` của stream-json trả về models, như /model): Claude Code có model
+// mới là app thấy, không phải sửa runner. Danh sách cố định dưới đây chỉ dùng khi hỏi không được (claude cũ / lỗi / quá hạn).
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const CLAUDE_MODELS = [
   { id: "claude-opus-5-5", name: "Opus 5.5", aliases: ["opus"] },
   { id: "claude-sonnet-5-5", name: "Sonnet 5.5", aliases: ["sonnet"] },
   { id: "claude-haiku-5-5", name: "Haiku 5.5", aliases: ["haiku"] },
-  { id: "claude-fable-5-1", name: "Fable 5.1", aliases: ["fable"] },
+  { id: "claude-fable-5-2", name: "Fable 5.2", aliases: ["fable"] },
 ];
+/** Bí danh -> id đầy đủ theo danh sách cố định (dự phòng khi chưa hỏi được Claude Code). */
+export const CLAUDE_ALIASES: Record<string, string> = Object.fromEntries(CLAUDE_MODELS.flatMap((m) => m.aliases.map((a) => [a, m.id])));
+
+type ModelInfo = EngineInventory["models"][number];
+export interface ClaudeModelList { models: ModelInfo[]; aliases: Record<string, string> }
+
+/** Đổi `models` trong trả lời `initialize` của Claude Code thành danh sách cho app: bỏ mục "default", bí danh (opus, fable…)
+ *  đổi sang id đầy đủ (resolvedModel) vì app gửi id đầy đủ, bỏ trùng; [want] = model mặc định của bot (bí danh hoặc id). */
+export function parseClaudeModels(raw: unknown, want = "opus"): ClaudeModelList | null {
+  if (!Array.isArray(raw)) return null;
+  const models: ModelInfo[] = [];
+  const aliases: Record<string, string> = {};
+  for (const m of raw as any[]) {
+    const value = String(m?.value ?? "").trim();
+    if (!value || value === "default") continue;
+    const id = String(m?.resolvedModel || value).trim();
+    if (!/^claude-/.test(id)) continue; // bí danh chưa phân giải được thì bỏ (app cần id đầy đủ)
+    if (value !== id) aliases[value] = id;
+    if (models.some((x) => x.id === id)) continue;
+    const efforts = Array.isArray(m?.supportedEffortLevels) && m.supportedEffortLevels.length ? m.supportedEffortLevels.map(String) : CLAUDE_EFFORTS;
+    models.push({ id, ...(m?.displayName ? { name: String(m.displayName) } : {}), efforts, defaultEffort: efforts.includes("high") ? "high" : efforts[efforts.length - 1] });
+  }
+  if (!models.length) return null;
+  const def = aliases[want] ?? want;
+  for (const m of models) m.isDefault = m.id === def;
+  return { models, aliases };
+}
+
+/** Hỏi Claude Code danh sách model: chạy `claude -p` stream-json, gửi `initialize`, đọc `control_response` rồi tắt (không gửi
+ *  tin nào nên không tốn token). Không MCP, không settings cá nhân. Lỗi / quá [ms] thì null. */
+async function probeClaudeModels(bin: string, env: Record<string, string | undefined>, ms = 30_000): Promise<unknown[] | null> {
+  const proc = spawn([bin, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+    "--setting-sources", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'],
+  { env: { ...process.env, ...env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } as Record<string, string>, cwd: homedir(), stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+  const timer = setTimeout(() => { try { proc.kill(); } catch {} }, ms);
+  try {
+    proc.stdin.write(JSON.stringify({ type: "control_request", request_id: "flygo-models", request: { subtype: "initialize" } }) + "\n");
+    proc.stdin.flush();
+    const dec = new TextDecoder();
+    let buf = "";
+    for await (const chunk of proc.stdout as unknown as AsyncIterable<Uint8Array>) {
+      buf += dec.decode(chunk, { stream: true });
+      let i: number;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!line.startsWith("{")) continue;
+        let ev: any;
+        try { ev = JSON.parse(line); } catch { continue; }
+        if (ev?.type === "control_response" && ev.response?.request_id === "flygo-models") {
+          return ev.response.subtype === "success" && Array.isArray(ev.response.response?.models) ? ev.response.response.models : null;
+        }
+      }
+    }
+    return null;
+  } catch { return null; }
+  finally {
+    clearTimeout(timer);
+    try { proc.stdin.end(); } catch {}
+    try { proc.kill(); } catch {}
+  }
+}
 
 function describe(name: string, input: any): { kind: "command" | "file" | "tool" | "search"; title: string; label: string } {
   const file = base(input?.file_path ?? input?.notebook_path ?? "");
@@ -169,14 +232,35 @@ export class ClaudeEngine implements Engine {
   /** <CLAUDE_CONFIG_DIR của bot>/projects: nơi Claude Code của bot này lưu phiên. */
   projectsDir() { return join(claudeConfigDir(this.cfg), "projects"); }
 
+  // Danh sách model hỏi được từ Claude Code: inventory chạy sau mỗi lượt nên nhớ 1 giờ; lỗi thì giữ bản tốt gần nhất
+  // và 10 phút sau mới hỏi lại.
+  private probed: { at: number; list: ClaudeModelList } | null = null;
+  private probeFailedAt = 0;
+  private probing: Promise<ClaudeModelList | null> | null = null;
+  private async claudeModels(): Promise<ClaudeModelList | null> {
+    if (this.probed && Date.now() - this.probed.at < 3600_000) return this.probed.list;
+    if (Date.now() - this.probeFailedAt < 600_000) return this.probed?.list ?? null;
+    this.probing ??= (async () => {
+      const raw = await probeClaudeModels(resolveBin(this.cfg.claude.bin ?? "claude"), this.cfg.env ?? {}).catch(() => null);
+      const list = parseClaudeModels(raw, this.cfg.claude.model ?? "opus");
+      if (list) this.probed = { at: Date.now(), list };
+      else this.probeFailedAt = Date.now(), this.log(`claude: không hỏi được danh sách model${this.probed ? ", dùng bản trước" : ", dùng danh sách cố định"}`);
+      return list ?? this.probed?.list ?? null;
+    })().finally(() => { this.probing = null; });
+    return this.probing;
+  }
+
   async inventory(): Promise<EngineInventory> {
+    const skills = this.initSkills.map((name) => ({ name, description: "" }));
+    // Claude Code trỏ sang endpoint tương thích (ANTHROPIC_BASE_URL, vd. DeepSeek) với claude.models trong cấu hình: báo đúng
+    // các model đó, không báo model Anthropic (app sẽ cho chọn model mà endpoint không có).
+    if (this.cfg.claude.models?.length && (this.cfg.flygoAi || (process.env.ANTHROPIC_BASE_URL && !/(^|\.)anthropic\.com(:|\/|$)/.test(new URL(process.env.ANTHROPIC_BASE_URL, "http://x").host))))
+      return { skills, models: this.cfg.claude.models.map((id) => ({ id, efforts: this.cfg.claude.efforts?.length ? this.cfg.claude.efforts : CLAUDE_EFFORTS, defaultEffort: this.cfg.claude.effort ?? "medium", isDefault: id === this.cfg.claude.model })) };
+    const live = await this.claudeModels();
+    if (live) return { skills, models: live.models, aliases: { ...CLAUDE_ALIASES, ...live.aliases } };
     return {
-      skills: this.initSkills.map((name) => ({ name, description: "" })),
-      // Claude Code trỏ sang endpoint tương thích (ANTHROPIC_BASE_URL, vd. DeepSeek) với claude.models trong cấu hình: báo đúng
-      // các model đó, không báo model Anthropic (app sẽ cho chọn model mà endpoint không có).
-      models: this.cfg.claude.models?.length && (this.cfg.flygoAi || (process.env.ANTHROPIC_BASE_URL && !/(^|\.)anthropic\.com(:|\/|$)/.test(new URL(process.env.ANTHROPIC_BASE_URL, "http://x").host)))
-        ? this.cfg.claude.models.map((id) => ({ id, efforts: this.cfg.claude.efforts?.length ? this.cfg.claude.efforts : CLAUDE_EFFORTS, defaultEffort: this.cfg.claude.effort ?? "medium", isDefault: id === this.cfg.claude.model }))
-        : CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
+      skills, aliases: CLAUDE_ALIASES,
+      models: CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
     };
   }
   constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void,

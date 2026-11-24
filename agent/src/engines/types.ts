@@ -75,6 +75,8 @@ export interface TurnResult {
 export interface EngineInventory {
   skills: { name: string; description: string }[];
   models: { id: string; name?: string; efforts: string[]; defaultEffort?: string; isDefault?: boolean }[];
+  /** Bí danh model -> id đầy đủ (Claude: opus -> claude-opus-5-5, fable -> claude-fable-5-2…). */
+  aliases?: Record<string, string>;
 }
 
 export interface Engine {

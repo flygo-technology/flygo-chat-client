@@ -17,7 +17,7 @@ import compactPersona from "../profiles/default/persona-compact.md" with { type:
 import { RunCard, agentLinkOf, type AgentLink, type StepQuestion } from "./card";
 import { AGY_DEFAULT_MODEL, agentOptions, CONFIG_DIR, ENGINE_NAMES, engineLabel, resolveBin, type Config, type EngineName } from "./config";
 import { doctor } from "./doctor";
-import { ClaudeEngine } from "./engines/claude";
+import { ClaudeEngine, CLAUDE_ALIASES } from "./engines/claude";
 import { CodexEngine } from "./engines/codex";
 import { AGY_ENV, AntigravityEngine } from "./engines/antigravity";
 import { limitsKey, type UsageLimits } from "./limits";
@@ -891,7 +891,8 @@ async function publishMeta(inv = true) {
     ...(inventory?.skills ?? []).filter((k) => !own.some((x) => x.name === k.name)).map((k) => ({ name: k.name, description: clip(k.description, 200), source: "engine" })),
   ];
   const o = botOptions();
-  const alias: Record<string, string> = { opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", fable: "claude-fable-5-1" };
+  // Bí danh (opus, fable…) -> id đầy đủ: theo danh sách Claude Code báo (inventory.aliases), dự phòng bảng cố định của engine.
+  const alias: Record<string, string> = { ...CLAUDE_ALIASES, ...(inventory?.aliases ?? {}) };
   const defModel = ENGINE === "claude" ? alias[o.default.model] ?? o.default.model : o.default.model;
   // Thứ tự hiện trên app: model mặc định, rồi các model trong cấu hình (codex.models / claude.models), rồi phần còn lại theo engine.
   const pref = [defModel, ...((ENGINE === "codex" ? cfg.codex.models : ENGINE === "agy" ? cfg.agy.models : cfg.claude.models) ?? [])];
