@@ -2,6 +2,10 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+522 (runner 0.7.27)
+
+- Fix: scheduling a message with images / files sent it right away. The files are now uploaded first and the scheduled post carries their file_ids (AppState.scheduleMedia).
+
 ## 1.0.5+521 (runner 0.7.27)
 
 - Runner 0.7.26: the Claude model list comes from Claude Code itself (stream-json `initialize`, same list as /model), so new models such as Fable 5.2 show up without a runner change; the built-in fallback list now has Fable 5.2.

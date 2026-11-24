@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../api/mm_api.dart' show ApiException;
 import '../api/translate.dart';
 import '../config.dart';
 import '../data/image_disk_cache.dart';
@@ -5920,6 +5921,8 @@ class _ComposerState extends State<_Composer> {
   Future<void> _sendFiles(List<(String?, String, Future<List<int>> Function())> files, {String caption = ''}) async {
     if (files.isEmpty) return;
     final app = context.read<AppState>();
+    final at = _fx.sendAt; // giờ hẹn gửi (nếu có) lấy ngay, trước các bước chờ
+    final messenger = ScaffoldMessenger.of(context);
     final dir = await getTemporaryDirectory();
     final items = <(String, String, String, double)>[];
     for (final (path0, name0, read) in files.take(10)) {
@@ -5939,6 +5942,19 @@ class _ComposerState extends State<_Composer> {
     final text = caption.isNotEmpty ? caption : _ctl.text.trim();
     _ctl.clear();
     widget.onSent();
+    // Đang hẹn giờ gửi: tải tệp lên trước rồi tạo tin hẹn giờ kèm tệp (trước đây tin kèm ảnh bị gửi ngay, Sếp 25/11).
+    if (at != null) {
+      try {
+        await app.scheduleMedia(widget.channelId, text, at, [for (final (path, name, _, _) in items) (path, name)], rootId: _rootId);
+        messenger.showSnackBar(toast(Text(tr('Đã hẹn gửi lúc {0} ngày {1}', [hhmm(at), ddmmyyyy(at)]))));
+      } catch (e) {
+        messenger.showSnackBar(toast(Text(e is ApiException && e.status == 413
+            ? tr('File quá lớn so với giới hạn của máy chủ.')
+            : tr('Hẹn giờ không thành công. Kiểm tra kết nối mạng.'))));
+      }
+      if (mounted) setState(_fx.clear);
+      return;
+    }
     await app.sendMedia(widget.channelId, items, text: text, rootId: _rootId, replyKind: _replyKind);
     if (!mounted) return;
     if (app.uploadTooLarge) {

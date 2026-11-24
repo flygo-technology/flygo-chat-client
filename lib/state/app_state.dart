@@ -1882,6 +1882,20 @@ class AppState extends ChangeNotifier {
     await loadScheduled();
   }
 
+  /// Hẹn giờ gửi tin kèm tệp: tải tệp lên kênh trước (tệp chưa gắn tin nào), rồi tạo tin hẹn giờ có file_ids.
+  Future<void> scheduleMedia(String channelId, String text, DateTime at, List<(String, String)> files, {String rootId = ''}) async {
+    if (involvesAi(channelId, text) && !await ensureAiConsent()) throw const AiConsentDeclined();
+    final ids = <String>[];
+    for (final (path, name) in files.take(10)) {
+      final got = await api.uploadPath(channelId, name, path);
+      for (final id in got) {
+        _localById[id] = path;
+      }
+      ids.addAll(got);
+    }
+    await schedule(channelId, text, at, rootId: rootId, fileIds: ids);
+  }
+
   /// Tin hẹn giờ đang chờ gửi, theo kênh.
   final Map<String, List<Map<String, dynamic>>> scheduled = {};
 
