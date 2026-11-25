@@ -6,7 +6,8 @@ import { badgeOf } from "../cmd-limits";
 import { claudeReadOnly, desktopMcp } from "../desktop-mcp";
 import { mergeDeny, TW_CLAUDE_DENY } from "../teamwork";
 import { normTodos } from "../todos";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { base, clip, commandLabel, hostOf, mcpFromName } from "../labels";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -296,10 +297,19 @@ export class ClaudeEngine implements Engine {
     const settings = JSON.stringify({
       permissions,
       hooks: { PreToolUse: [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: hookCmd, timeout: 86400 }] }] },
+      // Không nạp connector claude.ai của tài khoản (Google Drive, Claude Docs…): bot không dùng, mỗi lượt tốn token mô tả tool
+      // và có thể chạm dữ liệu cá nhân của chủ tài khoản Claude (Sếp 25/11: tối ưu token).
+      disableClaudeAiConnectors: true,
       // Tắt auto-memory của Claude Code: nó ghi theo thư mục làm việc, mà nhiều phiên dùng chung thư mục (luồng bí mật dùng thư mục
       // chat cha, chat AI riêng dùng thư mục nhóm) -> ghi nhớ của phiên này lộ sang phiên khác. Ghi nhớ lâu dài của bot: memory.md riêng.
       autoMemoryEnabled: false,
     });
+    // --mcp-config qua TỆP quyền 600, không để JSON trên dòng lệnh: trong đó có MM_TOKEN của bot, tiến trình khác đọc được bằng ps.
+    const mcpDir = join(tmpdir(), `flygo-mcp-${process.getuid?.() ?? "u"}`);
+    mkdirSync(mcpDir, { recursive: true, mode: 0o700 });
+    const mcpFile = join(mcpDir, `${crypto.randomUUID()}.json`);
+    writeFileSync(mcpFile, mcpConfig, { mode: 0o600 });
+    chmodSync(mcpFile, 0o600);
     const bin = resolveBin(this.cfg.claude.bin);
     // stream-json ở chiều vào: prompt (và tin chèn giữa lượt) đưa qua stdin, không truyền prompt làm tham số.
     // claude cũ không có --input-format thì chạy đường cũ (prompt làm tham số, không chèn được tin giữa lượt).
@@ -311,7 +321,7 @@ export class ClaudeEngine implements Engine {
       "--setting-sources", "project,local",
       "--settings", settings,
       "--permission-mode", permMode,
-      "--mcp-config", mcpConfig,
+      "--mcp-config", mcpFile,
       // --permission-prompt-tool luôn có (cả toàn quyền): claude -p chỉ bật AskUserQuestion khi có nơi trả lời câu hỏi.
       "--permission-prompt-tool", "mcp__flygo_chat__approve",
       ...(full || input.twBypass ? [] : ["--allowedTools", [...this.cfg.claude.allowedTools, ...A2A_TOOLS, ...ALWAYS_OK, ...claudeReadOnly(desktopMcp(this.cfg))].join(",")]),
@@ -339,7 +349,11 @@ export class ClaudeEngine implements Engine {
     const cmdMs = String(Math.min(maxSec, Math.max(5, Number(input.mcpEnv.FLYGO_CMD_TIMEOUT_SEC) || 120)) * 1000);
     // Agent tự đặt timeout cho từng lệnh Bash (persona); đây chỉ là mặc định khi không đặt và trần commandTimeoutMaxSec.
     const bashTimeouts = { BASH_DEFAULT_TIMEOUT_MS: process.env.BASH_DEFAULT_TIMEOUT_MS ?? cmdMs, BASH_MAX_TIMEOUT_MS: process.env.BASH_MAX_TIMEOUT_MS ?? String(maxSec * 1000) };
-    const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
+    // Nén ngữ cảnh sớm (mặc định ~200k token thay vì gần hết cửa sổ 1 triệu): đọc lại cache mỗi lần gọi là phần tốn nhất
+    // (Sếp 25/11: trung vị 196k, p90 512k, cao nhất 965k token mỗi lần gọi). Cấu hình bot / biến môi trường đặt sẵn thì giữ.
+    const cw = this.cfg.claude.compactWindow ?? 200_000;
+    const compact = cw > 0 && !process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW && !this.cfg.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(cw) } : {};
+    const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...compact, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
 
@@ -453,6 +467,7 @@ export class ClaudeEngine implements Engine {
       signal.removeEventListener("abort", kill);
       hooks.steerable?.(null);
       endStdin();
+      try { rmSync(mcpFile, { force: true }); } catch {}
     }
     return { sessionId, text: final, usage };
   }

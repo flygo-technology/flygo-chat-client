@@ -63,7 +63,10 @@ export interface Config {
     model?: string;
     models?: string[]; // mặc định opus,sonnet
     efforts?: string[]; // mặc định low,medium,high,xhigh,max
-    effort?: string; // mặc định high
+    effort?: string; // mặc định medium (Sếp 25/11: tối ưu token; việc khó chọn high trên app)
+    /** Nén ngữ cảnh tự động khi phiên tới khoảng này (token, Claude Code CLAUDE_CODE_AUTO_COMPACT_WINDOW). Mặc định 200000;
+     *  0 = để Claude Code tự quyết (gần hết cửa sổ, có khi ~1 triệu token mỗi lần gọi). */
+    compactWindow?: number;
     /** Bật Claude in Chrome (claude --chrome): agent điều khiển Chrome thật của người dùng qua extension. */
     chrome?: boolean;
     /**
@@ -200,7 +203,7 @@ export function agentOptions(cfg: Config, marker = "") {
     : cfg.engine === "agy"
     // agy: model mặc định "default" = không truyền --model (agy tự chọn); runner thay bằng model mặc định `agy models` báo khi có.
     ? { model: cfg.agy.model ?? AGY_DEFAULT_MODEL, models: cfg.agy.models, effort: cfg.agy.effort ?? "medium", efforts: cfg.agy.efforts ?? ["low", "medium", "high", "xhigh", "max"] }
-    : { model: cfg.claude.model ?? "opus", models: cfg.claude.models ?? ["opus", "sonnet"], effort: cfg.claude.effort ?? "high", efforts: cfg.claude.efforts ?? ["low", "medium", "high", "xhigh", "max"] };
+    : { model: cfg.claude.model ?? "opus", models: cfg.claude.models ?? ["opus", "sonnet"], effort: cfg.claude.effort ?? "medium", efforts: cfg.claude.efforts ?? ["low", "medium", "high", "xhigh", "max"] };
   const models = [...new Set([e.model, ...(e.models ?? []), ...list("models")])];
   const efforts = [...new Set([...e.efforts, ...list("efforts")])];
   // default=model:mức trong mốc (thiếu phần nào thì giữ mặc định của cấu hình)

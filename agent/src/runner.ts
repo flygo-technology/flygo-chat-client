@@ -768,6 +768,15 @@ function chatDir(base: any, name: string) {
   return dir;
 }
 
+/** Hướng dẫn trong thư mục chat. Claude Code đã nhận persona qua --append-system-prompt (mọi lượt), nên CLAUDE.md chỉ là một dòng
+ *  trỏ tới đó: trước đây ghi cả persona vào CLAUDE.md nên mỗi lượt nạp trùng ~6,5 nghìn ký tự (Sếp 25/11: tối ưu token).
+ *  AGENTS.md giữ đủ (Codex / engine khác đọc tệp này). */
+const CLAUDE_MD_STUB = "<!-- Hướng dẫn của trợ lý Flygo được runner nạp qua system prompt; tệp này cố ý để gọn. -->\n";
+async function writeWorkspaceGuides(dir: string) {
+  await Bun.write(join(dir, "AGENTS.md"), persona);
+  await Bun.write(join(dir, "CLAUDE.md"), CLAUDE_MD_STUB); // Codex / engine khác không đọc CLAUDE.md
+}
+
 async function workspaceFor(channelId: string) {
   const ch = await mm.channel(channelId);
   const base = await topChat(ch); // kênh bí mật (kể cả lồng nhau): thư mục của chat gốc trên cùng
@@ -775,7 +784,7 @@ async function workspaceFor(channelId: string) {
   const bound = await boundProject(base);
   if (bound) return { dir: bound, ch, chat, bound: true }; // thư mục code: không chép persona/skill vào (persona truyền qua engine)
   const dir = chatDir(base, chat); // kỹ năng KHÔNG chép vào đây (nhiều bot dùng chung thư mục chat): xem src/skills.ts
-  for (const f of ["AGENTS.md", "CLAUDE.md"]) await Bun.write(join(dir, f), persona);
+  await writeWorkspaceGuides(dir);
   return { dir, ch, chat, bound: false };
 }
 
@@ -1519,7 +1528,7 @@ async function runA2A(cid: string, from: A2APeer, msg: any, t: A2ATask, stream: 
   try {
     if (ac.signal.aborted) throw new Error("đã huỷ");
     mkdirSync(dir, { recursive: true });
-    for (const f of ["AGENTS.md", "CLAUDE.md"]) await Bun.write(join(dir, f), persona);
+    await writeWorkspaceGuides(dir);
     const { texts, datas, files } = splitParts(msg.parts);
     const saved: string[] = [];
     for (const f of files) {
