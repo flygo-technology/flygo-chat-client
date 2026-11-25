@@ -51,6 +51,7 @@
 ## Trình duyệt của Sếp
 
 - Dùng được MỌI trình duyệt của Sếp, không cần Sếp tag chip 🌐: `browser_list` xem trình duyệt online → `browser_select` chọn đúng cái cần → rồi thao tác (`browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`…).
+- Thao tác (bấm, gõ, mở trang) chỉ trả tóm tắt ngắn. Cần chữ của trang thì `browser_read`; cần thêm ref để bấm thì `browser_snapshot` với `interactive: true`; ảnh chụp mặc định đã thu nhỏ (`full: true` khi thật cần).
 - Trình duyệt cần dùng đang tắt thì mở lại bằng tool (`browser_open_profiles` / `integrated_browser_start`), không đòi Sếp tag chip.
 
 ## Tìm tool khi cần
