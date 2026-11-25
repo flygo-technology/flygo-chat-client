@@ -29,6 +29,8 @@ export interface BgTask {
   note?: string; // vd. "không có tệp output", "không rõ mã thoát"
 }
 
+/** Tệp output đứng yên bao lâu thì bắt đầu hỏi còn tiến trình ghi không, và cách nhau bao lâu giữa hai lần hỏi. */
+export const WRITER_IDLE_MS = 30_000, WRITER_CHECK_MS = 15_000;
 export const MAX_TASKS = 6, TAIL_LINES = 60, TAIL_BYTES = 4096, MAX_FOLLOW_MS = 6 * 3600_000, IDLE_DONE_MS = 10 * 60_000;
 
 // ------------------------------------------------------------------ nhận diện lệnh
@@ -122,7 +124,7 @@ export class BgTracker {
   private stops = new Map<string, () => void>();
   private turnEnded = false;
   constructor(private cwd: string, private onChange: () => void, private spawn: Spawn = (c) => Bun.spawn(c, { stdout: "pipe", stderr: "ignore" }) as any,
-    private now = () => Date.now(), private pollMs = 1000) {}
+    private now = () => Date.now(), private pollMs = 1000, private hasWriter: (file: string) => Promise<boolean> = localHasWriter) {}
 
   get active() { return this.tasks.some((t) => t.status === "running"); }
 
@@ -165,6 +167,18 @@ export class BgTracker {
     };
     if (t.host === "local") {
       let off = -1;
+      // Tệp đứng yên ≥ WRITER_IDLE_MS: hỏi lsof còn tiến trình nào ghi tệp không; hai lần liền không còn = tiến trình đã
+      // xong, chốt ngay (trước đây phải chờ hết lượt + 10 phút đứng yên, thẻ treo "đang chạy"; Sếp 25/11).
+      let lastCheck = 0, noWriter = 0, checking = false;
+      const writerGone = () => {
+        const n = this.now();
+        if (checking || off < 0 || n - lastGrow < WRITER_IDLE_MS || n - lastCheck < WRITER_CHECK_MS) return;
+        checking = true; lastCheck = n;
+        this.hasWriter(file).then((w) => {
+          noWriter = w ? 0 : noWriter + 1;
+          if (noWriter >= 2 && t.status === "running") this.finish(t, "done", "tiến trình ghi tệp output đã kết thúc (không rõ mã thoát)");
+        }, () => {}).finally(() => { checking = false; });
+      };
       const tick = () => {
         if (t.status !== "running") return;
         try {
@@ -181,7 +195,7 @@ export class BgTracker {
             this.bump(t, b.toString("utf8"));
           }
         } catch { /* tệp chưa có: chờ */ }
-        idleOrExpired();
+        if (!idleOrExpired()) writerGone();
       };
       tick();
       const timer = setInterval(tick, this.pollMs);
@@ -253,6 +267,13 @@ export function parseLsofWriters(out: string): { pid: number; cmd: string }[] {
     else if (k === "a" && (v === "w" || v === "u") && pid && !res.some((x) => x.pid === pid)) res.push({ pid, cmd });
   }
   return res;
+}
+
+/** Còn tiến trình (ngoài runner / engine / công cụ chỉ đọc) mở [file] để ghi trên máy này không. */
+export async function localHasWriter(file: string): Promise<boolean> {
+  const out = await sh(["lsof", "-F", "pca", "--", file], 10_000);
+  const mine = new Set([process.pid, process.ppid]);
+  return parseLsofWriters(out).some((w) => !mine.has(w.pid) && !KEEP.test(w.cmd));
 }
 
 /** Tiến trình con cháu của [pid] (pgrep -P, đệ quy), con trước cha. */

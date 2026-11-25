@@ -52,6 +52,8 @@ class AgentBgTasks extends StatefulWidget {
 class _AgentBgTasksState extends State<AgentBgTasks> {
   static final _open = <String>{}; // '<openKey>:<task id>' đang mở đầu ra; '<openKey>:*' mục đã xong đang mở
   static final _stopping = <String>{}; // '<openKey>:<task id>' đã bấm Dừng, chờ runner vá thẻ
+  // Đã dừng xong (runner trả ok) mà thẻ chưa kịp vá: hiện "đã dừng" ngay (Sếp 25/11: bấm Dừng chưa thấy đổi).
+  static final _stopped = <String, String>{};
   Timer? _tick;
 
   @override
@@ -113,7 +115,10 @@ class _AgentBgTasksState extends State<AgentBgTasks> {
     setState(() => _stopping.add(k));
     final err = await stop(id);
     if (!mounted) return;
-    setState(() => _stopping.remove(k));
+    setState(() {
+      _stopping.remove(k);
+      if (err == null) _stopped[k] = tr('đã dừng');
+    });
     if (err != null) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(tr('Không dừng được: {0}', [err]))));
     }
@@ -122,10 +127,18 @@ class _AgentBgTasksState extends State<AgentBgTasks> {
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
-    final tasks = widget.tasks;
     final now = DateTime.now();
+    // Tác vụ vừa bấm Dừng thành công mà thẻ chưa được vá: coi như đã dừng.
+    final tasks = [
+      for (final t in widget.tasks)
+        if (_running(t) && _stopped.containsKey('${widget.openKey}:${t['id']}'))
+          {...t, 'status': 'killed', 'ended_at': now.millisecondsSinceEpoch}
+        else
+          t,
+    ];
     final running = tasks.where(_running).length;
-    final failed = tasks.where((t) => !_running(t) && t['status'] != 'done' && t['status'] != 'killed').length;
+    final lost = tasks.where((t) => t['status'] == 'lost').length;
+    final failed = tasks.where((t) => !_running(t) && t['status'] != 'done' && t['status'] != 'killed' && t['status'] != 'lost').length;
     final killed = tasks.where((t) => t['status'] == 'killed').length;
     final finished = tasks.length - running;
     final allDone = running == 0;
@@ -141,8 +154,9 @@ class _AgentBgTasksState extends State<AgentBgTasks> {
 
     final summary = allDone
         ? [
-            tr('{0} xong', [tasks.length - failed - killed]),
+            tr('{0} xong', [tasks.length - failed - killed - lost]),
             if (killed > 0) tr('{0} dừng', [killed]),
+            if (lost > 0) tr('{0} ngừng theo dõi', [lost]),
             if (failed > 0) tr('{0} lỗi', [failed]),
           ].join(' · ')
         : tr('{0} đang chạy', [running]);
@@ -251,12 +265,15 @@ class _BgTaskRow extends StatelessWidget {
       'running' => SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 1.7, color: pal.accentText)),
       'done' => const Icon(Icons.check_circle_rounded, size: 16, color: _green),
       'killed' => Icon(Icons.stop_circle_outlined, size: 16, color: pal.sub),
+      // Runner khởi động lại nên không còn theo dõi (runner 0.7.29+).
+      'lost' => Icon(Icons.link_off_rounded, size: 16, color: pal.sub),
       _ => const Icon(Icons.error_rounded, size: 16, color: _red),
     };
     final state = switch (status) {
       'running' => tr('đang chạy'),
       'done' => exit == null ? tr('xong') : tr('xong · exit {0}', [exit]),
       'killed' => tr('đã dừng'),
+      'lost' => tr('ngừng theo dõi'),
       _ => exit == null ? tr('lỗi') : tr('lỗi · exit {0}', [exit]),
     };
     final mono = TextStyle(fontFamily: kMonoFont, fontFamilyFallback: kMonoFallback, fontFeatures: kNoLigatures, fontSize: 12.5, color: pal.text);
@@ -275,7 +292,7 @@ class _BgTaskRow extends StatelessWidget {
                 Text('\$ $cmd', maxLines: 1, overflow: TextOverflow.ellipsis, style: label.isEmpty ? mono : mono.copyWith(color: pal.sub, fontSize: 12)),
                 Text(
                   [if (host.isNotEmpty) host, state, if (elapsed.isNotEmpty) elapsed].join(' · '),
-                  style: TextStyle(fontSize: 12, color: status == 'running' || status == 'done' || status == 'killed' ? pal.sub : _red),
+                  style: TextStyle(fontSize: 12, color: status == 'running' || status == 'done' || status == 'killed' || status == 'lost' ? pal.sub : _red),
                 ),
                 // Ghi chú của runner ("dừng cùng lượt", "tệp output đứng yên, coi như xong"…).
                 if (note.isNotEmpty) Text(note, style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: pal.sub)),
@@ -289,11 +306,12 @@ class _BgTaskRow extends StatelessWidget {
             else if (onStop != null)
               Tooltip(
                 message: tr('Dừng tác vụ nền'),
+                // Vùng bấm 36×36 (trước chỉ ~26 px, khó bấm trên máy tính / điện thoại).
                 child: InkWell(
                   key: const ValueKey('bg-stop'),
                   customBorder: const CircleBorder(),
                   onTap: onStop,
-                  child: const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 0), child: Icon(Icons.stop_circle_outlined, size: 18, color: _red)),
+                  child: const SizedBox(width: 36, height: 36, child: Center(child: Icon(Icons.stop_circle_outlined, size: 22, color: _red))),
                 ),
               ),
             Icon(open ? Icons.expand_more : Icons.chevron_right, size: 18, color: pal.sub),

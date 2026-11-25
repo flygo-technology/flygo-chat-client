@@ -25,6 +25,9 @@ class _FakeApi extends MmApi {
 
   @override
   Future<dynamic> get(String p, [Map<String, String>? q]) async => <dynamic>[];
+
+  @override
+  Future<dynamic> put(String p, Object? body) async => {};
 }
 
 Future<(AppState, _FakeApi)> _app() async {
@@ -66,5 +69,15 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await f;
     expect(app.unreadOf('c'), 1);
+  });
+
+  test('mô hình chọn riêng từng chat: đổi ở chat c1 không đổi chat c2 (c2 vẫn theo mặc định của trợ lý)', () async {
+    final (app, _) = await _app();
+    app.agentConfig['bot'] = {'model': 'claude-sonnet-5-5', 'effort': 'medium'};
+    await app.setAgentConfigIn('bot', 'c1', 'claude-fable-5-2', 'high');
+    expect(app.agentConfigIn('bot', 'c1'), containsPair('model', 'claude-fable-5-2'));
+    expect(app.agentConfigIn('bot', 'c1'), containsPair('effort', 'high'));
+    expect(app.agentConfigIn('bot', 'c2'), containsPair('model', 'claude-sonnet-5-5'));
+    expect(app.agentConfig['bot'], containsPair('model', 'claude-sonnet-5-5'));
   });
 }

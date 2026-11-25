@@ -50,7 +50,7 @@ test("splitHere: tin chèn của người -> post đang chạy giữ chỗ (ch�
   const card = new RunCard(mm, where, "run1", "claude", "t", "u", () => reply.touch());
   reply.card = card;
   reply.update({ id: "m1", delta: "Đang làm phần A" });
-  card.step({ id: "s1", kind: "command", title: "ls", status: "done" });
+  card.step({ id: "s1", kind: "command", title: "ls", status: "running" });
   card.setTodos([{ text: "A", status: "in_progress" } as any]);
   await reply.ensurePost();
   expect(await reply.splitHere()).toBe(true);
@@ -72,10 +72,39 @@ test("splitHere: tin chèn của người -> post đang chạy giữ chỗ (ch�
   reply.update({ id: "m2", delta: "Phần B" });
   card.step({ id: "s2", kind: "command", title: "pwd", status: "done" });
   await new Promise((r) => setTimeout(r, 900));
-  const last = patched.at(-1)!;
+  const last = patched.filter(([id]) => id === "p2").at(-1)!;
   expect(last[0]).toBe("p2");
   expect(last[1].message).toBe("Phần B");
   expect(last[1].props.flygo_agent.texts).toEqual(["Phần B"]);
   expect(last[1].props.flygo_agent.steps.map((s: any) => s.id)).toEqual(["s2"]);
   expect(last[1].props.flygo_agent.steps[0].seg).toBe(1); // bước đến sau đoạn chữ "Phần B"
+});
+
+test("splitHere: bước cũ chạy xong sau khi tách vẫn được sửa ở post cũ; đoạn trống thì chỉ đưa post xuống", async () => {
+  const { InlineReply } = await import("./messages");
+  const { RunCard } = await import("./card");
+  const patched: [string, any][] = [], deleted: string[] = [];
+  let n = 0;
+  const mm: any = {
+    createPost: async () => ({ id: `p${++n}` }),
+    patchPost: async (id: string, b: any) => { patched.push([id, b]); return { id }; },
+    deletePost: async (id: string) => { deleted.push(id); },
+  };
+  const where = { channel_id: "c", root_id: "" };
+  const reply = new InlineReply(mm, where, "run1", "claude", { id: "u", username: "ba" }, false);
+  const card = new RunCard(mm, where, "run1", "claude", "t", "u", () => reply.touch());
+  reply.card = card;
+  card.step({ id: "build", kind: "command", title: "flutter build", status: "running" });
+  await reply.ensurePost();
+  await reply.splitHere();
+  expect(reply.id).toBe("p2");
+  card.step({ id: "build", kind: "command", title: "flutter build", status: "done" });
+  await new Promise((r) => setTimeout(r, 1800)); // thẻ giãn 800 ms + post giãn 800 ms
+  const old = patched.filter(([id]) => id === "p1").at(-1)![1];
+  expect(old.props.flygo_agent.steps.map((x: any) => [x.id, x.status])).toEqual([["build", "done"]]);
+  expect(old.props.flygo_agent.status).toBe("continued");
+  // Đoạn mới chưa có gì: tin chèn tiếp theo chỉ đưa post xuống (đăng lại, xoá post cũ), không để lại post rỗng.
+  await reply.splitHere();
+  expect(reply.id).toBe("p3");
+  expect(deleted).toEqual(["p2"]);
 });

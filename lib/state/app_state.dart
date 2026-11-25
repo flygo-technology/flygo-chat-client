@@ -3239,6 +3239,21 @@ class AppState extends ChangeNotifier {
       };
       notifyListeners();
     } catch (_) {}
+    // Chọn riêng từng chat (ac_<id kênh>).
+    try {
+      final list = await api.get('/users/${me!.id}/preferences/flygo_chat');
+      for (final x in (list as List? ?? const [])) {
+        final name = '${(x as Map)['name'] ?? ''}';
+        if (!name.startsWith('ac_')) continue;
+        try {
+          agentConfigByChat[name.substring(3)] = {
+            for (final e in (jsonDecode(x['value'] as String) as Map).entries)
+              e.key as String: (e.value as Map).map((k, v) => MapEntry('$k', '$v')),
+          };
+        } catch (_) {}
+      }
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Chế độ quyền đã chọn cho trợ lý (manual / acceptEdits / plan / auto), lưu cùng chỗ với mô hình.
@@ -3248,6 +3263,27 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     await api.put('/users/${me!.id}/preferences', [
       {'user_id': me!.id, 'category': 'flygo_chat', 'name': 'agent_config', 'value': jsonEncode(agentConfig)}
+    ]);
+  }
+
+  /// Mô hình / mức thông minh chọn riêng cho từng chat: id kênh → id bot → {model, effort}. Đổi ở một chat không
+  /// làm đổi các chat khác (Sếp 25/11); chat chưa chọn riêng dùng mặc định của trợ lý ([agentConfig], trang trợ lý).
+  /// Lưu mỗi chat một preference `flygo_chat/ac_<id kênh>` (tên tối đa 32 ký tự), dùng chung mọi thiết bị.
+  final Map<String, Map<String, Map<String, String>>> agentConfigByChat = {};
+
+  /// Cấu hình trợ lý [botId] ở chat [channelId]: chọn riêng của chat đè lên mặc định của trợ lý.
+  Map<String, String>? agentConfigIn(String botId, String channelId) {
+    final g = agentConfig[botId], c = agentConfigByChat[channelId]?[botId];
+    return c == null ? g : {...?g, ...c};
+  }
+
+  Future<void> setAgentConfigIn(String botId, String channelId, String model, String effort) async {
+    if (me == null) return;
+    final m = agentConfigByChat[channelId] ??= {};
+    m[botId] = {'model': model, 'effort': effort};
+    notifyListeners();
+    await api.put('/users/${me!.id}/preferences', [
+      {'user_id': me!.id, 'category': 'flygo_chat', 'name': 'ac_$channelId', 'value': jsonEncode(m)}
     ]);
   }
 

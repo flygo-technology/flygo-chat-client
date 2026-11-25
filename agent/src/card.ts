@@ -47,6 +47,9 @@ const STATUS_TEXT: Record<RunStatus, string> = {
   queued: "đang xếp hàng (bot đang làm việc khác)…", thinking: "đang suy nghĩ…", running: "đang làm…", awaiting_approval: "chờ Sếp duyệt", done: "xong", error: "lỗi", cancelled: "đã dừng", stopped: "bị dừng giữa chừng",
 };
 
+/** Một đoạn đã khép của lượt (phần trước tin chèn của người): chỉ số chữ [tb, te) và id các bước. */
+export type Segment = { tb: number; te: number; steps: string[] };
+
 export class RunCard {
   postId = "";
   status: RunStatus = "thinking";
@@ -59,8 +62,24 @@ export class RunCard {
   // Đoạn hiện tại của lượt (sau tin chèn của người, phần trả lời tiếp là post mới): post chỉ mang chữ / bước từ mốc này.
   private textBase = 0;
   private stepBase = 0;
-  /** Bắt đầu đoạn mới: chữ và bước viết từ giờ thuộc post mới (InlineReply.splitHere); kế hoạch / tác vụ nền đi theo post mới. */
-  segmentStart() { this.textBase = this.texts.length; this.stepBase = this.steps.length; }
+  /** Bắt đầu đoạn mới: chữ và bước viết từ giờ thuộc post mới (InlineReply.splitHere); kế hoạch / tác vụ nền đi theo post mới.
+   *  Trả về phạm vi của đoạn vừa khép (chỉ số chữ, id các bước) để post cũ vẫn được cập nhật các phần cũ (bước đang chạy xong…). */
+  segmentStart(): Segment {
+    const seg = { tb: this.textBase, te: this.texts.length, steps: this.steps.slice(this.stepBase).map((x) => x.id) };
+    this.textBase = this.texts.length; this.stepBase = this.steps.length;
+    return seg;
+  }
+  /** Đoạn hiện tại chưa có chữ / bước nào. */
+  get segmentEmpty() { return this.texts.length === this.textBase && this.steps.length === this.stepBase; }
+  /** props của một đoạn đã khép: chữ / bước của đoạn đó (cập nhật theo trạng thái mới nhất), trạng thái "continued". */
+  segmentProps(seg: Segment) {
+    const all: any = this.props();
+    const { todos: _t, bg: _b, wrap_up: _w, ...fa } = all.flygo_agent;
+    const ids = new Set(seg.steps);
+    return { ...all, flygo_agent: { ...fa, ...this.view(seg.tb, seg.te, this.steps.filter((x) => ids.has(x.id))), status: "continued" } };
+  }
+  /** Chữ cuối của một đoạn đã khép (post.message của post cũ). */
+  segmentText(seg: Segment) { for (let i = seg.te - 1; i >= seg.tb; i--) if (this.texts[i]?.text.trim()) return this.texts[i].text; return ""; }
   usage: Record<string, any> | undefined;
   sessionId = "";
   error = "";
@@ -139,13 +158,15 @@ export class RunCard {
   }
 
   /** texts + seg của từng bước theo giới hạn props: quá MAX_TEXTS đoạn thì các đoạn đầu gộp thành "…". */
-  private segView() {
-    const all = this.texts.slice(this.textBase), base = this.textBase;
+  private segView() { return this.view(this.textBase, this.texts.length, this.steps.slice(this.stepBase)); }
+
+  private view(tb: number, te: number, steps: Step[]) {
+    const all = this.texts.slice(tb, te), base = tb;
     const n = all.length, drop = n > MAX_TEXTS ? n - MAX_TEXTS + 1 : 0;
     const cut = (x: string) => (x.length > MAX_TEXT ? x.slice(0, MAX_TEXT) + "…" : x);
     const texts = [...(drop ? ["…"] : []), ...all.slice(drop).map((t) => cut(t.text))];
     const seg = (s0: number) => { const s = Math.max(0, s0 - base); return !drop ? s : s <= drop ? (s > 0 ? 1 : 0) : s - drop + 1; };
-    return { texts, steps: this.steps.slice(this.stepBase).map((st) => (st.seg === undefined ? st : { ...st, seg: seg(st.seg) })) };
+    return { texts, steps: steps.map((st) => (st.seg === undefined ? st : { ...st, seg: Math.min(seg(st.seg), texts.length) })) };
   }
 
   /** Danh sách việc mới của agent: thay toàn bộ danh sách cũ. */

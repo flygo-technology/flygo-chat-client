@@ -4716,7 +4716,7 @@ class _ComposerState extends State<_Composer> {
       position: PopupMenuPosition.over,
       offset: Offset(0, -(o.models.length * 40.0 + 36 + 110 + 30)),
       onSelected: (m) async {
-        await app.setAgentConfig(bot.id, m, _configOf(app, bot, o).$2);
+        await app.setAgentConfigIn(bot.id, widget.channelId, m, _configOf(app, bot, o).$2);
         if (mounted) setState(() {});
       },
       itemBuilder: (_) => [
@@ -4755,7 +4755,7 @@ class _ComposerState extends State<_Composer> {
           options: o,
           effort: effort,
           onChanged: (e) async {
-            await app.setAgentConfig(bot.id, _configOf(app, bot, o).$1, e);
+            await app.setAgentConfigIn(bot.id, widget.channelId, _configOf(app, bot, o).$1, e);
             if (mounted) setState(() {});
           },
         ),
@@ -5545,7 +5545,7 @@ class _ComposerState extends State<_Composer> {
   }
 
   (String, String) _configOf(AppState app, MmUser bot, AgentOptions o) {
-    final c = app.agentConfig[bot.id];
+    final c = app.agentConfigIn(bot.id, widget.channelId); // chọn riêng chat này, không có thì mặc định của trợ lý
     final m = c?['model'], e = c?['effort'];
     return (m != null && o.models.contains(m) ? m : o.defModel, e != null && o.efforts.contains(e) ? e : o.defEffort);
   }

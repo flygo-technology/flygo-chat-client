@@ -2,6 +2,14 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+524 (runner 0.7.29)
+
+- Model / effort is chosen per chat: changing it in one chat no longer changes the others (preference `flygo_chat/ac_<channel id>`; chats without their own choice follow the assistant default).
+- Background tasks: the Stop button has a 36 px hit area; a successful stop shows "đã dừng" at once; the runner patches the card immediately after a stop (no 2.5 s wait), and a task it cannot stop is no longer left "running".
+- Runner restarted (e.g. installing a new app version): background tasks it was following are marked "ngừng theo dõi" (`lost`) on start (`bg_posts` table) and when Stop is pressed on an old card, instead of staying "đang chạy" forever.
+- Runner: a local background task whose writer process has exited (lsof finds no writer twice, output idle ≥ 30 s) is marked done within about a minute, even during the turn (was: 10 minutes idle after the turn).
+- Runner: a message steered into a running turn splits the reply as soon as it is accepted: everything new from the agent goes into a new post below the user's message, while the earlier post keeps updating its own parts (a step that was running finishes there). An empty current part is just moved down.
+
 ## 1.0.5+523 (runner 0.7.28)
 
 - Typing "..." no longer switches "Dịch AI" on by itself.

@@ -119,3 +119,25 @@ test("stop: dừng tiến trình ghi tệp output rồi đánh dấu đã dừng
   expect((await tr.stop("bg-khong-co")).ok).toBe(false);
   tr.stopAll();
 });
+
+test("tiến trình ghi tệp đã thoát (lsof không còn ai ghi, hai lần liền): chốt xong ngay, kể cả khi lượt chưa xong", async () => {
+  const { WRITER_IDLE_MS, WRITER_CHECK_MS } = await import("./bg-tasks");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bg-"));
+  const f = path.join(dir, "build.log");
+  fs.writeFileSync(f, "đang build\n");
+  let t = 1_000_000, writing = true, asked = 0;
+  const tr = new BgTracker(dir, () => {}, undefined, () => t, 20, async () => { asked++; return writing; });
+  const task = tr.add({ kind: "detached", command: "nohup ./build.sh > build.log 2>&1 &", host: "local", file: "build.log" })!;
+  await Bun.sleep(60);
+  t += WRITER_IDLE_MS + 1;
+  await Bun.sleep(60);
+  expect(asked).toBeGreaterThan(0);
+  expect(task.status).toBe("running"); // còn tiến trình ghi
+  writing = false;
+  t += WRITER_CHECK_MS + 1; await Bun.sleep(60);
+  expect(task.status).toBe("running"); // mới một lần không thấy
+  t += WRITER_CHECK_MS + 1; await Bun.sleep(60);
+  expect(task.status).toBe("done");
+  expect(task.note).toContain("đã kết thúc");
+  fs.rmSync(dir, { recursive: true });
+});

@@ -248,6 +248,8 @@ db.run(`CREATE TABLE IF NOT EXISTS sessions (
 interface Session { root_id: string; channel_id: string; engine: EngineName; session_id: string; status: string; title: string; card_post_id: string; last_seen_at: number; updated_at: number }
 // Chat gắn thư mục code bằng lệnh "@bot dự án <path>" của chủ bot (mốc [flygo-project path=…] trong mô tả kênh được ưu tiên).
 db.run(`CREATE TABLE IF NOT EXISTS projects (channel_id TEXT PRIMARY KEY, path TEXT)`);
+// Post còn tác vụ nền "đang chạy" sau khi lượt xong: runner khởi động lại thì chốt chúng (không treo "đang chạy" mãi trên app).
+db.run(`CREATE TABLE IF NOT EXISTS bg_posts (post_id TEXT PRIMARY KEY, at INTEGER)`);
 // "Luôn cho phép" (🔓 của chủ bot trên lời xin duyệt): phạm vi = khoá phiên (chat chính của kênh / luồng / a2a:<caller>:<context>).
 db.run(`CREATE TABLE IF NOT EXISTS bypass (scope TEXT PRIMARY KEY, by_user TEXT, at INTEGER)`);
 // Chế độ quyền chủ bot chọn gần nhất (props.flygo_agent_config.mode): áp cho mọi phiên mới của bot (perm-mode.ts).
@@ -3151,7 +3153,23 @@ async function mcpAddRequest(ctx: { channelId: string; assigner: string; card?: 
 }
 
 /** Tác vụ nền đang theo dõi: id -> bộ theo dõi của lượt + người giao việc (nút Dừng trên thẻ, app gọi ext action bg_stop). */
-const bgTasks = new Map<string, { bg: BgTracker; assigner: string; at: number; posts: () => string[] }>();
+const bgTasks = new Map<string, { bg: BgTracker; assigner: string; at: number; posts: () => string[]; flush?: () => void }>();
+
+const BG_LOST_NOTE = "runner đã khởi động lại nên không còn theo dõi (tiến trình có thể vẫn chạy)";
+/** Chốt các tác vụ nền "đang chạy" trong props của post (runner không còn theo dõi): trạng thái "lost". */
+function bgLostProps(fa: any, onlyId?: string): any | null {
+  const list = Array.isArray(fa?.bg) ? fa.bg : [];
+  if (!list.some((t: any) => (t?.status ?? "running") === "running" && (!onlyId || t.id === onlyId))) return null;
+  return { ...fa, bg: list.map((t: any) => (t?.status ?? "running") === "running" && (!onlyId || t.id === onlyId) ? { ...t, status: "lost", note: BG_LOST_NOTE, ended_at: Date.now() } : t) };
+}
+async function markBgLost(postId: string, onlyId?: string): Promise<boolean> {
+  const p = await mm.api<Post>("GET", `/posts/${postId}`).catch(() => null);
+  if (!p || p.user_id !== BOT_ID) return false;
+  const fa = bgLostProps(p.props?.flygo_agent, onlyId);
+  if (!fa) return false;
+  await mm.patchPost(p.id, { props: { ...p.props, flygo_agent: fa } }).catch(() => {});
+  return true;
+}
 setInterval(() => { // dọn tác vụ đã xong quá 1 giờ
   const n = Date.now();
   for (const [id, x] of bgTasks) { const t = x.bg.tasks.find((k) => k.id === id); if (!t || (t.status !== "running" && n - (t.ended_at ?? x.at) > 3600_000)) bgTasks.delete(id); }
@@ -3175,19 +3193,28 @@ async function stopBgOfPost(postId: string, userId: string) {
 }
 
 /** App bấm Dừng trên một tác vụ nền của thẻ chạy: chủ bot hoặc người giao lượt đó. */
-async function bgStop(userId: string, taskId: string): Promise<any> {
+async function bgStop(userId: string, taskId: string, postId = ""): Promise<any> {
   const x = bgTasks.get(taskId);
-  if (!x) return { ok: false, status: 404, error: "không còn theo dõi tác vụ nền này (runner đã khởi động lại hoặc tác vụ đã xong lâu)" };
+  if (!x) {
+    // Runner đã khởi động lại (hoặc tác vụ xong lâu): không biết tiến trình nữa; chốt dòng trên thẻ để app thôi "đang chạy".
+    if (!(isOwner(userId) || (postId && (await mm.api<Post>("GET", `/posts/${postId}`).catch(() => null as any))?.props?.flygo_agent_owner === userId)))
+      return { ok: false, status: 403, error: "chỉ chủ bot hoặc người giao việc" };
+    if (postId && (await markBgLost(postId, taskId))) return { ok: true, lost: true, note: BG_LOST_NOTE };
+    return { ok: false, status: 404, error: "không còn theo dõi tác vụ nền này (runner đã khởi động lại hoặc tác vụ đã xong lâu)" };
+  }
   if (!(isOwner(userId) || userId === x.assigner)) return { ok: false, status: 403, error: "chỉ chủ bot hoặc người giao việc" };
   const name = (await mm.user(userId).catch(() => null as any))?.username;
   const r = await x.bg.stop(taskId, name ? `@${name}` : "người dùng");
+  // Không dừng được (không có tệp output / lỗi ssh): thôi theo dõi để thẻ không treo "đang chạy", vẫn báo lỗi cho app.
+  if (!r.ok) { const t = x.bg.tasks.find((k) => k.id === taskId); if (t && t.status === "running") x.bg.finish(t, "killed", `đã ngừng theo dõi (${r.error ?? "không dừng được tiến trình"})`); }
+  x.flush?.(); // sửa thẻ ngay, không chờ nhịp 2,5 s (Sếp 25/11: bấm Dừng chưa thấy đổi)
   log(`dừng tác vụ nền ${taskId} theo yêu cầu ${userId}: ${r.ok ? `ok, ${r.pids?.length ?? 0} tiến trình` : r.error}`);
   return r;
 }
 
 /** Thao tác MCP từ app (qua relay). Chỉ chủ bot. Không bao giờ trả khoá / token. */
 async function extAction(userId: string, body: any): Promise<any> {
-  if (String(body.action ?? "") === "bg_stop") return bgStop(userId, String(body.task_id ?? ""));
+  if (String(body.action ?? "") === "bg_stop") return bgStop(userId, String(body.task_id ?? ""), String(body.post_id ?? ""));
   if (!isOwner(userId)) return { ok: false, status: 403, error: "chỉ chủ bot" };
   const action = String(body.action ?? "");
   const ext = body.ext ?? {};
@@ -3775,8 +3802,10 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   card.bypassOf = () => isBypass(root);
   // Tác vụ nền (bg-tasks.ts): trong lượt cập nhật theo thẻ; lượt xong mà còn chạy thì sửa props của post cuối, giãn nhịp ≥ 2,5 s.
   let turnOver = false, bgTimer: Timer | null = null, bgLast = 0;
+  let bgPostId = "";
   const bgPush = () => {
     if (!turnOver) { card.bgChanged(); return; }
+    if (bgPostId && !bg.active) { db.query("DELETE FROM bg_posts WHERE post_id = ?").run(bgPostId); bgPostId = ""; }
     if (bgTimer) return;
     bgTimer = setTimeout(() => { bgTimer = null; bgLast = Date.now(); void reply.patchProps(); }, Math.max(0, 2500 - (Date.now() - bgLast)));
   };
@@ -3835,7 +3864,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       {
         step: (s) => card.step(s),
         todos: (t) => card.setTodos(t),
-        toolDone: (t) => { const l = detectLaunch(t.name, t.input, t.result); if (l && !t.isError) { const bt = bg.add(l); if (bt) bgTasks.set(bt.id, { bg, assigner: post.user_id, at: Date.now(), posts: () => [reply.id].filter(Boolean) }); log(`run ${runId}: tác vụ nền ${l.kind} ${l.host} ${l.file ?? "(không tệp)"}`); } },
+        toolDone: (t) => { const l = detectLaunch(t.name, t.input, t.result); if (l && !t.isError) { const bt = bg.add(l); if (bt) bgTasks.set(bt.id, { bg, assigner: post.user_id, at: Date.now(), posts: () => [reply.id].filter(Boolean), flush: () => { if (turnOver) void reply.patchProps(); else card.bgChanged(); } }); log(`run ${runId}: tác vụ nền ${l.kind} ${l.host} ${l.file ?? "(không tệp)"}`); } },
         text: (t) => { reply.update(t); twp?.setText(reply.current); },
         approval: ask,
         ask: askQ,
@@ -3845,8 +3874,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
           if (!r || r.ac !== ac) return;
           r.steer = fn ? async (p, t) => {
             const who = await mm.displayName(p.user_id).catch(() => "");
-            // Agent đọc tin (sau bước đang chạy): đổi nhãn "Đã điều hướng"; post đang chạy giữ nguyên chỗ, phần trả lời sau điều hướng
-            // là post mới dưới tin của người (nhìn là biết điều hướng lúc nào, Sếp 25/11).
+            // Agent đọc tin (sau bước đang chạy): đổi nhãn "Đã điều hướng". Tách post đã làm ngay lúc tin được nhận (bên dưới).
             let read = false;
             const onRead = () => {
               if (read || ac.signal.aborted) return;
@@ -3855,10 +3883,11 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
               const nf = ((p as any).file_ids?.length ?? 0) as number;
               card.step({ id: `steer-${p.id}`, kind: "tool", title: `Nhận thêm tin trong lúc làm: ${[t.replace(/\s+/g, " ").slice(0, 100), nf ? `📎 ${nf} tệp` : ""].filter(Boolean).join(" ")}`, status: "done" });
               void markSteered(p.id);
-              if ((p.root_id || "") === (where.root_id || "")) void reply.splitHere().catch(() => false);
             };
             const ok = await fn(`(Tin nhắn mới${who ? ` của ${who}` : ""} gửi trong lúc em đang làm lượt này: đọc và điều chỉnh việc đang làm cho phù hợp.)\n${t || "(chỉ gửi tệp)"}${filesNote(p)}`, onRead);
             if (!ok) return false;
+            // Ngay khi tin được nhận vào lượt: việc / tiến độ mới của agent ra post mới DƯỚI tin này; phần cũ vẫn sửa ở post trên.
+            if ((p.root_id || "") === (where.root_id || "")) await reply.splitHere().catch(() => false);
             if (!read) unreadSteers.add(p.id);
             markSeen(p.id);
             return true;
@@ -3909,7 +3938,14 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     turnOver = true;
     bg.endTurn();
     for (const id of unreadSteers) void unmarkQueued(id);
-    if (bg.tasks.length) { if (bg.active) log(`run ${runId}: theo tiếp ${bg.tasks.filter((t) => t.status === "running").length} tác vụ nền sau lượt`); void reply.patchProps(); }
+    if (bg.tasks.length) {
+      if (bg.active) {
+        log(`run ${runId}: theo tiếp ${bg.tasks.filter((t) => t.status === "running").length} tác vụ nền sau lượt`);
+        const pid = reply.id;
+        if (pid) { db.query("INSERT OR REPLACE INTO bg_posts VALUES (?, ?)").run(pid, Date.now()); bgPostId = pid; }
+      }
+      void reply.patchProps();
+    }
     emit({ event: "run_finished", run_id: runId, root_id: root, status: session.status });
     clearInterval(typingTimer);
     running.delete(root);
@@ -4069,10 +4105,13 @@ const presenceTimer = setInterval(() => presence(true), 5 * 60_000);
 async function finalizeStale(p: Post): Promise<boolean> {
   const fa = p.props?.flygo_agent, msg = p.props?.flygo_agent_message, ap = p.props?.flygo_agent_approval, qu = p.props?.flygo_agent_question;
   const live = fa && ["thinking", "running", "awaiting_approval"].includes(fa.status);
+  const bgLost = fa ? bgLostProps(fa) : null; // tác vụ nền runner cũ còn ghi "đang chạy"
+  // Đoạn cũ của lượt (trước tin chèn) còn bước "đang chạy": chốt bước, giữ trạng thái "continued".
+  const segStale = fa?.status === "continued" && (fa.steps ?? []).some((st: any) => st.status === "running" || st.status === "waiting");
   // Thẻ có nút (chat_send_card) vẫn chờ bấm sau khi khởi động lại: không chốt.
-  if (p.user_id !== BOT_ID || !(live || msg?.streaming || ap?.status === "pending" || (qu?.status === "pending" && !p.props?.flygo_agent_card))) return false;
+  if (p.user_id !== BOT_ID || !(live || bgLost || segStale || msg?.streaming || ap?.status === "pending" || (qu?.status === "pending" && !p.props?.flygo_agent_card))) return false;
   const props: any = { ...p.props };
-  if (fa) props.flygo_agent = { ...fa, status: live ? "stopped" : fa.status, error: live ? STOP_NOTE : fa.error, ...(live && fa.post_id ? { interrupted: true, resume_post_id: fa.post_id } : {}), ended_at: fa.ended_at ?? Date.now(), steps: (fa.steps ?? []).map((st: any) => st.status === "running" || st.status === "waiting" ? { ...st, status: "error" } : st) };
+  if (fa) props.flygo_agent = { ...(bgLost ?? fa), status: live ? "stopped" : fa.status, error: live ? STOP_NOTE : fa.error, ...(live && fa.post_id ? { interrupted: true, resume_post_id: fa.post_id } : {}), ended_at: fa.ended_at ?? Date.now(), steps: (fa.steps ?? []).map((st: any) => st.status === "running" || st.status === "waiting" ? { ...st, status: "error" } : st) };
   if (msg) props.flygo_agent_message = { ...msg, streaming: false, final: true };
   if (ap) props.flygo_agent_approval = { ...ap, status: ap.status === "pending" ? "expired" : ap.status };
   if (qu?.status === "pending") props.flygo_agent_question = { ...qu, status: "expired" };
@@ -4083,6 +4122,16 @@ async function finalizeStale(p: Post): Promise<boolean> {
 const RERUN_MAX_AGE_MS = 30 * 60_000;
 /** Khởi động: phiên còn ghi "running" (lần trước runner chết / bị tắt cứng giữa lượt) -> chốt thẻ, LUÔN báo vào chỗ giao việc,
  *  và tự chạy lại lượt đó một lần (tin giao việc còn mới, chưa chạy lại lần nào). */
+/** Khởi động: post có tác vụ nền còn theo dõi lúc runner tắt -> chốt "ngừng theo dõi". */
+async function recoverBgPosts() {
+  const rows = db.query("SELECT post_id FROM bg_posts").all() as { post_id: string }[];
+  for (const r of rows) {
+    const ok = await markBgLost(r.post_id).catch(() => false);
+    db.query("DELETE FROM bg_posts WHERE post_id = ?").run(r.post_id);
+    if (ok) log(`post ${r.post_id}: chốt tác vụ nền của runner trước (ngừng theo dõi)`);
+  }
+}
+
 async function recoverInterrupted() {
   const rows = db.query("SELECT * FROM sessions WHERE status = 'running' AND updated_at > ?").all(Date.now() - 7 * 86400_000) as Session[];
   for (const s of rows) {
@@ -4411,6 +4460,7 @@ setInterval(() => publishMeta().catch(() => {}), 3600_000);
 // Hạn mức tài khoản engine: làm mới mỗi 5 phút (chỉ đăng khi đổi); sau mỗi lượt đã làm mới trong publishMeta.
 setInterval(() => publishMeta(false).catch(() => {}), 5 * 60_000);
 recoverInterrupted().catch((e) => log(`recoverInterrupted: ${e}`));
+recoverBgPosts().catch((e) => log(`recoverBgPosts: ${e}`));
 restoreChatWatches(); // AI theo dõi chat: khôi phục các theo dõi còn hạn
 // Lịch hẹn: app gọi qua relay (POST /a2a/schedules -> {t:"sched"}), xét đến hạn mỗi 30 giây, đăng danh sách lúc khởi động.
 // Chọn thư mục dự án trên app: relay (GET /a2a/dirs) -> {t:"dirs"}; chỉ chủ bot, chỉ trong projectRoots.

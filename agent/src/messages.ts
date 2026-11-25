@@ -1,7 +1,7 @@
 // Mỗi lượt của agent là MỘT post (chat chính hoặc trong luồng): thẻ tiến trình props.flygo_agent + chữ stream
 // props.flygo_agent_message = { run_id, engine, seq, streaming, final? } + lời xin duyệt props.flygo_agent_approval.
 // Kết thúc lượt: ĐĂNG LẠI thành post mới (máy chủ chat chỉ báo khi tạo post, không báo khi sửa), post stream bị xoá.
-import type { RunCard } from "./card";
+import type { RunCard, Segment } from "./card";
 import type { MM } from "./mm";
 
 /** Câu trả lời mở đầu bằng khối markdown (```, #, -, 1., >, |bảng): nếu "@tên " đứng trước trên cùng một dòng thì
@@ -89,31 +89,45 @@ export class InlineReply {
     return true;
   }
   private segN = 0;
-  /** Người chèn tin vào lượt đang chạy và agent đã đọc: post đang stream GIỮ NGUYÊN chỗ (chốt thành một đoạn đứng yên,
-   *  không còn spinner, kế hoạch / tác vụ nền chuyển xuống), phần trả lời sau đó là POST MỚI dưới tin của người, để dễ
-   *  theo dõi (Sếp 25/11; trước đây cả post bị đưa xuống dưới). Đoạn cũ mang run_id riêng (`<run>~N`) nên app không xoá
-   *  khi tin cuối của lượt được đăng. */
+  /** Các post cũ của lượt (trước tin chèn của người): vẫn sửa khi phần cũ đổi (bước đang chạy xong…). */
+  private segs: { id: string; seg: Segment; runId: string; last: string }[] = [];
+  private segBody(x: { seg: Segment; runId: string }) {
+    const props: any = this.card.segmentProps(x.seg);
+    const msg = this.card.segmentText(x.seg);
+    return {
+      message: msg.trim() ? msg : this.card.render(),
+      props: {
+        ...(this.where.root_id ? { flygo_reply: "thread" } : {}),
+        ...props,
+        flygo_agent_message: { run_id: x.runId, engine: this.engine, seq: 1, streaming: false },
+        ...(this.extra ?? {}),
+      },
+    };
+  }
+  private pushSegs() {
+    for (const x of this.segs) {
+      const b = this.segBody(x);
+      const key = JSON.stringify(b);
+      if (key === x.last) continue;
+      x.last = key;
+      this.chain = this.chain.then(() => this.mm.patchPost(x.id, b).then(() => {}, () => { x.last = ""; }));
+    }
+  }
+  /** Người vừa chèn tin vào lượt đang chạy: post đang stream GIỮ NGUYÊN chỗ (khép thành một đoạn, kế hoạch / tác vụ nền
+   *  chuyển xuống), mọi chữ / bước MỚI từ giờ là POST MỚI dưới tin của người; phần cũ (bước đang chạy dở…) vẫn được sửa
+   *  tại chỗ ở post cũ (Sếp 25/11). Đoạn cũ mang run_id riêng (`<run>~N`) nên app không xoá khi tin cuối được đăng.
+   *  Đoạn hiện tại còn trống thì chỉ đưa post xuống dưới (không để lại post rỗng). */
   async splitHere(): Promise<boolean> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     await this.creating;
     await this.chain;
     if (!this.postId) return false;
-    const b = this.body(false) as any;
-    const { todos: _t, bg: _b, wrap_up: _w, ...fa } = b.props.flygo_agent ?? {};
-    const { flygo_agent_approval: _a, ...props } = b.props;
-    const frozen = {
-      message: b.message,
-      props: {
-        ...props,
-        flygo_agent: { ...fa, status: "continued", ended_at: Date.now() },
-        flygo_agent_message: { ...b.props.flygo_agent_message, run_id: `${this.runId}~${++this.segN}`, streaming: false },
-      },
-    };
-    const old = this.postId;
-    this.chain = this.mm.patchPost(old, frozen).then(() => {}, () => {});
+    if (this.card.segmentEmpty) return this.moveToEnd();
+    const x = { id: this.postId, seg: this.card.segmentStart(), runId: `${this.runId}~${++this.segN}`, last: "" };
+    this.segs.push(x);
+    this.pushSegs();
     await this.chain;
-    // Đoạn mới: chữ / bước từ giờ ở post mới, tạo ngay (thẻ "đang làm") dưới tin của người.
-    this.card.segmentStart();
+    // Đoạn mới: post mới (thẻ "đang làm") ngay dưới tin của người.
     this.postId = "";
     this.text = "";
     this.lastMsg = "";
@@ -129,6 +143,7 @@ export class InlineReply {
     if (!on && this.heldDirty) { this.heldDirty = false; this.schedule(0); }
   }
   private push() {
+    this.pushSegs();
     const b = this.body(true);
     const key = JSON.stringify(b);
     if (key === this.lastSent) return;
@@ -164,6 +179,7 @@ export class InlineReply {
   /** text: câu trả lời cuối (rỗng khi lỗi/dừng: giữ post, chỉ chốt thẻ). */
   async finish(text: string) {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    this.pushSegs(); // bước cuối của các đoạn cũ (đang chạy -> xong)
     await this.chain;
     if (text.trim()) this.text = text;
     if (!this.text.trim()) {

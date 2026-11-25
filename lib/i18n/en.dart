@@ -1395,6 +1395,8 @@ const Map<String, String> en = {
   '{0} xong': '{0} done',
   '{0} dừng': '{0} stopped',
   '{0} lỗi': '{0} failed',
+  '{0} ngừng theo dõi': '{0} no longer tracked',
+  'ngừng theo dõi': 'no longer tracked',
   'Bảng tin': 'News',
   'Máy chủ này chưa có Bảng tin': 'This server has no News board yet',
   'Đã gửi tệp': 'File sent',
