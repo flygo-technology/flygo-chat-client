@@ -155,7 +155,14 @@ switch (cmd) {
     const qs = (input.questions ?? []) as any[];
     const out = (o: any) => console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", ...o } }));
     const deny = (reason: string) => out({ permissionDecision: "deny", permissionDecisionReason: reason });
-    const url = process.env.FLYGO_RUNNER_URL, key = process.env.FLYGO_RUN_KEY;
+    const url = process.env.FLYGO_RUNNER_URL;
+    let key = process.env.FLYGO_RUN_KEY;
+    // Phiên sống (claude-live.ts): tiến trình claude chạy qua nhiều lượt, env FLYGO_RUN_KEY là của lượt đầu → hỏi runner lượt hiện tại.
+    const scope = process.env.FLYGO_SCOPE;
+    if (url && scope) {
+      const c: any = await fetch(`${url}/ctx?scope=${encodeURIComponent(scope)}`, { signal: AbortSignal.timeout(3000) }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (c?.RUN_KEY) key = c.RUN_KEY;
+    }
     if (!url || !key) { deny("Không hỏi được người dùng lúc này. Tự quyết theo hướng hợp lý nhất và nói rõ đã chọn gì."); break; }
     const r: any = await fetch(`${url}/ask`, {
       method: "POST", headers: { "content-type": "application/json" },

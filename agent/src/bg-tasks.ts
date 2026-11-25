@@ -223,8 +223,10 @@ export class BgTracker {
   }
 
   /** Lượt kết thúc: tác vụ nền của chính Claude Code (bash_bg / monitor) dừng theo tiến trình claude; tách nền thì theo tiếp. */
-  endTurn() {
+  endTurn(claudeAlive = false) {
     this.turnEnded = true;
+    // Phiên sống (claude.keepAlive): tiến trình claude còn chạy nên tác vụ nền của nó cũng còn — theo tiếp như tách nền.
+    if (claudeAlive) return;
     for (const t of this.tasks) if (t.kind !== "detached" && t.status === "running") this.finish(t, "killed", "dừng cùng lượt");
   }
 
