@@ -96,6 +96,8 @@ String _statusLabel(String s) => switch (s) {
   'done' => tr('Xong'),
   'error' => tr('Lỗi'),
   'cancelled' => tr('Đã dừng'),
+  // Đoạn trước tin chèn của người (runner 0.7.28+): phần trả lời tiếp là tin mới bên dưới.
+  'continued' => tr('Tiếp ở tin dưới'),
   _ => s,
 };
 
@@ -103,7 +105,7 @@ Color _statusColor(String s, Pal pal) => switch (s) {
   'done' => const Color(0xFF2E9D5B),
   'error' => Colors.redAccent,
   'awaiting_approval' => const Color(0xFFF5A623),
-  'cancelled' => pal.sub,
+  'cancelled' || 'continued' => pal.sub,
   _ => pal.accentText,
 };
 
@@ -302,8 +304,9 @@ class _AgentRunCardState extends State<AgentRunCard> {
 List<Map<String, dynamic>> agentTodosOf(Map<String, dynamic> run) =>
     [for (final t in (run['todos'] as List? ?? const [])) if (t is Map) t.cast<String, dynamic>()];
 
-/// Danh sách việc agent tự lập trong lượt (props.flygo_agent.todos, runner 0.6.79+): checklist
-/// chưa làm / đang làm / xong, luôn ở cuối tin. Ngắn thì hiện hết; dài thì chỉ việc đang làm, bấm để xem hết.
+/// Danh sách việc agent tự lập trong lượt (props.flygo_agent.todos, runner 0.6.79+), luôn ở cuối tin.
+/// Mặc định gọn một dòng: "đã xong/tổng · việc đang làm" + nút mở ở cuối, thanh tiến độ bên dưới; bấm để xem đủ
+/// danh sách (Sếp 25/11).
 class AgentTodoList extends StatefulWidget {
   final List<Map<String, dynamic>> todos;
   final bool active;
@@ -312,74 +315,102 @@ class AgentTodoList extends StatefulWidget {
   State<AgentTodoList> createState() => _AgentTodoListState();
 }
 
-/// Kế hoạch dài hơn số việc này thì mặc định chỉ hiện việc đang làm (bấm để xem hết).
-const kTodoCompactOver = 5;
+const _kGreen = Color(0xFF2E9D5B);
 
 class _AgentTodoListState extends State<AgentTodoList> {
-  bool? _open; // null: theo độ dài kế hoạch
+  bool _open = false;
 
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);
     final todos = widget.todos;
-    final long = todos.length > kTodoCompactOver;
-    final open = _open ?? !long; // ngắn: mở sẵn; dài: gọn về việc đang làm
     final done = todos.where((t) => t['status'] == 'completed').length;
+    final allDone = done == todos.length;
     // Việc đang làm; chưa có thì việc chưa làm đầu tiên; xong hết thì việc cuối.
     final current = todos.where((t) => t['status'] == 'in_progress').firstOrNull ??
         todos.where((t) => t['status'] != 'completed').firstOrNull ??
         todos.last;
+    final doing = current['status'] == 'in_progress';
+    final tint = allDone ? _kGreen : pal.accentText;
     return Container(
       margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       decoration: BoxDecoration(
-        border: Border.all(color: pal.text.withValues(alpha: .12)),
+        color: pal.text.withValues(alpha: .035),
+        border: Border.all(color: pal.text.withValues(alpha: .09)),
         borderRadius: BorderRadius.circular(12),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => setState(() => _open = !open),
+            key: const ValueKey('todo-head'),
+            onTap: () => setState(() => _open = !_open),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.checklist_rounded, size: 16, color: pal.sub),
-                const SizedBox(width: 6),
-                Text(tr('Kế hoạch việc'), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: pal.sub)),
-                Text(' · $done/${todos.length}', style: TextStyle(fontSize: 13, color: pal.sub)),
-                const SizedBox(width: 2),
-                Icon(open ? Icons.expand_more : Icons.chevron_right, size: 18, color: pal.sub),
+              padding: const EdgeInsets.fromLTRB(10, 8, 6, 6),
+              child: Row(children: [
+                Icon(allDone ? Icons.check_circle_rounded : Icons.checklist_rounded, size: 17, color: tint),
+                const SizedBox(width: 7),
+                Text('$done/${todos.length}',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: tint, fontFeatures: const [FontFeature.tabularFigures()])),
+                Text('  ·  ', style: TextStyle(fontSize: 13, color: pal.sub)),
+                Expanded(
+                  child: Text(
+                    allDone ? tr('Đã xong kế hoạch') : '${current['text'] ?? ''}',
+                    key: const ValueKey('todo-current'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13.5, fontWeight: doing ? FontWeight.w600 : FontWeight.w500, color: allDone ? pal.sub : pal.text),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                AnimatedRotation(
+                  turns: _open ? .5 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: Icon(Icons.expand_more_rounded, size: 20, color: pal.sub),
+                ),
               ]),
             ),
           ),
-          if (open)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 9),
+            child: AgentProgressBar(value: todos.isEmpty ? 0 : done / todos.length, color: tint),
+          ),
+          if (_open)
             Padding(
-              padding: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [for (final t in todos) _TodoRow(todo: t, active: widget.active)],
               ),
-            )
-          else
-            // Gọn: chỉ việc đang làm (vẫn cập nhật trực tiếp), kèm số việc còn lại; bấm tiêu đề để xem hết.
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                _TodoRow(key: const ValueKey('todo-current'), todo: current, active: widget.active),
-                if (todos.length > 1)
-                  InkWell(
-                    onTap: () => setState(() => _open = true),
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 26, top: 1, bottom: 2),
-                      child: Text(tr('+ {0} việc khác', [todos.length - 1]), style: TextStyle(fontSize: 12.5, color: pal.sub)),
-                    ),
-                  ),
-              ]),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Thanh tiến độ mảnh bo tròn (kế hoạch việc, tác vụ nền); đổi giá trị thì trượt nhẹ, không chạy hoạt ảnh liên tục.
+class AgentProgressBar extends StatelessWidget {
+  final double value;
+  final Color color;
+  const AgentProgressBar({super.key, required this.value, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    final pal = Pal.of(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(99),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(end: value.clamp(0, 1).toDouble()),
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        builder: (context, v, _) => LinearProgressIndicator(
+          value: v,
+          minHeight: 4,
+          backgroundColor: pal.text.withValues(alpha: .08),
+          color: color,
+        ),
       ),
     );
   }
@@ -457,7 +488,7 @@ class _AgentWrapUpState extends State<AgentWrapUp> {
 class _TodoRow extends StatelessWidget {
   final Map<String, dynamic> todo;
   final bool active;
-  const _TodoRow({super.key, required this.todo, required this.active});
+  const _TodoRow({required this.todo, required this.active});
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);

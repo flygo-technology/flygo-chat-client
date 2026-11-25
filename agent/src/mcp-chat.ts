@@ -736,7 +736,7 @@ const CHAT_TOOLS = [
     },
     {
       name: "session_new",
-      description: "CHUYỂN SANG PHIÊN MỚI sạch ngữ cảnh khi phiên này đã quá dài (ngữ cảnh phình, chậm, hay quên) hoặc việc đã sang chủ đề khác: tạo phiên AI mới cùng nhóm / dự án, cùng chủ, tin đầu là BẢN BÀN GIAO có cấu trúc (phiên mới chỉ biết những gì ghi trong bàn giao, nên viết đủ), phiên này được đánh dấu xong kèm link sang phiên mới. start=true: bạn làm tiếp ngay ở phiên mới (lượt mới chạy ở đó). Cần người giao việc duyệt (tự duyệt khi đang \"Luôn cho phép\"). Trả về link phiên mới.",
+      description: "TẠO PHIÊN MỚI sạch ngữ cảnh (cùng nhóm / dự án, cùng chủ), tin đầu là BẢN BÀN GIAO có cấu trúc (phiên mới chỉ biết những gì ghi trong bàn giao, nên viết đủ). Dùng khi Sếp muốn thêm một agent / phiên phụ trách việc khác, hoặc khi phiên này đã quá dài. MẶC ĐỊNH phiên này VẪN LÀM TIẾP (không bị đánh dấu xong); chỉ đặt close_current=true khi thật sự chuyển hẳn việc sang phiên mới (phiên này quá dài / Sếp bảo chuyển hẳn) — khi đó phiên này được đánh dấu xong kèm link. start=true: phiên mới bắt tay làm ngay theo bàn giao (song song, phiên này không chờ). Cần người giao việc duyệt (tự duyệt khi đang \"Luôn cho phép\"). Trả về link phiên mới.",
       inputSchema: {
         type: "object",
         properties: {
@@ -753,7 +753,8 @@ const CHAT_TOOLS = [
             },
             required: ["goal", "remaining"],
           },
-          start: { type: "boolean", description: "true = làm tiếp ngay ở phiên mới; mặc định false (chờ Sếp nhắn ở phiên mới)" },
+          start: { type: "boolean", description: "true = phiên mới bắt tay làm ngay theo bàn giao; mặc định false (chờ Sếp nhắn ở phiên mới)" },
+          close_current: { type: "boolean", description: "true = chuyển hẳn: đánh dấu phiên này xong, trỏ sang phiên mới; mặc định false (phiên này làm tiếp)" },
           project_id: { type: "string", description: "tạo phiên trong một dự án khác của chủ (id từ project_list); bỏ trống = cùng nhóm / dự án" },
         },
         required: ["title", "handoff"],

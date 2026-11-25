@@ -2450,8 +2450,9 @@ async function sessionTitleTool(a: any): Promise<string> {
 // session_rename(name): đổi tên phiên AI hiện tại lúc nào cũng được (không cần duyệt).
 // session_fork(title, note?, project_id?): phiên AI mới cùng nhóm / dự án, cùng chủ, mốc [flygo-ai-fork <phiên này>] trong header
 //   -> lượt đầu ở phiên mới tách (fork) phiên làm việc của phiên này (parentKeyOf), nhớ mọi thứ đã bàn. Cần duyệt.
-// session_new(title, handoff, start?, project_id?): phiên AI mới KHÔNG mang ngữ cảnh cũ, tin đầu là bản bàn giao có cấu trúc;
-//   phiên cũ được đánh dấu xong ([flygo-ai-done] + [flygo-ai-next <phiên mới>]); start=true thì bot làm tiếp ngay ở phiên mới. Cần duyệt.
+// session_new(title, handoff, start?, project_id?, close_current?): phiên AI mới KHÔNG mang ngữ cảnh cũ, tin đầu là bản bàn giao
+//   có cấu trúc; start=true thì bot làm ngay ở phiên mới. Phiên hiện tại mặc định vẫn làm tiếp (Sếp 25/11: spawn agent mới không
+//   được đóng phiên đang làm); close_current=true mới đánh dấu xong ([flygo-ai-done] + [flygo-ai-next <phiên mới>]). Cần duyệt.
 // project_list() · project_create(name, path?) (cần duyệt) · project_rename(project_id, name): dự án trợ lý của chủ bot.
 // Kênh mới theo quy ước tên của app (chain.ts): phiên a-<nhóm>-<chủ>-…, dự án p-<chủ>-…; bot tạo kênh rồi thêm chủ làm quản trị kênh.
 // Thẻ trên app: props.flygo_session_handoff = { kind: "fork" | "new" | "moved", from, to, title }.
@@ -2572,8 +2573,9 @@ async function sessOpTool(op: string, a: any): Promise<string> {
   const where = group.id === ai.group ? "" : ` trong dự án "${group.display_name}"`;
   const body = fork ? String(a.note ?? "").trim() : handoffText(a.handoff, fromTitle);
   if (!fork && body.replace(/^📋.*$/m, "").trim().length < 10) return "Thiếu nội dung bàn giao (handoff: goal, done, remaining, files, cautions).";
-  const ok = await approve(fork ? `Tách phiên "${title}"${where}` : `Chuyển sang phiên mới "${title}"${where}${a.start ? " và làm tiếp ngay" : ""}`,
-    fork ? (body || `Phiên mới nhớ mọi thứ đã bàn ở «${fromTitle}».`) : `${body}\n\nPhiên «${fromTitle}» sẽ được đánh dấu xong.`);
+  const close = !fork && a.close_current === true;
+  const ok = await approve(fork ? `Tách phiên "${title}"${where}` : `${close ? "Chuyển sang" : "Tạo"} phiên mới "${title}"${where}${a.start ? (close ? " và làm tiếp ngay" : " và giao việc ngay") : ""}`,
+    fork ? (body || `Phiên mới nhớ mọi thứ đã bàn ở «${fromTitle}».`) : `${body}\n\n${close ? `Phiên «${fromTitle}» sẽ được đánh dấu xong.` : `Phiên «${fromTitle}» vẫn làm tiếp.`}`);
   if (!ok) return `Sếp không duyệt, chưa ${fork ? "tách" : "tạo"} phiên.`;
   // Phiên của luồng: giữ mốc luồng khi ở lại cùng nhóm.
   const thread = group.id === ai.group ? aiThreadOf(ch) : "";
@@ -2590,21 +2592,29 @@ async function sessOpTool(op: string, a: any): Promise<string> {
     step(`Đã tách phiên: ${title}${where}`, "Tách phiên", "done", sessLink(first.id));
     return `Đã tách phiên "${title}"${where} (id ${c.id}): ${sessLink(first.id)}. Phiên mới nhớ những gì đã bàn ở đây; Sếp nhắn ở đó để làm tiếp nhánh này.`;
   }
-  // Phiên cũ: đánh dấu xong + trỏ sang phiên mới, kèm tin "đã chuyển".
+  if (!close) {
+    // Phiên hiện tại làm tiếp: chỉ báo đã mở phiên mới (bước trên thẻ có link), không đóng phiên này.
+    step(`Đã tạo phiên mới: ${title}${where}`, "Phiên mới", "done", sessLink(first.id));
+    if (a.start) startHandoff(first, c.id, owner, fromTitle, body);
+    return `Đã tạo phiên mới "${title}"${where} (id ${c.id}): ${sessLink(first.id)}. Phiên này VẪN LÀM TIẾP việc đang dở.${a.start ? " Phiên mới đã bắt tay làm theo bàn giao (song song, kết quả hiện ở đó)." : " Sếp nhắn ở phiên mới để giao việc."}`;
+  }
+  // Chuyển hẳn: phiên cũ đánh dấu xong + trỏ sang phiên mới, kèm tin "đã chuyển".
   const h = String(ch.header ?? "").replace(/\[flygo-ai-done\]|\[flygo-ai-next \w+\]/g, "").replace(/\s+/g, " ").trim();
   await mm.api("PUT", `/channels/${ch.id}/patch`, { header: `${h} [flygo-ai-done] [flygo-ai-next ${c.id}]`.trim() }).catch((e) => log(`phiên ${ch.id}: chưa đánh dấu xong: ${e?.message ?? e}`));
   mm.forgetChannel(ch.id);
   await mm.createPost({ channel_id: ch.id, root_id: "", message: `➡️ Phiên này đã xong, việc chuyển sang phiên mới «${title}»: ${sessLink(first.id)}`, props: { flygo_session_handoff: { kind: "moved", from: ch.id, to: c.id, title }, flygo_agent_owner: owner } }).catch(() => {});
   step(`Đã chuyển sang phiên mới: ${title}${where}`, "Chuyển phiên", "done", sessLink(first.id));
-  if (a.start) {
-    // Bot làm tiếp ngay ở phiên mới: một lượt mới của chủ phiên, tại tin bàn giao (như lịch hẹn).
-    const post = { ...first, user_id: owner, message: body } as Post;
-    const key = mainKey(c.id);
-    const text = `(Phiên mới tiếp nối phiên «${fromTitle}»: runner tự chuyển việc theo bản bàn giao dưới đây, Sếp không ngồi chờ ở đây. Đọc bàn giao, làm tiếp phần còn lại rồi báo kết quả ở phiên này.)\n\n${body}`;
-    enqueuedPosts.add(post.id);
-    enqueue(key, async () => { await runTurn(post, key, text, {}).catch((e) => log(`phiên mới ${c.id}: ${e?.message ?? e}`)); });
-  }
+  if (a.start) startHandoff(first, c.id, owner, fromTitle, body);
   return `Đã tạo phiên mới "${title}"${where} (id ${c.id}): ${sessLink(first.id)}. Phiên này đã được đánh dấu xong.${a.start ? " Em làm tiếp ngay ở phiên mới (kết quả hiện ở đó); lượt này chỉ cần báo ngắn gọn là đã chuyển." : " Sếp nhắn ở phiên mới để làm tiếp."}`;
+}
+
+/** Bot làm ngay ở phiên mới: một lượt mới của chủ phiên, tại tin bàn giao (như lịch hẹn). */
+function startHandoff(first: Post, channelId: string, owner: string, fromTitle: string, body: string) {
+  const post = { ...first, user_id: owner, message: body } as Post;
+  const key = mainKey(channelId);
+  const text = `(Phiên mới do phiên «${fromTitle}» mở: runner tự giao việc theo bản bàn giao dưới đây, Sếp không ngồi chờ ở đây. Đọc bàn giao, làm phần việc được giao rồi báo kết quả ở phiên này.)\n\n${body}`;
+  enqueuedPosts.add(post.id);
+  enqueue(key, async () => { await runTurn(post, key, text, {}).catch((e) => log(`phiên mới ${channelId}: ${e?.message ?? e}`)); });
 }
 
 /** spawn_task (0.6.82): giao một việc cho phiên AI con chạy ngầm (cùng nhóm / dự án), phiên hiện tại không chờ.
@@ -2986,7 +2996,7 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
       `  · chỉ đọc / gửi ra chat khác khi việc cần; gửi thay người giao việc thì nói rõ đã gửi gì, ở đâu (kèm link).`,
       `- session_list() · session_read(session_id): xem các phiên AI khác của Sếp với bot này (chỉ chủ bot); muốn phiên đó làm / trả lời gì thì agent_send(target=session_id, message)`,
       `- session_transcript(session, part?, max_chars?, source?, export?): đọc bản ghi đầy đủ của một phiên (session_id, "here" = phiên này): bản ghi của engine trên máy (lời người dùng, trả lời, tool + kết quả) hoặc tin trên Flygo Chat (source="chat"); phân trang bằng before_entry / from_entry; đã che token / khoá (chỉ chủ bot)`,
-      ai ? `- session_rename(name) · session_fork(title, note?, project_id?) · session_new(title, handoff{goal, done, remaining, files, cautions}, start?, project_id?): quản lý phiên AI này. Đổi tên khi chủ đề đã khác tên phiên. Tách (fork, nhớ hết ngữ cảnh) khi muốn thử một hướng khác / làm song song một nhánh mà không làm rối phiên này. Phiên mới (sạch ngữ cảnh, kèm bàn giao; phiên này được đánh dấu xong) khi phiên đã quá dài hoặc việc sang chủ đề mới; start=true để làm tiếp ngay ở đó. Tách / phiên mới cần người giao việc duyệt; nên hỏi hoặc đề xuất trước khi tự làm.` : "",
+      ai ? `- session_rename(name) · session_fork(title, note?, project_id?) · session_new(title, handoff{goal, done, remaining, files, cautions}, start?, project_id?): quản lý phiên AI này. Đổi tên khi chủ đề đã khác tên phiên. Tách (fork, nhớ hết ngữ cảnh) khi muốn thử một hướng khác / làm song song một nhánh mà không làm rối phiên này. Phiên mới (sạch ngữ cảnh, kèm bàn giao) khi cần thêm một agent / phiên phụ trách việc khác (phiên này vẫn làm tiếp), start=true để phiên mới làm ngay; phiên đã quá dài thì close_current=true để chuyển hẳn (phiên này đánh dấu xong). Tách / phiên mới cần người giao việc duyệt; nên hỏi hoặc đề xuất trước khi tự làm.` : "",
       owner ? `- project_list() · project_create(name, path?) · project_rename(project_id, name): dự án trợ lý của chủ bot (tab Agents); tạo dự án cần duyệt. Tạo phiên trong dự án bằng session_new / session_fork với project_id.` : "",
       ai ? `- spawn_task(title, prompt): giao một việc độc lập, tốn thời gian cho phiên con chạy ngầm (song song, không chờ); prompt phải đủ ngữ cảnh vì phiên con không thấy cuộc trò chuyện này; xong phiên con tự báo kết quả về đây; tối đa 5 việc ngầm cùng lúc` : "",
       `- update_plan(items | advance | done, start) · wrap_up(recap, ask?, actions?, blocked?): việc có từ 3 bước trở lên thì lập kế hoạch bằng update_plan ngay đầu lượt và advance mỗi khi xong một bước (app hiện checklist dưới thẻ); cuối lượt gọi wrap_up một lần với tóm tắt ngắn, cần Sếp quyết định thì kèm ask + 2–4 nút actions và không hỏi lại trong câu trả lời`,
@@ -3835,8 +3845,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
           if (!r || r.ac !== ac) return;
           r.steer = fn ? async (p, t) => {
             const who = await mm.displayName(p.user_id).catch(() => "");
-            // Agent đọc tin (sau bước đang chạy): đổi nhãn "Đã điều hướng" và đưa post đang chạy xuống dưới tin này, để phần trả lời
-            // sau điều hướng nằm sau tin của người (nhìn là biết điều hướng lúc nào).
+            // Agent đọc tin (sau bước đang chạy): đổi nhãn "Đã điều hướng"; post đang chạy giữ nguyên chỗ, phần trả lời sau điều hướng
+            // là post mới dưới tin của người (nhìn là biết điều hướng lúc nào, Sếp 25/11).
             let read = false;
             const onRead = () => {
               if (read || ac.signal.aborted) return;
@@ -3845,7 +3855,7 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
               const nf = ((p as any).file_ids?.length ?? 0) as number;
               card.step({ id: `steer-${p.id}`, kind: "tool", title: `Nhận thêm tin trong lúc làm: ${[t.replace(/\s+/g, " ").slice(0, 100), nf ? `📎 ${nf} tệp` : ""].filter(Boolean).join(" ")}`, status: "done" });
               void markSteered(p.id);
-              if ((p.root_id || "") === (where.root_id || "")) void reply.moveToEnd().catch(() => false);
+              if ((p.root_id || "") === (where.root_id || "")) void reply.splitHere().catch(() => false);
             };
             const ok = await fn(`(Tin nhắn mới${who ? ` của ${who}` : ""} gửi trong lúc em đang làm lượt này: đọc và điều chỉnh việc đang làm cho phù hợp.)\n${t || "(chỉ gửi tệp)"}${filesNote(p)}`, onRead);
             if (!ok) return false;

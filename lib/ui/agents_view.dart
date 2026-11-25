@@ -2,6 +2,7 @@ import '../i18n/i18n.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../config.dart' show isDesktop;
 import '../data/models.dart';
 import '../state/app_state.dart';
 import 'agent_page.dart';
@@ -284,6 +285,14 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
     });
   }
 
+  String? _lastTapId;
+  DateTime _lastTapAt = DateTime(0);
+
+  Future<void> _renameSession(AppState app, MmChannel c) async {
+    final t = await _ask(tr('Đổi tên phiên'), c.aiTitle);
+    if (t != null) await _guard(() => app.renameAiSession(c, t));
+  }
+
   Future<void> _sessionMenu(AppState app, _Entry e) async {
     final c = e.channel;
     final a = await _sheet(e.session ? aiSessionLabel(c) : e.bot?.displayName ?? '', [
@@ -315,8 +324,7 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
           _openSession(app, f);
         });
       case 'rename':
-        final t = await _ask(tr('Đổi tên phiên'), c.aiTitle);
-        if (t != null) await _guard(() => app.renameAiSession(c, t));
+        await _renameSession(app, c);
       case 'done' || 'undone':
         await _guard(() => app.setAiDone(c, a == 'done'));
       case 'archive' || 'unarchive':
@@ -618,7 +626,22 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
       child: Material(
       color: selected ? pal.accent.withValues(alpha: .12) : Colors.transparent,
       child: InkWell(
-        onTap: () => _openSession(app, c),
+        key: ValueKey('ai-session-${c.id}'),
+        onTap: () {
+          // Bấm đúp (nháy đúp chuột) vào phiên: mở hộp đổi tên (Sếp 25/11). Tự đếm hai lần bấm thay vì onDoubleTap
+          // để lần bấm đầu vẫn mở phiên ngay, không phải chờ hết thời gian chờ bấm đúp.
+          final now = DateTime.now();
+          final twice = e.session && isDesktop && _lastTapId == c.id && now.difference(_lastTapAt) < const Duration(milliseconds: 400);
+          _lastTapId = twice ? null : c.id;
+          _lastTapAt = now;
+          if (twice) {
+            _renameSession(app, c);
+          } else {
+            _openSession(app, c);
+          }
+        },
+        // Điện thoại: bấm lần đầu đã chuyển sang trang phiên nên dùng bấm đúp của hệ thống.
+        onDoubleTap: e.session && !isDesktop ? () => _renameSession(app, c) : null,
         onLongPress: () => _sessionMenu(app, e),
         onSecondaryTap: () => _sessionMenu(app, e),
         child: Padding(

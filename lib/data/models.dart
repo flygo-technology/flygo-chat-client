@@ -66,42 +66,43 @@ class MmChannel {
 
   /// Luồng riêng tách từ một nhóm: tên kênh `s-…`; kênh cũ có mốc "[flygo-sub parent=<id kênh> root=<id tin>]" trong mô tả.
   static final _subRe = RegExp(r'\[flygo-sub parent=(\w+) root=(\w+)\]');
-  String? get subParent => _subNameRe.firstMatch(name)?.group(1) ?? _subRe.firstMatch(purpose)?.group(1);
-  String? get subRoot => _subNameRe.firstMatch(name)?.group(2) ?? _subRe.firstMatch(purpose)?.group(2);
+  // Nhớ kết quả (regex trên tên / mô tả kênh): gọi hàng trăm lần mỗi lần dựng danh sách chat (Sếp 25/11: app đơ).
+  late final String? subParent = _subNameRe.firstMatch(name)?.group(1) ?? _subRe.firstMatch(purpose)?.group(1);
+  late final String? subRoot = _subNameRe.firstMatch(name)?.group(2) ?? _subRe.firstMatch(purpose)?.group(2);
   bool get isSub => subParent != null;
 
   /// Kênh thảo luận của một tiến trình Quy trình (Flow Bot tạo, header `flygo:process:<mã>`): không hiện trong chat,
   /// mở thì vào trang tiến trình.
   static final _processRe = RegExp(r'flygo:process:([\w-]+)');
-  String? get processId => _processRe.firstMatch(header)?.group(1);
+  late final String? processId = _processRe.firstMatch(header)?.group(1);
   bool get isProcess => processId != null;
 
   /// Chat AI cột phải: kênh riêng tư chỉ có chủ nhân + các bot của họ, gắn với một nhóm
   /// (tên kênh `a-…`; kênh cũ có mốc "[flygo-ai group=<id nhóm> owner=<id người dùng>]" trong mô tả).
   static final _aiRe = RegExp(r'\[flygo-ai group=(\w+) owner=(\w+)\]');
-  String? get aiGroup => _aiNameRe.firstMatch(name)?.group(1) ?? _aiRe.firstMatch(purpose)?.group(1);
-  String? get aiOwner => _aiNameRe.firstMatch(name)?.group(2) ?? _aiRe.firstMatch(purpose)?.group(2);
+  late final String? aiGroup = _aiNameRe.firstMatch(name)?.group(1) ?? _aiRe.firstMatch(purpose)?.group(1);
+  late final String? aiOwner = _aiNameRe.firstMatch(name)?.group(2) ?? _aiRe.firstMatch(purpose)?.group(2);
   bool get isAi => aiGroup != null;
   /// Phiên AI tách (fork) từ một phiên AI khác: mốc `[flygo-ai-fork <id kênh nguồn>]` trong header kênh.
   static final _aiForkRe = RegExp(r'\[flygo-ai-fork (\w+)\]');
-  String? get aiForkOf => _aiForkRe.firstMatch(header)?.group(1);
+  late final String? aiForkOf = _aiForkRe.firstMatch(header)?.group(1);
   /// Phiên AI gắn với một luồng công việc riêng (tin gốc [aiThread]) trong nhóm: mốc `[flygo-ai-thread <id tin gốc>]`.
   static final _aiThreadRe = RegExp(r'\[flygo-ai-thread (\w+)\]');
-  String? get aiThread => _aiThreadRe.firstMatch(header)?.group(1);
+  late final String? aiThread = _aiThreadRe.firstMatch(header)?.group(1);
   /// Việc chạy ngầm (trợ lý gọi spawn_task, runner 0.6.82): mốc `[flygo-ai-task <id phiên cha>]` trong header.
   static final _aiTaskRe = RegExp(r'\[flygo-ai-task (\w+)\]');
-  String? get aiTaskOf => _aiTaskRe.firstMatch(header)?.group(1);
+  late final String? aiTaskOf = _aiTaskRe.firstMatch(header)?.group(1);
   /// Phiên AI đã đánh dấu xong: mốc `[flygo-ai-done]` trong header (vẫn mở lại được).
   bool get aiDone => header.contains('[flygo-ai-done]');
   /// Phiên AI đã chuyển việc sang phiên mới (trợ lý gọi session_new, runner 0.6.60): mốc `[flygo-ai-next <id phiên mới>]`.
   static final _aiNextRe = RegExp(r'\[flygo-ai-next (\w+)\]');
-  String? get aiNext => _aiNextRe.firstMatch(header)?.group(1);
+  late final String? aiNext = _aiNextRe.firstMatch(header)?.group(1);
   /// Phiên AI đã lưu trữ (ẩn khỏi danh sách, khôi phục được): mốc `[flygo-ai-archived]` trong header.
   bool get aiArchived => header.contains('[flygo-ai-archived]');
   /// Dự án trợ lý (tab Agents): kênh riêng tư tên `p-<id chủ>-…` (kênh cũ: mốc `[flygo-agent-project owner=<id>]` trong
   /// mô tả); các phiên AI của dự án là kênh AI có group = kênh này. Không hiện ở danh sách chat.
   static final _projectRe = RegExp(r'\[flygo-agent-project owner=(\w+)\]');
-  String? get agentProjectOwner => _projectNameRe.firstMatch(name)?.group(1) ?? _projectRe.firstMatch(purpose)?.group(1);
+  late final String? agentProjectOwner = _projectNameRe.firstMatch(name)?.group(1) ?? _projectRe.firstMatch(purpose)?.group(1);
   bool get isAgentProject => agentProjectOwner != null;
   /// Thư mục làm việc của dự án trợ lý trên máy chạy bot: mốc `[flygo-project path=…]` trong mô tả (runner đọc).
   static final _projectPathRe = RegExp(r'\[flygo-project path=(?:"([^"\]]+)"|([^\]\s]+))\]');

@@ -54,6 +54,9 @@ class ChatSummary {
   bool get isSelf => channel.isDirect && avatarUserId == null && channel.name.split('__').toSet().length == 1;
 }
 
+/// Khoảng gom sự kiện websocket trước khi dựng lại giao diện (xem [AppState._notifySoon]).
+const kWsNotifyEvery = Duration(milliseconds: 120);
+
 class AppState extends ChangeNotifier {
   final String token;
   final MmApi api;
@@ -503,6 +506,20 @@ class AppState extends ChangeNotifier {
     return t['id'] as String;
   }
 
+  /// Cập nhật dòng xem trước (tin cuối) của chat ở danh sách bên trái: chỉ tin ở chat chính, không lùi về tin cũ hơn
+  /// (tải lại từ bộ đệm đang chạy dở không được ghi đè tin mình vừa gửi; Sếp 25/11).
+  void _bumpLatest(MmPost p) {
+    if (p.threadOnly) return;
+    final cur = latest[p.channelId];
+    if (cur == null ||
+        cur.id == p.id ||
+        (cur.pendingId.isNotEmpty && cur.pendingId == p.pendingId) ||
+        cur.deleteAt > 0 ||
+        p.createAt >= cur.createAt) {
+      latest[p.channelId] = p;
+    }
+  }
+
   Future<void> _fetchNewer(String channelId) async {
     final since = _lastSync[channelId];
     final started = DateTime.now().millisecondsSinceEpoch;
@@ -518,7 +535,8 @@ class AppState extends ChangeNotifier {
     _lastSync[channelId] = started;
     await _store.setMeta('last_sync', Map<String, int>.from(_lastSync));
     await _store.trim(channelId);
-    latest[channelId] = await _store.latest(channelId);
+    final v = await _store.latest(channelId);
+    if (v != null) _bumpLatest(v);
   }
 
   // ---------------------------------------------------------------- danh sách chat
@@ -1615,6 +1633,7 @@ class AppState extends ChangeNotifier {
     };
     await _store.putOutbox(local);
     _merge(channelId, [MmPost(local)]);
+    _bumpLatest(MmPost(local)); // tin mình gửi lên đầu danh sách chat ngay, không chờ máy chủ
     notifyListeners();
     return local['_translate'] != null ? _translateThenSend(local) : _sendOne(local);
   }
@@ -1673,7 +1692,7 @@ class AppState extends ChangeNotifier {
       await _store.removeOutbox(local['pending_post_id'] as String);
       await _store.putPosts([saved]);
       _merge(channelId, [saved]);
-      latest[channelId] = saved;
+      _bumpLatest(saved);
       notifyListeners();
       return saved;
     } catch (e) {
@@ -1729,6 +1748,7 @@ class AppState extends ChangeNotifier {
     };
     await _store.putOutbox(local);
     _merge(channelId, [MmPost(local)]);
+    _bumpLatest(MmPost(local));
     notifyListeners();
     await _sendMediaOne(local);
   }
@@ -1760,7 +1780,7 @@ class AppState extends ChangeNotifier {
       await _store.removeOutbox(local['pending_post_id'] as String);
       await _store.putPosts([saved]);
       _merge(channelId, [saved]);
-      latest[channelId] = saved;
+      _bumpLatest(saved);
     } catch (e) {
       debugPrint('[upload] $e');
       final failed = {...local, '_send': 'failed'};
@@ -2155,12 +2175,32 @@ class AppState extends ChangeNotifier {
         ...m.raw,
         'msg_count': (c.totalMsgCount - 1).clamp(0, 1 << 30),
         if (tr != null) 'msg_count_root': (tr - 1).clamp(0, 1 << 30),
+        // Lùi mốc "đã xem" về trước tin đó: thiếu nó thì [unreadOf] thấy tin cuối đã xem và vẫn báo 0 (Sếp 25/11).
+        'last_viewed_at': target.createAt - 1,
       });
       notifyListeners();
     }
     try {
-      await api.post('/users/${me!.id}/posts/${target.id}/set_unread', {'collapsed_threads_supported': false});
+      final r = await api.post('/users/${me!.id}/posts/${target.id}/set_unread', {'collapsed_threads_supported': false});
+      if (r is Map) _applyUnreadAt(r.cast<String, dynamic>());
     } catch (_) {}
+  }
+
+  /// Máy chủ báo một chat vừa được đánh dấu chưa đọc (trả lời của set_unread, hoặc sự kiện post_unread từ máy khác
+  /// của mình): cập nhật số chưa đọc ngay, không chờ đồng bộ lại.
+  void _applyUnreadAt(Map<String, dynamic> d) {
+    final ch = d['channel_id'] as String?;
+    final m = ch == null ? null : members[ch];
+    if (m == null) return;
+    members[ch!] = MmMember({
+      ...m.raw,
+      'msg_count': ?d['msg_count'],
+      'msg_count_root': ?d['msg_count_root'],
+      'mention_count': ?d['mention_count'],
+      'mention_count_root': ?d['mention_count_root'],
+      'last_viewed_at': ?d['last_viewed_at'],
+    });
+    notifyListeners();
   }
 
   /// Kênh yêu thích (nhóm "Favorites" trong thanh bên của máy chủ chat).
@@ -2236,10 +2276,12 @@ class AppState extends ChangeNotifier {
   Future<void> _ensurePushAll() async {
     final u = me;
     if (u == null) return;
+    await _ensurePushWhenOnline(u);
     try {
       final done = await api.get('/users/${u.id}/preferences/flygo_chat/name/push_default').then((_) => true, onError: (_) => false);
       if (done) return;
-      final np = ((u.raw['notify_props'] as Map?) ?? const {}).cast<String, dynamic>();
+      // Đọc lại từ [me]: bước push_status ở trên có thể vừa đổi notify_props, không ghi đè bằng bản cũ.
+      final np = (((me ?? u).raw['notify_props'] as Map?) ?? const {}).cast<String, dynamic>();
       if (np['push'] == 'mention') {
         await api.put('/users/${u.id}/patch', {
           'notify_props': {...np, 'push': 'all'},
@@ -2248,6 +2290,27 @@ class AppState extends ChangeNotifier {
       }
       await api.put('/users/${u.id}/preferences', [
         {'user_id': u.id, 'category': 'flygo_chat', 'name': 'push_default', 'value': 'all'}
+      ]);
+    } catch (_) {}
+  }
+
+  /// Máy chủ chat mặc định chỉ đẩy thông báo về điện thoại khi tài khoản "vắng mặt / ngoại tuyến" (push_status = away):
+  /// đang mở Flygo Chat trên máy tính (online) thì tin của trợ lý / người khác không báo về điện thoại (Sếp 25/11).
+  /// Chuyển sang đẩy cả khi đang online, một lần (preferences flygo_chat/push_status_default) để tôn trọng lựa chọn sau đó.
+  /// Máy chủ vẫn không đẩy khi chính chat đó đang mở và đang dùng trên máy tính.
+  Future<void> _ensurePushWhenOnline(MmUser u) async {
+    try {
+      final done = await api.get('/users/${u.id}/preferences/flygo_chat/name/push_status_default').then((_) => true, onError: (_) => false);
+      if (done) return;
+      final np = ((u.raw['notify_props'] as Map?) ?? const {}).cast<String, dynamic>();
+      if (np['push_status'] != 'online') {
+        await api.put('/users/${u.id}/patch', {
+          'notify_props': {...np, 'push_status': 'online'},
+        });
+        me = MmUser({...u.raw, 'notify_props': {...np, 'push_status': 'online'}});
+      }
+      await api.put('/users/${u.id}/preferences', [
+        {'user_id': u.id, 'category': 'flygo_chat', 'name': 'push_status_default', 'value': 'online'}
       ]);
     } catch (_) {}
   }
@@ -3827,6 +3890,9 @@ class AppState extends ChangeNotifier {
             });
           }
         }
+      case 'post_unread':
+        // Đánh dấu chưa đọc ở máy khác của mình: hiện số chưa đọc ngay (trước đây phải chờ đồng bộ lại).
+        _applyUnreadAt(e.data.cast<String, dynamic>());
       case 'multiple_channels_viewed':
         syncAll();
       case 'channel_created' || 'direct_added' || 'group_added' || 'user_added' || 'channel_updated' ||
@@ -3842,7 +3908,19 @@ class AppState extends ChangeNotifier {
         final st = e.data['status'] as String?;
         if (uid != null && st != null) statuses[uid] = st;
     }
-    notifyListeners();
+    _notifySoon();
+  }
+
+  /// Gom các sự kiện websocket dồn dập (trợ lý vá tin vài lần mỗi giây, đang gõ, trạng thái…) thành một lần dựng lại
+  /// giao diện mỗi [kWsNotifyEvery]: mỗi lần notifyListeners dựng lại cả danh sách chat, cột Agents và khung chat,
+  /// gọi theo từng sự kiện làm app ăn 40–50% CPU và đơ khi có agent đang chạy (Sếp 25/11).
+  Timer? _notifyTimer;
+  void _notifySoon() {
+    if (_notifyTimer != null) return;
+    _notifyTimer = Timer(kWsNotifyEvery, () {
+      _notifyTimer = null;
+      notifyListeners();
+    });
   }
 
   /// Bỏ hẳn một tin khỏi danh sách và bộ nhớ đệm (không để lại "đã thu hồi").

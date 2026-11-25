@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../i18n/i18n.dart';
 import 'shell_highlight.dart' show kMonoFallback, kMonoFont, kNoLigatures;
+import 'agent_view.dart' show AgentProgressBar;
 import 'theme.dart';
 
 /// Tiến trình nền của lượt chạy (props.flygo_agent.bg, runner 0.7.18+): mỗi mục {id, kind, command, label?, host?, status,
@@ -126,47 +127,96 @@ class _AgentBgTasksState extends State<AgentBgTasks> {
     final running = tasks.where(_running).length;
     final failed = tasks.where((t) => !_running(t) && t['status'] != 'done' && t['status'] != 'killed').length;
     final killed = tasks.where((t) => t['status'] == 'killed').length;
+    final finished = tasks.length - running;
     final allDone = running == 0;
     final sectionKey = '${widget.openKey}:*';
-    final showRows = !allDone || _open.contains(sectionKey);
-    final head = allDone
+    // Mặc định gọn một dòng (Sếp 25/11), bấm để xem từng tiến trình.
+    final showRows = _open.contains(sectionKey);
+    // Tiến trình nói tới ở dòng gọn: cái đang chạy lâu nhất, xong hết thì cái cuối.
+    final focus = tasks.where(_running).firstOrNull ?? tasks.last;
+    String nameOf(Map<String, dynamic> t) {
+      final l = '${t['label'] ?? ''}'.trim();
+      return l.isNotEmpty ? l : '${t['command'] ?? ''}'.replaceAll('\n', ' ').trim();
+    }
+
+    final summary = allDone
         ? [
-            tr('Tác vụ nền'),
             tr('{0} xong', [tasks.length - failed - killed]),
             if (killed > 0) tr('{0} dừng', [killed]),
             if (failed > 0) tr('{0} lỗi', [failed]),
           ].join(' · ')
-        : tr('Tác vụ nền · {0} đang chạy', [running]);
+        : tr('{0} đang chạy', [running]);
+    final tint = allDone ? (failed > 0 ? _red : _green) : pal.accentText;
+    final elapsed = allDone ? '' : bgElapsed(focus, now);
     return Container(
       margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-      decoration: BoxDecoration(border: Border.all(color: pal.text.withValues(alpha: .12)), borderRadius: BorderRadius.circular(12)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      decoration: BoxDecoration(
+        color: pal.text.withValues(alpha: .035),
+        border: Border.all(color: pal.text.withValues(alpha: .09)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
         InkWell(
           key: const ValueKey('bg-head'),
-          borderRadius: BorderRadius.circular(8),
-          onTap: allDone ? () => _toggle(sectionKey) : null,
+          onTap: () => _toggle(sectionKey),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.memory_rounded, size: 16, color: allDone ? (failed > 0 ? _red : _green) : pal.accentText),
-              const SizedBox(width: 6),
-              Flexible(child: Text(head, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: pal.sub))),
-              if (allDone) Icon(showRows ? Icons.expand_more : Icons.chevron_right, size: 18, color: pal.sub),
+            padding: const EdgeInsets.fromLTRB(10, 8, 6, 6),
+            child: Row(children: [
+              Icon(Icons.memory_rounded, size: 17, color: tint),
+              const SizedBox(width: 7),
+              // Một dòng, quá dài thì cắt "…" ở cuối (không tràn trên điện thoại).
+              Expanded(
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(text: tr('Tác vụ nền'), style: TextStyle(fontWeight: FontWeight.w700, color: pal.text)),
+                    TextSpan(text: '  ·  ', style: TextStyle(color: pal.sub)),
+                    TextSpan(text: summary, style: TextStyle(fontWeight: FontWeight.w600, color: tint)),
+                    if (!showRows) ...[
+                      TextSpan(text: '  ·  ', style: TextStyle(color: pal.sub)),
+                      TextSpan(text: nameOf(focus), style: TextStyle(color: pal.sub)),
+                    ],
+                  ]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              if (elapsed.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(elapsed,
+                      style: TextStyle(fontSize: 12, color: pal.sub, fontFeatures: const [FontFeature.tabularFigures()])),
+                ),
+              const SizedBox(width: 2),
+              AnimatedRotation(
+                turns: showRows ? .5 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: Icon(Icons.expand_more_rounded, size: 20, color: pal.sub),
+              ),
             ]),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 9),
+          child: AgentProgressBar(value: tasks.isEmpty ? 0 : finished / tasks.length, color: tint),
+        ),
         if (showRows)
-          for (final t in tasks)
-            _BgTaskRow(
-              key: ValueKey('bg-${t['id']}'),
-              task: t,
-              elapsed: bgElapsed(t, now),
-              open: _open.contains('${widget.openKey}:${t['id']}'),
-              onTap: () => _toggle('${widget.openKey}:${t['id']}'),
-              stopping: _stopping.contains('${widget.openKey}:${t['id']}'),
-              onStop: widget.onStop != null && _running(t) ? () => _stop(t) : null,
-            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              for (final t in tasks)
+                _BgTaskRow(
+                  key: ValueKey('bg-${t['id']}'),
+                  task: t,
+                  elapsed: bgElapsed(t, now),
+                  open: _open.contains('${widget.openKey}:${t['id']}'),
+                  onTap: () => _toggle('${widget.openKey}:${t['id']}'),
+                  stopping: _stopping.contains('${widget.openKey}:${t['id']}'),
+                  onStop: widget.onStop != null && _running(t) ? () => _stop(t) : null,
+                ),
+            ]),
+          ),
       ]),
     );
   }

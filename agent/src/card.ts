@@ -56,6 +56,11 @@ export class RunCard {
   mode = "";
   wrapUp: { recap: string; ask?: string; actions?: string[]; blocked?: boolean } | undefined; // tóm tắt cuối lượt (wrap_up)
   private texts: { id: string; text: string }[] = []; // mọi đoạn chữ agent viết trong lượt, theo thứ tự
+  // Đoạn hiện tại của lượt (sau tin chèn của người, phần trả lời tiếp là post mới): post chỉ mang chữ / bước từ mốc này.
+  private textBase = 0;
+  private stepBase = 0;
+  /** Bắt đầu đoạn mới: chữ và bước viết từ giờ thuộc post mới (InlineReply.splitHere); kế hoạch / tác vụ nền đi theo post mới. */
+  segmentStart() { this.textBase = this.texts.length; this.stepBase = this.steps.length; }
   usage: Record<string, any> | undefined;
   sessionId = "";
   error = "";
@@ -115,7 +120,11 @@ export class RunCard {
       if (s.status !== "running" && s.status !== "waiting" && !old.ended_at) old.ended_at = Date.now();
     } else {
       this.steps.push({ ...s, label: s.label || clip(s.title), detail, seg: this.texts.length, started_at: s.started_at ?? Date.now(), ended_at: s.status === "done" || s.status === "error" ? Date.now() : undefined });
-      if (this.steps.length > MAX_STEPS) this.steps.splice(0, this.steps.length - MAX_STEPS);
+      if (this.steps.length > MAX_STEPS) {
+        const drop = this.steps.length - MAX_STEPS;
+        this.steps.splice(0, drop);
+        this.stepBase = Math.max(0, this.stepBase - drop);
+      }
     }
     if (this.status === "thinking") this.status = "running";
     this.touch();
@@ -124,18 +133,19 @@ export class RunCard {
   /** Đoạn chữ của agent (cùng id = cùng đoạn, đang stream thì cập nhật tại chỗ). Đoạn chỉ tính khi đã có chữ. */
   text(u: { id: string; delta?: string; full?: string }) {
     let t: { id: string; text: string } | undefined;
-    for (let i = this.texts.length - 1; i >= 0 && !t; i--) if (this.texts[i].id === u.id) t = this.texts[i];
+    for (let i = this.texts.length - 1; i >= this.textBase && !t; i--) if (this.texts[i].id === u.id) t = this.texts[i];
     const next = u.full !== undefined ? u.full : (t?.text ?? "") + (u.delta ?? "");
     if (!t) { if (!next.trim()) return; this.texts.push({ id: u.id, text: next }); } else t.text = next;
   }
 
   /** texts + seg của từng bước theo giới hạn props: quá MAX_TEXTS đoạn thì các đoạn đầu gộp thành "…". */
   private segView() {
-    const n = this.texts.length, drop = n > MAX_TEXTS ? n - MAX_TEXTS + 1 : 0;
+    const all = this.texts.slice(this.textBase), base = this.textBase;
+    const n = all.length, drop = n > MAX_TEXTS ? n - MAX_TEXTS + 1 : 0;
     const cut = (x: string) => (x.length > MAX_TEXT ? x.slice(0, MAX_TEXT) + "…" : x);
-    const texts = [...(drop ? ["…"] : []), ...this.texts.slice(drop).map((t) => cut(t.text))];
-    const seg = (s: number) => (!drop ? s : s <= drop ? (s > 0 ? 1 : 0) : s - drop + 1);
-    return { texts, steps: this.steps.map((st) => (st.seg === undefined ? st : { ...st, seg: seg(st.seg) })) };
+    const texts = [...(drop ? ["…"] : []), ...all.slice(drop).map((t) => cut(t.text))];
+    const seg = (s0: number) => { const s = Math.max(0, s0 - base); return !drop ? s : s <= drop ? (s > 0 ? 1 : 0) : s - drop + 1; };
+    return { texts, steps: this.steps.slice(this.stepBase).map((st) => (st.seg === undefined ? st : { ...st, seg: seg(st.seg) })) };
   }
 
   /** Danh sách việc mới của agent: thay toàn bộ danh sách cũ. */

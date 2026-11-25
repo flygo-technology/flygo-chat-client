@@ -2,6 +2,17 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+523 (runner 0.7.28)
+
+- Typing "..." no longer switches "Dịch AI" on by itself.
+- Chat list: the message you send is the preview right away (pending), and a background reload can no longer replace it with an older post (`_bumpLatest`, never moves the preview backwards).
+- "Đánh dấu là chưa đọc" shows the unread badge at once (the local last-viewed mark moves back before that post), and the `post_unread` websocket event updates other devices of the same user live.
+- Plan ("Kế hoạch việc") and background tasks: one line by default (done/total · current item, or "Tác vụ nền · N đang chạy · <task>"), a thin progress bar under it, chevron at the end; tap to expand.
+- Performance: websocket events (agents patch their post several times a second) are coalesced into one UI rebuild per 120 ms instead of one per event; channel regex getters (aiGroup, subParent, …) are computed once per channel object. The installed 522 app idled at 40–50% CPU, mostly full-tree rebuilds.
+- Double-click (desktop) / double-tap (phone) an AI session in the assistant list opens "Đổi tên phiên".
+- Push: users are switched once to push_status=online so the phone still gets pushes while the desktop app is open (the server default only pushes when away / offline).
+- Runner 0.7.28: when a message steered into a running turn is read, the streaming post stays where it is (frozen, status "continued", its own run_id `<run>~N`, plan and background tasks move on) and the rest of the answer is a new post below the user's message. `session_new` keeps the current session going by default; `close_current: true` hands over and marks it done.
+
 ## 1.0.5+522 (runner 0.7.27)
 
 - Fix: scheduling a message with images / files sent it right away. The files are now uploaded first and the scheduled post carries their file_ids (AppState.scheduleMedia).

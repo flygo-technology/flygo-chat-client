@@ -5461,8 +5461,6 @@ class _ComposerState extends State<_Composer> {
   static final _activeTranslate = <String, String>{};
   static final _lastTranslate = <String, String>{};
 
-  String get _defaultTranslate => _lastTranslate[widget.channelId] ?? (appLanguage.value == 'en' ? 'vi' : 'en');
-
   /// Nút "Dịch AI": chọn ngôn ngữ dịch sang (bật), hoặc "Không dịch" (tắt).
   Widget _translateButton(Pal pal) {
     final on = _translateTo != null;
@@ -6583,13 +6581,7 @@ class _ComposerState extends State<_Composer> {
           contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
         onChanged: (_) {
-          // Gõ "..." (hoặc "…" bàn phím tự đổi) ở cuối: bật nhanh "Dịch AI", xoá dấu chấm để gõ tiếp.
-          final t = _ctl.text;
-          if (_translateTo == null && _canTranslate(app) && _ctl.selection.baseOffset == t.length && (t.endsWith('...') || t.endsWith('…'))) {
-            final s = t.substring(0, t.length - (t.endsWith('...') ? 3 : 1));
-            _ctl.value = TextEditingValue(text: s, selection: TextSelection.collapsed(offset: s.length));
-            _translateTo = _defaultTranslate;
-          }
+          // Gõ "..." không còn tự bật "Dịch AI" (Sếp 25/11: dấu ba chấm là chữ bình thường); bật bằng nút Dịch AI.
           // Tự gõ trong lúc đọc chính tả: dừng nghe, giữ nguyên chữ.
           if (_dictating && !_dictSettingText) _stopDictation();
           setState(() {});

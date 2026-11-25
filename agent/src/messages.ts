@@ -88,6 +88,41 @@ export class InlineReply {
     await this.mm.deletePost(old).catch(() => {});
     return true;
   }
+  private segN = 0;
+  /** Người chèn tin vào lượt đang chạy và agent đã đọc: post đang stream GIỮ NGUYÊN chỗ (chốt thành một đoạn đứng yên,
+   *  không còn spinner, kế hoạch / tác vụ nền chuyển xuống), phần trả lời sau đó là POST MỚI dưới tin của người, để dễ
+   *  theo dõi (Sếp 25/11; trước đây cả post bị đưa xuống dưới). Đoạn cũ mang run_id riêng (`<run>~N`) nên app không xoá
+   *  khi tin cuối của lượt được đăng. */
+  async splitHere(): Promise<boolean> {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    await this.creating;
+    await this.chain;
+    if (!this.postId) return false;
+    const b = this.body(false) as any;
+    const { todos: _t, bg: _b, wrap_up: _w, ...fa } = b.props.flygo_agent ?? {};
+    const { flygo_agent_approval: _a, ...props } = b.props;
+    const frozen = {
+      message: b.message,
+      props: {
+        ...props,
+        flygo_agent: { ...fa, status: "continued", ended_at: Date.now() },
+        flygo_agent_message: { ...b.props.flygo_agent_message, run_id: `${this.runId}~${++this.segN}`, streaming: false },
+      },
+    };
+    const old = this.postId;
+    this.chain = this.mm.patchPost(old, frozen).then(() => {}, () => {});
+    await this.chain;
+    // Đoạn mới: chữ / bước từ giờ ở post mới, tạo ngay (thẻ "đang làm") dưới tin của người.
+    this.card.segmentStart();
+    this.postId = "";
+    this.text = "";
+    this.lastMsg = "";
+    this.lastSent = "";
+    this.creating = null;
+    this.schedule(0);
+    await this.creating;
+    return !!this.postId;
+  }
   /** Chờ người (duyệt / trả lời câu hỏi): ngừng sửa post; thôi chờ thì sửa một lần nếu có thay đổi. */
   hold(on: boolean) {
     this.held = on;

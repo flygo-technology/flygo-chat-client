@@ -109,23 +109,25 @@ void main() {
     await t.pump(const Duration(milliseconds: 300));
     expect(find.byType(AgentTodoList), findsNWidgets(2));
     final lists = find.byType(AgentTodoList);
-    // Lượt đã xong: kế hoạch ngắn hiện hết, nằm dưới câu trả lời.
-    final done = find.ancestor(of: find.text('Báo kết quả cho Sếp'), matching: lists);
+    // Lượt đã xong: gọn một dòng "6/6 · Đã xong kế hoạch", nằm dưới câu trả lời.
+    final done = find.ancestor(of: find.text('Đã xong kế hoạch'), matching: lists);
     expect(done, findsOneWidget);
     expect(t.getTopLeft(done).dy, greaterThan(t.getTopLeft(find.textContaining('Đã giải mã xong')).dy));
-    // Lượt đang chạy: dưới chữ và dưới các bước; kế hoạch dài chỉ hiện việc đang làm + số việc còn lại.
-    final live = find.ancestor(of: find.text('+ 5 việc khác'), matching: lists);
-    expect(t.getTopLeft(live).dy, greaterThan(t.getTopLeft(find.textContaining('Khởi động lại máy ảo').first).dy));
+    // Lượt đang chạy: dưới chữ và dưới các bước; một dòng "đã xong/tổng · việc đang làm" + thanh tiến độ.
+    final live = find.ancestor(of: find.text('Khởi động lại máy ảo build'), matching: lists);
+    expect(live, findsOneWidget);
     expect(t.getTopLeft(live).dy, greaterThan(t.getTopLeft(find.textContaining('Máy ảo cũ còn giữ')).dy));
-    expect(find.descendant(of: live, matching: find.text('Khởi động lại máy ảo build')), findsOneWidget);
-    expect(find.descendant(of: live, matching: find.text('Ký số bản cài')), findsNothing);
-    expect(find.text('+ 5 việc khác'), findsOneWidget);
-    expect(find.text(' · 2/6'), findsOneWidget);
-    // Bấm để xem hết.
-    await t.tap(find.text('+ 5 việc khác'));
-    await t.pump();
+    expect(find.descendant(of: live, matching: find.text('2/6')), findsOneWidget);
+    expect(find.descendant(of: live, matching: find.byType(AgentProgressBar)), findsOneWidget);
+    expect(find.text('Ký số bản cài'), findsNothing);
+    expect(find.text('Báo kết quả cho Sếp'), findsNothing);
+    // Bấm để xem hết, bấm lần nữa để gọn lại.
+    await t.tap(find.descendant(of: live, matching: find.byKey(const ValueKey('todo-head'))));
+    await t.pump(const Duration(milliseconds: 300));
     expect(find.text('Ký số bản cài'), findsOneWidget);
-    expect(find.text('+ 5 việc khác'), findsNothing);
+    await t.tap(find.descendant(of: live, matching: find.byKey(const ValueKey('todo-head'))));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.text('Ký số bản cài'), findsNothing);
     await t.pumpWidget(const SizedBox.shrink());
   });
 

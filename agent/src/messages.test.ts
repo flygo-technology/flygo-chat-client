@@ -34,3 +34,48 @@ test("moveToEnd: post đang chạy được đăng lại ở cuối (sau thẻ c
   await new Promise((r) => setTimeout(r, 600));
   expect(log.at(-1)).toBe("patch p2");
 });
+
+test("splitHere: tin chèn của người -> post đang chạy giữ chỗ (chốt đoạn, run_id riêng), phần sau là post mới chỉ có chữ / bước mới", async () => {
+  const { InlineReply } = await import("./messages");
+  const { RunCard } = await import("./card");
+  const created: any[] = [], patched: [string, any][] = [], deleted: string[] = [];
+  let n = 0;
+  const mm: any = {
+    createPost: async (p: any) => { const id = `p${++n}`; created.push({ id, ...p }); return { id }; },
+    patchPost: async (id: string, b: any) => { patched.push([id, b]); return { id }; },
+    deletePost: async (id: string) => { deleted.push(id); },
+  };
+  const where = { channel_id: "c", root_id: "" };
+  const reply = new InlineReply(mm, where, "run1", "claude", { id: "u", username: "ba" }, false);
+  const card = new RunCard(mm, where, "run1", "claude", "t", "u", () => reply.touch());
+  reply.card = card;
+  reply.update({ id: "m1", delta: "Đang làm phần A" });
+  card.step({ id: "s1", kind: "command", title: "ls", status: "done" });
+  card.setTodos([{ text: "A", status: "in_progress" } as any]);
+  await reply.ensurePost();
+  expect(await reply.splitHere()).toBe(true);
+  expect(reply.id).toBe("p2");
+  expect(deleted).toEqual([]); // post cũ không bị xoá
+  const [oldId, frozen] = patched.at(-1)!;
+  expect(oldId).toBe("p1");
+  expect(frozen.props.flygo_agent.status).toBe("continued");
+  expect(frozen.props.flygo_agent.todos).toBeUndefined();
+  expect(frozen.props.flygo_agent_message.run_id).toBe("run1~1");
+  expect(frozen.props.flygo_agent_message.streaming).toBe(false);
+  expect(frozen.message).toBe("Đang làm phần A");
+  // Post mới: chưa có chữ / bước cũ, kế hoạch đi theo.
+  const fresh = created.at(-1).props.flygo_agent;
+  expect(fresh.texts).toEqual([]);
+  expect(fresh.steps).toEqual([]);
+  expect(fresh.todos.length).toBe(1);
+  expect(created.at(-1).props.flygo_agent_message.run_id).toBe("run1");
+  reply.update({ id: "m2", delta: "Phần B" });
+  card.step({ id: "s2", kind: "command", title: "pwd", status: "done" });
+  await new Promise((r) => setTimeout(r, 900));
+  const last = patched.at(-1)!;
+  expect(last[0]).toBe("p2");
+  expect(last[1].message).toBe("Phần B");
+  expect(last[1].props.flygo_agent.texts).toEqual(["Phần B"]);
+  expect(last[1].props.flygo_agent.steps.map((s: any) => s.id)).toEqual(["s2"]);
+  expect(last[1].props.flygo_agent.steps[0].seg).toBe(1); // bước đến sau đoạn chữ "Phần B"
+});

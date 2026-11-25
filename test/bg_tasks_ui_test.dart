@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flygo_chat/data/models.dart';
 import 'package:flygo_chat/state/app_state.dart';
 import 'package:flygo_chat/ui/agent_bg_procs.dart';
+import 'package:flygo_chat/ui/agent_view.dart' show AgentProgressBar;
 import 'package:flygo_chat/ui/chat_page.dart';
 import 'package:flygo_chat/ui/theme.dart';
 import 'package:provider/provider.dart';
@@ -120,6 +121,10 @@ void main() {
       stopped.add(id);
       return null;
     })));
+    // Mặc định gọn một dòng: bấm tiêu đề để thấy từng tác vụ (và nút Dừng).
+    expect(find.byKey(const ValueKey('bg-stop')), findsNothing);
+    await t.tap(find.byKey(const ValueKey('bg-head')));
+    await t.pump(const Duration(milliseconds: 300));
     expect(find.byKey(const ValueKey('bg-stop')), findsNWidgets(2)); // t1, t2 đang chạy; t4 đã xong
     await t.tap(find.byKey(const ValueKey('bg-stop')).first);
     await t.pump(const Duration(milliseconds: 400)); // vòng xoay "đang chạy" quay mãi: không pumpAndSettle
@@ -130,6 +135,8 @@ void main() {
     expect(stopped, ['t1']);
 
     await t.pumpWidget(_bare(AgentBgTasks(tasks: _tasks(), openKey: 'p-nostop')));
+    await t.tap(find.byKey(const ValueKey('bg-head')));
+    await t.pump(const Duration(milliseconds: 300));
     expect(find.byKey(const ValueKey('bg-stop')), findsNothing);
     await t.pumpWidget(const SizedBox.shrink());
   });
@@ -147,7 +154,12 @@ void main() {
     final app = _app();
     await t.pumpWidget(_wrap(app, Brightness.light));
     await t.pump(const Duration(milliseconds: 300));
-    expect(find.text('Tác vụ nền · 2 đang chạy'), findsOneWidget);
+    // Gọn một dòng: "Tác vụ nền · 2 đang chạy · <tác vụ đang chạy>" + thanh tiến độ; bấm để xem từng tác vụ.
+    expect(find.textContaining('Tác vụ nền  ·  2 đang chạy  ·  ', findRichText: true), findsOneWidget);
+    expect(find.byType(AgentProgressBar), findsWidgets);
+    expect(find.textContaining('flygo-02 · xong · 1m15s'), findsNothing);
+    await t.tap(find.byKey(const ValueKey('bg-head')));
+    await t.pump(const Duration(milliseconds: 300));
     expect(find.text('Chạy toàn bộ test Flutter'), findsOneWidget);
     expect(find.text(r'$ docker compose logs -f relay'), findsOneWidget);
     expect(find.textContaining('flygo-02 · xong · 1m15s'), findsOneWidget);
@@ -171,11 +183,15 @@ void main() {
     ]);
     app.notifyListeners();
     await t.pump(const Duration(milliseconds: 300));
-    expect(find.text('Tác vụ nền · 2 xong · 1 dừng · 1 lỗi'), findsOneWidget);
-    expect(find.text('Chạy toàn bộ test Flutter'), findsNothing);
+    expect(find.textContaining('2 xong · 1 dừng · 1 lỗi', findRichText: true), findsOneWidget);
+    // Mục vẫn mở như lúc nãy (giữ theo id tin); bấm tiêu đề để gọn lại / mở ra.
+    expect(find.textContaining('flygo-03 · lỗi · exit 1'), findsOneWidget);
     await t.tap(find.byKey(const ValueKey('bg-head')));
-    await t.pump();
-    expect(find.text('Chạy toàn bộ test Flutter'), findsOneWidget);
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('flygo-03 · lỗi · exit 1'), findsNothing);
+    await t.tap(find.byKey(const ValueKey('bg-head')));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.textContaining('flygo-03 · lỗi · exit 1'), findsOneWidget);
     await t.pumpWidget(const SizedBox.shrink());
   });
 
