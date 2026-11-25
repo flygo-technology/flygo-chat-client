@@ -452,33 +452,78 @@ class _AgentWrapUpState extends State<AgentWrapUp> {
     final blocked = widget.wrap['blocked'] == true;
     final picked = _picked[widget.post.id];
     if (recap.isEmpty) return const SizedBox.shrink();
+    const amber = Color(0xFFF5A623);
+    // Cùng kiểu với thẻ câu hỏi (Sếp 25/11: ô vàng + nút viền cũ trông xấu): nền nhạt, viền mảnh, lựa chọn đánh số,
+    // bấm là gửi; đã chọn thì dòng đó có ✓, các dòng khác mờ đi.
+    Widget option(int i, String a) {
+      final sel = picked == a, dim = picked != null && !sel;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Opacity(
+          opacity: dim ? .5 : 1,
+          child: Material(
+            key: ValueKey('wrap-opt-$i'),
+            color: sel ? pal.accent.withValues(alpha: .10) : pal.surface,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: sel ? pal.accent.withValues(alpha: .8) : pal.divider, width: sel ? 1.3 : 1)),
+            child: InkWell(
+              customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              hoverColor: pal.accent.withValues(alpha: .06),
+              onTap: picked == null ? () => _pick(app, a) : null,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 9, 12, 9),
+                child: Row(children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: sel ? pal.accent : pal.text.withValues(alpha: .07), borderRadius: BorderRadius.circular(7)),
+                    child: sel
+                        ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                        : Text('${i + 1}',
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: pal.sub,
+                                fontFeatures: const [FontFeature.tabularFigures()])),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(a, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: pal.text, height: 1.3)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final hasAsk = ask.isNotEmpty && actions.isNotEmpty;
     return Container(
-      margin: const EdgeInsets.only(top: 6, bottom: 2),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      margin: const EdgeInsets.only(top: 8, bottom: 4),
+      padding: EdgeInsets.fromLTRB(12, 11, 12, hasAsk ? 6 : 11),
       decoration: BoxDecoration(
-        color: (blocked ? const Color(0xFFF5A623) : pal.text).withValues(alpha: blocked ? .10 : .04),
-        border: Border.all(color: (blocked ? const Color(0xFFF5A623) : pal.text).withValues(alpha: .18)),
-        borderRadius: BorderRadius.circular(12),
+        color: pal.text.withValues(alpha: .03),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: pal.divider),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: Icon(blocked ? Icons.hourglass_top_rounded : Icons.flag_outlined, size: 16, color: blocked ? const Color(0xFFF5A623) : pal.sub),
+            child: Icon(blocked ? Icons.pending_outlined : Icons.task_alt_rounded, size: 17, color: blocked ? amber : pal.sub),
           ),
           const SizedBox(width: 8),
-          Expanded(child: Text(recap, style: TextStyle(fontSize: 13.5, height: 1.35, color: pal.text))),
+          Expanded(child: Text(recap, style: TextStyle(fontSize: 14, height: 1.4, color: pal.text))),
         ]),
-        if (ask.isNotEmpty && actions.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(ask, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: pal.text)),
-          const SizedBox(height: 6),
-          Wrap(spacing: 8, runSpacing: 6, children: [
-            for (final a in actions)
-              picked == a
-                  ? FilledButton.icon(onPressed: null, icon: const Icon(Icons.check, size: 16), label: Text(a))
-                  : OutlinedButton(onPressed: picked == null ? () => _pick(app, a) : null, child: Text(a)),
-          ]),
+        if (hasAsk) ...[
+          Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Divider(height: 1, color: pal.divider)),
+          Text(ask, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: pal.text, height: 1.35)),
+          const SizedBox(height: 10),
+          for (final (i, a) in actions.indexed) option(i, a),
         ],
       ]),
     );
