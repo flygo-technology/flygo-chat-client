@@ -27,6 +27,7 @@ import '../state/date_jump.dart';
 import 'agent_bg_procs.dart';
 import 'agent_steer_label.dart';
 import 'agent_link.dart';
+import 'agent_traffic.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
 import 'agent_side_panel.dart';
@@ -1036,8 +1037,8 @@ class _ChatPageState extends State<ChatPage> {
                           newer.createAt - p.createAt > 5 * 60 * 1000;
                       // Tin giữa các agent: nhãn nguồn / đích; tin qua lại (không phải câu trả lời cho mình) thu gọn sẵn.
                       final link = agentLinkOf(app, p);
-                      final traffic = link != null && link.traffic && !p.isSystem;
-                      final folded = traffic && !app.expanded.contains(p.id);
+                      // Tin qua lại giữa các agent: thẻ gửi / nhận riêng (bấm mở hộp xem đầy đủ), không phải bong bóng.
+                      final traffic = link != null && link.traffic && !p.isSystem ? agentTrafficOf(app, p) : null;
                       return AnimatedContainer(
                         key: _keys.putIfAbsent(p.id, GlobalKey.new),
                         duration: const Duration(milliseconds: 250),
@@ -1045,9 +1046,9 @@ class _ChatPageState extends State<ChatPage> {
                         child: Column(children: [
                         if (showDay) _DayChip(DateTime.fromMillisecondsSinceEpoch(p.createAt)),
                         if (p.id == firstUnreadId) _UnreadDivider(count: unread.length),
-                        // Tin giữa các agent (giao việc / nhắn / trả lời giữa các phiên, agent ngoài qua Token MCP):
-                        // nhãn nguồn / đích phía trên bong bóng.
-                        if (link != null) AgentLinkChip(info: link, mine: p.userId == app.me?.id),
+                        // Tin liên quan tới agent khác nhưng không phải tin qua lại (tách / chuyển phiên, kết quả việc
+                        // chạy ngầm, câu trả lời của trợ lý đã nhắn agent khác): nhãn nguồn / đích phía trên bong bóng.
+                        if (link != null && traffic == null) AgentLinkChip(info: link, mine: p.userId == app.me?.id),
                         p.isSystem
                             ? _SystemChip(p.message)
                             // Đóng / mở lại luồng: dòng hệ thống nhỏ ở giữa, không phải bong bóng tin.
@@ -1059,9 +1060,10 @@ class _ChatPageState extends State<ChatPage> {
                             ? _SystemChip(rcLogText(p.props, p.message)!)
                             : p.isCall
                                 ? _CallCard(post: p, channel: ch)
-                                // Tin qua lại giữa các agent: mặc định thu gọn (nhãn + 2 dòng), bấm để mở (Sếp: không đọc lặp).
-                                : folded
-                                ? AgentTrafficCollapsed(post: p, info: link, onExpand: () => app.expand(p.id))
+                                // Tin gửi / nhận giữa các agent: thẻ có biểu tượng, trạng thái, 3 dòng xem trước;
+                                // bấm mở hộp xem lớn cuộn được (Sếp 25/11: thay cho thu gọn / mở rộng tại chỗ).
+                                : traffic != null
+                                ? AgentTrafficCard(t: traffic, mine: p.userId == app.me?.id, tapKey: ValueKey('agent-traffic-${p.id}'))
                                 : _Bubble(
                                 post: p,
                                 channel: ch,
@@ -1081,8 +1083,6 @@ class _ChatPageState extends State<ChatPage> {
                                   _replyTo = null;
                                 }),
                               ),
-                        // Tin giữa các agent đang mở: câu trả lời lồng dưới bản ghi tin đã gửi + nút "Thu gọn".
-                        if (traffic && !folded) AgentTrafficFooter(post: p, info: link, onCollapse: () => app.collapse(p.id)),
                         ?widget.postFooter?.call(p),
                       ]));
                     })))),

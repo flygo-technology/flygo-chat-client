@@ -11,6 +11,7 @@ import '../data/models.dart';
 import '../state/app_state.dart';
 import 'common.dart';
 import 'agent_files.dart';
+import 'agent_traffic.dart' show agentTrafficOfStep, showAgentTraffic;
 import 'json_view.dart';
 import 'markdown_view.dart';
 import 'shell_highlight.dart';
@@ -1799,7 +1800,14 @@ class _AgentTimelineState extends State<AgentTimeline> {
             first: j == 0,
             last: j == visible.length - 1 && !collapsed && !canFold,
             open: _open.contains('s${visible[j]}'),
-            onTap: () => _toggle('s${visible[j]}'),
+            // Bước nhắn agent khác (agent_send / "Hỏi @x"): mở hộp xem đầy đủ như thẻ gửi / nhận trong chat.
+            onTap: steps[visible[j]]['agent_link'] is Map
+                ? () {
+                    final t = agentTrafficOfStep(context.read<AppState>(), steps[visible[j]], steps,
+                        ((steps[visible[j]]['at'] ?? run['started_at']) as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch);
+                    if (t != null) showAgentTraffic(context, t);
+                  }
+                : () => _toggle('s${visible[j]}'),
           ),
         if (collapsed || canFold)
           _MoreRow(
