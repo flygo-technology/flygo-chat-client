@@ -284,8 +284,12 @@ db.run(`DELETE FROM seen_posts WHERE at < ${Date.now() - 2 * 86400_000}`);
 const isSeen = (id: string) => !!db.query("SELECT 1 FROM seen_posts WHERE post_id = ?").get(id);
 const markSeen = (id: string) => { db.query("INSERT OR IGNORE INTO seen_posts VALUES (?, ?)").run(id, Date.now()); };
 const enqueuedPosts = new Set<string>();
-/** Chế độ quyền của lượt gần nhất theo chat / luồng: bước "🔓 Bỏ qua kiểm tra" chỉ hiện khi chế độ đổi. */
-const lastTurnMode = new Map<string, string>();
+/** Chế độ quyền của lượt gần nhất theo chat / luồng (lưu DB, sống qua khởi động lại / cập nhật): bước "🔓 Bỏ qua kiểm tra" chỉ hiện khi chế độ đổi. */
+db.run(`CREATE TABLE IF NOT EXISTS turn_mode (root TEXT PRIMARY KEY, mode TEXT, at INTEGER)`);
+const lastTurnMode = {
+  get: (root: string) => (db.query("SELECT mode FROM turn_mode WHERE root = ?").get(root) as { mode: string } | null)?.mode,
+  set: (root: string, mode: string) => { db.query("INSERT OR REPLACE INTO turn_mode VALUES (?, ?, ?)").run(root, mode, Date.now()); },
+};
 const isBypass = (scope: string) => !!scope && !!db.query("SELECT 1 FROM bypass WHERE scope = ?").get(scope);
 const ownerMode = (user: string) => (db.query("SELECT mode FROM owner_mode WHERE user_id = ?").get(user) as { mode: string } | null)?.mode ?? null;
 const isForcedManual = (scope: string) => !!scope && !!db.query("SELECT 1 FROM forced_manual WHERE scope = ?").get(scope);
@@ -3854,7 +3858,9 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   // các lượt sau không lặp bước (huy hiệu 🔓 đủ). Log vẫn ghi mỗi lượt để kiểm lại.
   if (!bypass && mode === "bypassPermissions" && want.mode === "bypassPermissions") {
     log(`run ${runId}: bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này) · ${root}`);
-    if (lastTurnMode.get(root) !== "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
+    // Chưa có ghi nhận (bản cũ / lần đầu sau cập nhật): chat đã có phiên thì coi như chế độ không đổi, không hiện lại bước.
+    const prevMode = lastTurnMode.get(root) ?? (getSession(root) ? "bypassPermissions" : undefined);
+    if (prevMode !== "bypassPermissions") card.step({ id: "bypass", kind: "approval", title: "🔓 Bỏ qua kiểm tra quyền (chủ bot chọn cho lượt này)", status: "done" });
   }
   lastTurnMode.set(root, mode ?? "default");
   if (outer) reportRuns.set(runId, { outer, card, reply, assigner: post.user_id, channelId: post.channel_id, postId: post.id, dir, signal: ac.signal, sent: 0 });
