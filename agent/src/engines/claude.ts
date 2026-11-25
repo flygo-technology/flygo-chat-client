@@ -2,6 +2,8 @@
 // Quyền: công cụ ngoài allowedTools được hỏi qua tool MCP flygo_chat.approve (--permission-prompt-tool)
 // -> runner hiện yêu cầu duyệt trên Flygo.
 import { claudeConfigDir } from "../config";
+import { createHash } from "node:crypto";
+import { liveTurn } from "./claude-live";
 import { badgeOf } from "../cmd-limits";
 import { claudeReadOnly, desktopMcp } from "../desktop-mcp";
 import { mergeDeny, TW_CLAUDE_DENY } from "../teamwork";
@@ -294,7 +296,8 @@ export class ClaudeEngine implements Engine {
     });
   }
 
-  async runTurn(input: TurnInput, hooks: TurnHooks, signal: AbortSignal): Promise<TurnResult> {
+  /** Lệnh, env, tệp MCP của một lần chạy claude; sig = mọi thứ mà đổi thì phải mở lại tiến trình (phiên sống). */
+  private async prepare(input: TurnInput) {
     const mcpConfig = JSON.stringify({
       mcpServers: {
         flygo_chat: { command: this.mcpCommand.command, args: this.mcpCommand.args, env: input.mcpEnv }, ...desktopMcp(this.cfg).servers,
@@ -367,26 +370,36 @@ export class ClaudeEngine implements Engine {
     // Một cơ chế nén duy nhất (gộp 2 dòng 0.7.27 / 0.7.33): leanEnv đặt CLAUDE_CODE_AUTO_COMPACT_WINDOW (mặc định 180k);
     // nhận cả claude.compactAt lẫn claude.compactWindow (tên cũ của dòng Mac mini). Env của bot đặt sẵn thì giữ (spread sau).
     const lean = leanEnv(this.cfg.claude.compactAt ?? this.cfg.claude.compactWindow);
-    const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...lean, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
+    const env = { ...process.env, ...bashTimeouts, ...lean, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } as Record<string, string>;
+    // Phiên sống: model / chế độ quyền đổi tại chỗ (control request); còn lại (persona, quyền đầy đủ, tool, thư mục, người gọi qua
+    // Cổng AI, MCP ngoài, effort) đổi thì mở lại tiến trình (--resume).
+    const sigArgs = args.filter((x, i) => !["--model", "--permission-mode", "--resume", "--name", "--mcp-config"].includes(args[i - 1] ?? "") && !["--model", "--permission-mode", "--resume", "--fork-session", "--name", "--mcp-config"].includes(x));
+    const sig = createHash("sha256").update(JSON.stringify([sigArgs, input.cwd, gate, Object.keys(input.extMcp ?? {}).sort(), input.mcpEnv.SCOPE ?? ""])).digest("hex").slice(0, 16);
+    env.FLYGO_SCOPE = input.mcpEnv.SCOPE ?? ""; // ask-hook của phiên sống hỏi runner RUN_KEY hiện tại theo SCOPE
+    return { args, env, mcpFile, streamIn, replay, sig, model: model ?? "", permMode, bin, cwd: input.cwd };
+  }
+
+  async runTurn(input: TurnInput, hooks: TurnHooks, signal: AbortSignal): Promise<TurnResult> {
+    const prep = await this.prepare(input);
+    if (this.cfg.claude.keepAlive && prep.streamIn) {
+      const botKey = createHash("sha256").update(String(this.cfg.botToken ?? "")).digest("hex").slice(0, 8);
+      return liveTurn(this, prep, input, hooks, signal, { botKey, idleMin: this.cfg.claude.keepAliveIdleMin, log: this.log });
+    }
+    const { args, env, mcpFile, streamIn, replay } = prep;
+    const proc = spawn(args, { env, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
 
-    let sessionId = input.sessionId ?? "";
-    let final = "";
-    let usage: any;
-    let isError = false;
-    let curMsg = "";
-    let ctxTokens = 0; // token ngữ cảnh của lần gọi model gần nhất
+    const st = newTurnState(input.sessionId);
     let gotResult = false;
     let lingering = false;
-    const tools = new Map<string, { name: string; input: any }>();
     const stderr = new Response(proc.stderr).text();
 
     // Chế độ stream-json vào: ghi prompt đầu vào stdin; đóng stdin khi xong lượt để claude thoát sạch (không treo chờ tin mới).
     const stdin = proc.stdin; // FileSink khi stdin:"pipe" (streamIn), undefined khi "ignore"
     let turnEnded = false;
     let stdinOpen = streamIn;
-    const readAcks = new Map<string, () => void>(); // uuid tin chèn -> báo runner khi claude đọc tin
+    const readAcks = st.readAcks; // uuid tin chèn -> báo runner khi claude đọc tin
     const endStdin = () => { if (stdinOpen) { stdinOpen = false; try { stdin?.end(); } catch {} } };
     if (streamIn && stdin) {
       try { stdin.write(streamUserMsg(input.prompt)); stdin.flush(); } catch {}
@@ -423,54 +436,8 @@ export class ClaudeEngine implements Engine {
           let ev: any;
           try { ev = JSON.parse(line); } catch { continue; }
           if (ev.type !== "result") gotResult = false; // còn lượt tiếp theo
-          // Claude Code tự nén ngữ cảnh (CLAUDE_CODE_AUTO_COMPACT_WINDOW): ghi một bước để Sếp thấy phiên vẫn liền mạch.
-          if (ev.type === "system" && ev.subtype === "compact_boundary") {
-            const pre = Number(ev.compact_metadata?.pre_tokens ?? ev.compactMetadata?.preTokens ?? 0);
-            hooks.step({ id: `compact-${Date.now()}`, kind: "thinking", title: `🗜 Đã tự nén ngữ cảnh phiên${pre ? ` (${Math.round(pre / 1000)}k token)` : ""} để chạy nhanh, tiết kiệm; nội dung cũ được tóm tắt, vẫn nhớ việc đang làm`, status: "done" });
-          }
-          if (ev.type === "system" && ev.subtype === "init" && ev.session_id) {
-            sessionId = ev.session_id; hooks.session(sessionId);
-            if (Array.isArray(ev.skills)) this.initSkills = ev.skills.map(String);
-          }
-          else if (ev.type === "rate_limit_event") this.limits = claudeLimits(ev.rate_limit_info, this.limits);
-          else if (ev.type === "stream_event") {
-            const e = ev.event;
-            if (e?.type === "message_start") curMsg = e.message?.id ?? curMsg;
-            else if (e?.type === "content_block_delta" && e.delta?.type === "text_delta" && curMsg) hooks.text({ id: curMsg, delta: e.delta.text });
-          }
-          else if (ev.type === "assistant") {
-            const u = ev.message?.usage;
-            if (u) ctxTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-            for (const c of ev.message?.content ?? []) {
-              if (c.type === "tool_use") {
-                tools.set(c.id, { name: c.name, input: c.input });
-                if (c.name === "TodoWrite") { const t = normTodos(c.input); if (t) hooks.todos?.(t); }
-                if (hidden(c.name, c.input)) continue; // report_out / câu hỏi: runner tự ghi bước
-                const d = describe(c.name, c.input);
-                const badge = badgeOf(c.name, c.input); // "⏱ dự kiến N s · giới hạn M s" trên bước lệnh
-                hooks.step({ id: c.id, kind: d.kind, title: badge ? `${d.title} · ${badge}` : d.title, label: d.label, status: "running" });
-              } else if (c.type === "text" && c.text?.trim()) {
-                hooks.text({ id: ev.message?.id ?? String(ev.uuid), full: c.text, done: true });
-              }
-            }
-          } else if (ev.type === "user") {
-            const ack = ev.isReplay && ev.uuid ? readAcks.get(ev.uuid) : undefined;
-            if (ack) { readAcks.delete(ev.uuid); try { ack(); } catch {} }
-            for (const c of ev.message?.content ?? []) {
-              if (c.type !== "tool_result") continue;
-              const t = tools.get(c.tool_use_id);
-              if (t) try { hooks.toolDone?.({ id: c.tool_use_id, name: t.name, input: t.input, result: resultText(c.content), isError: !!c.is_error }); } catch {}
-              if (!t || hidden(t.name, t.input)) continue;
-              const d = describe(t.name, t.input);
-              const badge = badgeOf(t.name, t.input);
-              hooks.step({ id: c.tool_use_id, kind: d.kind, title: badge ? `${d.title} · ${badge}` : d.title, label: d.label, status: c.is_error ? "error" : "done", detail: resultText(c.content).slice(-600) });
-            }
-          } else if (ev.type === "result") {
-            final = ev.result ?? "";
-            isError = !!ev.is_error;
-            const win = Math.max(0, ...Object.values<any>(ev.modelUsage ?? {}).map((m) => Number(m?.contextWindow) || 0));
-            usage = { cost_usd: ev.total_cost_usd, duration_ms: ev.duration_ms, ...ev.usage, ...(ctxTokens ? { contextTokens: ctxTokens } : {}), ...(win ? { contextWindow: win } : {}) };
-            if (ev.session_id) sessionId = ev.session_id;
+          this.onEvent(ev, st, hooks);
+          if (ev.type === "result") {
             gotResult = true;
             turnEnded = true; // hết lượt: không nhận chèn tin nữa, đóng stdin để claude thoát (thay vì chờ tin mới -> treo)
             endStdin();
@@ -480,17 +447,75 @@ export class ClaudeEngine implements Engine {
       if (lingering) { reader.cancel().catch(() => {}); killTree(proc.pid); }
       const code = lingering ? 0 : await proc.exited;
       if (signal.aborted) throw new Error("đã dừng");
-      if (code !== 0 && !final) throw new Error(`claude thoát mã ${code}: ${(await stderr).slice(-400)}`);
-      if (isError) throw new Error(final || "claude báo lỗi");
+      if (code !== 0 && !st.final) throw new Error(`claude thoát mã ${code}: ${(await stderr).slice(-400)}`);
+      if (st.isError) throw new Error(st.final || "claude báo lỗi");
     } finally {
       signal.removeEventListener("abort", kill);
       hooks.steerable?.(null);
       endStdin();
       try { rmSync(mcpFile, { force: true }); } catch {}
     }
-    return { sessionId, text: final, usage };
+    return { sessionId: st.sessionId, text: st.final, usage: st.usage };
+  }
+
+  /** Một sự kiện stream-json của claude → bước / chữ / phiên / kết quả của lượt (dùng chung cho lượt thường và phiên sống). */
+  onEvent(ev: any, st: TurnState, hooks: TurnHooks) {
+    // Claude Code tự nén ngữ cảnh (CLAUDE_CODE_AUTO_COMPACT_WINDOW): ghi một bước để Sếp thấy phiên vẫn liền mạch.
+    if (ev.type === "system" && ev.subtype === "compact_boundary") {
+      const pre = Number(ev.compact_metadata?.pre_tokens ?? ev.compactMetadata?.preTokens ?? 0);
+      hooks.step({ id: `compact-${Date.now()}`, kind: "thinking", title: `🗜 Đã tự nén ngữ cảnh phiên${pre ? ` (${Math.round(pre / 1000)}k token)` : ""} để chạy nhanh, tiết kiệm; nội dung cũ được tóm tắt, vẫn nhớ việc đang làm`, status: "done" });
+    }
+    if (ev.type === "system" && ev.subtype === "init" && ev.session_id) {
+      st.sessionId = ev.session_id; hooks.session(st.sessionId);
+      if (Array.isArray(ev.skills)) this.initSkills = ev.skills.map(String);
+    }
+    else if (ev.type === "rate_limit_event") this.limits = claudeLimits(ev.rate_limit_info, this.limits);
+    else if (ev.type === "stream_event") {
+      const e = ev.event;
+      if (e?.type === "message_start") st.curMsg = e.message?.id ?? st.curMsg;
+      else if (e?.type === "content_block_delta" && e.delta?.type === "text_delta" && st.curMsg) hooks.text({ id: st.curMsg, delta: e.delta.text });
+    }
+    else if (ev.type === "assistant") {
+      const u = ev.message?.usage;
+      if (u) st.ctxTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+      for (const c of ev.message?.content ?? []) {
+        if (c.type === "tool_use") {
+          st.tools.set(c.id, { name: c.name, input: c.input });
+          if (c.name === "TodoWrite") { const t = normTodos(c.input); if (t) hooks.todos?.(t); }
+          if (hidden(c.name, c.input)) continue; // report_out / câu hỏi: runner tự ghi bước
+          const d = describe(c.name, c.input);
+          const badge = badgeOf(c.name, c.input); // "⏱ dự kiến N s · giới hạn M s" trên bước lệnh
+          hooks.step({ id: c.id, kind: d.kind, title: badge ? `${d.title} · ${badge}` : d.title, label: d.label, status: "running" });
+        } else if (c.type === "text" && c.text?.trim()) {
+          hooks.text({ id: ev.message?.id ?? String(ev.uuid), full: c.text, done: true });
+        }
+      }
+    } else if (ev.type === "user") {
+      const ack = ev.isReplay && ev.uuid ? st.readAcks.get(ev.uuid) : undefined;
+      if (ack) { st.readAcks.delete(ev.uuid); try { ack(); } catch {} }
+      for (const c of ev.message?.content ?? []) {
+        if (c.type !== "tool_result") continue;
+        const t = st.tools.get(c.tool_use_id);
+        if (t) try { hooks.toolDone?.({ id: c.tool_use_id, name: t.name, input: t.input, result: resultText(c.content), isError: !!c.is_error }); } catch {}
+        if (!t || hidden(t.name, t.input)) continue;
+        const d = describe(t.name, t.input);
+        const badge = badgeOf(t.name, t.input);
+        hooks.step({ id: c.tool_use_id, kind: d.kind, title: badge ? `${d.title} · ${badge}` : d.title, label: d.label, status: c.is_error ? "error" : "done", detail: resultText(c.content).slice(-600) });
+      }
+    } else if (ev.type === "result") {
+      st.final = ev.result ?? "";
+      st.isError = !!ev.is_error;
+      const win = Math.max(0, ...Object.values<any>(ev.modelUsage ?? {}).map((m) => Number(m?.contextWindow) || 0));
+      st.usage = { cost_usd: ev.total_cost_usd, duration_ms: ev.duration_ms, ...ev.usage, ...(st.ctxTokens ? { contextTokens: st.ctxTokens } : {}), ...(win ? { contextWindow: win } : {}) };
+      if (ev.session_id) st.sessionId = ev.session_id;
+    }
   }
 }
+
+
+/** Trạng thái của một lượt (một "result"). */
+export interface TurnState { sessionId: string; final: string; usage: any; isError: boolean; curMsg: string; ctxTokens: number; tools: Map<string, { name: string; input: any }>; readAcks: Map<string, () => void> }
+export const newTurnState = (sessionId?: string): TurnState => ({ sessionId: sessionId ?? "", final: "", usage: undefined, isError: false, curMsg: "", ctxTokens: 0, tools: new Map(), readAcks: new Map() });
 
 const LINGER_MS = 15_000;
 

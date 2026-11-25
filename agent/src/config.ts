@@ -61,6 +61,10 @@ export interface Config {
     bin: string;
     /** Tự nén ngữ cảnh khi phiên vượt số token này (CLAUDE_CODE_AUTO_COMPACT_WINDOW; mặc định 180000). 0 = để Claude Code tự quyết (gần đầy cửa sổ). */
     compactAt?: number;
+    /** Giữ phiên sống (claude-live.ts): một tiến trình claude chạy tiếp qua nhiều lượt thay vì mỗi lượt --resume. */
+    keepAlive?: boolean;
+    /** Phiên sống rảnh quá số phút này thì đóng (mặc định 15). */
+    keepAliveIdleMin?: number;
     allowedTools: string[]; // chạy không cần hỏi; còn lại hỏi qua Flygo
     deny: string[]; // cấm hẳn, không hỏi
     fullAccess?: boolean; // toàn quyền (bypassPermissions): không hỏi duyệt, bỏ cả deny — chỉ bật khi chủ máy yêu cầu
