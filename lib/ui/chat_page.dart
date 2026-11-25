@@ -27,6 +27,7 @@ import '../state/date_jump.dart';
 import 'agent_bg_procs.dart';
 import 'agent_steer_label.dart';
 import 'agent_link.dart';
+import 'agent_subagents.dart';
 import 'agent_traffic.dart';
 import 'agent_view.dart';
 import 'bg_tasks.dart';
@@ -1933,7 +1934,10 @@ class _AgentWorkingState extends State<_AgentWorking> with SingleTickerProviderS
     const orange = Color(0xFFD97757);
     final steps = [for (final s in (widget.run?['steps'] as List? ?? const [])) (s as Map)];
     // Bước đang chạy + tiến trình nền còn chạy (runner 0.7.18+).
-    final tasks = steps.where((s) => s['status'] == 'running').length + agentBgOf(widget.run).where((t) => t['status'] == 'running').length;
+    // Bước đang chạy + tiến trình nền + sub-agent còn chạy.
+    final tasks = steps.where((s) => s['status'] == 'running').length +
+        agentBgOf(widget.run).where((t) => t['status'] == 'running').length +
+        agentSubagentsOf(widget.run).where((t) => t['status'] == 'running').length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 2),
       child: Row(children: [
@@ -2933,6 +2937,19 @@ class _Bubble extends StatelessWidget {
         ])
       else
         Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.only(top: 3), child: meta)),
+      // Sub-agent của lượt (Task / Agent, runner 0.7.37+): danh sách cạnh tác vụ nền, bấm xem lời giao + kết quả.
+      if (!hidden && agentRun != null && agentSubagentsOf(agentRun).isNotEmpty)
+        AgentSubagents(
+          key: ValueKey('subagents-${post.id}'),
+          agents: agentSubagentsOf(agentRun),
+          openKey: post.id,
+          onStop: post.props['flygo_agent_owner'] == app.me?.id || app.isMyBot(post.userId)
+              ? (id) async {
+                  final r = await ExtApi.call(app, post.userId, {'action': 'subagent_stop', 'id': id, 'post_id': post.id});
+                  return r['ok'] == true ? null : '${r['error'] ?? tr('lỗi không rõ')}';
+                }
+              : null,
+        ),
       // Tiến trình nền của lượt (lệnh chạy ngầm, đầu ra trực tiếp): runner vá tin kể cả sau khi lượt xong.
       if (!hidden && agentRun != null && agentBgOf(agentRun).isNotEmpty)
         AgentBgTasks(

@@ -39,6 +39,15 @@ class AgentTraffic {
   final String? replyWho;
   final int? replyAt;
   final bool replyOk;
+
+  /// Biểu tượng riêng (vd. sub-agent) thay cho biểu tượng theo hướng tin.
+  final IconData? customIcon;
+
+  /// Nhãn khối kết quả thay cho "X trả lời" (vd. "Kết quả").
+  final String? replyLabel;
+
+  /// Nút "Dừng" trong hộp xem (sub-agent chạy nền); null = không có nút.
+  final Future<void> Function()? onStop;
   const AgentTraffic({
     required this.tone,
     required this.sent,
@@ -53,9 +62,12 @@ class AgentTraffic {
     this.replyWho,
     this.replyAt,
     this.replyOk = true,
+    this.customIcon,
+    this.replyLabel,
+    this.onStop,
   });
 
-  IconData get icon => switch (tone) {
+  IconData get icon => customIcon ?? switch (tone) {
         AgentLinkTone.outgoing => Icons.call_made_rounded,
         AgentLinkTone.reply => Icons.reply_rounded,
         AgentLinkTone.external => Icons.hub_rounded,
@@ -373,7 +385,7 @@ class AgentTrafficView extends StatelessWidget {
                     Expanded(
                       child: Text(
                         [
-                          t.replyOk ? tr('{0} trả lời', [t.replyWho ?? tr('Bên nhận')]) : tr('Không có trả lời'),
+                          t.replyLabel ?? (t.replyOk ? tr('{0} trả lời', [t.replyWho ?? tr('Bên nhận')]) : tr('Không có trả lời')),
                           if (t.replyAt != null) hhmm(DateTime.fromMillisecondsSinceEpoch(t.replyAt!)),
                         ].join(' · '),
                         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: pal.sub),
@@ -401,6 +413,18 @@ class AgentTrafficView extends StatelessWidget {
             icon: const Icon(Icons.copy_rounded, size: 18),
             label: Text(tr('Sao chép')),
           ),
+          if (t.onStop != null)
+            OutlinedButton.icon(
+              key: const ValueKey('agent-traffic-stop'),
+              style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE5484D), side: const BorderSide(color: Color(0xFFE5484D))),
+              onPressed: () async {
+                final nav = Navigator.of(context);
+                await t.onStop!();
+                nav.pop();
+              },
+              icon: const Icon(Icons.stop_circle_outlined, size: 18),
+              label: Text(tr('Dừng')),
+            ),
           if (user != null || t.openChannel != null)
             FilledButton.icon(
               key: const ValueKey('agent-traffic-open'),
