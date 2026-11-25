@@ -2,6 +2,10 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+528 (runner 0.7.32)
+
+- Runner: a session attached with the agent / session chip in the composer (props.flygo_a2a_peers) also counts as tagged for cross-project agent_send to the bot's own session (0.7.31 only looked at chat refs, props.flygo_refs).
+
 ## 1.0.5+527 (runner 0.7.31)
 
 - Runner: agent_send / team tools to another session of the same bot in a DIFFERENT project work when that session is tagged in the message (props.flygo_refs, not expired) and belongs to the same owner. Untagged cross-project sessions are still refused, with a hint to tag them.

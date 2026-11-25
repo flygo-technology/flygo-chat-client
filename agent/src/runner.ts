@@ -1148,7 +1148,10 @@ async function teamTool(op: string, a: any): Promise<string> {
   const selfCh = !mate && session ? await mm.channel(session).catch(() => null as any) : null;
   const selfTarget = !!selfCh && !!aiOf(selfCh) && !!(await channelMembers(selfCh.id).catch(() => null))?.bots.includes(BOT_ID);
   // Phiên của chính bot ở DỰ ÁN KHÁC: chỉ khi phiên đó được tag vào tin (props.flygo_refs, còn hạn) và cùng chủ (Sếp 25/11).
-  const taggedSelf = selfTarget && refGrants(ctx.root).some((g) => g.expires_at > Date.now() && g.items.some((x) => x.channel_id === session));
+  // Hai cách gắn: chip phiên / agent trong ô soạn tin (props.flygo_a2a_peers -> ctx.tag.sessions) hoặc tag chat (props.flygo_refs).
+  const taggedSelf = selfTarget && (
+    !!ctx.tag?.sessions.some((x) => x.session === session && (x.bot === BOT_ID || x.bot === BOT_NAME)) ||
+    refGrants(ctx.root).some((g) => g.expires_at > Date.now() && g.items.some((x) => x.channel_id === session)));
   const sTitle = mate?.sessions?.find((s: any) => s.id === session)?.title;
   const who = selfTarget ? `phiên "${sessTitle(selfCh)}" của chính bạn` : `${mate ? `@${mate.username}` : bot ? `@${bot}` : "đồng đội"}${sTitle ? ` · phiên "${sTitle}"` : session ? ` · phiên ${session}` : ""}`;
   const here = await mm.channel(ctx.channelId).catch(() => null as any);
