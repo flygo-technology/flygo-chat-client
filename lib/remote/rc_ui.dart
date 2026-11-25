@@ -659,6 +659,8 @@ class _RcControllerPageState extends State<RcControllerPage> {
       return Stack(fit: StackFit.expand, children: [
         ColoredBox(color: Colors.black, child: active || _svc.phase == RcPhase.connecting ? view : const SizedBox.shrink()),
         if (status.isNotEmpty) _overlay(status),
+        // Ô mật khẩu ở máy kia bật Secure Input: phím gõ từ xa bị chặn, mời dán mật khẩu.
+        if (active && _svc.remoteSecure) Positioned(top: 8, left: 8, right: 8, child: Center(child: _secureBanner())),
       ]);
     });
     final ended = _svc.phase == RcPhase.idle;
@@ -677,6 +679,82 @@ class _RcControllerPageState extends State<RcControllerPage> {
       body: SafeArea(child: body),
       bottomNavigationBar: active && _mobile ? _mobileBar() : null,
     );
+  }
+
+  Widget _secureBanner() => Material(
+        key: const ValueKey('rc-secure-banner'),
+        color: const Color(0xF02A2410),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.lock_outline_rounded, color: Color(0xFFFFC857), size: 20),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(tr('Ô mật khẩu đang bật Secure Input, không gõ từ xa được.'),
+                  style: const TextStyle(color: Colors.white, fontSize: 13.5)),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+              onPressed: _pasteSecret,
+              icon: const Icon(Icons.password_rounded, size: 18),
+              label: Text(tr('Dán mật khẩu')),
+            ),
+          ]),
+        ),
+      );
+
+  /// Dán mật khẩu vào ô đang chọn của máy kia: gõ trong hộp này (ẩn ký tự), máy kia đặt vào bộ nhớ tạm, bấm Dán của
+  /// app rồi tự xoá bộ nhớ tạm sau 20 giây.
+  Future<void> _pasteSecret() async {
+    final c = TextEditingController();
+    var show = false;
+    final secret = await showDialog<String>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, set) => AlertDialog(
+          title: Text(tr('Dán mật khẩu')),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              TextField(
+                key: const ValueKey('rc-secret-field'),
+                controller: c,
+                autofocus: true,
+                obscureText: !show,
+                enableSuggestions: false,
+                autocorrect: false,
+                maxLength: kRcMaxSecret,
+                onSubmitted: (v) => Navigator.pop(d, v),
+                decoration: InputDecoration(
+                  hintText: tr('Mật khẩu'),
+                  counterText: '',
+                  suffixIcon: IconButton(
+                    tooltip: show ? tr('Ẩn') : tr('Hiện'),
+                    icon: Icon(show ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                    onPressed: () => set(() => show = !show),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                tr('Mật khẩu được dán vào ô đang chọn trên máy kia qua bộ nhớ tạm, rồi tự xoá sau 20 giây. Bấm vào đúng ô mật khẩu trước khi dán.'),
+                style: const TextStyle(fontSize: 12.5, color: Colors.grey),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Hủy'))),
+            FilledButton(key: const ValueKey('rc-secret-send'), onPressed: () => Navigator.pop(d, c.text), child: Text(tr('Dán'))),
+          ],
+        ),
+      ),
+    );
+    c.clear();
+    c.dispose();
+    if (secret != null && secret.isNotEmpty) _svc.pasteSecret(secret);
+    _focus.requestFocus();
   }
 
   Widget _endButton() => Padding(
@@ -782,6 +860,7 @@ class _RcControllerPageState extends State<RcControllerPage> {
       ),
       IconButton(tooltip: tr('Dán chữ sang máy kia'), icon: const Icon(Icons.content_paste_go_outlined, color: fg), onPressed: _pasteText),
       IconButton(tooltip: tr('Gửi chữ (bộ gõ tiếng Việt)'), icon: const Icon(Icons.keyboard_alt_outlined, color: fg), onPressed: _typeText),
+      IconButton(tooltip: tr('Dán mật khẩu'), icon: const Icon(Icons.password_rounded, color: fg), onPressed: _pasteSecret),
       TextButton(
         onPressed: _cad,
         child: Tooltip(
@@ -972,6 +1051,7 @@ class _RcControllerPageState extends State<RcControllerPage> {
               onPressed: _toggleKb,
             ),
             IconButton(tooltip: tr('Dán chữ sang máy kia'), icon: const Icon(Icons.content_paste_go_outlined, color: fg), onPressed: _pasteText),
+            IconButton(tooltip: tr('Dán mật khẩu'), icon: const Icon(Icons.password_rounded, color: fg), onPressed: _pasteSecret),
             ?_screenSelector(),
             TextButton(onPressed: _cad, child: const Text('Ctrl+Alt+Del', style: TextStyle(color: fg, fontSize: 12.5))),
             PopupMenuButton<String>(

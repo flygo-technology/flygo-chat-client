@@ -18,7 +18,7 @@ export const FS_TOOLS = [
 export const FS_TOOL_NAMES = new Set(FS_TOOLS.map((t) => t.name));
 export const FS_READ_ONLY = ["file_read"];
 
-const MAX_OUT = 60_000;
+const MAX_OUT = 16_000; // kết quả lệnh giữ ~16k ký tự (đầu + cuối): output dài nằm mãi trong ngữ cảnh phiên (2026-11-25)
 const home = homedir();
 
 export function absPath(p: string, cwd = process.cwd()): string {

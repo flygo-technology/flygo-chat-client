@@ -35,6 +35,8 @@ export interface Config {
   commandTimeoutSec?: number;
   /** Trần hạn agent được tự đặt cho một lệnh (giây, thiếu = 1800). */
   commandTimeoutMaxSec?: number;
+  /** Tool của MCP flygo_chat: "core" (mặc định) = bộ lõi + tìm tool khi cần (tool_search / tool_call); "full" = đưa mọi tool. */
+  toolMode?: "core" | "full";
   /** TeamWork: cho lượt từ app Làm việc nhóm chạy không cần duyệt (vẫn giữ danh sách cấm) khi token hợp lệ và người giao là chủ bot.
    *  Thiếu = false (tắt); bật bằng cấu hình của từng bot. */
   teamworkBypass?: boolean;
@@ -57,6 +59,8 @@ export interface Config {
   };
   claude: {
     bin: string;
+    /** Tự nén ngữ cảnh khi phiên vượt số token này (CLAUDE_CODE_AUTO_COMPACT_WINDOW; mặc định 180000). 0 = để Claude Code tự quyết (gần đầy cửa sổ). */
+    compactAt?: number;
     allowedTools: string[]; // chạy không cần hỏi; còn lại hỏi qua Flygo
     deny: string[]; // cấm hẳn, không hỏi
     fullAccess?: boolean; // toàn quyền (bypassPermissions): không hỏi duyệt, bỏ cả deny — chỉ bật khi chủ máy yêu cầu
@@ -203,7 +207,7 @@ export function agentOptions(cfg: Config, marker = "") {
     : cfg.engine === "agy"
     // agy: model mặc định "default" = không truyền --model (agy tự chọn); runner thay bằng model mặc định `agy models` báo khi có.
     ? { model: cfg.agy.model ?? AGY_DEFAULT_MODEL, models: cfg.agy.models, effort: cfg.agy.effort ?? "medium", efforts: cfg.agy.efforts ?? ["low", "medium", "high", "xhigh", "max"] }
-    : { model: cfg.claude.model ?? "opus", models: cfg.claude.models ?? ["opus", "sonnet"], effort: cfg.claude.effort ?? "medium", efforts: cfg.claude.efforts ?? ["low", "medium", "high", "xhigh", "max"] };
+    : { model: cfg.claude.model ?? "sonnet", models: cfg.claude.models ?? ["opus", "sonnet"], effort: cfg.claude.effort ?? "medium", efforts: cfg.claude.efforts ?? ["low", "medium", "high", "xhigh", "max"] };
   const models = [...new Set([e.model, ...(e.models ?? []), ...list("models")])];
   const efforts = [...new Set([...e.efforts, ...list("efforts")])];
   // default=model:mức trong mốc (thiếu phần nào thì giữ mặc định của cấu hình)

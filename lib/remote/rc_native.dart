@@ -67,6 +67,29 @@ class RcNative {
     } catch (_) {}
   }
 
+  /// macOS: ô đang nhập là ô mật khẩu / Secure Input đang bật (phím gửi từ xa bị chặn). Máy khác: false.
+  static Future<bool> secureInput() async {
+    if (!isMac) return false;
+    try {
+      return await _ch.invokeMethod<bool>('secureInput') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// macOS: đặt [secret] vào bộ nhớ tạm (đánh dấu ẩn, trình quản lý bộ nhớ tạm bỏ qua), bấm mục Sửa › Dán của app đang
+  /// mở bằng Trợ năng (không phải phím nên Secure Input không chặn), không có mục đó thì gửi Cmd+V; xoá bộ nhớ tạm sau
+  /// [clearAfter] giây nếu chưa ai chép gì khác. Trả về cách đã dán ('menu' | 'keys') hoặc '' nếu không dán được.
+  static Future<String> pasteSecret(String secret, {int clearAfter = 20}) async {
+    if (!isMac) return '';
+    try {
+      return await _ch.invokeMethod<String>('pasteSecret', {'text': secret, 'clearAfter': clearAfter}) ?? '';
+    } catch (e) {
+      debugPrint('[rc] pasteSecret failed');
+      return '';
+    }
+  }
+
   /// macOS: quyền Ghi màn hình chỉ có hiệu lực sau khi mở lại app. Mở lại Flygo Chat (gói .app đang chạy) rồi thoát.
   static Future<void> relaunch() async {
     if (!isMac) return;
@@ -221,6 +244,13 @@ class RcInjector {
         ];
       case RcRelease():
         return releaseAll();
+      // Windows / Linux không có Secure Input: gõ mật khẩu như chữ. macOS: dịch vụ dán qua bộ nhớ tạm ([RcNative.pasteSecret]).
+      case RcPasteSecret(:final secret):
+        return mac
+            ? const []
+            : [
+                {'op': 'text', 's': secret},
+              ];
       case RcQuality():
       case RcSelectScreen():
         return const [];

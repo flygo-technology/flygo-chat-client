@@ -187,7 +187,22 @@ function supportsStreamInput(bin: string, env?: Record<string, string>): Promise
 
 /** Tool flygo_chat luôn chạy không cần duyệt (kể cả khi cấu hình tự đặt allowedTools): đăng artifact vào chính phiên;
  *  mcp_add tự mở hộp duyệt riêng trên app nên không xin duyệt hai lần; browser_open_profiles chỉ mở Chrome của chủ máy. */
-const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open",
+/** Env "gọn" cho Claude Code của bot chat (Sếp 2026-11-25: nhanh, tiết kiệm như Claude desktop). Env tiến trình / env của bot ghi đè được.
+ *  - CLAUDE_CODE_AUTO_COMPACT_WINDOW: tự nén khi ngữ cảnh vượt ~180k (mặc định Claude Code chỉ nén gần cửa sổ 1M token).
+ *  - ENABLE_CLAUDEAI_MCP_SERVERS=false: không kéo connector của tài khoản claude.ai (Google Drive, Claude Docs…) vào bot.
+ *  - BASH_MAX_OUTPUT_LENGTH / MAX_MCP_OUTPUT_TOKENS: trần kết quả lệnh / tool MCP (giữ đầu + cuối). */
+export function leanEnv(compactAt?: number): Record<string, string> {
+  const e: Record<string, string> = {};
+  const set = (k: string, v: string) => { if (process.env[k] === undefined) e[k] = v; };
+  const w = compactAt === undefined ? 180_000 : compactAt;
+  if (w > 0) set("CLAUDE_CODE_AUTO_COMPACT_WINDOW", String(w));
+  set("ENABLE_CLAUDEAI_MCP_SERVERS", "false");
+  set("BASH_MAX_OUTPUT_LENGTH", "12000");
+  set("MAX_MCP_OUTPUT_TOKENS", "10000");
+  return e;
+}
+
+export const ALWAYS_OK = ["mcp__flygo_chat__tool_search", "mcp__flygo_chat__tool_describe", "mcp__flygo_chat__tool_call", "mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open",
   // adb_*: runner tự kiểm chủ bot + xin duyệt cài / gỡ / xoá dữ liệu / shell ghi / nút gửi, thanh toán (adb-tools.ts).
   ...ADB_TOOLS.map((t) => `mcp__flygo_chat__${t.name}`)];
 
@@ -349,11 +364,10 @@ export class ClaudeEngine implements Engine {
     const cmdMs = String(Math.min(maxSec, Math.max(5, Number(input.mcpEnv.FLYGO_CMD_TIMEOUT_SEC) || 120)) * 1000);
     // Agent tự đặt timeout cho từng lệnh Bash (persona); đây chỉ là mặc định khi không đặt và trần commandTimeoutMaxSec.
     const bashTimeouts = { BASH_DEFAULT_TIMEOUT_MS: process.env.BASH_DEFAULT_TIMEOUT_MS ?? cmdMs, BASH_MAX_TIMEOUT_MS: process.env.BASH_MAX_TIMEOUT_MS ?? String(maxSec * 1000) };
-    // Nén ngữ cảnh sớm (mặc định ~200k token thay vì gần hết cửa sổ 1 triệu): đọc lại cache mỗi lần gọi là phần tốn nhất
-    // (Sếp 25/11: trung vị 196k, p90 512k, cao nhất 965k token mỗi lần gọi). Cấu hình bot / biến môi trường đặt sẵn thì giữ.
-    const cw = this.cfg.claude.compactWindow ?? 200_000;
-    const compact = cw > 0 && !process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW && !this.cfg.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(cw) } : {};
-    const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...compact, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
+    // Một cơ chế nén duy nhất (gộp 2 dòng 0.7.27 / 0.7.33): leanEnv đặt CLAUDE_CODE_AUTO_COMPACT_WINDOW (mặc định 180k);
+    // nhận cả claude.compactAt lẫn claude.compactWindow (tên cũ của dòng Mac mini). Env của bot đặt sẵn thì giữ (spread sau).
+    const lean = leanEnv(this.cfg.claude.compactAt ?? this.cfg.claude.compactWindow);
+    const proc = spawn(args, { env: { ...process.env, ...bashTimeouts, ...lean, ...this.cfg.env, ...gate, MCP_TOOL_TIMEOUT: "1800000", FLYGO_RUNNER_URL: input.mcpEnv.RUNNER_URL ?? "", FLYGO_RUN_KEY: input.mcpEnv.RUN_KEY ?? "", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }, cwd: input.cwd, stdout: "pipe", stderr: "pipe", stdin: streamIn ? "pipe" : "ignore" });
     const kill = () => proc.kill();
     signal.addEventListener("abort", kill);
 
@@ -409,6 +423,11 @@ export class ClaudeEngine implements Engine {
           let ev: any;
           try { ev = JSON.parse(line); } catch { continue; }
           if (ev.type !== "result") gotResult = false; // còn lượt tiếp theo
+          // Claude Code tự nén ngữ cảnh (CLAUDE_CODE_AUTO_COMPACT_WINDOW): ghi một bước để Sếp thấy phiên vẫn liền mạch.
+          if (ev.type === "system" && ev.subtype === "compact_boundary") {
+            const pre = Number(ev.compact_metadata?.pre_tokens ?? ev.compactMetadata?.preTokens ?? 0);
+            hooks.step({ id: `compact-${Date.now()}`, kind: "thinking", title: `🗜 Đã tự nén ngữ cảnh phiên${pre ? ` (${Math.round(pre / 1000)}k token)` : ""} để chạy nhanh, tiết kiệm; nội dung cũ được tóm tắt, vẫn nhớ việc đang làm`, status: "done" });
+          }
           if (ev.type === "system" && ev.subtype === "init" && ev.session_id) {
             sessionId = ev.session_id; hooks.session(sessionId);
             if (Array.isArray(ev.skills)) this.initSkills = ev.skills.map(String);

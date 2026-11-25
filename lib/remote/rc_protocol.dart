@@ -10,9 +10,12 @@
 //   ["q", "auto|high|low"]   chất lượng hình
 //   ["r"]                    nhả hết phím / nút đang giữ (máy điều khiển mất tiêu điểm)
 //   ["d", "id"]              chọn màn hình [id] (một id trong danh sách "s" máy kia gửi)
+//   ["p", "mật khẩu"]        dán mật khẩu vào ô đang chọn (ô mật khẩu macOS bật Secure Input, không gõ phím được),
+//                            tối đa [kRcMaxSecret] ký tự; máy kia không ghi lại nội dung
 //
 // Chiều ngược lại (máy bị điều khiển gửi máy điều khiển, [RcHostMessage]):
 //   ["s", "id đang chia sẻ", [["id", "tên", rộng, cao, chính 1|0], ...]]   danh sách màn hình
+//   ["x", 1|0]                                                       ô mật khẩu đang bật Secure Input (macOS)
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' show Offset, Rect, Size;
@@ -20,6 +23,7 @@ import 'dart:ui' show Offset, Rect, Size;
 const kRcWire = 65535;
 const kRcMaxWheel = 2400;
 const kRcMaxText = 1000;
+const kRcMaxSecret = 512;
 const kRcMaxMessage = 4096;
 const kRcQualities = {'auto', 'high', 'low'};
 const kRcMaxScreens = 16;
@@ -80,6 +84,11 @@ sealed class RcInput {
       case 'd':
         if (v.length != 2 || !_validScreenId(v[1])) return null;
         return RcSelectScreen(v[1] as String);
+      case 'p':
+        if (v.length != 2 || v[1] is! String || (v[1] as String).length > kRcMaxSecret) return null;
+        // Mật khẩu: một dòng, bỏ ký tự điều khiển.
+        final s = sanitizeRcText(v[1] as String, max: kRcMaxSecret).replaceAll(RegExp(r'[\n\t]'), '');
+        return s.isEmpty ? null : RcPasteSecret(s);
     }
     return null;
   }
@@ -172,6 +181,29 @@ class RcDisplay {
       other is RcDisplay && other.id == id && other.name == name && other.width == width && other.height == height && other.primary == primary;
   @override
   int get hashCode => Object.hash(id, name, width, height, primary);
+}
+
+/// Dán mật khẩu vào ô đang chọn của máy kia (qua bộ nhớ tạm, tự xoá sau vài giây).
+class RcPasteSecret extends RcInput {
+  final String secret;
+  const RcPasteSecret(this.secret);
+  @override
+  List<Object> toWire() => ['p', secret];
+  @override
+  String toString() => 'RcPasteSecret(***)';
+}
+
+/// Tin "ô mật khẩu đang bật Secure Input" của máy bị điều khiển.
+String rcSecureEncode(bool on) => jsonEncode(['x', on ? 1 : 0]);
+
+/// Giải mã tin Secure Input; không phải tin này thì null.
+bool? rcSecureDecode(String raw) {
+  if (raw.length > 16) return null;
+  try {
+    final v = jsonDecode(raw);
+    if (v is List && v.length == 2 && v[0] == 'x' && (v[1] == 0 || v[1] == 1)) return v[1] == 1;
+  } catch (_) {}
+  return null;
 }
 
 /// Tin từ máy bị điều khiển: danh sách màn hình kèm màn hình đang chia sẻ.

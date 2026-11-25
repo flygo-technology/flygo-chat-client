@@ -25,6 +25,7 @@ const POST_ARG = { type: "string", description: "id tin (26 ký tự, #id trong 
 import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
 import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
+import { APP_LABEL, CORE_TOOLS, ToolIndex, compactSchema, toolCallNeedsApproval } from "./tool-index";
 import { BROWSER_LOCAL_TOOLS, BROWSER_LOCAL_TOOL_NAMES, browserLocalTool } from "./browser-local";
 import { ADB_TOOLS, ADB_TOOL_NAMES, adbPath } from "./adb-tools";
 
@@ -622,10 +623,71 @@ async function gatewayTools(): Promise<any[]> {
 // Điện thoại Android qua adb (adb-tools.ts): chỉ hiện khi bot được cấp máy (adbDevices -> FLYGO_ADB=1) và máy này có adb (cố định: không phá prompt cache).
 const HAS_ADB = process.env.FLYGO_ADB === "1" && !!adbPath();
 
-server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx(); return {
-  tools: [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...BROWSER_LOCAL_TOOLS, ...(HAS_ADB ? ADB_TOOLS : []), ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
-    ...(await gatewayTools())],
-}; });
+/** Mọi tool của lượt (bộ đầy đủ): tool của bot + tool app công ty qua Gateway. */
+async function allTools(): Promise<any[]> {
+  return [...(A2A_ROLE === "callee" ? [...CALLEE_TOOLS, APPROVE_TOOL] : [...CHAT_TOOLS.filter((t) => !HIDDEN_AGENT_TOOLS.has(t.name)), ...CHAT_OPS, REPORT_TOOL, ...SKILL_TOOLS, ...SCHEDULE_TOOLS, ...FS_TOOLS, ...BROWSER_LOCAL_TOOLS, ...(HAS_ADB ? ADB_TOOLS : []), ...(MEET_CHANNEL ? MEETING_TOOLS : []), ASK_TOOL, APPROVE_TOOL]), // luôn cùng danh sách tool (phiên tách từ chat chính trúng prompt cache); report_out tự báo khi không dùng được,
+    ...(await gatewayTools())];
+}
+// Tìm tool khi cần (tool-index.ts): FLYGO_TOOL_MODE=core (mặc định) chỉ đưa bộ lõi + tool đã dùng gần đây + tool_search /
+// tool_describe / tool_call; "full" = như cũ (mọi tool). Làm việc được nhờ (A2A callee) luôn đủ bộ nhỏ của nó.
+const TOOL_MODE = A2A_ROLE === "callee" ? "full" : (process.env.FLYGO_TOOL_MODE || "core");
+let toolIndex: ToolIndex | null = null;
+async function indexNow(): Promise<{ all: any[]; idx: ToolIndex }> {
+  const all = await allTools();
+  toolIndex = new ToolIndex(all);
+  return { all, idx: toolIndex };
+}
+server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx();
+  if (TOOL_MODE === "full") return { tools: await allTools() };
+  const { all, idx } = await indexNow();
+  const pins = new Set(await toolPins().catch(() => [] as string[]));
+  const keep = all.filter((t) => CORE_TOOLS.has(t.name) || pins.has(t.name)).sort((a, b) => a.name.localeCompare(b.name));
+  return { tools: [...keep, ...metaTools(idx)] };
+});
+/** Tool đã gọi gần đây trong phiên (runner nhớ theo SCOPE): hiện thẳng, khỏi tìm lại. */
+async function toolPins(add?: string): Promise<string[]> {
+  if (!RUNNER || !SCOPE) return [];
+  const r = await runner("/tool_pins", { scope: SCOPE, ...(add ? { add } : {}) });
+  return Array.isArray(r.pins) ? r.pins.map(String) : [];
+}
+function metaTools(idx: ToolIndex) {
+  const apps = Object.entries(idx.apps()).sort((a, b) => b[1] - a[1]).map(([a, n]) => `${a} (${n}${APP_LABEL[a] ? `: ${APP_LABEL[a]}` : ""})`).join(" · ");
+  return [
+    { name: "tool_search", description: `TÌM TOOL khi việc cần tool không có sẵn trong danh sách (có ${idx.size} tool, chỉ bộ lõi hiện sẵn). Mô tả việc bằng vài từ (tiếng Việt hoặc Anh), có thể lọc theo app. Trả tên + mô tả ngắn + tham số; rồi gọi bằng tool_call. Các app: ${apps}.`,
+      inputSchema: { type: "object", properties: { query: { type: "string", description: "việc cần làm, vd \"mở trình duyệt ký số\", \"gửi thư nháp\", \"tạo cuộc họp\"" }, app: { type: "string", description: "lọc theo app (tên trong danh sách trên)" }, limit: { type: "number" } }, required: ["query"] },
+      annotations: { readOnlyHint: true } },
+    { name: "tool_describe", description: "Xem đầy đủ mô tả + tham số (inputSchema) của một tool tìm được bằng tool_search.", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }, annotations: { readOnlyHint: true } },
+    { name: "tool_call", description: "Gọi một tool bất kỳ theo tên (tìm bằng tool_search) với arguments đúng tham số của nó. Duyệt / quyền như gọi thẳng (tool ghi vẫn xin Sếp duyệt). Tool đã gọi sẽ hiện sẵn ở các lượt sau.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, arguments: { type: "object" } }, required: ["name"] } },
+  ];
+}
+const META_TOOLS = new Set(["tool_search", "tool_describe", "tool_call"]);
+async function metaCall(name: string, a: any): Promise<any> {
+  const idx = toolIndex ?? (await indexNow()).idx;
+  if (name === "tool_search") {
+    const hits = idx.search(String(a.query ?? ""), { app: a.app ? String(a.app) : undefined, limit: Math.min(20, Math.max(1, Number(a.limit) || 8)) });
+    if (!hits.length) return text(`Không thấy tool khớp "${a.query}". Thử từ khác, hoặc lọc app (xem danh sách app trong mô tả tool_search).`);
+    return text(hits.map((h) => { const t = idx.get(h.name)!; return `- ${h.name} [${h.app}]: ${h.title}\n  tham số: ${JSON.stringify(compactSchema(t.inputSchema))}`; }).join("\n") + "\nGọi bằng tool_call(name, arguments). Cần mô tả đầy đủ thì tool_describe(name).");
+  }
+  if (name === "tool_describe") {
+    const t = idx.get(String(a.name ?? ""));
+    return text(t ? JSON.stringify({ name: t.name, description: t.description, inputSchema: t.inputSchema }, null, 1) : `Không có tool ${a.name}. Tìm bằng tool_search.`);
+  }
+  // tool_call
+  const target = String(a.name ?? "");
+  if (META_TOOLS.has(target)) return text("tool_call không gọi chính các tool tìm kiếm.");
+  if (!idx.get(target)) return text(`Không có tool ${target} trong lượt này. Tìm bằng tool_search.`);
+  const args = a.arguments && typeof a.arguments === "object" ? a.arguments : {};
+  const gateway = gatewayKinds.has(target);
+  const selfApproving = FS_TOOL_NAMES.has(target) || CHAT_OP_TOOLS.has(target) || ADB_TOOL_NAMES.has(target) || BROWSER_LOCAL_TOOL_NAMES.has(target) || target === "chat_watch" || target.startsWith("meeting_");
+  if (toolCallNeedsApproval(target, { gateway, selfApproving, allowed: process.env.FLYGO_ALLOWED_TOOLS ?? "" })) {
+    const r = await fetch(`${RUNNER}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, tool_name: `mcp__flygo_chat__${target}`, input: args }) })
+      .then((x) => x.json()).catch(() => ({ allow: false }));
+    if (!r.allow) return text(`Người giao việc không duyệt tool ${target}.`);
+  }
+  toolPins(target).catch(() => {});
+  return callTool({ params: { name: target, arguments: args } });
+}
 const CHAT_TOOLS = [
     {
       name: "chat_thread",
@@ -1006,6 +1068,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 async function callTool(req: any): Promise<any> {
   const a = (req.params.arguments ?? {}) as any;
+  if (META_TOOLS.has(req.params.name)) return metaCall(req.params.name, a);
   if (gatewayKinds.has(req.params.name) || (/^[a-z0-9_]+__[A-Za-z0-9_.-]+$/.test(req.params.name) && RUN_KEY)) {
     if (A2A_ROLE === "callee") throw new Error(`tool không dùng được khi làm việc được nhờ: ${req.params.name}`);
     // Tool ghi của app (theo manifest) xin người giao việc duyệt như tool ghi khác; tool đọc và tool ghi approval "none" gọi thẳng.
