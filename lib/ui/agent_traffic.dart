@@ -220,9 +220,8 @@ Color _statusColor(String s, Pal pal) => s == tr('đã trả lời')
 /// trạng thái, giờ, 3 dòng xem trước, ảnh đại diện bên kia. Bấm: mở hộp xem đầy đủ ([showAgentTraffic]).
 class AgentTrafficCard extends StatelessWidget {
   final AgentTraffic t;
-  final bool mine;
   final Key? tapKey;
-  const AgentTrafficCard({super.key, required this.t, this.mine = false, this.tapKey});
+  const AgentTrafficCard({super.key, required this.t, this.tapKey});
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +234,7 @@ class AgentTrafficCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
       child: Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        alignment: Alignment.centerLeft,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
           child: Material(

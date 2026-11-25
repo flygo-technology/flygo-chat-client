@@ -1062,8 +1062,9 @@ class _ChatPageState extends State<ChatPage> {
                                 ? _CallCard(post: p, channel: ch)
                                 // Tin gửi / nhận giữa các agent: thẻ có biểu tượng, trạng thái, 3 dòng xem trước;
                                 // bấm mở hộp xem lớn cuộn được (Sếp 25/11: thay cho thu gọn / mở rộng tại chỗ).
+                                // Luôn căn trái, kể cả tin agent ngoài đăng thay mình (không giống tin của chính mình).
                                 : traffic != null
-                                ? AgentTrafficCard(t: traffic, mine: p.userId == app.me?.id, tapKey: ValueKey('agent-traffic-${p.id}'))
+                                ? AgentTrafficCard(t: traffic, tapKey: ValueKey('agent-traffic-${p.id}'))
                                 : _Bubble(
                                 post: p,
                                 channel: ch,
