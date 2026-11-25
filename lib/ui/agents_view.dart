@@ -401,11 +401,10 @@ class _AgentsViewState extends State<AgentsView> with SingleTickerProviderStateM
         ),
       );
 
-  // Nút ＋ giống tab Chat, cùng độ cao (ngay trên thanh tab).
-  Widget _fab(String label, VoidCallback onTap) => Positioned(
-        right: 20,
-        bottom: PlusFab.bottomOf(context),
-        child: PlusFab(heroTag: 'agents-fab-$label', tooltip: label, onPressed: _busy ? null : onTap),
+  // Nút ＋ góc dưới phải: điện thoại ngay trên thanh tab (như tab Chat), máy tính / ô chia cách đáy 16 px.
+  Widget _fab(String label, VoidCallback onTap) => PlusFab.corner(
+        bottomPadding: widget.bottomPadding,
+        fab: PlusFab(heroTag: 'agents-fab-$label', tooltip: label, onPressed: _busy ? null : onTap),
       );
 
   @override

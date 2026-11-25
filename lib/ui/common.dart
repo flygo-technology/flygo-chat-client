@@ -464,6 +464,24 @@ class PlusFab extends StatelessWidget {
     return (inset > 0 ? inset - 14 : 10) + kTabBarLift + 88;
   }
 
+  /// Đặt [fab] ở góc dưới phải của một [Stack] (danh sách bên dưới). [bottomPadding]: khoảng đáy mà danh sách chừa
+  /// (lớn = bố cục điện thoại có thanh tab nổi đè lên đáy → nút nằm trên thanh tab; nhỏ = máy tính / ô chia, không có
+  /// thanh tab → cách đáy 16 px). Vùng thấp (ô chia nhỏ, danh sách trống) thì nút vẫn bám đáy, không bao giờ lên sát
+  /// đầu vùng (lỗi build 529: nút nằm đè đường kẻ dưới tiêu đề).
+  static Widget corner({required double bottomPadding, required Widget fab}) => Positioned.fill(
+        child: LayoutBuilder(builder: (ctx, box) {
+          final phone = bottomPadding > 40;
+          final want = phone ? bottomOf(ctx) : 16 + MediaQuery.paddingOf(ctx).bottom;
+          // Nút cao 56: luôn chừa ít nhất 8 px phía trên nút.
+          final room = box.maxHeight.isFinite ? box.maxHeight - 56 - 8 : want;
+          final bottom = want.clamp(8.0, room < 8 ? 8.0 : room);
+          return Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(padding: EdgeInsets.only(right: phone ? 20 : 16, bottom: bottom), child: fab),
+          );
+        }),
+      );
+
   @override
   Widget build(BuildContext context) {
     final pal = Pal.of(context);

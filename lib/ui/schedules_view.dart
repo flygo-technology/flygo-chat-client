@@ -246,10 +246,9 @@ class _SchedulesViewState extends State<SchedulesView> {
         ]),
       ),
         if (widget.plusFab && app.hasUsableAgents)
-          Positioned(
-            right: 20,
-            bottom: PlusFab.bottomOf(context),
-            child: PlusFab(heroTag: 'schedules-fab', tooltip: tr('Hẹn giờ mới'), onPressed: _create),
+          PlusFab.corner(
+            bottomPadding: widget.bottomPadding,
+            fab: PlusFab(heroTag: 'schedules-fab', tooltip: tr('Hẹn giờ mới'), onPressed: _create),
           ),
       ]),
     );
