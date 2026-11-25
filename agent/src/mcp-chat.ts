@@ -695,11 +695,9 @@ const CHAT_TOOLS = [
     },
     {
       name: "wrap_up",
-      description: "TÓM TẮT CUỐI LƯỢT, gọi một lần ngay trước câu trả lời cuối: recap = 1–3 câu đã làm gì / còn gì (hiện trong ô dưới câu trả lời). Cần người dùng quyết định thì thêm ask (câu hỏi) và actions (2–4 nút [{label}], bấm nút = gửi đúng chữ đó cho bạn); khi đó KHÔNG hỏi lại trong câu trả lời. blocked=true khi đang chờ người dùng làm gì đó (gửi mã, duyệt…). Các bước đang làm trong update_plan được đánh dấu xong, trừ khi blocked.",
+      description: "TÓM TẮT CUỐI LƯỢT, gọi một lần ngay trước câu trả lời cuối: recap = 1–3 câu đã làm gì / còn gì (hiện trong ô dưới câu trả lời). CHỈ tóm tắt, không hỏi: cần người dùng chọn / quyết định thì hỏi bằng thẻ câu hỏi (Claude: AskUserQuestion; engine khác: ask_user) trước khi kết thúc lượt. blocked=true khi đang chờ người dùng làm gì đó (gửi mã, duyệt…). Các bước đang làm trong update_plan được đánh dấu xong, trừ khi blocked.",
       inputSchema: { type: "object", properties: {
         recap: { type: "string" },
-        ask: { type: "string" },
-        actions: { type: "array", items: { type: "object", properties: { label: { type: "string" } }, required: ["label"] } },
         blocked: { type: "boolean" },
       }, required: ["recap"] },
     },

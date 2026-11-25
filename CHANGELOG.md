@@ -2,6 +2,11 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+526 (runner 0.7.30)
+
+- One way to ask: `wrap_up` is a summary only (recap, blocked); its ask / actions are gone from the schema and the instructions. If an agent still passes ask, the runner keeps the recap and tells it to ask with the question card (Claude AskUserQuestion, other engines ask_user) before the final answer.
+- The wrap-up box has the question-card look (light background, thin border); older posts that still carry ask / actions show them as numbered options, tap to send, ✓ on the pick.
+
 ## 1.0.5+525 (runner 0.7.29)
 
 - Trình duyệt Ký số: "Xác thực điện thoại" in the signing dialog (engine 1.3.11). Flygo Chat desktop handles the engine's `verify_create` / `verify_result` requests through Flygo ID remote verification (POST /v1/verify, GET /v1/verify/{id}); the phone gets the push, the user picks the 2-digit code and confirms with the fingerprint. The machine that created a request does not open its own "Xác thực" screen (`FlygoId.isRequestedHere`).

@@ -2951,7 +2951,7 @@ class _Bubble extends StatelessWidget {
         AgentTodoList(key: ValueKey('todos-${post.id}'), todos: agentTodosOf(agentRun), active: agentRunActive(agentRun)),
       // Ghi chú dán lên tin (bấm giữ ghi chú: sao chép / sửa / xoá).
       if (!hidden && notesOfPost(post).isNotEmpty) MessageNotes(app: app, post: post, width: maxW - 22),
-      // Tóm tắt cuối lượt của trợ lý (wrap_up): câu hỏi + nút bấm trả lời nhanh.
+      // Tóm tắt cuối lượt của trợ lý (wrap_up, runner 0.7.30+: chỉ tóm tắt; tin cũ có thể còn câu hỏi + nút).
       if (!hidden && agentRun?['wrap_up'] is Map)
         AgentWrapUp(post: post, wrap: (agentRun!['wrap_up'] as Map).cast<String, dynamic>()),
       // Nút do Quy trình đặt lên tin (mở link / chạy tiếp quy trình).

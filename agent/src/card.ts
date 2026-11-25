@@ -57,7 +57,7 @@ export class RunCard {
   todos: Todo[] = []; // danh sách việc agent tự lập (bản mới nhất thay bản cũ)
   /** Chế độ của lượt ("research" = Nghiên cứu sâu: app hiện số lượt tìm, các nguồn). */
   mode = "";
-  wrapUp: { recap: string; ask?: string; actions?: string[]; blocked?: boolean } | undefined; // tóm tắt cuối lượt (wrap_up)
+  wrapUp: { recap: string; blocked?: boolean } | undefined; // tóm tắt cuối lượt (wrap_up): chỉ tóm tắt, không hỏi
   private texts: { id: string; text: string }[] = []; // mọi đoạn chữ agent viết trong lượt, theo thứ tự
   // Đoạn hiện tại của lượt (sau tin chèn của người, phần trả lời tiếp là post mới): post chỉ mang chữ / bước từ mốc này.
   private textBase = 0;
@@ -193,19 +193,19 @@ export class RunCard {
     return cur >= 0 ? `Kế hoạch: bước ${cur + 1}/${list.length} đang làm (${done} xong).` : `Kế hoạch: ${done}/${list.length} bước xong.`;
   }
 
-  /** wrap_up: tóm tắt cuối lượt (+ câu hỏi, nút bấm). Không blocked thì các bước đang làm tính là xong. */
+  /** wrap_up: CHỈ tóm tắt cuối lượt (Sếp 25/11: gộp cách hỏi, hỏi thì dùng thẻ câu hỏi). Không blocked thì các bước đang làm
+   *  tính là xong. Agent vẫn gửi ask / actions (thói quen cũ): không gắn vào ô, nhắc gọi công cụ hỏi để ra thẻ câu hỏi. */
   setWrapUp(a: { recap?: any; ask?: any; actions?: any; blocked?: any }): string {
     const recap = String(a.recap ?? "").trim().slice(0, 1500);
     if (!recap) return "Thiếu recap.";
-    const ask = String(a.ask ?? "").trim().slice(0, 300);
-    const actions = (Array.isArray(a.actions) ? a.actions : []).map((x: any) => String(typeof x === "string" ? x : x?.label ?? "").trim().slice(0, 60)).filter(Boolean).slice(0, 4);
+    const ask = String(a.ask ?? "").trim();
     const blocked = a.blocked === true;
-    this.wrapUp = { recap, ...(ask && actions.length ? { ask, actions } : {}), ...(blocked ? { blocked } : {}) };
+    this.wrapUp = { recap, ...(blocked ? { blocked } : {}) };
     if (!blocked && this.todos.some((t) => t.status === "in_progress")) this.todos = this.todos.map((t) => (t.status === "in_progress" ? { ...t, status: "completed" } : t));
     this.touch();
-    return this.wrapUp.ask
-      ? "Đã hiện ô tóm tắt kèm câu hỏi và nút bấm dưới câu trả lời. Viết câu trả lời cuối ngay bây giờ; đừng hỏi lại câu hỏi đó."
-      : "Đã hiện ô tóm tắt dưới câu trả lời" + (ask ? " (không có nút vì thiếu actions)" : "") + ". Viết câu trả lời cuối ngay bây giờ.";
+    return ask
+      ? `Đã ghi tóm tắt. wrap_up KHÔNG còn hiện câu hỏi / nút: cần Sếp quyết định "${ask.slice(0, 200)}" thì gọi NGAY công cụ hỏi (Claude: AskUserQuestion; engine khác: ask_user) để hiện thẻ câu hỏi và chờ trả lời, rồi mới viết câu trả lời cuối.`
+      : "Đã hiện ô tóm tắt dưới câu trả lời. Viết câu trả lời cuối ngay bây giờ.";
   }
 
   setStatus(st: RunStatus) { this.status = st; if (st === "done" || st === "error" || st === "cancelled" || st === "stopped") this.endedAt = Date.now(); this.touch(); }
@@ -253,7 +253,7 @@ export class RunCard {
       lines.unshift(`📋 Danh sách việc ${done}/${this.todos.length}`, ...this.todos.slice(0, 12).map((t) => `${TODO_ICON[t.status]} ${t.text}`), "");
     }
     if (this.config?.note) lines.push(`⚠️ ${this.config.note}`);
-    if (this.wrapUp) lines.push("", `📝 ${this.wrapUp.recap}`, ...(this.wrapUp.ask ? [`❓ ${this.wrapUp.ask} (${this.wrapUp.actions!.join(" / ")})`] : []));
+    if (this.wrapUp) lines.push("", `📝 ${this.wrapUp.recap}`);
     if (this.error) lines.push(`❌ ${this.error}`);
     return [head, ...lines, "", `#flygo_ai ${STATUS_TAG[this.status]}`].join("\n");
   }
