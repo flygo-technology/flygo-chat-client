@@ -1147,11 +1147,13 @@ async function teamTool(op: string, a: any): Promise<string> {
   if (session && session === ctx.channelId) return "Đây là phiên hiện tại.";
   const selfCh = !mate && session ? await mm.channel(session).catch(() => null as any) : null;
   const selfTarget = !!selfCh && !!aiOf(selfCh) && !!(await channelMembers(selfCh.id).catch(() => null))?.bots.includes(BOT_ID);
+  // Phiên của chính bot ở DỰ ÁN KHÁC: chỉ khi phiên đó được tag vào tin (props.flygo_refs, còn hạn) và cùng chủ (Sếp 25/11).
+  const taggedSelf = selfTarget && refGrants(ctx.root).some((g) => g.expires_at > Date.now() && g.items.some((x) => x.channel_id === session));
   const sTitle = mate?.sessions?.find((s: any) => s.id === session)?.title;
   const who = selfTarget ? `phiên "${sessTitle(selfCh)}" của chính bạn` : `${mate ? `@${mate.username}` : bot ? `@${bot}` : "đồng đội"}${sTitle ? ` · phiên "${sTitle}"` : session ? ` · phiên ${session}` : ""}`;
   const here = await mm.channel(ctx.channelId).catch(() => null as any);
   const selfCall = (m: { op: string; params?: any }) => new Promise<any>((resolve, reject) => {
-    const P = { op: m.op, session, project: { id: t?.project?.id ?? p.id, name: t?.project?.name ?? "", owner_id: t?.project?.owner_id ?? aiOf(selfCh)?.owner }, from_session: { id: ctx.channelId, title: here ? sessTitle(here) : ctx.title ?? "" }, ...(m.params ?? {}) };
+    const P = { op: m.op, session, project: { id: t?.project?.id ?? p.id, name: t?.project?.name ?? "", owner_id: t?.project?.owner_id ?? aiOf(selfCh)?.owner }, from_session: { id: ctx.channelId, title: here ? sessTitle(here) : ctx.title ?? "" }, ...(taggedSelf ? { tagged: true } : {}), ...(m.params ?? {}) };
     teamServe("", { id: BOT_ID, username: BOT_NAME, name: BOT_NAME, server: cfg.serverUrl, is_bot: true, is_agent: true, owner_id: ctx.assigner ?? "", owner_name: "" }, 0, P,
       (r, e) => (e ? reject(Object.assign(new Error(e.message), { code: e.code })) : resolve(r))).catch(reject);
   });
@@ -1270,7 +1272,10 @@ async function teamServe(cid: string, from: A2APeer, depth: number, P: any, sink
   if (P.session) {
     ch = await mm.channel(String(P.session)).catch(() => null);
     const ai = aiOf(ch);
-    if (!ch || !ai || ai.group !== proj.id || ai.owner !== proj.owner_id) return fail(-32003, "phiên không thuộc dự án này");
+    // Gọi trong runner (sink) tới phiên của chính bot được tag vào tin: cho qua dự án khác, miễn cùng chủ với người giao việc.
+    const crossTagged = !!sink && P.tagged === true && !!ai && ai.owner === from.owner_id;
+    if (!ch || !ai || (!crossTagged && (ai.group !== proj.id || ai.owner !== proj.owner_id)))
+      return fail(-32003, "phiên không thuộc dự án này (phiên ở dự án khác thì tag phiên đó vào tin rồi gửi lại)");
     if (!(await channelMembers(ch.id).catch(() => null))?.bots.includes(BOT_ID)) return fail(-32003, `@${BOT_NAME} không còn ở phiên này`);
   }
   if (isPaused() && op !== "read") return fail(-32003, `@${BOT_NAME} đang tạm tắt, chưa nhận việc.`);

@@ -2,6 +2,10 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+527 (runner 0.7.31)
+
+- Runner: agent_send / team tools to another session of the same bot in a DIFFERENT project work when that session is tagged in the message (props.flygo_refs, not expired) and belongs to the same owner. Untagged cross-project sessions are still refused, with a hint to tag them.
+
 ## 1.0.5+526 (runner 0.7.30)
 
 - One way to ask: `wrap_up` is a summary only (recap, blocked); its ask / actions are gone from the schema and the instructions. If an agent still passes ask, the runner keeps the recap and tells it to ask with the question card (Claude AskUserQuestion, other engines ask_user) before the final answer.
