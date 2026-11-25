@@ -4707,6 +4707,34 @@ class _ComposerState extends State<_Composer> {
   Widget _agentPicker(AppState app, Pal pal, MmUser bot, AgentOptions o,
       {required bool showName, bool filled = false, GlobalKey<PopupMenuButtonState<String>>? key}) {
     final (model, effort) = _configOf(app, bot, o);
+    final sonnet = sonnetModelOf(o);
+    final picker = _modelPopup(app, pal, bot, o, model, effort, showName: showName, filled: filled, key: key);
+    if (sonnet == null || !isPremiumModel(model)) return picker;
+    // Một chạm đổi sang Sonnet khi đang dùng Opus / Fable (không tự đổi lựa chọn đã lưu).
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      picker,
+      const SizedBox(width: 6),
+      Tooltip(
+        message: tr('Đổi sang {0}: nhanh hơn, tiết kiệm hơn', [modelLabel(sonnet)]),
+        child: InkWell(
+          key: const ValueKey('to-sonnet'),
+          borderRadius: BorderRadius.circular(16),
+          onTap: () async {
+            await app.setAgentConfig(bot.id, sonnet, effort);
+            if (mounted) setState(() {});
+          },
+          child: _ChipLook(pal: pal, filled: filled, child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.bolt_rounded, size: 15, color: pal.accent),
+            const SizedBox(width: 4),
+            Text(modelLabel(sonnet).replaceFirst('Claude ', ''), style: TextStyle(fontSize: 13, color: pal.text)),
+          ])),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _modelPopup(AppState app, Pal pal, MmUser bot, AgentOptions o, String model, String effort,
+      {required bool showName, bool filled = false, GlobalKey<PopupMenuButtonState<String>>? key}) {
     return PopupMenuButton<String>(
       key: key,
       tooltip: tr('Mô hình và mức thông minh'),
@@ -5549,8 +5577,12 @@ class _ComposerState extends State<_Composer> {
   (String, String) _configOf(AppState app, MmUser bot, AgentOptions o) {
     final c = app.agentConfig[bot.id];
     final m = c?['model'], e = c?['effort'];
-    return (m != null && o.models.contains(m) ? m : o.defModel, e != null && o.efforts.contains(e) ? e : o.defEffort);
+    // Chưa tự chọn: trợ lý Claude mặc định Sonnet (nhanh, tiết kiệm; Sếp 2026-11-25), Opus khi người dùng chọn.
+    // Lựa chọn đã lưu (kể cả Opus) luôn được giữ nguyên.
+    final def = sonnetModelOf(o) ?? o.defModel;
+    return (m != null && o.models.contains(m) ? m : def, e != null && o.efforts.contains(e) ? e : o.defEffort);
   }
+
 
   /// props.flygo_agent_config cho tin gửi trợ lý AI (null nếu không có trợ lý nào).
   Map<String, dynamic>? _agentProps(AppState app) {

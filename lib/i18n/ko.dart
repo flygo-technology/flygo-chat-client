@@ -2615,4 +2615,5 @@ const Map<String, String> ko = {
   'Đã vào hàng chờ': '대기열에 추가됨',
   'Đã điều hướng': '반영됨',
   'Chọn một hoặc nhiều, rồi bấm Gửi': '하나 이상 선택한 뒤 보내기를 누르세요',
+  'Đổi sang {0}: nhanh hơn, tiết kiệm hơn': '{0}(으)로 전환: 더 빠르고 저렴',
 };

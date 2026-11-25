@@ -3678,4 +3678,5 @@ const Map<String, String> en = {
   'Đã vào hàng chờ': 'Queued',
   'Đã điều hướng': 'Steered',
   'Chọn một hoặc nhiều, rồi bấm Gửi': 'Pick one or more, then tap Send',
+  'Đổi sang {0}: nhanh hơn, tiết kiệm hơn': 'Switch to {0}: faster, cheaper',
 };

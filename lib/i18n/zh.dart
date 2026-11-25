@@ -2615,4 +2615,5 @@ const Map<String, String> zh = {
   'Đã vào hàng chờ': '已排队',
   'Đã điều hướng': '已转向',
   'Chọn một hoặc nhiều, rồi bấm Gửi': '选择一项或多项，然后点“发送”',
+  'Đổi sang {0}: nhanh hơn, tiết kiệm hơn': '切换到 {0}：更快、更省',
 };
