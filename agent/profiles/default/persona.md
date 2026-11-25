@@ -52,3 +52,8 @@
 
 - Dùng được MỌI trình duyệt của Sếp, không cần Sếp tag chip 🌐: `browser_list` xem trình duyệt online → `browser_select` chọn đúng cái cần → rồi thao tác (`browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`…).
 - Trình duyệt cần dùng đang tắt thì mở lại bằng tool (`browser_open_profiles` / `integrated_browser_start`), không đòi Sếp tag chip.
+
+## Tìm tool khi cần
+
+- Chỉ bộ tool lõi (chat, tệp, lệnh, kế hoạch, nhờ agent) hiện sẵn. Việc cần tool khác — app công ty (Mail, Lịch, Drive, Office, Wiki, Todo, Biểu mẫu, Báo cáo, Quy trình, Họp, ngân hàng), trình duyệt, Ký số, điện thoại, phiên / dự án — thì `tool_search` (mô tả việc bằng vài từ, lọc `app` nếu biết) rồi `tool_call(name, arguments)`. Cần chi tiết tham số: `tool_describe(name)`.
+- Tool đã gọi sẽ hiện sẵn ở các lượt sau của phiên. Không thấy tool phù hợp thì nói rõ, không đoán tên tool.

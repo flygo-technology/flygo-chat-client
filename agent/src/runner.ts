@@ -17,7 +17,7 @@ import compactPersona from "../profiles/default/persona-compact.md" with { type:
 import { RunCard, agentLinkOf, type AgentLink, type StepQuestion } from "./card";
 import { AGY_DEFAULT_MODEL, agentOptions, CONFIG_DIR, ENGINE_NAMES, engineLabel, resolveBin, type Config, type EngineName } from "./config";
 import { doctor } from "./doctor";
-import { ClaudeEngine } from "./engines/claude";
+import { ALWAYS_OK as CLAUDE_ALWAYS_OK, ClaudeEngine } from "./engines/claude";
 import { CodexEngine } from "./engines/codex";
 import { AGY_ENV, AntigravityEngine } from "./engines/antigravity";
 import { limitsKey, type UsageLimits } from "./limits";
@@ -623,6 +623,13 @@ const http = Bun.serve({
       const c = mcpCtx.get(url.searchParams.get("scope") ?? "");
       return c ? Response.json(c) : new Response("no run", { status: 404 });
     }
+    if (url.pathname === "/tool_pins" && req.method === "POST") {
+      const b = await req.json().catch(() => ({}));
+      const scope = String(b.scope ?? "");
+      let list = toolPinsByScope.get(scope) ?? [];
+      if (b.add) { list = [String(b.add), ...list.filter((x) => x !== b.add)].slice(0, 12); toolPinsByScope.set(scope, list); }
+      return Response.json({ pins: list });
+    }
     if (url.pathname === "/health") return new Response("ok");
     return new Response("not found", { status: 404 });
   },
@@ -638,8 +645,18 @@ const localFile = join(CONFIG_DIR, `local-${BOT_ID}.json`);
 writeFileSync(localFile, JSON.stringify({ port: http.port, key: localKey, server: cfg.serverUrl, owners: cfg.ownerUserIds, engine: ENGINE, bot: BOT_ID }), { mode: 0o600 });
 const mcpCtx = new Map<string, Record<string, string>>(); // khoá phiên -> env MCP của lượt đang chạy
 /** Env MCP của lượt: đăng ký theo khoá phiên để MCP cũ hỏi lại được (/ctx). */
+/** Tool flygo_chat engine cho chạy không hỏi: Claude theo allowedTools (+ luôn được phép); Codex / agy cho cả server flygo_chat. */
+function allowedFlygoTools(): string {
+  if (ENGINE !== "claude") return "*";
+  return [...cfg.claude.allowedTools, ...CLAUDE_ALWAYS_OK].filter((t) => t.startsWith("mcp__flygo_chat__")).map((t) => t.slice("mcp__flygo_chat__".length)).join(",");
+}
+/** Tool đã gọi qua tool_call trong mỗi phiên (SCOPE): hiện thẳng ở lượt sau (tối đa 12, mới nhất trước). */
+const toolPinsByScope = new Map<string, string[]>();
+
 function mcpEnvFor(scope: string, e: Record<string, string>) {
-  const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile, FLYGO_CMD_TIMEOUT_SEC: String(cmdTimeoutSec()), FLYGO_CMD_TIMEOUT_MAX_SEC: String(cmdTimeoutMaxSec()), FLYGO_ADB: cfg.adbDevices?.length ? "1" : "0" };
+  const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile, FLYGO_CMD_TIMEOUT_SEC: String(cmdTimeoutSec()), FLYGO_CMD_TIMEOUT_MAX_SEC: String(cmdTimeoutMaxSec()), FLYGO_ADB: cfg.adbDevices?.length ? "1" : "0",
+    // Tìm tool khi cần (tool-index.ts): bộ lõi + tool_search; tool_call xin duyệt như engine (Claude: ngoài allowedTools thì hỏi).
+    FLYGO_TOOL_MODE: cfg.toolMode ?? "core", FLYGO_ALLOWED_TOOLS: allowedFlygoTools() };
   mcpCtx.set(scope, full);
   return full;
 }
@@ -2947,7 +2964,7 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
     // Bot qua Cổng AI: tool flygo_chat nạp khi cần (tool search), không liệt kê ở đây (~3k token mỗi phiên).
     ...(cfg.flygoAi ? [
       `## Công cụ`,
-      `- Tool flygo_chat (đọc/gửi chat, tệp, lịch hẹn, kế hoạch update_plan/wrap_up, phiên, kỹ năng) và tool app công ty nạp khi cần: tìm bằng tool search theo việc.`,
+      `- Tool flygo_chat (đọc/gửi chat, tệp, lịch hẹn, kế hoạch update_plan/wrap_up, phiên, kỹ năng) và tool app công ty nạp khi cần: tìm bằng tool_search rồi gọi bằng tool_call theo việc.`,
       owner ? "" : `- Người giao việc không phải chủ bot: chỉ dùng chat người đó cũng ở trong.`,
     ] : [
       `## Công cụ flygo_chat`,

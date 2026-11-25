@@ -122,7 +122,7 @@ function supportsStreamInput(bin: string, env?: Record<string, string>): Promise
 
 /** Tool flygo_chat luôn chạy không cần duyệt (kể cả khi cấu hình tự đặt allowedTools): đăng artifact vào chính phiên;
  *  mcp_add tự mở hộp duyệt riêng trên app nên không xin duyệt hai lần; browser_open_profiles chỉ mở Chrome của chủ máy. */
-const ALWAYS_OK = ["mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open",
+export const ALWAYS_OK = ["mcp__flygo_chat__tool_search", "mcp__flygo_chat__tool_describe", "mcp__flygo_chat__tool_call", "mcp__flygo_chat__artifact_publish", "mcp__flygo_chat__mcp_add", "mcp__flygo_chat__browser_open_profiles", "mcp__flygo_chat__integrated_browser_open",
   // adb_*: runner tự kiểm chủ bot + xin duyệt cài / gỡ / xoá dữ liệu / shell ghi / nút gửi, thanh toán (adb-tools.ts).
   ...ADB_TOOLS.map((t) => `mcp__flygo_chat__${t.name}`)];
 
