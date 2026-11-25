@@ -7,8 +7,10 @@
 // {id, method, params} → {id, result | error}; sự kiện {method, params}.
 //   app → engine: open {tax|profile, url?, background?} · list · focus · idle · quit; sự kiện bridge / bridge_revoked /
 //                 extensions / spaces / logout.
-//   engine → app: yêu cầu spaces · need_credential {space, server}; sự kiện profiles · need_bridge {profileKey, server?} ·
-//                 agent · sign_pending · status.
+//   engine → app: yêu cầu spaces · need_credential {space, server} · verify_create {title, details, ttl?} ·
+//                 verify_result {id, wait?}; sự kiện profiles · need_bridge {profileKey, server?} · agent · sign_pending · status.
+// verify_*: nút "Xác thực điện thoại" của hộp ký: xác thực từ xa của Flygo ID (devices-verify.md §2) bằng phiên chat của
+// app; điện thoại nhận thông báo, chọn đúng mã 2 số engine đang hiện rồi quét vân tay.
 // Vé: vn.flygo.kyso gắn space (engine đổi lấy phiên ở máy chủ ký); vn.flygo.clients → <máy chủ>/__apps/gateway/api/pair
 // (token tự động hoá, lưu theo (máy chủ, profile) trong secure storage, engine chỉ giữ trong bộ nhớ).
 // Engine chưa có / không chạy được: trả false để nơi gọi mở WebView như cũ.
@@ -546,6 +548,31 @@ class FlygoBrowserHost {
       case 'need_bridge':
         await _bridge('${p['profileKey'] ?? ''}', p['server'] as String?);
         return {'ok': true};
+      case 'verify_create':
+        final id = await _flygoId();
+        final details = <String, String>{
+          for (final e in ((p['details'] as Map?) ?? const {}).entries)
+            if ('${e.key}'.isNotEmpty && '${e.value}'.isNotEmpty) '${e.key}': '${e.value}',
+        };
+        final ttl = (p['ttl'] is num) ? (p['ttl'] as num).toInt().clamp(15, 120) : 120;
+        final machine = Platform.localHostname.replaceAll(RegExp(r'\.(local|lan|home)$'), '');
+        final r = await id.createVerify(title: '${p['title'] ?? 'Xác nhận ký số'}', details: details, label: 'Trình duyệt Ký số · $machine', ttl: ttl);
+        return {'id': r['id'], 'code': r['code'], 'expires_at': r['expires_at'], 'devices': r['devices']};
+      case 'verify_result':
+        final vid = '${p['id'] ?? ''}';
+        if (!RegExp(r'^vr_[A-Za-z0-9_-]{10,40}$').hasMatch(vid)) throw ArgumentError('id không hợp lệ');
+        final id = await _flygoId();
+        // Chờ tới khi có kết quả hoặc hết `wait` giây (tối đa 25), hỏi Flygo ID mỗi 1,5 giây.
+        final until = DateTime.now().add(Duration(seconds: (p['wait'] is num) ? (p['wait'] as num).toInt().clamp(0, 25) : 20));
+        while (true) {
+          final r = await id.verifyResult(vid);
+          final status = '${r['status'] ?? ''}';
+          if (status != 'pending' || DateTime.now().isAfter(until)) {
+            final device = r['device'] is Map ? Map<String, dynamic>.from(r['device'] as Map) : null;
+            return {'status': status, 'device': device == null ? null : {'name': device['name'], 'biometric_bound': device['biometric_bound']}};
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 1500));
+        }
     }
     throw UnsupportedError('không hỗ trợ $method');
   }
