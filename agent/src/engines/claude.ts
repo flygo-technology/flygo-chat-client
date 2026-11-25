@@ -413,6 +413,11 @@ export class ClaudeEngine implements Engine {
         if (onRead) { if (replay) readAcks.set(uuid, onRead); else onRead(); }
         return true;
       });
+      // Control request trong lượt (stop_task dừng sub-agent…): ghi thẳng vào stdin, không chờ trả lời.
+      hooks.controllable?.(async (request) => {
+        if (turnEnded || !stdinOpen) return false;
+        try { stdin.write(JSON.stringify({ type: "control_request", request_id: crypto.randomUUID(), request }) + "\n"); stdin.flush(); return true; } catch { return false; }
+      });
     }
 
     const reader = proc.stdout.getReader();
@@ -452,6 +457,7 @@ export class ClaudeEngine implements Engine {
     } finally {
       signal.removeEventListener("abort", kill);
       hooks.steerable?.(null);
+      hooks.controllable?.(null);
       endStdin();
       try { rmSync(mcpFile, { force: true }); } catch {}
     }
@@ -460,6 +466,7 @@ export class ClaudeEngine implements Engine {
 
   /** Một sự kiện stream-json của claude → bước / chữ / phiên / kết quả của lượt (dùng chung cho lượt thường và phiên sống). */
   onEvent(ev: any, st: TurnState, hooks: TurnHooks) {
+    try { hooks.rawEvent?.(ev); } catch {}
     // Claude Code tự nén ngữ cảnh (CLAUDE_CODE_AUTO_COMPACT_WINDOW): ghi một bước để Sếp thấy phiên vẫn liền mạch.
     if (ev.type === "system" && ev.subtype === "compact_boundary") {
       const pre = Number(ev.compact_metadata?.pre_tokens ?? ev.compactMetadata?.preTokens ?? 0);

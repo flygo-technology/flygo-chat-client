@@ -180,6 +180,8 @@ export async function liveTurn(engine: EngineLike, prep: Prep, input: TurnInput,
   };
   signal.addEventListener("abort", onAbort);
   const cur = live;
+  // Phiên sống: control request dùng được cả sau lượt (sub-agent chạy nền còn sống) tới khi tiến trình đóng.
+  hooks.controllable?.((request) => cur.control(request));
   hooks.steerable?.(async (text, onRead) => {
     if (!cur.busy || cur.dead) return false;
     try { cur.write(userMsg(text)); } catch { return false; }

@@ -43,6 +43,10 @@ export interface TurnHooks {
   steerable?(fn: ((text: string, onRead?: () => void) => Promise<boolean>) | null): void;
   /** Một lần gọi tool đã xong (có input + kết quả): runner nhận diện tác vụ nền (bg-tasks.ts). */
   toolDone?(t: { id: string; name: string; input: any; result: string; isError: boolean }): void;
+  /** Mọi sự kiện thô của engine (Claude stream-json): runner theo dõi sub-agent (subagents.ts). */
+  rawEvent?(ev: any): void;
+  /** Gửi control request vào tiến trình engine (vd. stop_task dừng sub-agent): fn khi có thể, null khi hết. */
+  controllable?(fn: ((request: Record<string, unknown>) => Promise<boolean>) | null): void;
 }
 
 export interface TurnInput {

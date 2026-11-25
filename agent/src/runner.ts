@@ -5,6 +5,7 @@
 // - Duyệt quyền: post "Cần Sếp duyệt" trong chủ đề, chủ bot bấm Xác nhận / Từ chối (reaction +1 / -1).
 // - Chế độ --json: in sự kiện JSON từng dòng ra stdout cho app Flygo Chat (log ra stderr).
 import { BgTracker, detectLaunch } from "./bg-tasks";
+import { SubagentTracker } from "./subagents";
 import { resolvePermMode } from "./perm-mode";
 import { desktopMcp, desktopPersona } from "./desktop-mcp";
 import { Database } from "bun:sqlite";
@@ -3252,9 +3253,31 @@ async function bgStop(userId: string, taskId: string, postId = ""): Promise<any>
   return r;
 }
 
+/** Sub-agent theo lượt: runId -> bộ theo dõi + cách gửi control (stop_task) tới tiến trình claude. Phiên sống: còn dùng sau lượt. */
+const subRuns = new Map<string, { subs: SubagentTracker; assigner: string; at: number; posts: () => string[]; ctl: () => ((r: Record<string, unknown>) => Promise<boolean>) | null; flush: () => void }>();
+setInterval(() => { const n = Date.now(); for (const [k, x] of subRuns) if (!x.subs.active && n - x.at > 3600_000) subRuns.delete(k); }, 10 * 60_000).unref?.();
+
+/** App bấm Dừng trên một sub-agent (ext action subagent_stop {id, post_id}): chủ bot hoặc người giao lượt. */
+async function subagentStop(userId: string, id: string, postId = ""): Promise<any> {
+  for (const x of subRuns.values()) {
+    const s = x.subs.get(id);
+    if (!s || (postId && !x.posts().includes(postId))) continue;
+    if (!(isOwner(userId) || userId === x.assigner)) return { ok: false, status: 403, error: "chỉ chủ bot hoặc người giao việc" };
+    if (s.status !== "running") return { ok: true, already: s.status };
+    const ctl = x.ctl();
+    if (!s.task_id || !ctl) return { ok: false, status: 409, error: "sub-agent này không dừng riêng được (lượt đã xong hoặc Claude Code chưa báo task id); dừng cả lượt bằng 🛑" };
+    const ok = await ctl({ subtype: "stop_task", task_id: s.task_id });
+    if (ok) { x.subs.markStopped(id); x.flush(); }
+    log(`dừng sub-agent ${id} (task ${s.task_id}) theo yêu cầu ${userId}: ${ok ? "ok" : "không gửi được"}`);
+    return ok ? { ok: true } : { ok: false, status: 502, error: "không gửi được lệnh dừng tới Claude Code" };
+  }
+  return { ok: false, status: 404, error: "không còn theo dõi sub-agent này" };
+}
+
 /** Thao tác MCP từ app (qua relay). Chỉ chủ bot. Không bao giờ trả khoá / token. */
 async function extAction(userId: string, body: any): Promise<any> {
   if (String(body.action ?? "") === "bg_stop") return bgStop(userId, String(body.task_id ?? ""), String(body.post_id ?? ""));
+  if (String(body.action ?? "") === "subagent_stop") return subagentStop(userId, String(body.id ?? ""), String(body.post_id ?? ""));
   if (!isOwner(userId)) return { ok: false, status: 403, error: "chỉ chủ bot" };
   const action = String(body.action ?? "");
   const ext = body.ext ?? {};
@@ -3852,6 +3875,12 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   const bg = new BgTracker(dir, bgPush);
   const unreadSteers = new Set<string>(); // tin chèn agent chưa kịp đọc: hết lượt thì bỏ nhãn hàng chờ
   card.bg = () => bg.tasks;
+  // Sub-agent (Task / Agent của Claude Code): liệt kê trên thẻ như tác vụ nền; dừng qua control stop_task (ext action subagent_stop).
+  const subs = new SubagentTracker(bgPush);
+  card.subagents = () => subs.list;
+  let engineCtl: ((request: Record<string, unknown>) => Promise<boolean>) | null = null;
+  const subEntry = { subs, assigner: post.user_id, at: Date.now(), posts: () => [reply.id].filter(Boolean), ctl: () => engineCtl, flush: () => { if (turnOver) void reply.patchProps(); else card.bgChanged(); } };
+  subRuns.set(runId, subEntry);
   if (research) card.mode = "research";
   if ((post as any).via_mcp) card.step({ id: "bridge", kind: "approval", title: "🔗 Yêu cầu từ agent ngoài (Token MCP), thay chủ phiên", status: "done" });
   // "Bỏ qua kiểm tra" theo tin: chỉ hiện bước khi chế độ ĐỔI ở chat / luồng này (lượt đầu bypass, hoặc sau lượt không bypass);
@@ -3912,6 +3941,8 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
       {
         step: (s) => card.step(s),
         todos: (t) => card.setTodos(t),
+        rawEvent: (ev) => subs.onEvent(ev),
+        controllable: (fn) => { engineCtl = fn; },
         toolDone: (t) => { const l = detectLaunch(t.name, t.input, t.result); if (l && !t.isError) { const bt = bg.add(l); if (bt) bgTasks.set(bt.id, { bg, assigner: post.user_id, at: Date.now(), posts: () => [reply.id].filter(Boolean), flush: () => { if (turnOver) void reply.patchProps(); else card.bgChanged(); } }); log(`run ${runId}: tác vụ nền ${l.kind} ${l.host} ${l.file ?? "(không tệp)"}`); } },
         text: (t) => { reply.update(t); twp?.setText(reply.current); },
         approval: ask,
@@ -3985,6 +4016,9 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
     // Tác vụ nền: của Claude Code dừng cùng lượt; tách nền (nohup …) theo tiếp, cập nhật post cuối tới khi xong / hết giờ.
     turnOver = true;
     bg.endTurn(ENGINE === "claude" && !!cfg.claude.keepAlive);
+    subs.endTurn(ENGINE === "claude" && !!cfg.claude.keepAlive);
+    if (subs.list.length) { if (subs.active) log(`run ${runId}: theo tiếp ${subs.list.filter((s) => s.status === "running").length} sub-agent sau lượt`); void reply.patchProps(); }
+    if (!subs.active) subRuns.delete(runId);
     for (const id of unreadSteers) void unmarkQueued(id);
     if (bg.tasks.length) {
       if (bg.active) {
