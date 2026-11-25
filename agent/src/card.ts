@@ -105,6 +105,8 @@ export class RunCard {
 
   /** Tác vụ nền của lượt (bg-tasks.ts, runner gán): props.flygo_agent.bg. */
   bg: (() => import("./bg-tasks").BgTask[]) | null = null;
+  /** Sub-agent của lượt (subagents.ts, runner gán): props.flygo_agent.subagents. */
+  subagents: (() => import("./subagents").Subagent[]) | null = null;
   /** Tác vụ nền đổi: cập nhật thẻ như một bước. */
   bgChanged() { this.touch(); }
 
@@ -229,6 +231,7 @@ export class RunCard {
         ...this.segView(),
         ...(this.todos.length ? { todos: this.todos } : {}),
         ...(this.bg?.().length ? { bg: this.bg!() } : {}),
+        ...(this.subagents?.().length ? { subagents: this.subagents!() } : {}),
         ...(this.wrapUp ? { wrap_up: this.wrapUp } : {}),
         ...(this.mode ? { mode: this.mode } : {}),
         usage: this.usage,
