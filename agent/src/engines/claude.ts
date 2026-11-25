@@ -37,7 +37,7 @@ export interface ClaudeModelList { models: ModelInfo[]; aliases: Record<string, 
 
 /** Đổi `models` trong trả lời `initialize` của Claude Code thành danh sách cho app: bỏ mục "default", bí danh (opus, fable…)
  *  đổi sang id đầy đủ (resolvedModel) vì app gửi id đầy đủ, bỏ trùng; [want] = model mặc định của bot (bí danh hoặc id). */
-export function parseClaudeModels(raw: unknown, want = "opus"): ClaudeModelList | null {
+export function parseClaudeModels(raw: unknown, want = "sonnet"): ClaudeModelList | null {
   if (!Array.isArray(raw)) return null;
   const models: ModelInfo[] = [];
   const aliases: Record<string, string> = {};
@@ -49,7 +49,7 @@ export function parseClaudeModels(raw: unknown, want = "opus"): ClaudeModelList 
     if (value !== id) aliases[value] = id;
     if (models.some((x) => x.id === id)) continue;
     const efforts = Array.isArray(m?.supportedEffortLevels) && m.supportedEffortLevels.length ? m.supportedEffortLevels.map(String) : CLAUDE_EFFORTS;
-    models.push({ id, ...(m?.displayName ? { name: String(m.displayName) } : {}), efforts, defaultEffort: efforts.includes("high") ? "high" : efforts[efforts.length - 1] });
+    models.push({ id, ...(m?.displayName ? { name: String(m.displayName) } : {}), efforts, defaultEffort: efforts.includes("medium") ? "medium" : efforts.includes("high") ? "high" : efforts[efforts.length - 1] });
   }
   if (!models.length) return null;
   const def = aliases[want] ?? want;
@@ -261,7 +261,7 @@ export class ClaudeEngine implements Engine {
     if (Date.now() - this.probeFailedAt < 600_000) return this.probed?.list ?? null;
     this.probing ??= (async () => {
       const raw = await probeClaudeModels(resolveBin(this.cfg.claude.bin ?? "claude"), this.cfg.env ?? {}).catch(() => null);
-      const list = parseClaudeModels(raw, this.cfg.claude.model ?? "opus");
+      const list = parseClaudeModels(raw, this.cfg.claude.model ?? "sonnet");
       if (list) this.probed = { at: Date.now(), list };
       else this.probeFailedAt = Date.now(), this.log(`claude: không hỏi được danh sách model${this.probed ? ", dùng bản trước" : ", dùng danh sách cố định"}`);
       return list ?? this.probed?.list ?? null;
@@ -279,7 +279,7 @@ export class ClaudeEngine implements Engine {
     if (live) return { skills, models: live.models, aliases: { ...CLAUDE_ALIASES, ...live.aliases } };
     return {
       skills, aliases: CLAUDE_ALIASES,
-      models: CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "high", isDefault: m.aliases.includes(this.cfg.claude.model ?? "opus") || m.id === this.cfg.claude.model })),
+      models: CLAUDE_MODELS.map((m) => ({ id: m.id, name: m.name, efforts: CLAUDE_EFFORTS, defaultEffort: "medium", isDefault: m.aliases.includes(this.cfg.claude.model ?? "sonnet") || m.id === this.cfg.claude.model })),
     };
   }
   constructor(private cfg: Config, private mcpCommand: { command: string; args: string[] }, private log: (s: string) => void,
