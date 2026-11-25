@@ -35,6 +35,8 @@ export interface Config {
   commandTimeoutSec?: number;
   /** Trần hạn agent được tự đặt cho một lệnh (giây, thiếu = 1800). */
   commandTimeoutMaxSec?: number;
+  /** Tool của MCP flygo_chat: "core" (mặc định) = bộ lõi + tìm tool khi cần (tool_search / tool_call); "full" = đưa mọi tool. */
+  toolMode?: "core" | "full";
   /** TeamWork: cho lượt từ app Làm việc nhóm chạy không cần duyệt (vẫn giữ danh sách cấm) khi token hợp lệ và người giao là chủ bot.
    *  Thiếu = false (tắt); bật bằng cấu hình của từng bot. */
   teamworkBypass?: boolean;
