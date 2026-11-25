@@ -365,6 +365,7 @@ class _RootState extends State<Root> {
     final id = PushService.verifyRequest.value;
     final app = session.value;
     if (id == null || id.isEmpty || app == null || _verifyOpen.contains(id)) return;
+    if (await FlygoId.isRequestedHere(id)) return;
     final flygoId = await FlygoId.current(app.token).catchError((_) => null);
     final nav = navigatorKey.currentState;
     if (flygoId == null || nav == null) return;

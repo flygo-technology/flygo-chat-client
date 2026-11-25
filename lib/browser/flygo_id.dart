@@ -257,6 +257,36 @@ class FlygoId {
         'sig': ?sig,
       });
 
+  /// Bên yêu cầu (devices-verify.md §2.1): xin chính mình xác thực trên điện thoại. Trả {id, code, expires_at, devices};
+  /// chưa có máy nào gắn khoá thì ném FlygoIdException 409 "chưa có máy nào gắn khoá".
+  Future<Map<String, dynamic>> createVerify({required String title, required Map<String, String> details, String? label, int ttl = 120}) {
+    final f = _call('POST', '/v1/verify', {
+      'title': title,
+      'details': details,
+      'requester': {'label': ?label},
+      'ttl': ttl,
+    }).then((r) {
+      final id = '${r['id'] ?? ''}';
+      if (id.isNotEmpty) _requestedHere.add(id);
+      return r;
+    });
+    _creating = f.then((_) {}, onError: (_) {});
+    return f;
+  }
+
+  /// Yêu cầu do chính máy này tạo (hộp ký "Xác thực điện thoại"): máy này không tự mở màn "Xác thực" cho chúng, người
+  /// dùng duyệt trên điện thoại. Flygo ID đẩy sự kiện verify_request trước khi trả id, nên chờ lời gọi tạo xong rồi so.
+  static Future<bool> isRequestedHere(String id) async {
+    await _creating;
+    return _requestedHere.contains(id);
+  }
+
+  static final _requestedHere = <String>{};
+  static Future<void>? _creating;
+
+  /// Kết quả cho bên yêu cầu (§2.4): {id, status pending|approved|denied|failed|expired, device, token?}.
+  Future<Map<String, dynamic>> verifyResult(String id) => _call('GET', '/v1/verify/${Uri.encodeComponent(id)}');
+
   /// Các app người này được quản trị (manifest.admin): {app, name, url (tuyệt đối) hoặc native, spaces}.
   Future<List<Map<String, dynamic>>> myAdmin() async {
     final j = await _call('GET', '/v1/me/admin');
