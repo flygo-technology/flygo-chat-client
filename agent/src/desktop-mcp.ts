@@ -2,7 +2,7 @@
 // và gắn vào mọi engine (Claude / Codex / Antigravity), agent tự chọn tool hợp với việc.
 // Tool chỉ đọc (liệt kê app / cửa sổ, đọc cây giao diện…) chạy luôn; click, gõ phím, mở app… phải xin duyệt
 // (Claude: ngoài allowedTools; Codex: default_tools_approval_mode = "prompt"; agy: hook hỏi như tool lạ).
-// Tắt hẳn: "computerUse": false trong config bot. Ghi đè / thêm server: "desktopMcp": { "<tên>": { command, args } | false }.
+// Mặc định TẮT (2026-11-25): bật bằng "computerUse": true trong config bot (hoặc khai báo "desktopMcp"). Ghi đè / thêm server: "desktopMcp": { "<tên>": { command, args } | false }.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -92,7 +92,9 @@ export function desktopMcp(cfg: DesktopCfg): DesktopMcp {
   const key = JSON.stringify([cfg.computerUse, cfg.desktopMcp, createHash("sha256").update(String(cfg.botToken ?? "")).digest("hex").slice(0, 8)]);
   if (cached && cached.key === key && Date.now() - cached.at < 300_000) return cached.v;
   const v: DesktopMcp = { servers: {}, readOnly: {}, hints: [] };
-  if (cfg.computerUse !== false) {
+  // Chỉ bot được cấu hình điều khiển máy (computerUse: true hoặc khai báo desktopMcp) mới có desktop MCP (Sếp 2026-11-25):
+  // bot chat thường không mang ~130 tool cua-driver / peekaboo / playwright / tmux vào ngữ cảnh.
+  if (cfg.computerUse === true || (cfg.computerUse !== false && cfg.desktopMcp && Object.keys(cfg.desktopMcp).length > 0)) {
     const over = cfg.desktopMcp ?? {};
     for (const k of KNOWN) {
       if (over[k.name] === false || !k.os.includes(process.platform)) continue;
