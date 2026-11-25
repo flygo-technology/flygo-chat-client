@@ -2,6 +2,10 @@
 
 Build numbers are the `+N` part of `pubspec.yaml` (`1.0.0+N`). The runner version is in `agent/package.json`.
 
+## 1.0.5+525 (runner 0.7.29)
+
+- Trình duyệt Ký số: "Xác thực điện thoại" in the signing dialog (engine 1.3.11). Flygo Chat desktop handles the engine's `verify_create` / `verify_result` requests through Flygo ID remote verification (POST /v1/verify, GET /v1/verify/{id}); the phone gets the push, the user picks the 2-digit code and confirms with the fingerprint. The machine that created a request does not open its own "Xác thực" screen (`FlygoId.isRequestedHere`).
+
 ## 1.0.5+524 (runner 0.7.29)
 
 - Model / effort is chosen per chat: changing it in one chat no longer changes the others (preference `flygo_chat/ac_<channel id>`; chats without their own choice follow the assistant default).
