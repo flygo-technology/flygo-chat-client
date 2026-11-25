@@ -2615,4 +2615,5 @@ const Map<String, String> ja = {
   'Đã vào hàng chờ': '待機中',
   'Đã điều hướng': '反映済み',
   'Chọn một hoặc nhiều, rồi bấm Gửi': '1つ以上選んで「送信」を押してください',
+  'Đổi sang {0}: nhanh hơn, tiết kiệm hơn': '{0} に切り替え：より速く、安く',
 };

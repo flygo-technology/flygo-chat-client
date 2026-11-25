@@ -40,6 +40,12 @@ String engineName(String engine) => switch (engine) {
     };
 
 /// Tên hiển thị của mô hình: "claude-opus-5-5" → "Opus 5.5", "opus" → "Opus", "gpt-5.6-sol" → "GPT-5.6 Sol".
+/// Model Sonnet mới nhất của trợ lý Claude (null nếu không có): mặc định khi người dùng chưa tự chọn (Sếp 2026-11-25).
+String? sonnetModelOf(AgentOptions o) => o.engine == 'claude' ? o.models.where((m) => m.contains('sonnet')).firstOrNull : null;
+
+/// Model đắt (Opus / Fable): ô soạn tin hiện nút một chạm đổi sang Sonnet.
+bool isPremiumModel(String m) => m.contains('opus') || m.contains('fable');
+
 String modelLabel(String m) {
   if (m == 'default') return tr('Mặc định'); // agy: để Antigravity tự chọn mô hình
   final c = RegExp(r'^claude-([a-z]+)-(\d+)(?:-(\d+))?').firstMatch(m);
