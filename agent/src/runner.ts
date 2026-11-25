@@ -1253,7 +1253,7 @@ async function quietAsk(target: any, fromLabel: string, msg: string, waitMs: num
   return await new Promise((done) => enqueue(key, async () => {
     if (sess.engine === "claude") {
       const proc = spawn([resolveBin(cfg.claude.bin), "-p", "--resume", sess.session_id, "--output-format", "text",
-        "--setting-sources", "project,local", "--strict-mcp-config", "--allowedTools", "Read", "Grep", "Glob", "LS"],
+        "--setting-sources", "", "--strict-mcp-config", "--allowedTools", "Read", "Grep", "Glob", "LS"],
         { cwd: dir, stdout: "pipe", stderr: "pipe", stdin: "pipe", env: claudeEnv(cfg, { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" }) });
       proc.stdin.write(note);
       proc.stdin.end();
@@ -1608,7 +1608,7 @@ async function runA2A(cid: string, from: A2APeer, msg: any, t: A2ATask, stream: 
 
 // ---- kỹ năng & vai trò riêng của bot (src/skills.ts) ----
 /** Claude: kỹ năng qua --add-dir (dựng lại mỗi lượt: lưu skill có hiệu lực từ lượt sau). Codex: danh sách trong khối ngữ cảnh. */
-const skillDirs = () => { if (ENGINE !== "claude") return {}; const d = claudeSkillsDir(BOT_ID, cfg.skillsDir); return d ? { addDirs: [d] } : {}; };
+const skillDirs = () => { if (ENGINE !== "claude") return {}; const d = claudeSkillsDir(BOT_ID, cfg.skillsDir); return d ? { pluginDirs: [d] } : {}; };
 interface SkillRun { assigner: string; ask: (req: ApprovalRequest) => Promise<ApprovalDecision>; dir: string }
 const skillRuns = new Map<string, SkillRun>(); // run key -> lượt chat (A2A: không có)
 async function skillTool(op: string, a: any): Promise<string> {

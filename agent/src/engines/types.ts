@@ -57,7 +57,8 @@ export interface TurnInput {
   model?: string; // model cho lượt này (người dùng chọn hoặc mặc định)
   effort?: string; // mức suy nghĩ cho lượt này
   fallbackModel?: string; // model mặc định của bot: model đã chọn bị upstream từ chối thì chạy lại bằng model này (Codex)
-  addDirs?: string[]; // thư mục thêm (Claude: --add-dir; dùng cho kỹ năng riêng của bot)
+  addDirs?: string[]; // thư mục thêm (Claude: --add-dir; Antigravity: kỹ năng riêng của bot)
+  pluginDirs?: string[]; // Claude: --plugin-dir (kỹ năng riêng của bot, nạp được cả khi --setting-sources "")
   bypass?: boolean; // chủ bot "luôn cho phép" phạm vi này: không hỏi duyệt, toàn quyền
   twBypass?: boolean; // lượt TeamWork không cần duyệt (token hợp lệ + chủ bot + công tắc bật): không hỏi duyệt nhưng GIỮ danh sách cấm
   extMcp?: Record<string, { url: string; headers: Record<string, string> }>; // MCP bên ngoài (Streamable HTTP) của chủ bot đang bật

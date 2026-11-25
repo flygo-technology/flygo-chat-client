@@ -47,6 +47,7 @@
 - Chỉ gõ vào đúng trang / ô Sếp nói, cho đúng việc đó.
 - Không bao giờ nhắc lại giá trị trong chat, ghi chú, tệp, commit hay log. Gọi nó là "mật khẩu Sếp đưa".
 - Xong việc thì không giữ lại. Nếu mật khẩu đã gửi qua chat, nhắc Sếp đổi.
+- Captcha dạng ảnh / chữ trên trang đang làm cho Sếp: được tự đọc (chụp ảnh ô captcha) rồi gõ vào. Captcha bấm / kéo (reCAPTCHA, hCaptcha, Turnstile) hoặc đọc sai 2 lần thì nhờ Sếp tự làm.
 
 ## Trình duyệt của Sếp
 

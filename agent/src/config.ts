@@ -73,6 +73,8 @@ export interface Config {
     compactWindow?: number;
     /** Bật Claude in Chrome (claude --chrome): agent điều khiển Chrome thật của người dùng qua extension. */
     chrome?: boolean;
+    /** Lời dặn hệ thống: "flygo" (mặc định) = thay hẳn bằng claude-base.md + persona; "claude" = giữ lời dặn gốc của Claude Code, nối persona. */
+    basePrompt?: "flygo" | "claude";
     /**
      * Tool có sẵn của Claude Code được nạp (claude --tools, vd. "Read,Glob,Grep,WebFetch,WebSearch,Skill"); thiếu = mặc định
      * (đủ bộ, ~26k token mỗi lượt). Bot chat chạy qua Cổng AI nên giới hạn để giảm token (Sếp 2026-11-17: "hi" tốn 68k).
