@@ -13,7 +13,7 @@ import { spawn } from "../spawn";
 import type { TurnHooks, TurnInput, TurnResult } from "./types";
 import { newTurnState, type TurnState } from "./claude";
 
-export interface Prep { args: string[]; env: Record<string, string>; mcpFile: string; streamIn: boolean; replay: boolean; sig: string; model: string; permMode: string; bin: string; cwd: string }
+export interface Prep { args: string[]; env: Record<string, string>; mcpFile: string; streamIn: boolean; replay: boolean; sig: string; sigParts?: Record<string, string>; model: string; permMode: string; bin: string; cwd: string }
 interface EngineLike { onEvent(ev: any, st: TurnState, hooks: TurnHooks): void }
 export interface LiveOpts { botKey: string; idleMin?: number; log?: (s: string) => void }
 
@@ -147,7 +147,8 @@ export async function liveTurn(engine: EngineLike, prep: Prep, input: TurnInput,
   let live = livePool.get(key);
   // Phiên sống khác phiên Claude (bot vừa mở phiên mới / tách phiên) hoặc cấu hình đổi → mở lại.
   if (live && (live.dead || live.sig !== prep.sig || (input.sessionId && live.sessionId && live.sessionId !== input.sessionId) || (!input.sessionId && live.sessionId))) {
-    log(`phiên sống ${key}: mở lại (${live.dead ? "đã dừng" : live.sig !== prep.sig ? "cấu hình đổi" : "phiên khác"})`);
+    const changed = live.sig !== prep.sig ? Object.keys(prep.sigParts ?? {}).filter((k) => live!.prep.sigParts?.[k] !== prep.sigParts?.[k]).join(", ") : "";
+    log(`phiên sống ${key}: mở lại (${live.dead ? "đã dừng" : live.sig !== prep.sig ? `cấu hình đổi: ${changed || "?"}` : "phiên khác"})`);
     if (!live.dead) live.close("mở lại");
     livePool.delete(key);
     live = undefined;
