@@ -374,9 +374,13 @@ export class ClaudeEngine implements Engine {
     // Phiên sống: model / chế độ quyền đổi tại chỗ (control request); còn lại (persona, quyền đầy đủ, tool, thư mục, người gọi qua
     // Cổng AI, MCP ngoài, effort) đổi thì mở lại tiến trình (--resume).
     const sigArgs = args.filter((x, i) => !["--model", "--permission-mode", "--resume", "--name", "--mcp-config"].includes(args[i - 1] ?? "") && !["--model", "--permission-mode", "--resume", "--fork-session", "--name", "--mcp-config"].includes(x));
+    const h = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 8);
+    const flag = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : ""; };
+    // Từng phần của chữ ký (để log rõ phần nào đổi khi phiên sống phải mở lại).
+    const sigParts: Record<string, string> = { persona: h(flag("--append-system-prompt")), settings: h(flag("--settings")), tools: h([flag("--allowedTools"), flag("--tools")]), effort: flag("--effort"), dirs: h(args.filter((_, i) => args[i - 1] === "--add-dir")), cwd: h(input.cwd), gate: h(gate), ext: h(Object.keys(input.extMcp ?? {}).sort()), rest: h(sigArgs) };
     const sig = createHash("sha256").update(JSON.stringify([sigArgs, input.cwd, gate, Object.keys(input.extMcp ?? {}).sort(), input.mcpEnv.SCOPE ?? ""])).digest("hex").slice(0, 16);
     env.FLYGO_SCOPE = input.mcpEnv.SCOPE ?? ""; // ask-hook của phiên sống hỏi runner RUN_KEY hiện tại theo SCOPE
-    return { args, env, mcpFile, streamIn, replay, sig, model: model ?? "", permMode, bin, cwd: input.cwd };
+    return { args, env, mcpFile, streamIn, replay, sig, sigParts, model: model ?? "", permMode, bin, cwd: input.cwd };
   }
 
   async runTurn(input: TurnInput, hooks: TurnHooks, signal: AbortSignal): Promise<TurnResult> {

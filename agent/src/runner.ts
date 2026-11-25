@@ -287,6 +287,12 @@ const markSeen = (id: string) => { db.query("INSERT OR IGNORE INTO seen_posts VA
 const enqueuedPosts = new Set<string>();
 /** Chế độ quyền của lượt gần nhất theo chat / luồng (lưu DB, sống qua khởi động lại / cập nhật): bước "🔓 Bỏ qua kiểm tra" chỉ hiện khi chế độ đổi. */
 db.run(`CREATE TABLE IF NOT EXISTS turn_mode (root TEXT PRIMARY KEY, mode TEXT, at INTEGER)`);
+db.run(`CREATE TABLE IF NOT EXISTS turn_cfg (root TEXT PRIMARY KEY, model TEXT, effort TEXT, at INTEGER)`);
+/** Model / mức của lượt gần nhất theo chat / luồng: tin không kèm cấu hình dùng lại (không đổi qua lại). */
+const lastTurnCfg = {
+  get: (root: string) => db.query("SELECT model, effort FROM turn_cfg WHERE root = ?").get(root) as { model: string; effort: string } | null,
+  set: (root: string, model: string, effort: string) => { db.query("INSERT OR REPLACE INTO turn_cfg VALUES (?, ?, ?, ?)").run(root, model, effort, Date.now()); },
+};
 const lastTurnMode = {
   get: (root: string) => (db.query("SELECT mode FROM turn_mode WHERE root = ?").get(root) as { mode: string } | null)?.mode,
   set: (root: string, mode: string) => { db.query("INSERT OR REPLACE INTO turn_mode VALUES (?, ?, ?)").run(root, mode, Date.now()); },
@@ -3749,8 +3755,14 @@ async function runTurn(post: Post, root: string, rawText: string, out?: { text?:
   if (typeof want === "string") try { want = JSON.parse(want); } catch { want = null; }
   want = want?.[BOT_NAME] ?? want?.[BOT_ID] ?? {}; // khoá theo username hiện tại (hoặc id bot)
   const bad: string[] = [];
-  const model = want.model && !opts.models.includes(want.model) ? (bad.push(`model ${want.model}`), opts.default.model) : want.model || opts.default.model;
-  const effort = want.effort && !opts.efforts.includes(want.effort) ? (bad.push(`mức ${want.effort}`), opts.default.effort) : want.effort || opts.default.effort;
+  // Tin không kèm model / mức (gửi từ chỗ khác của app, lịch hẹn…): giữ của lượt trước ở chat / luồng này thay vì về mặc định
+  // (đổi qua lại làm phiên sống phải mở lại, 2026-11-25).
+  const prevCfg = lastTurnCfg.get(root);
+  const keepModel = prevCfg?.model && opts.models.includes(prevCfg.model) ? prevCfg.model : opts.default.model;
+  const keepEffort = prevCfg?.effort && opts.efforts.includes(prevCfg.effort) ? prevCfg.effort : opts.default.effort;
+  const model = want.model && !opts.models.includes(want.model) ? (bad.push(`model ${want.model}`), keepModel) : want.model || keepModel;
+  const effort = want.effort && !opts.efforts.includes(want.effort) ? (bad.push(`mức ${want.effort}`), keepEffort) : want.effort || keepEffort;
+  lastTurnCfg.set(root, model, effort);
   // Chế độ quyền: props.flygo_agent_config["<bot>"].mode = manual | acceptEdits | plan | auto (thiếu = mặc định của engine).
   // "Bỏ qua kiểm tra" (bypassPermissions): chỉ Claude, chỉ chủ bot (như "Luôn cho phép").
   // Phiên không gửi chế độ (phiên mới ở Dự án AI, khung bên, lượt chạy lại…): dùng chế độ chủ bot chọn gần nhất (perm-mode.ts).
