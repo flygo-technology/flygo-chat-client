@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:convert';
+import 'dart:io' show Platform, Process, ProcessStartMode, exit;
 import 'dart:math' as math;
 
 import '../i18n/i18n.dart';
@@ -308,6 +309,7 @@ class _HomePageState extends State<HomePage> {
   }
 
     void _ensureAgentsTab(AppState app) {
+    if (kWindowTabs != null) return;
     _ensureBangTinTab();
     if (_agentsTabEnsured || !app.hasUsableAgents) return;
     _agentsTabEnsured = true;
@@ -386,6 +388,7 @@ class _HomePageState extends State<HomePage> {
 
   void _tabsChanged() {
     _tabsTouched = true;
+    if (kWindowTabs != null) return;
     _tabSave?.cancel();
     _tabSave = Timer(const Duration(milliseconds: 500), () {
       if (mounted) _app.saveDeskTabs(_tabsJson()).catchError((_) {});
@@ -530,6 +533,8 @@ class _HomePageState extends State<HomePage> {
 
   void _closeDeskTab(int i) {
     if (i < 0 || i >= _deskTabs.length || _deskTabs[i].pinned) return;
+    // Cửa sổ tab tách ra: đóng tab cuối thì đóng cửa sổ (như Chrome).
+    if (kWindowTabs != null && _deskTabs.length == 1) exit(0);
     final t = _deskTabs[i];
     setState(() {
       _deskTabs.removeAt(i);
@@ -547,6 +552,63 @@ class _HomePageState extends State<HomePage> {
     _pendingTap.remove(t.id);
     _tabChat.remove(t.id);
     _tabsChanged();
+  }
+
+  /// Các tab mang sang cửa sổ tab tách ra (`--tabs=`), null = cửa sổ thường.
+  static List<DeskTab>? _tornTabs() {
+    final j = kWindowTabs;
+    if (j == null) return null;
+    try {
+      final tabs = [for (final x in (jsonDecode(j) as List)) ?DeskTab.fromJson(x)];
+      return tabs.isEmpty ? [DeskTab('launcher')] : tabs;
+    } catch (_) {
+      return [DeskTab('launcher')];
+    }
+  }
+
+  /// Kéo tab ra khỏi thanh tab (như Chrome): mở tab đó trong một cửa sổ mới (tiến trình app khác, cùng máy chủ và
+  /// phiên đăng nhập), đặt cửa sổ mới ngay chỗ thả chuột, rồi bỏ tab khỏi cửa sổ này.
+  Future<void> _detachDeskTab(DeskTab t, Offset at) async {
+    if (!isDesktop || _deskTabs.length < 2 || !_deskTabs.contains(t) || t.kind == 'meet') return;
+    final app = _tabApp[t.id];
+    final json = t.kind == 'launcher' && app != null ? DeskTab('mini', arg: app, id: t.id).toJson() : (t.toJson()..remove('pinned'));
+    if (!DeskTab.kinds.contains(json['kind'])) return;
+    List<double>? frame;
+    try {
+      final f = await const MethodChannel('flygo/window').invokeListMethod<double>('getFrame');
+      if (f != null && f.length == 4 && mounted) {
+        final w = math.max(f[2] * .8, 720.0), h = math.max(f[3] * .8, 520.0);
+        // Tab mới nằm dưới con trỏ: cách mép trái ~100 px, mép trên ~20 px.
+        if (Platform.isMacOS) {
+          // macOS: điểm gốc ở góc dưới bên trái màn hình, đơn vị point.
+          final top = f[1] + f[3] - at.dy + 20;
+          frame = [f[0] + at.dx - 100, top - h, w, h];
+        } else {
+          final r = Platform.isWindows ? MediaQuery.devicePixelRatioOf(context) : 1.0;
+          frame = [f[0] + (at.dx - 100) * r, f[1] + (at.dy - 20) * r, w, h];
+        }
+      }
+    } catch (_) {}
+    try {
+      await Process.start(
+          Platform.resolvedExecutable,
+          [
+            '--tabs=${base64Url.encode(utf8.encode(jsonEncode([json])))}',
+            if (frame != null) '--frame=${frame.map((v) => v.round()).join(',')}',
+            if (kServerUrl.isNotEmpty) '--server=$kServerUrl',
+          ],
+          mode: ProcessStartMode.detached);
+    } catch (e) {
+      debugPrint('[tabs] tách tab: $e');
+      return;
+    }
+    if (!mounted) return;
+    final i = _deskTabs.indexOf(t);
+    if (i < 0) return;
+    t.pinned = false;
+    _closeDeskTab(i);
+    // Tab đã sang cửa sổ khác: không mở lại bằng Ctrl+Shift+T ở đây.
+    _closedTabs.remove(t);
   }
 
   void _reopenClosedTab() {
@@ -699,10 +761,18 @@ class _HomePageState extends State<HomePage> {
       _syncPaneFocus();
     });
     // Các tab máy tính lần trước.
-    _app.loadDeskTabs().then((j) {
-      if (!mounted) return;
-      _tabsTouched ? setState(() => _tabsRestored = true) : _restoreTabs(j);
-    });
+    // Cửa sổ tab tách ra (kéo tab ra ngoài): chỉ có các tab mang sang, không đọc / ghi các tab của cửa sổ chính.
+    final torn = _tornTabs();
+    if (torn != null) {
+      _deskTabs = torn;
+      _deskCur = 0;
+      _tabsRestored = true;
+    } else {
+      _app.loadDeskTabs().then((j) {
+        if (!mounted) return;
+        _tabsTouched ? setState(() => _tabsRestored = true) : _restoreTabs(j);
+      });
+    }
     // Phím tắt: tab (Ctrl/Cmd+T, W, Tab, 1..9, Shift+T), chuyển nhanh tới chat (Ctrl/Cmd+K).
     HardwareKeyboard.instance.addHandler(_onKey);
     // Cửa sổ riêng tách từ các ô: mở lại các cửa sổ còn mở lúc thoát app lần trước.
@@ -2090,6 +2160,7 @@ class _HomePageState extends State<HomePage> {
             onNew: () => _openTab(DeskTab('launcher')),
             onTogglePin: _togglePinTab,
             onCloseOthers: _closeOtherTabs,
+            onDetach: isDesktop ? _detachDeskTab : null,
             trailing: ServerChip(onSelected: _switchServer),
           ),
           Expanded(

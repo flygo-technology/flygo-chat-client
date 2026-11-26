@@ -100,6 +100,10 @@ class DeskTabBar extends StatelessWidget {
 
   /// Sát lề phải thanh tab (vd nút chuyển máy chủ).
   final Widget? trailing;
+
+  /// Kéo tab ra xa thanh tab rồi thả (như Chrome): tách tab [t] ra cửa sổ mới, [global] là chỗ thả (toạ độ trong
+  /// cửa sổ, có thể ở ngoài cửa sổ). null = không tách được (vd chỉ có một tab).
+  final void Function(DeskTab t, Offset global)? onDetach;
   const DeskTabBar({
     super.key,
     required this.tabs,
@@ -112,7 +116,17 @@ class DeskTabBar extends StatelessWidget {
     required this.onTogglePin,
     required this.onCloseOthers,
     this.trailing,
+    this.onDetach,
   });
+
+  /// Tab đang được nhấn chuột (chờ xem có bị kéo ra ngoài không) và chỗ con trỏ lúc này. Mỗi cửa sổ một thanh tab.
+  static DeskTab? _pressed;
+  static Offset? _pointer;
+
+  /// Thả chuột ở [global] (toạ độ trong cửa sổ): đã kéo ra xa thanh tab [bar] chưa (trên / dưới quá 48 px, hoặc ra
+  /// ngoài hai bên).
+  static bool tornOff(Rect bar, Offset global) =>
+      global.dy < bar.top - 48 || global.dy > bar.bottom + 48 || global.dx < bar.left - 24 || global.dx > bar.right + 24;
 
   Future<void> _menu(BuildContext context, int i, Offset at) async {
     final pal = Pal.of(context);
@@ -157,7 +171,31 @@ class DeskTabBar extends StatelessWidget {
     final pal = Pal.of(context);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final barBg = dark ? Color.lerp(pal.bg, Colors.black, .35)! : Color.lerp(pal.bg, Colors.black, .05)!;
-    return Container(
+    void release() {
+      final t = _pressed, at = _pointer;
+      _pressed = null;
+      _pointer = null;
+      final box = context.findRenderObject();
+      if (t == null || at == null || onDetach == null || tabs.length < 2 || box is! RenderBox || !box.hasSize) return;
+      final bar = box.localToGlobal(Offset.zero) & box.size;
+      if (!tornOff(bar, at)) return;
+      // Để thanh tab xếp xong (thả khi đang kéo đổi chỗ) rồi mới tách.
+      WidgetsBinding.instance.addPostFrameCallback((_) => onDetach!(t, at));
+    }
+
+    return Listener(
+      onPointerMove: (e) {
+        if (_pressed != null) _pointer = e.position;
+      },
+      onPointerUp: (e) {
+        if (_pressed != null) _pointer = e.position;
+        release();
+      },
+      onPointerCancel: (_) {
+        _pressed = null;
+        _pointer = null;
+      },
+      child: Container(
       height: 42,
       color: barBg,
       padding: const EdgeInsets.only(left: 8, top: 6),
@@ -193,6 +231,10 @@ class DeskTabBar extends StatelessWidget {
                               onPointerDown: (e) {
                                 // Nháy chuột giữa: đóng tab (tab ghim thì không).
                                 if (e.buttons == 4 && !t.pinned) onClose(i);
+                                if (e.buttons == 1) {
+                                  _pressed = t;
+                                  _pointer = e.position;
+                                }
                               },
                               child: GestureDetector(
                                 onTap: () => onSelect(i),
@@ -274,6 +316,7 @@ class DeskTabBar extends StatelessWidget {
           const SizedBox(width: 10),
         ],
       ),
+    ),
     );
   }
 }

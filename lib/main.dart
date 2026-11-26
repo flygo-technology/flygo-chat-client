@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:async';
 import 'i18n/i18n.dart';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'browser/browser_pairing.dart';
 import 'browser/flygo_browser_host.dart';
 import 'browser/flygo_browser_loading.dart';
@@ -138,6 +140,18 @@ Future<void> main(List<String> args) async {
       ? args.where((a) => a.startsWith('--miniapp=')).map((a) => a.substring(10)).where((s) => s.isNotEmpty).firstOrNull
       : null;
   kWindowAddServer = args.contains('--add-server');
+  // Cửa sổ tab tách ra (kéo tab ra khỏi thanh tab): các tab của cửa sổ này và vị trí cửa sổ (`--frame=x,y,w,h`).
+  final tabsArg = kWindowChannel == null && !kWindowRc && kWindowKyso == null && kWindowMiniApp == null
+      ? args.where((a) => a.startsWith('--tabs=')).map((a) => a.substring(7)).where((s) => s.isNotEmpty).firstOrNull
+      : null;
+  if (tabsArg != null) {
+    try {
+      kWindowTabs = utf8.decode(base64Url.decode(base64Url.normalize(tabsArg)));
+    } catch (_) {}
+  }
+  final tabFrame = kWindowTabs == null
+      ? null
+      : args.where((a) => a.startsWith('--frame=')).map((a) => a.substring(8).split(',').map(double.tryParse).toList()).firstOrNull;
   kStartHidden = args.contains('--hidden');
   final section = args.where((a) => a.startsWith('--section=')).map((a) => a.substring(10)).firstOrNull;
   if (section != null && PaneSections.all.contains(section) && kWindowChannel == null) kWindowSection = section;
@@ -158,6 +172,9 @@ Future<void> main(List<String> args) async {
   if (Platform.isMacOS) unawaited(FilePicker.skipEntitlementsChecks().catchError((_) {}));
   // Cửa sổ riêng đã mở rồi thì nhờ cửa sổ đó hiện lên và thoát; đặt lại vị trí / kích thước lần trước.
   if (kWindowPopout) await _initStep('cửa sổ riêng', () => PopoutWindows.startChild(popout!));
+  if (tabFrame != null && tabFrame.length == 4 && !tabFrame.contains(null)) {
+    await _initStep('cửa sổ tab', () => const MethodChannel('flygo/window').invokeMethod('setFrame', tabFrame));
+  }
   KysoWindows.parentKey = args.where((a) => a.startsWith('--kyso-key=')).map((a) => a.substring(11)).where((s) => s.isNotEmpty).firstOrNull;
   if (kWindowKyso != null) await _initStep('cửa sổ Ký số', () => KysoWindows.startChild(kWindowKyso!));
   MiniAppWindows.parentKey = args.where((a) => a.startsWith('--miniapp-key=')).map((a) => a.substring(14)).where((s) => s.isNotEmpty).firstOrNull;
@@ -177,7 +194,7 @@ Future<void> main(List<String> args) async {
   unawaited(_initStep('khay', DesktopTray.init, limit: const Duration(seconds: 60)));
   // Cập nhật app, thông báo: chỉ cửa sổ chính (cửa sổ riêng khởi động nhẹ, không báo trùng).
   if (!isChildWindow) Updater.start();
-  if (!kWindowPopout && kWindowKyso == null && kWindowMiniApp == null) await _initStep('push', PushService.init);
+  if (!kWindowPopout && kWindowTabs == null && kWindowKyso == null && kWindowMiniApp == null) await _initStep('push', PushService.init);
   // Ký số (lib/kyso): nút "Mở bằng trình duyệt ký số" của Quy trình gọi qua MagicSignHooks.
   KysoApi.register();
   initMark('runApp');
