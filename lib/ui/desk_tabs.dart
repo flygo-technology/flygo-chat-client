@@ -123,6 +123,90 @@ class DeskTabBar extends StatelessWidget {
   static DeskTab? _pressed;
   static Offset? _pointer;
 
+  /// Tab đang kéo đã ra khỏi thanh tab (hiện "cửa sổ ma" bay theo con trỏ như Chrome, ẩn bản kéo trong thanh tab).
+  static final _torn = ValueNotifier<bool>(false);
+  static final _ghostAt = ValueNotifier<Offset>(Offset.zero);
+  static OverlayEntry? _ghost;
+
+  static void _hideGhost() {
+    _ghost?.remove();
+    _ghost = null;
+    _torn.value = false;
+  }
+
+  /// Cửa sổ ma: tab đang kéo nằm trên một khung cửa sổ thu nhỏ, bóng đổ, hơi nghiêng lúc vừa bung ra.
+  void _showGhost(BuildContext context, DeskTab t) {
+    if (_ghost != null) return;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    final pal = Pal.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final l = label(t);
+    final barBg = dark ? Color.lerp(pal.bg, Colors.black, .35)! : Color.lerp(pal.bg, Colors.black, .05)!;
+    _ghost = OverlayEntry(
+      builder: (_) => IgnorePointer(
+        child: ValueListenableBuilder<Offset>(
+          valueListenable: _ghostAt,
+          builder: (_, at, child) => Stack(children: [Positioned(left: at.dx - 90, top: at.dy - 18, child: child!)]),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutBack,
+            builder: (_, v, child) => Opacity(
+              opacity: v.clamp(0, 1),
+              child: Transform.scale(scale: .85 + .15 * v, alignment: Alignment.topLeft, child: child),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 340,
+                height: 230,
+                decoration: BoxDecoration(
+                  color: pal.bg,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: pal.sub.withValues(alpha: .25)),
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: dark ? .55 : .25), blurRadius: 28, offset: const Offset(0, 12))],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  // Thanh tab thu nhỏ của cửa sổ mới: chỉ có tab đang kéo.
+                  Container(
+                    height: 36,
+                    color: barBg,
+                    padding: const EdgeInsets.only(left: 8, top: 6),
+                    alignment: Alignment.bottomLeft,
+                    child: Container(
+                      width: 180,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(color: pal.bg, borderRadius: const BorderRadius.vertical(top: Radius.circular(9))),
+                      child: Row(children: [
+                        SizedBox(width: 18, height: 18, child: Center(child: l.icon)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(l.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12.5, color: pal.text, fontWeight: FontWeight.w600)),
+                        ),
+                      ]),
+                    ),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Opacity(opacity: .35, child: Transform.scale(scale: 2.2, child: l.icon)),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_ghost!);
+    _torn.value = true;
+  }
+
   /// Thả chuột ở [global] (toạ độ trong cửa sổ): đã kéo ra xa thanh tab [bar] chưa (trên / dưới quá 48 px, hoặc ra
   /// ngoài hai bên).
   static bool tornOff(Rect bar, Offset global) =>
@@ -175,6 +259,7 @@ class DeskTabBar extends StatelessWidget {
       final t = _pressed, at = _pointer;
       _pressed = null;
       _pointer = null;
+      _hideGhost();
       final box = context.findRenderObject();
       if (t == null || at == null || onDetach == null || tabs.length < 2 || box is! RenderBox || !box.hasSize) return;
       final bar = box.localToGlobal(Offset.zero) & box.size;
@@ -185,7 +270,19 @@ class DeskTabBar extends StatelessWidget {
 
     return Listener(
       onPointerMove: (e) {
-        if (_pressed != null) _pointer = e.position;
+        final t = _pressed;
+        if (t == null) return;
+        _pointer = e.position;
+        final box = context.findRenderObject();
+        if (onDetach == null || tabs.length < 2 || box is! RenderBox || !box.hasSize) return;
+        final bar = box.localToGlobal(Offset.zero) & box.size;
+        _ghostAt.value = e.position;
+        // Kéo ra khỏi thanh tab: tab bung thành cửa sổ ma; kéo lại vào thanh tab thì gắn lại.
+        if (tornOff(bar, e.position)) {
+          _showGhost(context, t);
+        } else if (_ghost != null) {
+          _hideGhost();
+        }
       },
       onPointerUp: (e) {
         if (_pressed != null) _pointer = e.position;
@@ -194,6 +291,7 @@ class DeskTabBar extends StatelessWidget {
       onPointerCancel: (_) {
         _pressed = null;
         _pointer = null;
+        _hideGhost();
       },
       child: Container(
       height: 42,
@@ -219,7 +317,16 @@ class DeskTabBar extends StatelessWidget {
                         buildDefaultDragHandles: false,
                         itemCount: tabs.length,
                         onReorderItem: (a, b) => onMove(a, b),
-                        proxyDecorator: (child, _, _) => Material(color: Colors.transparent, child: child),
+                        proxyDecorator: (child, _, _) => ValueListenableBuilder<bool>(
+                          valueListenable: _torn,
+                          // Tab đã bung ra cửa sổ ma: ẩn bản kéo trong thanh tab.
+                          builder: (_, torn, c) => AnimatedOpacity(
+                            opacity: torn ? 0 : 1,
+                            duration: const Duration(milliseconds: 120),
+                            child: c,
+                          ),
+                          child: Material(color: Colors.transparent, child: child),
+                        ),
                         itemBuilder: (context, i) {
                           final t = tabs[i];
                           final l = label(t);
