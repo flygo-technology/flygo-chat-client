@@ -62,6 +62,7 @@ void main() {
   testWidgets('máy tính: nháy phải vào chữ mở menu tin', (t) async {
     var more = 0;
     await t.pumpWidget(bubble(platform: TargetPlatform.linux, desktop: true, onMore: () => more++));
+    await t.pump(); // vùng chọn lồng (giữ xuống dòng) đăng ký sau một khung hình
     final g = await t.startGesture(t.getCenter(find.text(text)), kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
     await g.up();
     await t.pumpAndSettle();
@@ -148,4 +149,24 @@ void main() {
       expect(swiped, 1);
     });
   }
+
+  testWidgets('chọn nhiều dòng / đoạn: phần chép giữ dấu xuống dòng', (t) async {
+    String? copied;
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+      return null;
+    });
+    await t.pumpWidget(MaterialApp(
+      theme: ThemeData(platform: TargetPlatform.linux),
+      home: Scaffold(body: MessageTextSelection(desktop: true, onMore: () {},
+          child: const Column(children: [Text('dòng 1'), Text('dòng 2'), Text('dòng 3')]))),
+    ));
+    await t.pump();
+    final region = t.state<SelectableRegionState>(find.byType(SelectableRegion));
+    region.selectAll();
+    await t.pump();
+    region.copySelection(SelectionChangedCause.keyboard);
+    await t.pump();
+    expect(copied, 'dòng 1\ndòng 2\ndòng 3');
+  });
 }

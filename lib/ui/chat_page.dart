@@ -4725,30 +4725,8 @@ class _ComposerState extends State<_Composer> {
   Widget _agentPicker(AppState app, Pal pal, MmUser bot, AgentOptions o,
       {required bool showName, bool filled = false, GlobalKey<PopupMenuButtonState<String>>? key}) {
     final (model, effort) = _configOf(app, bot, o);
-    final sonnet = sonnetModelOf(o);
-    final picker = _modelPopup(app, pal, bot, o, model, effort, showName: showName, filled: filled, key: key);
-    if (sonnet == null || !isPremiumModel(model)) return picker;
-    // Một chạm đổi sang Sonnet khi đang dùng Opus / Fable (không tự đổi lựa chọn đã lưu).
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      picker,
-      const SizedBox(width: 6),
-      Tooltip(
-        message: tr('Đổi sang {0}: nhanh hơn, tiết kiệm hơn', [modelLabel(sonnet)]),
-        child: InkWell(
-          key: const ValueKey('to-sonnet'),
-          borderRadius: BorderRadius.circular(16),
-          onTap: () async {
-            await app.setAgentConfig(bot.id, sonnet, effort);
-            if (mounted) setState(() {});
-          },
-          child: _ChipLook(pal: pal, filled: filled, child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.bolt_rounded, size: 15, color: pal.accent),
-            const SizedBox(width: 4),
-            Text(modelLabel(sonnet).replaceFirst('Claude ', ''), style: TextStyle(fontSize: 13, color: pal.text)),
-          ])),
-        ),
-      ),
-    ]);
+    // Bỏ nút một chạm đổi sang Sonnet (Sếp 2026-11-26): chọn model trong popover.
+    return _modelPopup(app, pal, bot, o, model, effort, showName: showName, filled: filled, key: key);
   }
 
   Widget _modelPopup(AppState app, Pal pal, MmUser bot, AgentOptions o, String model, String effort,

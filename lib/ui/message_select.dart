@@ -37,8 +37,13 @@ class _MessageTextSelectionState extends State<MessageTextSelection> {
       if (!mounted) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        HapticFeedback.selectionClick();
-        _area.currentState?.selectableRegion.selectAll(SelectionChangedCause.toolbar);
+        // Thêm một khung hình: vùng chọn lồng (_LineContainer) đăng ký với vùng chọn ngoài chậm hơn một nhịp.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          HapticFeedback.selectionClick();
+          _area.currentState?.selectableRegion.selectAll(SelectionChangedCause.toolbar);
+        });
+        WidgetsBinding.instance.scheduleFrame();
       });
       WidgetsBinding.instance.scheduleFrame();
     });
@@ -81,7 +86,8 @@ class _MessageTextSelectionState extends State<MessageTextSelection> {
             ],
           );
         },
-        child: widget.child,
+        // Mỗi đoạn / dòng của tin là một Text riêng: gộp phần chọn bằng xuống dòng (mặc định Flutter nối liền).
+        child: _LineContainer(child: widget.child),
       );
 
   @override
@@ -109,4 +115,36 @@ class SwipeDragRecognizer extends HorizontalDragGestureRecognizer {
 
   @override
   bool isPointerAllowed(PointerEvent event) => !HardwareKeyboard.instance.isShiftPressed && super.isPointerAllowed(event);
+}
+
+/// Sao chép phần chọn trải nhiều Text (đoạn, dòng, mục danh sách): nối các phần bằng dấu xuống dòng.
+class _LineSelectionDelegate extends StaticSelectionContainerDelegate {
+  @override
+  SelectedContent? getSelectedContent() {
+    final parts = <String>[];
+    for (final s in selectables) {
+      final t = s.getSelectedContent()?.plainText;
+      if (t != null && t.isNotEmpty) parts.add(t);
+    }
+    return parts.isEmpty ? null : SelectedContent(plainText: parts.join('\n'));
+  }
+}
+
+class _LineContainer extends StatefulWidget {
+  final Widget child;
+  const _LineContainer({required this.child});
+  @override
+  State<_LineContainer> createState() => _LineContainerState();
+}
+
+class _LineContainerState extends State<_LineContainer> {
+  final _delegate = _LineSelectionDelegate();
+  @override
+  void dispose() {
+    _delegate.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SelectionContainer(delegate: _delegate, child: widget.child);
 }
