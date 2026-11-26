@@ -4731,6 +4731,7 @@ class _ComposerState extends State<_Composer> {
 
   Widget _modelPopup(AppState app, Pal pal, MmUser bot, AgentOptions o, String model, String effort,
       {required bool showName, bool filled = false, GlobalKey<PopupMenuButtonState<String>>? key}) {
+    final actual = agentActualModelOf(app, widget.channelId, bot.id, model);
     return PopupMenuButton<String>(
       key: key,
       tooltip: tr('Mô hình và mức thông minh'),
@@ -4788,12 +4789,18 @@ class _ComposerState extends State<_Composer> {
         pal: pal,
         filled: filled,
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          EngineIcon(o.engine, size: 15, color: pal.text),
+          if (actual != null)
+            Tooltip(
+              message: tr('Mô hình đã chọn từ chối nội dung phiên này, đang chạy mô hình dự phòng'),
+              child: Icon(Icons.warning_amber_rounded, size: 15, color: Colors.orange.shade400),
+            )
+          else
+            EngineIcon(o.engine, size: 15, color: pal.text),
           const SizedBox(width: 7),
           // Thiếu chỗ thì chữ tự rút gọn (…), không tràn ra viền nút.
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 150),
-            child: Text('${showName ? '@${bot.username} · ' : ''}${modelLabel(model)}',
+            child: Text('${showName ? '@${bot.username} · ' : ''}${modelLabel(model)}${actual == null ? '' : ' → ${modelLabel(actual)}'}',
                 maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, style: TextStyle(fontSize: 13, color: pal.text)),
           ),
           const SizedBox(width: 8),

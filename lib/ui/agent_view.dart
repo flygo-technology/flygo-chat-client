@@ -940,6 +940,22 @@ class AgentApprovalBar extends StatelessWidget {
   return null;
 }
 
+/// Mô hình thật đã trả lời lượt gần nhất của [bot] trong chat [channelId] khi khác mô hình đã chọn [chosen]
+/// (Claude Code tự chuyển model dự phòng khi model chọn bị bộ lọc an toàn chặn; runner ghi usage.model). null nếu khớp / chưa rõ.
+String? agentActualModelOf(AppState app, String channelId, String botId, String chosen) {
+  for (final p in app.postsOf(channelId)) {
+    if (p.userId != botId) continue;
+    final r = agentRunOf(p);
+    final u = r?['usage'] as Map?;
+    if (u == null) continue;
+    final asked = (r?['config'] as Map?)?['model'] as String?;
+    final real = u['model'] as String?;
+    if (asked != chosen || real == null || real.isEmpty) return null; // đã đổi lựa chọn sau lượt đó: chưa biết
+    return real == chosen ? null : real;
+  }
+  return null;
+}
+
 String _kTokens(int n) => n >= 1000000 ? '${(n / 1000000).toStringAsFixed(n % 1000000 == 0 ? 0 : 1)}M' : '${(n / 1000).round()}k';
 
 // ---------------------------------------------------------------- hạn mức sử dụng của engine
