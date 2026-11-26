@@ -486,6 +486,12 @@ export class ClaudeEngine implements Engine {
       st.sessionId = ev.session_id; hooks.session(st.sessionId);
       if (Array.isArray(ev.skills)) this.initSkills = ev.skills.map(String);
     }
+    // Claude Code tự đổi model khi model chọn bị bộ lọc an toàn chặn (scope "session": cả phiên chạy model dự phòng).
+    else if (ev.type === "system" && ev.subtype === "model_refusal_fallback") {
+      const from = modelName(ev.originalModel), to = modelName(ev.fallbackModel);
+      hooks.step({ id: `model-fallback-${Date.now()}`, kind: "thinking", title: `⚠️ ${from || "Model đã chọn"} từ chối nội dung này${ev.apiRefusalCategory ? ` (${ev.apiRefusalCategory})` : ""}, Claude Code đã tự chuyển sang ${to || "model dự phòng"}${ev.scope === "session" ? " cho cả phiên" : ""}`, status: "done" });
+      if (ev.fallbackModel) st.model = String(ev.fallbackModel);
+    }
     else if (ev.type === "rate_limit_event") this.limits = claudeLimits(ev.rate_limit_info, this.limits);
     else if (ev.type === "stream_event") {
       const e = ev.event;
@@ -493,6 +499,7 @@ export class ClaudeEngine implements Engine {
       else if (e?.type === "content_block_delta" && e.delta?.type === "text_delta" && st.curMsg) hooks.text({ id: st.curMsg, delta: e.delta.text });
     }
     else if (ev.type === "assistant") {
+      if (ev.message?.model && ev.message.model !== "<synthetic>") st.model = String(ev.message.model);
       const u = ev.message?.usage;
       if (u) st.ctxTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
       for (const c of ev.message?.content ?? []) {
@@ -523,7 +530,7 @@ export class ClaudeEngine implements Engine {
       st.final = ev.result ?? "";
       st.isError = !!ev.is_error;
       const win = Math.max(0, ...Object.values<any>(ev.modelUsage ?? {}).map((m) => Number(m?.contextWindow) || 0));
-      st.usage = { cost_usd: ev.total_cost_usd, duration_ms: ev.duration_ms, ...ev.usage, ...(st.ctxTokens ? { contextTokens: st.ctxTokens } : {}), ...(win ? { contextWindow: win } : {}) };
+      st.usage = { cost_usd: ev.total_cost_usd, duration_ms: ev.duration_ms, ...ev.usage, ...(st.ctxTokens ? { contextTokens: st.ctxTokens } : {}), ...(win ? { contextWindow: win } : {}), ...(st.model ? { model: st.model } : {}) };
       if (ev.session_id) st.sessionId = ev.session_id;
     }
   }
@@ -531,7 +538,7 @@ export class ClaudeEngine implements Engine {
 
 
 /** Trạng thái của một lượt (một "result"). */
-export interface TurnState { sessionId: string; final: string; usage: any; isError: boolean; curMsg: string; ctxTokens: number; tools: Map<string, { name: string; input: any }>; readAcks: Map<string, () => void> }
+export interface TurnState { sessionId: string; final: string; usage: any; isError: boolean; curMsg: string; ctxTokens: number; model?: string; tools: Map<string, { name: string; input: any }>; readAcks: Map<string, () => void> }
 export const newTurnState = (sessionId?: string): TurnState => ({ sessionId: sessionId ?? "", final: "", usage: undefined, isError: false, curMsg: "", ctxTokens: 0, tools: new Map(), readAcks: new Map() });
 
 const LINGER_MS = 15_000;
@@ -547,4 +554,10 @@ export function killTree(pid: number) {
   };
   walk(pid);
   for (const p of all.reverse()) try { process.kill(p, "SIGTERM"); } catch {}
+}
+
+/** claude-opus-4-8 -> "Opus 4.8"; id lạ giữ nguyên. */
+export function modelName(id: unknown): string {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(String(id ?? ""));
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ""}` : String(id ?? "");
 }
