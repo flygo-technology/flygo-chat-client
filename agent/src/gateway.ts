@@ -174,6 +174,15 @@ export function createGatewayRuns(o: {
       try { const t = await fresh(run); return { via: t.via, ...(run.reduced ? { reduced: run.reduced } : {}) }; }
       catch (e: any) { note(key, run, e); return null; }
     },
+    /** Trạng thái vé của lượt (không có vé / token): để tool_call nói rõ vì sao thiếu tool app. */
+    async status(key: string): Promise<{ enabled: boolean; active?: boolean; via?: Ticket["via"]; reduced?: string; failed?: string }> {
+      if (!enabled) return { enabled: false };
+      const run = runs.get(key);
+      if (!run) return { enabled: true, active: false };
+      let via: Ticket["via"] | undefined;
+      try { via = (await fresh(run)).via; } catch (e: any) { note(key, run, e); }
+      return { enabled: true, active: true, ...(via ? { via } : {}), ...(run.reduced ? { reduced: run.reduced } : {}), ...(run.failed ? { failed: run.failed } : {}) };
+    },
     end(key: string) { runs.delete(key); },
     /** Tool của gateway cho lượt; lỗi thì trả rỗng (ghi log một lần). */
     async tools(key: string): Promise<GatewayTool[]> {
@@ -185,6 +194,7 @@ export function createGatewayRuns(o: {
           if (j.error) throw new GatewayError(j.error.message);
           const tools = (j.result?.tools ?? []) as GatewayTool[];
           if (tools.length) lastTools = tools;
+          run.failed = undefined; // đã thông lại
           return tools;
         } catch (e) {
           if (i === 1) {
@@ -208,6 +218,7 @@ export function createGatewayRuns(o: {
           if (kind === "forbidden") return err(`Không có quyền dùng tool ${name}: ${j.error.message}`);
           return err(`Gateway báo lỗi${kind ? ` (${kind})` : ""}: ${j.error.message}`);
         }
+        run.failed = undefined;
         return j.result;
       } catch (e: any) {
         note(key, run, e);

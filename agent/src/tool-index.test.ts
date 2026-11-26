@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ToolIndex, appOf, compactSchema, toolCallNeedsApproval } from "./tool-index";
+import { ToolIndex, appOf, compactSchema, missingToolReason, toolCallNeedsApproval } from "./tool-index";
 import fixture from "./tool-index.fixture.json";
 
 // Chỉ mục = 493 tool app thật (tên + tiêu đề từ manifest Flygo ID homelab, 2026-11-25) + một ít tool của bot.
@@ -55,4 +55,22 @@ test("tool_call xin duyệt như gọi thẳng", () => {
   expect(toolCallNeedsApproval("vn_flygo_mail__mail_send_draft", { gateway: true, selfApproving: false, allowed })).toBe(false); // gateway tự xin duyệt tool ghi
   expect(toolCallNeedsApproval("run_command", { gateway: false, selfApproving: true, allowed })).toBe(false); // tự xin duyệt bên trong
   expect(toolCallNeedsApproval("skill_save", { gateway: false, selfApproving: false, allowed: "*" })).toBe(false); // codex / agy: cả server được phép
+});
+
+test("tool_call thiếu tool app: nói rõ lý do thay vì \"không có tool trong lượt này\"", () => {
+  const mk = (names: string[]) => new ToolIndex(names.map((name) => ({ name, description: name, inputSchema: { type: "object" } })));
+  const T = "vn_flygo_mail__mail_save_draft";
+  const withMail = mk(["chat_send", "vn_flygo_mail__mail_list", "vn_flygo_mail__mail_upload_attachment"]);
+  const noMail = mk(["chat_send", "vn_flygo_web_drive__drive_list"]);
+  const ok = { enabled: true, active: true, via: "receipt" as const };
+  expect(missingToolReason(T, { role: "callee", runner: true, status: null, idx: noMail })).toContain("A2A");
+  expect(missingToolReason(T, { runner: false, status: null, idx: noMail })).toContain("runner");
+  expect(missingToolReason(T, { runner: true, status: { enabled: false }, idx: noMail })).toContain("flygoId");
+  expect(missingToolReason(T, { runner: true, status: { enabled: true, active: false }, idx: noMail })).toContain("tin kích hoạt");
+  expect(missingToolReason(T, { runner: true, status: { ...ok, failed: "gateway: HTTP 502" }, idx: noMail })).toContain("HTTP 502");
+  expect(missingToolReason(T, { runner: true, status: { enabled: true, active: true, via: "agent", reduced: "chủ bot chưa lập đồng ý chạy thay" }, idx: noMail })).toContain("chưa lập đồng ý");
+  expect(missingToolReason(T, { runner: true, status: ok, idx: noMail })).toContain("chưa được cấp app mail");
+  const r = missingToolReason(T, { runner: true, status: ok, idx: withMail });
+  expect(r).toContain("có 2 tool khác");
+  expect(missingToolReason("chat_sendx", { runner: true, status: ok, idx: withMail })).toContain("Tìm bằng tool_search");
 });

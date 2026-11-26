@@ -194,3 +194,22 @@ describe("đồng ý chạy thay (lượt vắng mặt có đủ tool)", () => {
     expect(mints(b.calls).at(-1)).toEqual({ audience: "vn.flygo.gateway" });
   });
 });
+
+describe("trạng thái vé (tool_call nói rõ vì sao thiếu tool)", () => {
+  test("không bật / lượt không có / có biên nhận / gateway lỗi rồi thông lại", async () => {
+    const off = createGatewayRuns({ serverUrl: SERVER, botToken: "x", log: () => {} });
+    expect(await off.status("r1")).toEqual({ enabled: false });
+    const { gw } = setup({ receipt: "rc.jwt" });
+    expect(await gw.status("nope")).toEqual({ enabled: true, active: false });
+    gw.start("r1", "p1");
+    expect(await gw.status("r1")).toEqual({ enabled: true, active: true, via: "receipt" });
+    expect(JSON.stringify(await gw.status("r1"))).not.toContain("tk");
+    const down = setup({ receipt: null, failLists: 2 });
+    down.gw.start("r2", "p2");
+    await down.gw.tools("r2");
+    expect((await down.gw.status("r2")).failed).toContain("timed out");
+    await down.gw.tools("r2");
+    expect((await down.gw.status("r2")).failed).toBeUndefined();
+    expect((await down.gw.status("r2")).via).toBe("agent");
+  });
+});

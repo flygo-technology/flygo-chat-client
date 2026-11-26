@@ -16,6 +16,7 @@ import { join, resolve, sep } from "node:path";
 import defaultPersona from "../profiles/default/persona.md" with { type: "text" };
 import compactPersona from "../profiles/default/persona-compact.md" with { type: "text" };
 import { RunCard, agentLinkOf, type AgentLink, type StepQuestion } from "./card";
+import { pickEffort, pickModel } from "./model-pick";
 import { AGY_DEFAULT_MODEL, agentOptions, CONFIG_DIR, ENGINE_NAMES, engineLabel, resolveBin, type Config, type EngineName } from "./config";
 import { doctor } from "./doctor";
 import { ALWAYS_OK as CLAUDE_ALWAYS_OK, CLAUDE_ALIASES, ClaudeEngine } from "./engines/claude";
@@ -630,6 +631,10 @@ const http = Bun.serve({
       const { key } = await req.json();
       return Response.json({ tools: await gateway.tools(String(key ?? "")) });
     }
+    if (url.pathname === "/gateway/status" && req.method === "POST") { // mcp-chat: vì sao lượt thiếu tool app (không lộ vé)
+      const { key } = await req.json();
+      return Response.json(await gateway.status(String(key ?? "")));
+    }
     if (url.pathname === "/gateway/call" && req.method === "POST") {
       const { key, name, arguments: args } = await req.json();
       return Response.json(await gateway.call(String(key ?? ""), String(name ?? ""), args));
@@ -671,7 +676,9 @@ const toolPinsByScope = new Map<string, string[]>();
 function mcpEnvFor(scope: string, e: Record<string, string>) {
   const full = { ...e, RUNNER_URL: `http://127.0.0.1:${http.port}`, SCOPE: scope, PORT_FILE: portFile, FLYGO_CMD_TIMEOUT_SEC: String(cmdTimeoutSec()), FLYGO_CMD_TIMEOUT_MAX_SEC: String(cmdTimeoutMaxSec()), FLYGO_ADB: cfg.adbDevices?.length ? "1" : "0",
     // Tìm tool khi cần (tool-index.ts): bộ lõi + tool_search; tool_call xin duyệt như engine (Claude: ngoài allowedTools thì hỏi).
-    FLYGO_TOOL_MODE: cfg.toolMode ?? "core", FLYGO_ALLOWED_TOOLS: allowedFlygoTools() };
+    FLYGO_TOOL_MODE: cfg.toolMode ?? "core", FLYGO_ALLOWED_TOOLS: allowedFlygoTools(),
+    // Thư mục được đọc tệp cho tool app (đính kèm thư, Office từ tệp trên máy): thư mục làm việc + projectRoots (app-files.ts).
+    FLYGO_FILE_ROOTS: JSON.stringify(cfg.projectRoots ?? []) };
   mcpCtx.set(scope, full);
   return full;
 }
@@ -2623,7 +2630,18 @@ async function sessOpTool(op: string, a: any): Promise<string> {
   const body = fork ? String(a.note ?? "").trim() : handoffText(a.handoff, fromTitle);
   if (!fork && body.replace(/^📋.*$/m, "").trim().length < 10) return "Thiếu nội dung bàn giao (handoff: goal, done, remaining, files, cautions).";
   const close = !fork && a.close_current === true;
-  const ok = await approve(fork ? `Tách phiên "${title}"${where}` : `${close ? "Chuyển sang" : "Tạo"} phiên mới "${title}"${where}${a.start ? (close ? " và làm tiếp ngay" : " và giao việc ngay") : ""}`,
+  // Model / mức suy nghĩ của phiên mới (session_new model?, effort?): chỉ trong danh sách bot dùng được.
+  let cfgNew: { model: string; effort: string } | null = null;
+  if (!fork && (a.model || a.effort)) {
+    const o = botOptions();
+    const model = a.model ? pickModel(String(a.model), o.models, inventory?.models ?? []) : o.default.model;
+    if (!model) return `Bot không có model "${a.model}". Dùng được: ${o.models.join(", ")}.`;
+    const effort = a.effort ? pickEffort(String(a.effort), o.efforts) : o.default.effort;
+    if (!effort) return `Không có mức suy nghĩ "${a.effort}". Dùng được: ${o.efforts.join(", ")}.`;
+    cfgNew = { model, effort };
+  }
+  const cfgText = cfgNew ? ` · ${cfgNew.model} · ${cfgNew.effort}` : "";
+  const ok = await approve(fork ? `Tách phiên "${title}"${where}` : `${close ? "Chuyển sang" : "Tạo"} phiên mới "${title}"${where}${cfgText}${a.start ? (close ? " và làm tiếp ngay" : " và giao việc ngay") : ""}`,
     fork ? (body || `Phiên mới nhớ mọi thứ đã bàn ở «${fromTitle}».`) : `${body}\n\n${close ? `Phiên «${fromTitle}» sẽ được đánh dấu xong.` : `Phiên «${fromTitle}» vẫn làm tiếp.`}`);
   if (!ok) return `Sếp không duyệt, chưa ${fork ? "tách" : "tạo"} phiên.`;
   // Phiên của luồng: giữ mốc luồng khi ở lại cùng nhóm.
@@ -2634,8 +2652,11 @@ async function sessOpTool(op: string, a: any): Promise<string> {
   const first = await mm.createPost({
     channel_id: c.id, root_id: "",
     message: fork ? `↳ Tách từ phiên «${fromTitle}». Em nhớ những gì đã bàn ở đó.${body ? `\n\n${body}` : ""}` : body,
-    props: { flygo_session_handoff: { kind: fork ? "fork" : "new", from: ch.id, to: c.id, title }, flygo_agent_owner: owner },
+    props: { flygo_session_handoff: { kind: fork ? "fork" : "new", from: ch.id, to: c.id, title }, flygo_agent_owner: owner,
+      // Cùng dạng app gửi khi người dùng chọn model: lượt đầu (start) dùng ngay, các tin sau không kèm cấu hình giữ theo turn_cfg.
+      ...(cfgNew ? { flygo_agent_config: { [BOT_NAME]: cfgNew } } : {}) },
   });
+  if (cfgNew) lastTurnCfg.set(mainKey(c.id), cfgNew.model, cfgNew.effort);
   log(`${fork ? "tách" : "chuyển"} phiên ${ch.id} -> ${c.id} "${title}"`);
   if (fork) {
     step(`Đã tách phiên: ${title}${where}`, "Tách phiên", "done", sessLink(first.id));
@@ -2645,7 +2666,7 @@ async function sessOpTool(op: string, a: any): Promise<string> {
     // Phiên hiện tại làm tiếp: chỉ báo đã mở phiên mới (bước trên thẻ có link), không đóng phiên này.
     step(`Đã tạo phiên mới: ${title}${where}`, "Phiên mới", "done", sessLink(first.id));
     if (a.start) startHandoff(first, c.id, owner, fromTitle, body);
-    return `Đã tạo phiên mới "${title}"${where} (id ${c.id}): ${sessLink(first.id)}. Phiên này VẪN LÀM TIẾP việc đang dở.${a.start ? " Phiên mới đã bắt tay làm theo bàn giao (song song, kết quả hiện ở đó)." : " Sếp nhắn ở phiên mới để giao việc."}`;
+    return `Đã tạo phiên mới "${title}"${where}${cfgText} (id ${c.id}): ${sessLink(first.id)}. Phiên này VẪN LÀM TIẾP việc đang dở.${a.start ? " Phiên mới đã bắt tay làm theo bàn giao (song song, kết quả hiện ở đó)." : " Sếp nhắn ở phiên mới để giao việc."}`;
   }
   // Chuyển hẳn: phiên cũ đánh dấu xong + trỏ sang phiên mới, kèm tin "đã chuyển".
   const h = String(ch.header ?? "").replace(/\[flygo-ai-done\]|\[flygo-ai-next \w+\]/g, "").replace(/\s+/g, " ").trim();
@@ -3045,7 +3066,7 @@ async function contextBlock(o: { ch: any; chain: Level[]; threadRoot: string; as
       `  · chỉ đọc / gửi ra chat khác khi việc cần; gửi thay người giao việc thì nói rõ đã gửi gì, ở đâu (kèm link).`,
       `- session_list() · session_read(session_id): xem các phiên AI khác của Sếp với bot này (chỉ chủ bot); muốn phiên đó làm / trả lời gì thì agent_send(target=session_id, message)`,
       `- session_transcript(session, part?, max_chars?, source?, export?): đọc bản ghi đầy đủ của một phiên (session_id, "here" = phiên này): bản ghi của engine trên máy (lời người dùng, trả lời, tool + kết quả) hoặc tin trên Flygo Chat (source="chat"); phân trang bằng before_entry / from_entry; đã che token / khoá (chỉ chủ bot)`,
-      ai ? `- session_rename(name) · session_fork(title, note?, project_id?) · session_new(title, handoff{goal, done, remaining, files, cautions}, start?, project_id?): quản lý phiên AI này. Đổi tên khi chủ đề đã khác tên phiên. Tách (fork, nhớ hết ngữ cảnh) khi muốn thử một hướng khác / làm song song một nhánh mà không làm rối phiên này. Phiên mới (sạch ngữ cảnh, kèm bàn giao) khi cần thêm một agent / phiên phụ trách việc khác (phiên này vẫn làm tiếp), start=true để phiên mới làm ngay; phiên đã quá dài thì close_current=true để chuyển hẳn (phiên này đánh dấu xong). Tách / phiên mới cần người giao việc duyệt; nên hỏi hoặc đề xuất trước khi tự làm.` : "",
+      ai ? `- session_rename(name) · session_fork(title, note?, project_id?) · session_new(title, handoff{goal, done, remaining, files, cautions}, start?, project_id?, model?, effort?): quản lý phiên AI này. Đổi tên khi chủ đề đã khác tên phiên. Tách (fork, nhớ hết ngữ cảnh) khi muốn thử một hướng khác / làm song song một nhánh mà không làm rối phiên này. Phiên mới (sạch ngữ cảnh, kèm bàn giao) khi cần thêm một agent / phiên phụ trách việc khác (phiên này vẫn làm tiếp), start=true để phiên mới làm ngay; phiên đã quá dài thì close_current=true để chuyển hẳn (phiên này đánh dấu xong). Tách / phiên mới cần người giao việc duyệt; nên hỏi hoặc đề xuất trước khi tự làm.` : "",
       owner ? `- project_list() · project_create(name, path?) · project_rename(project_id, name): dự án trợ lý của chủ bot (tab Agents); tạo dự án cần duyệt. Tạo phiên trong dự án bằng session_new / session_fork với project_id.` : "",
       ai ? `- spawn_task(title, prompt): giao một việc độc lập, tốn thời gian cho phiên con chạy ngầm (song song, không chờ); prompt phải đủ ngữ cảnh vì phiên con không thấy cuộc trò chuyện này; xong phiên con tự báo kết quả về đây; tối đa 5 việc ngầm cùng lúc` : "",
       `- update_plan(items | advance | done, start) · wrap_up(recap, blocked?): việc có từ 3 bước trở lên thì lập kế hoạch bằng update_plan ngay đầu lượt và advance mỗi khi xong một bước (app hiện checklist dưới thẻ); cuối lượt gọi wrap_up một lần với tóm tắt ngắn (CHỈ tóm tắt). Cần Sếp chọn / quyết định thì hỏi bằng thẻ câu hỏi (${ENGINE === "claude" ? "AskUserQuestion" : "ask_user"}) trước khi kết thúc lượt, không hỏi trong wrap_up`,

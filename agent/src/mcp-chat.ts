@@ -25,7 +25,8 @@ const POST_ARG = { type: "string", description: "id tin (26 ký tự, #id trong 
 import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
 import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
-import { APP_LABEL, CORE_TOOLS, ToolIndex, compactSchema, toolCallNeedsApproval } from "./tool-index";
+import { APP_LABEL, CORE_TOOLS, ToolIndex, compactSchema, missingToolReason, toolCallNeedsApproval } from "./tool-index";
+import { augmentDescription, augmentSchema, needsUpload, prepareAppArgs, readLocal, withNote, type LoadedFile } from "./app-files";
 import { BROWSER_LOCAL_TOOLS, BROWSER_LOCAL_TOOL_NAMES, browserLocalTool } from "./browser-local";
 import { ADB_TOOLS, ADB_TOOL_NAMES, adbPath } from "./adb-tools";
 
@@ -617,7 +618,37 @@ async function gatewayTools(): Promise<any[]> {
     const kind = String(t._meta?.["vn.flygo/kind"] ?? "write");
     gatewayKinds.set(t.name, kind === "write" && t._meta?.["vn.flygo/approval"] === "none" ? "write_free" : kind);
   }
-  return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }: any) => ({ name, ...(title ? { title } : {}), description, inputSchema, ...(outputSchema ? { outputSchema } : {}), ...(annotations ? { annotations } : {}) }));
+  for (const t of tools) gatewaySchemas.set(t.name, t.inputSchema);
+  // Mail đính kèm / Office: nhận thêm đường dẫn tệp trên máy, file_id trong chat (app-files.ts).
+  return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }: any) => ({ name, ...(title ? { title } : {}), description: augmentDescription(name, description, inputSchema), inputSchema: augmentSchema(name, inputSchema), ...(outputSchema ? { outputSchema } : {}), ...(annotations ? { annotations } : {}) }));
+}
+const gatewaySchemas = new Map<string, any>(); // schema gốc của app (trước khi thêm path / file_id)
+/** Bản Drive đã chép của tệp trên máy / trong chat (Office local_path / file_id), sống theo tiến trình MCP (phiên). */
+const driveCopies = new Map<string, string>();
+function fileRoots(): string[] {
+  let extra: string[] = [];
+  try { extra = JSON.parse(process.env.FLYGO_FILE_ROOTS || "[]"); } catch {}
+  return [WORKDIR, ...extra].filter(Boolean);
+}
+/** Tệp đính kèm trong chat cho tool app: cùng phạm vi đọc như chat_read_file (kênh hiện tại / các tầng trên). */
+async function loadChatFile(fileId: string, max: number, channel?: string): Promise<LoadedFile> {
+  const info = await mm.api<any>("GET", `/files/${fileId}/info`).catch(() => null);
+  if (!info) throw new Error(`không thấy tệp ${fileId} trong chat`);
+  await checkFileScope(info, channel);
+  if (Number(info.size) > max) throw new Error(`tệp ${info.name} ${(Number(info.size) / 1024 / 1024).toFixed(1)} MB, quá giới hạn ${(max / 1024 / 1024).toFixed(0)} MB`);
+  const r = await fetch(`${mm.url}/api/v4/files/${fileId}`, { headers: { Authorization: `Bearer ${process.env.MM_TOKEN}` } });
+  if (!r.ok) throw new Error(`không tải được tệp: HTTP ${r.status}`);
+  return { name: info.name, mime: info.mime_type || undefined, bytes: new Uint8Array(await r.arrayBuffer()), key: `chat:${fileId}`, from: info.name };
+}
+/** Tệp chat phải thuộc kênh hiện tại / kênh được ghi rõ / một tầng trên (bot là thành viên). Sai thì ném lỗi đọc được. */
+async function checkFileScope(info: any, channel?: string) {
+  if (channel) {
+    const t = await target(channel);
+    if (info.channel_id && info.channel_id !== t.id) throw new Error(`Tệp này không thuộc "${t.level.name}".`);
+  } else if (info.channel_id && info.channel_id !== CHANNEL) {
+    if (!(await chain()).some((l) => l.id === info.channel_id)) throw new Error("Tệp này không thuộc nhóm hiện tại hay các tầng trên của nó.");
+    await target(info.channel_id);
+  }
 }
 
 // Điện thoại Android qua adb (adb-tools.ts): chỉ hiện khi bot được cấp máy (adbDevices -> FLYGO_ADB=1) và máy này có adb (cố định: không phá prompt cache).
@@ -632,9 +663,11 @@ async function allTools(): Promise<any[]> {
 // tool_describe / tool_call; "full" = như cũ (mọi tool). Làm việc được nhờ (A2A callee) luôn đủ bộ nhỏ của nó.
 const TOOL_MODE = A2A_ROLE === "callee" ? "full" : (process.env.FLYGO_TOOL_MODE || "core");
 let toolIndex: ToolIndex | null = null;
+let toolIndexKey = ""; // RUN_KEY lúc dựng chỉ mục: tiến trình MCP sống qua nhiều lượt, mỗi lượt một vé Gateway (tool app khác nhau)
 async function indexNow(): Promise<{ all: any[]; idx: ToolIndex }> {
   const all = await allTools();
   toolIndex = new ToolIndex(all);
+  toolIndexKey = RUN_KEY;
   return { all, idx: toolIndex };
 }
 server.setRequestHandler(ListToolsRequestSchema, async () => { await refreshCtx();
@@ -663,7 +696,8 @@ function metaTools(idx: ToolIndex) {
 }
 const META_TOOLS = new Set(["tool_search", "tool_describe", "tool_call"]);
 async function metaCall(name: string, a: any): Promise<any> {
-  const idx = toolIndex ?? (await indexNow()).idx;
+  // Chỉ mục dựng ở lượt trước (vé khác / lúc Gateway chưa sẵn sàng) thì dựng lại: tránh "tool Mail lúc có lúc không" (2026-11-26).
+  let idx = toolIndex && toolIndexKey === RUN_KEY ? toolIndex : (await indexNow()).idx;
   if (name === "tool_search") {
     const hits = idx.search(String(a.query ?? ""), { app: a.app ? String(a.app) : undefined, limit: Math.min(20, Math.max(1, Number(a.limit) || 8)) });
     if (!hits.length) return text(`Không thấy tool khớp "${a.query}". Thử từ khác, hoặc lọc app (xem danh sách app trong mô tả tool_search).`);
@@ -676,9 +710,14 @@ async function metaCall(name: string, a: any): Promise<any> {
   // tool_call
   const target = String(a.name ?? "");
   if (META_TOOLS.has(target)) return text("tool_call không gọi chính các tool tìm kiếm.");
-  if (!idx.get(target)) return text(`Không có tool ${target} trong lượt này. Tìm bằng tool_search.`);
+  if (!idx.get(target) && /__/.test(target)) idx = (await indexNow()).idx; // tool app: hỏi lại Gateway một lần
+  if (!idx.get(target)) {
+    const status = RUNNER && RUN_KEY && A2A_ROLE !== "callee" ? await runner("/gateway/status", {}).catch(() => null) : null;
+    // Gateway vừa lỗi lúc liệt kê tool: vẫn thử gọi thẳng (Gateway tự kiểm quyền theo vé); còn lại nói rõ lý do.
+    if (!(status?.failed && /^[a-z0-9_]+__[A-Za-z0-9_.-]+$/.test(target))) return text(missingToolReason(target, { role: A2A_ROLE, runner: !!(RUNNER && RUN_KEY), status, idx }));
+  }
   const args = a.arguments && typeof a.arguments === "object" ? a.arguments : {};
-  const gateway = gatewayKinds.has(target);
+  const gateway = gatewayKinds.has(target) || /^vn_flygo_[a-z0-9_]+__/.test(target); // tool app: callTool tự xin duyệt (không hỏi hai lần)
   const selfApproving = FS_TOOL_NAMES.has(target) || CHAT_OP_TOOLS.has(target) || ADB_TOOL_NAMES.has(target) || BROWSER_LOCAL_TOOL_NAMES.has(target) || target === "chat_watch" || target.startsWith("meeting_");
   if (toolCallNeedsApproval(target, { gateway, selfApproving, allowed: process.env.FLYGO_ALLOWED_TOOLS ?? "" })) {
     const r = await fetch(`${RUNNER}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, tool_name: `mcp__flygo_chat__${target}`, input: args }) })
@@ -816,6 +855,8 @@ const CHAT_TOOLS = [
           start: { type: "boolean", description: "true = phiên mới bắt tay làm ngay theo bàn giao; mặc định false (chờ Sếp nhắn ở phiên mới)" },
           close_current: { type: "boolean", description: "true = chuyển hẳn: đánh dấu phiên này xong, trỏ sang phiên mới; mặc định false (phiên này làm tiếp)" },
           project_id: { type: "string", description: "tạo phiên trong một dự án khác của chủ (id từ project_list); bỏ trống = cùng nhóm / dự án" },
+          model: { type: "string", description: "model cho phiên mới, vd \"Sonnet 5.5\", \"sonnet\", \"claude-opus-5-5\" (chỉ model bot dùng được); bỏ trống = mặc định của bot" },
+          effort: { type: "string", description: "mức suy nghĩ: low | medium | high | xhigh | max (tuỳ engine); bỏ trống = mặc định" },
         },
         required: ["title", "handoff"],
       },
@@ -1073,12 +1114,22 @@ async function callTool(req: any): Promise<any> {
     if (A2A_ROLE === "callee") throw new Error(`tool không dùng được khi làm việc được nhờ: ${req.params.name}`);
     // Tool ghi của app (theo manifest) xin người giao việc duyệt như tool ghi khác; tool đọc và tool ghi approval "none" gọi thẳng.
     // Gateway vẫn kiểm quyền theo vé.
-    if ((gatewayKinds.get(req.params.name) ?? "write") === "write") {
+    // Office với tệp trên máy / trong chat: chép lên Drive là việc ghi, nên xin duyệt kể cả tool đọc.
+    const schema = gatewaySchemas.get(req.params.name);
+    if ((gatewayKinds.get(req.params.name) ?? "write") === "write" || needsUpload(req.params.name, a, schema)) {
       const r = await fetch(`${RUNNER}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: RUN_KEY, tool_name: `mcp__flygo_chat__${req.params.name}`, input: a }) })
         .then((x) => x.json()).catch(() => ({ allow: false }));
       if (!r.allow) return text(`Người giao việc không duyệt tool ${req.params.name}.`);
     }
-    return runner("/gateway/call", { name: req.params.name, arguments: a }).catch((e) => ({ isError: true, content: [{ type: "text", text: `Lỗi: ${e?.message ?? e}` }] }));
+    const gw = (name: string, args: any) => runner("/gateway/call", { name, arguments: args }).catch((e) => ({ isError: true, content: [{ type: "text", text: `Lỗi: ${e?.message ?? e}` }] }));
+    // Đính kèm thư / Office từ đường dẫn tệp trên máy hoặc file_id (app-files.ts): duyệt ở trên hiện path, gửi đi mới là base64.
+    const prep = await prepareAppArgs(req.params.name, a, schema, {
+      loadLocal: (p, max) => readLocal(p, fileRoots(), WORKDIR, max),
+      loadChat: (id, max) => loadChatFile(id, max),
+      gateway: gw, driveCache: driveCopies,
+    });
+    if ("error" in prep) return { isError: true, content: [{ type: "text", text: prep.error }] };
+    return withNote(await gw(req.params.name, prep.args), prep.note);
   }
   if (A2A_ROLE === "callee" && !["return_files", "approve"].includes(req.params.name)) throw new Error(`tool không dùng được khi làm việc được nhờ: ${req.params.name}`);
   if (req.params.name === "meeting_suggest" || req.params.name === "meeting_watch") {
@@ -1251,14 +1302,8 @@ async function callTool(req: any): Promise<any> {
     }
     case "chat_read_file": {
       const info = await mm.api<any>("GET", `/files/${a.file_id}/info`);
-      if (a.channel) {
-        const t = await target(a.channel);
-        if (info.channel_id && info.channel_id !== t.id) return text(`Tệp này không thuộc "${t.level.name}".`);
-      } else if (info.channel_id && info.channel_id !== CHANNEL) {
-        // Không ghi channel: vẫn cho đọc nếu tệp thuộc một tầng trên (kiểm thành viên như khi ghi rõ).
-        if (!(await chain()).some((l) => l.id === info.channel_id)) return text("Tệp này không thuộc nhóm hiện tại hay các tầng trên của nó.");
-        await target(info.channel_id);
-      }
+      // Không ghi channel: vẫn cho đọc nếu tệp thuộc một tầng trên (kiểm thành viên như khi ghi rõ).
+      try { await checkFileScope(info, a.channel); } catch (e: any) { if (/^Tệp này không thuộc/.test(e?.message ?? "")) return text(e.message); throw e; }
       const r = await fetch(`${mm.url}/api/v4/files/${a.file_id}`, { headers: { Authorization: `Bearer ${process.env.MM_TOKEN}` } });
       if (!r.ok) return text(`Không tải được tệp: ${r.status}`);
       const buf = new Uint8Array(await r.arrayBuffer());

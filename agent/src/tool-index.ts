@@ -116,3 +116,28 @@ export function toolCallNeedsApproval(name: string, o: { gateway: boolean; selfA
   if (o.allowed === "*") return false;
   return !o.allowed.split(",").map((x) => x.trim()).includes(name);
 }
+
+/** Trạng thái Flygo Gateway của lượt (runner /gateway/status). */
+export interface GatewayStatus { enabled: boolean; active?: boolean; via?: "receipt" | "consent" | "agent"; reduced?: string; failed?: string }
+
+/** tool_call gọi một tool không có trong lượt: nói rõ VÌ SAO (thay cho "Không có tool X trong lượt này", 2026-11-26), để agent
+ *  báo đúng lý do / tự xử lý thay vì đoán "tool lúc có lúc không". */
+export function missingToolReason(target: string, o: { role?: string; runner: boolean; status: GatewayStatus | null; idx: ToolIndex }): string {
+  const similar = o.idx.search(target.replace(/^vn_flygo_[a-z0-9_]+?__/, "").replace(/_/g, " "), { limit: 3 }).map((h) => h.name).filter((n) => n !== target);
+  const alt = similar.length ? ` Tool gần giống: ${similar.join(", ")}.` : "";
+  if (!/^[a-z0-9_]+__[A-Za-z0-9_.-]+$/.test(target)) return `Không có tool ${target}.${alt} Tìm bằng tool_search.`;
+  const app = appOf(target);
+  const label = APP_LABEL[app] ? `${app} (${APP_LABEL[app]})` : app;
+  const head = `Tool ${target} không dùng được trong lượt này`;
+  if (o.role === "callee") return `${head}: đang làm việc được nhờ (A2A), lượt này không mang quyền của người nào nên không có tool app công ty (vn_flygo_*). Trả kết quả / dữ liệu cần thiết cho bên nhờ để họ tự gọi tool đó.`;
+  if (!o.runner) return `${head}: không nối được runner (lượt đã kết thúc hoặc MCP chạy ngoài runner). Nhờ người dùng nhắn lại.`;
+  const s = o.status;
+  if (!s) return `${head}: không hỏi được trạng thái Flygo Gateway từ runner.${alt}`;
+  if (!s.enabled) return `${head}: bot chưa cấu hình Flygo Gateway (flygoId), nên không có tool app công ty.`;
+  if (!s.active) return `${head}: lượt không có tin kích hoạt (không xin được vé Gateway). Nhờ người dùng nhắn lại.`;
+  if (s.failed) return `${head}: Flygo Gateway đang lỗi (${s.failed}). Thử lại sau ít phút; vẫn lỗi thì báo người dùng nguyên văn lỗi này.`;
+  if (s.via === "agent") return `${head}: lượt chỉ mang quyền riêng của agent (${s.reduced ?? "không có biên nhận / đồng ý chạy thay"}), không phải quyền của người giao việc, nên thiếu tool app. Báo người dùng đúng lý do này.`;
+  const n = o.idx.apps()[app] ?? 0;
+  if (!n) return `${head}: người giao việc chưa được cấp app ${label} (hoặc app đang tắt) — Gateway không trả tool nào của app này. Nhờ quản trị cấp quyền app trong Flygo ID.`;
+  return `${head}: app ${label} có ${n} tool khác nhưng không có tool này (sai tên, hoặc người giao việc không có quyền dùng tool này).${alt}`;
+}
