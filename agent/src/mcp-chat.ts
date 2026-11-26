@@ -26,7 +26,7 @@ import { collectRange, rangeOf } from "./history";
 import { spawn } from "./spawn";
 import { FS_TOOLS, FS_TOOL_NAMES, fsTool } from "./fs-tools";
 import { APP_LABEL, CORE_TOOLS, ToolIndex, compactSchema, missingToolReason, toolCallNeedsApproval } from "./tool-index";
-import { augmentDescription, augmentSchema, needsUpload, prepareAppArgs, readLocal, withNote, type LoadedFile } from "./app-files";
+import { attachFiles, isMailAttach, isMailUpload, mailAttachTool, augmentDescription, augmentSchema, needsUpload, prepareAppArgs, readLocal, withNote, type LoadedFile } from "./app-files";
 import { BROWSER_LOCAL_TOOLS, BROWSER_LOCAL_TOOL_NAMES, browserLocalTool } from "./browser-local";
 import { ADB_TOOLS, ADB_TOOL_NAMES, adbPath } from "./adb-tools";
 
@@ -612,7 +612,9 @@ const gatewayKinds = new Map<string, string>(); // tên tool -> read | write | w
 async function gatewayTools(): Promise<any[]> {
   if (A2A_ROLE === "callee" || !RUNNER || !RUN_KEY) return [];
   const r = await runner("/gateway/tools", {}).catch(() => ({ tools: [] }));
-  const tools = Array.isArray(r.tools) ? r.tools : [];
+  const tools = Array.isArray(r.tools) ? [...r.tools] : [];
+  // Đính kèm nhiều tệp theo path / id tệp (không base64): tool của runner, chạy bằng mail_upload_attachment của app.
+  for (const t of [...tools]) if (isMailUpload(t.name)) { const x = mailAttachTool(t.name); tools.push(x); mailUploadOf.set(x.name, t.name); }
   // write_free: tool ghi mà manifest của app đặt approval "none" (vd Báo cáo: AI ghi thẳng vào app, không hỏi duyệt từng lần).
   for (const t of tools) {
     const kind = String(t._meta?.["vn.flygo/kind"] ?? "write");
@@ -622,6 +624,7 @@ async function gatewayTools(): Promise<any[]> {
   // Mail đính kèm / Office: nhận thêm đường dẫn tệp trên máy, file_id trong chat (app-files.ts).
   return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }: any) => ({ name, ...(title ? { title } : {}), description: augmentDescription(name, description, inputSchema), inputSchema: augmentSchema(name, inputSchema), ...(outputSchema ? { outputSchema } : {}), ...(annotations ? { annotations } : {}) }));
 }
+const mailUploadOf = new Map<string, string>(); // mail_attach_files -> mail_upload_attachment của app
 const gatewaySchemas = new Map<string, any>(); // schema gốc của app (trước khi thêm path / file_id)
 /** Bản Drive đã chép của tệp trên máy / trong chat (Office local_path / file_id), sống theo tiến trình MCP (phiên). */
 const driveCopies = new Map<string, string>();
@@ -1128,6 +1131,10 @@ async function callTool(req: any): Promise<any> {
       loadChat: (id, max) => loadChatFile(id, max),
       gateway: gw, driveCache: driveCopies,
     });
+    if (isMailAttach(req.params.name)) {
+      const up = mailUploadOf.get(req.params.name) ?? req.params.name.replace(/mail_attach_files$/, "mail_upload_attachment");
+      return attachFiles(up, a, { loadLocal: (p, max) => readLocal(p, fileRoots(), WORKDIR, max), loadChat: (id, max) => loadChatFile(id, max), gateway: gw, driveCache: driveCopies });
+    }
     if ("error" in prep) return { isError: true, content: [{ type: "text", text: prep.error }] };
     return withNote(await gw(req.params.name, prep.args), prep.note);
   }

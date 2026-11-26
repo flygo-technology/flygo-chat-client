@@ -29,14 +29,15 @@ export function augmentSchema(name: string, schema: any): any {
   if (!schema || typeof schema !== "object") return schema;
   const props = schema.properties ?? {};
   if (isMailUpload(name)) {
+    const { content_base64: _b64, ...keep } = props; // Sếp 2026-11-26: agent không làm việc với base64, chỉ đưa path / file_id
     return {
       ...schema,
       properties: {
-        ...props,
+        ...keep,
         path: { type: "string", description: "Hoặc: đường dẫn tệp trên máy bot (trong thư mục làm việc / thư mục dự án), vd attachments/bao-cao.pdf. Runner tự đọc và chuyển base64." },
         file_id: { type: "string", description: "Hoặc: id tệp đính kèm trong chat (file_id từ chat_files / chat_get_files)." },
       },
-      required: (schema.required ?? []).filter((k: string) => k !== "content_base64" && k !== "name"),
+      required: [],
     };
   }
   if (isOfficeTool(name, schema)) {
@@ -54,7 +55,7 @@ export function augmentSchema(name: string, schema: any): any {
 
 /** Mô tả tool kèm cách dùng mới (để agent biết không phải tự base64). */
 export function augmentDescription(name: string, desc: string | undefined, schema?: any): string | undefined {
-  if (isMailUpload(name)) return `${desc ?? ""} Đưa tệp bằng MỘT trong: path (tệp trên máy bot), file_id (tệp trong chat) hoặc content_base64. Tệp trong Drive: chưa đính kèm thẳng được, gửi link (drive_share) hoặc tải về máy trước.`.trim();
+  if (isMailUpload(name)) return `${desc ?? ""} Đưa tệp bằng path (tệp trên máy bot) hoặc file_id (tệp trong chat); runner tự đọc tệp. Nhiều tệp một lần: dùng mail_attach_files.`.trim();
   if (isOfficeTool(name, schema)) return `${desc ?? ""} Tệp trên máy bot / trong chat: đưa local_path hoặc file_id thay cho path.`.trim();
   return desc;
 }
@@ -142,4 +143,52 @@ export async function prepareAppArgs(name: string, a: any, schema: any, d: PrepD
 export function withNote(result: any, note?: string): any {
   if (!note || !result || typeof result !== "object") return result;
   return { ...result, content: [{ type: "text", text: note }, ...(Array.isArray(result.content) ? result.content : [])] };
+}
+
+// ---- mail_attach_files: đính kèm nhiều tệp một lần theo path / file_id, trả danh sách attachment_id ----
+export const attachToolName = (uploadName: string) => uploadName.replace(/mail_upload_attachment$/, "mail_attach_files");
+export const isMailAttach = (name: string) => /^vn_flygo_[a-z0-9_]*mail__mail_attach_files$/.test(name);
+export function mailAttachTool(uploadName: string) {
+  return {
+    name: attachToolName(uploadName), title: "Đính kèm tệp (đường dẫn / id tệp)",
+    description: "ĐÍNH KÈM TỆP cho thư theo đường dẫn tệp trên máy bot (thư mục làm việc / dự án) và / hoặc id tệp trong chat — không cần base64. Trả các attachment_id để đưa vào attachments của mail_save_draft. Tối đa 10 MB / tệp; gửi qua Cloudflare cả thư tối đa 5 MB.",
+    inputSchema: { type: "object", properties: {
+      paths: { type: "array", items: { type: "string" }, description: "đường dẫn tệp trên máy bot, vd attachments/bao-gia.pdf" },
+      file_ids: { type: "array", items: { type: "string" }, description: "id tệp đính kèm trong chat (từ chat_files / chat_get_files)" },
+      mailbox: { type: "string", description: "hộp thư; bỏ trống = hộp thư của người dùng" },
+    } },
+    _meta: { "vn.flygo/kind": "write" },
+  };
+}
+function attachmentIdOf(r: any): string | undefined {
+  const sc = r?.structuredContent;
+  if (sc?.attachment_id || sc?.id) return String(sc.attachment_id ?? sc.id);
+  const t = r?.content?.find?.((c: any) => c?.type === "text")?.text;
+  try { const j = JSON.parse(String(t ?? "")); return j?.attachment_id || j?.id ? String(j.attachment_id ?? j.id) : undefined; } catch { return /\b(att[_-]?[A-Za-z0-9_-]+)/.exec(String(t ?? ""))?.[1]; }
+}
+/** Tải lần lượt từng tệp bằng mail_upload_attachment; tệp lỗi ghi rõ, tệp khác vẫn tiếp. */
+export async function attachFiles(uploadName: string, a: any, d: PrepDeps): Promise<any> {
+  const items = [...(Array.isArray(a?.paths) ? a.paths : []).map((p: any) => ({ path: String(p) })), ...(Array.isArray(a?.file_ids) ? a.file_ids : []).map((f: any) => ({ file_id: String(f) }))];
+  if (!items.length) return { isError: true, content: [{ type: "text", text: "Cần paths hoặc file_ids." }] };
+  const ok: { name: string; attachment_id?: string; size: number }[] = [], bad: string[] = [];
+  let total = 0;
+  for (const it of items) {
+    let size = 0;
+    const loadLocal = async (p: string, m: number) => { const f = await d.loadLocal(p, m); size = f.bytes.length; return f; };
+    const loadChat = async (id: string, m: number) => { const f = await d.loadChat(id, m); size = f.bytes.length; return f; };
+    const prep = await prepareAppArgs(uploadName, { ...it, ...(a.mailbox ? { mailbox: a.mailbox } : {}) }, null, { ...d, loadLocal, loadChat });
+    const label = it.path ?? `file_id ${it.file_id}`;
+    if ("error" in prep) { bad.push(`${label}: ${prep.error}`); continue; }
+    const r = await d.gateway(uploadName, prep.args);
+    if (r?.isError) { bad.push(`${label}: ${r.content?.[0]?.text ?? "lỗi"}`); continue; }
+    total += size;
+    ok.push({ name: prep.args.name, attachment_id: attachmentIdOf(r), size });
+  }
+  const lines = [
+    ok.length ? `Đã tải ${ok.length} tệp:\n${ok.map((x) => `- ${x.name} (${mb(x.size)}): attachment_id=${x.attachment_id ?? "(xem kết quả app)"}`).join("\n")}` : "",
+    bad.length ? `Lỗi ${bad.length} tệp:\n${bad.map((x) => `- ${x}`).join("\n")}` : "",
+    ok.length ? `Đưa các attachment_id vào attachments của mail_save_draft.` : "",
+    total > MAIL_CF_TOTAL ? `Lưu ý: tổng ${mb(total)}, vượt ${mb(MAIL_CF_TOTAL)} cả thư khi gửi qua Cloudflare; nên gửi link Drive thay một phần.` : "",
+  ].filter(Boolean);
+  return { ...(ok.length ? {} : { isError: true }), content: [{ type: "text", text: lines.join("\n") }], structuredContent: { attachments: ok, errors: bad } };
 }

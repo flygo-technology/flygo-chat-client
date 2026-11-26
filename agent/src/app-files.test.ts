@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AI_DRIVE_FOLDER, MAIL_FILE_MAX, augmentSchema, needsUpload, prepareAppArgs, readLocal, resolveLocal, withNote, type LoadedFile, type PrepDeps } from "./app-files";
+import { attachFiles, mailAttachTool, AI_DRIVE_FOLDER, MAIL_FILE_MAX, augmentSchema, needsUpload, prepareAppArgs, readLocal, resolveLocal, withNote, type LoadedFile, type PrepDeps } from "./app-files";
 
 const MAIL = "vn_flygo_mail__mail_upload_attachment";
 const DOC = "vn_flygo_web_office__office_doc_read";
@@ -30,9 +30,9 @@ function deps(over: Partial<PrepDeps> = {}) {
 }
 
 describe("schema tool app", () => {
-  test("Mail: thêm path / file_id, không còn bắt content_base64 / name", () => {
+  test("Mail: chỉ path / file_id, ẩn content_base64", () => {
     const s = augmentSchema(MAIL, MAIL_SCHEMA);
-    expect(Object.keys(s.properties)).toEqual(["mailbox", "name", "content_base64", "type", "path", "file_id"]);
+    expect(Object.keys(s.properties)).toEqual(["mailbox", "name", "type", "path", "file_id"]);
     expect(s.required).toEqual([]);
     expect(MAIL_SCHEMA.required).toEqual(["name", "content_base64"]); // không sửa schema gốc
   });
@@ -113,5 +113,23 @@ describe("Office với tệp trên máy / trong chat", () => {
     expect(withNote({ content: [{ type: "text", text: "ok" }] }, "n").content.map((c: any) => c.text)).toEqual(["n", "ok"]);
     const res = { content: [] };
     expect(withNote(res, undefined)).toBe(res);
+  });
+});
+
+describe("mail_attach_files", () => {
+  test("nhiều tệp theo path + file_id, trả attachment_id; tệp lỗi không chặn tệp khác", async () => {
+    const calls: any[] = [];
+    const { d } = deps({
+      loadLocal: async (p) => { if (p === "x.zip") throw new Error("không thấy tệp x.zip"); return { name: p, bytes: new Uint8Array(3), key: p, from: p }; },
+      gateway: async (name, args) => { calls.push({ name, args }); return { content: [{ type: "text", text: JSON.stringify({ attachment_id: `att_${calls.length}` }) }] }; },
+    });
+    expect(mailAttachTool(MAIL).name).toBe("vn_flygo_mail__mail_attach_files");
+    const r = await attachFiles(MAIL, { paths: ["a.pdf", "x.zip"], file_ids: ["f1"], mailbox: "m@x" }, d);
+    expect(calls.map((c) => c.name)).toEqual([MAIL, MAIL]);
+    expect(calls[0].args.mailbox).toBe("m@x");
+    expect(r.structuredContent.attachments.map((x: any) => x.attachment_id)).toEqual(["att_1", "att_2"]);
+    expect(r.content[0].text).toContain("x.zip: Không đính kèm được");
+    expect(r.isError).toBeUndefined();
+    expect((await attachFiles(MAIL, {}, d)).isError).toBe(true);
   });
 });
