@@ -103,7 +103,7 @@ Production chat servers may run **Team Edition**. Licensed Mattermost features (
   - back up before changing a server, database or config, and keep a rollback written down;
   - prefer hide or archive over hard delete;
   - data of different servers never crosses.
-- **AI limits:** agents never get Ký số `sign` permission; write tools ask for approval; never auto-solve captchas.
+- **AI limits:** agents never get Ký số `sign` permission; write tools ask for approval; image/text captchas may be read and typed only on the page the owner assigned, for the owner's own account; interactive captchas (reCAPTCHA, hCaptcha, Turnstile) are left to the owner.
 
 ## 8. Definition of done
 

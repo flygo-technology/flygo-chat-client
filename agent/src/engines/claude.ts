@@ -12,6 +12,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, st
 import { tmpdir } from "node:os";
 import { base, clip, commandLabel, hostOf, mcpFromName } from "../labels";
 import { homedir } from "node:os";
+import claudeBase from "../../profiles/default/claude-base.md" with { type: "text" };
 import { dirname, join } from "node:path";
 import { resolveBin, type Config } from "../config";
 import type { Engine, EngineInventory, TurnHooks, TurnInput, TurnResult } from "./types";
@@ -336,15 +337,20 @@ export class ClaudeEngine implements Engine {
       bin, "-p",
       ...(streamIn ? ["--input-format", "stream-json", ...(replay ? ["--replay-user-messages"] : [])] : [input.prompt]),
       "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-      "--setting-sources", "project,local",
+      // Chỉ theo Flygo (Sếp 25/11): không nạp CLAUDE.md / .claude/settings của thư mục chat hay thư mục cha;
+      // quyền, hook, MCP, kỹ năng đều do runner đưa vào (kỹ năng của bot qua --plugin-dir).
+      "--setting-sources", "",
       "--settings", settings,
       "--permission-mode", permMode,
       "--mcp-config", mcpFile,
       // --permission-prompt-tool luôn có (cả toàn quyền): claude -p chỉ bật AskUserQuestion khi có nơi trả lời câu hỏi.
       "--permission-prompt-tool", "mcp__flygo_chat__approve",
       ...(full || input.twBypass ? [] : ["--allowedTools", [...this.cfg.claude.allowedTools, ...A2A_TOOLS, ...ALWAYS_OK, ...claudeReadOnly(desktopMcp(this.cfg))].join(",")]),
-      "--append-system-prompt", input.persona,
+      // Lời dặn hệ thống: mặc định THAY HẲN lời dặn gốc của Claude Code bằng bản gọn của Flygo (claude-base.md) + persona,
+      // bỏ phần an toàn / Chrome / game / WebSearch… (an toàn đã nằm ở model và phía Anthropic). basePrompt "claude": giữ gốc, nối persona.
+      ...(this.cfg.claude.basePrompt === "claude" ? ["--append-system-prompt", input.persona] : ["--system-prompt", `${claudeBase.trim()}\n\n${input.persona}`]),
       ...(input.addDirs ?? []).flatMap((d) => ["--add-dir", d]),
+      ...(input.pluginDirs ?? []).flatMap((d) => ["--plugin-dir", d]),
     ];
     const model = input.model ?? this.cfg.claude.model;
     if (model) args.push("--model", model);

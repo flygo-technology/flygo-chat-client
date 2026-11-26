@@ -129,14 +129,18 @@ export const roleSlug = (role: string) => {
   } catch { return ""; }
 };
 
-/** Claude: dựng <home>/.runtime/claude/.claude/skills từ lớp chung + skill của bot; trả về thư mục cho --add-dir. */
+/** Claude: dựng plugin <home>/.runtime/claude (.claude-plugin/plugin.json + skills/) từ lớp chung + skill của bot; trả về thư mục cho --plugin-dir.
+ *  Plugin nạp được cả khi --setting-sources "" (còn .claude/skills qua --add-dir thì không). Tên kỹ năng hiện dạng flygo-bot:<tên>. */
 export function claudeSkillsDir(botId: string, baseDir?: string): string | null {
   const skills = listSkills(botId, baseDir);
   const rt = join(botHome(botId), ".runtime", "claude");
-  const target = join(rt, ".claude", "skills");
+  const target = join(rt, "skills");
   rmSync(target, { recursive: true, force: true });
+  rmSync(join(rt, ".claude", "skills"), { recursive: true, force: true }); // chỗ cũ (--add-dir)
   if (!skills.length) return null;
   mkdirSync(target, { recursive: true });
+  mkdirSync(join(rt, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(rt, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "flygo-bot", version: "1.0.0", description: "Kỹ năng riêng của bot Flygo" }));
   for (const s of skills) cpSync(dirname(s.path), join(target, s.name), { recursive: true });
   return rt;
 }

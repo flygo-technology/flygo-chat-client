@@ -77,6 +77,8 @@ export interface Config {
     compactWindow?: number;
     /** Bật Claude in Chrome (claude --chrome): agent điều khiển Chrome thật của người dùng qua extension. */
     chrome?: boolean;
+    /** Lời dặn hệ thống: "flygo" (mặc định) = thay hẳn bằng claude-base.md + persona; "claude" = giữ lời dặn gốc của Claude Code, nối persona. */
+    basePrompt?: "flygo" | "claude";
     /**
      * Tool có sẵn của Claude Code được nạp (claude --tools, vd. "Read,Glob,Grep,WebFetch,WebSearch,Skill"); thiếu = mặc định
      * (đủ bộ, ~26k token mỗi lượt). Bot chat chạy qua Cổng AI nên giới hạn để giảm token (Sếp 2026-11-17: "hi" tốn 68k).
@@ -135,6 +137,8 @@ const defaults: Omit<Config, "serverUrl" | "botToken" | "ownerUserIds" | "engine
   },
   claude: {
     bin: "claude",
+    // Bộ tool gọn mặc định (Sếp 25/11): bỏ Agent / Workflow / WebSearch / WebFetch / Chrome… (~7.5k token mỗi phiên); cấu hình bot đặt tools thì theo cấu hình.
+    tools: "Bash,Read,Edit,Write,Grep,Glob,Skill,ToolSearch,AskUserQuestion",
     allowedTools: ["Read", "Grep", "Glob", "LS", "TodoWrite", "WebSearch", "WebFetch", "mcp__flygo_chat__chat_thread", "mcp__flygo_chat__chat_history", "mcp__flygo_chat__chat_search", "mcp__flygo_chat__chat_info", "mcp__flygo_chat__chat_files", "mcp__flygo_chat__chat_read_file", "mcp__flygo_chat__chat_send_files", "mcp__flygo_chat__chat_send_bilingual", "mcp__flygo_chat__session_list", "mcp__flygo_chat__session_read", "mcp__flygo_chat__session_ask", "mcp__flygo_chat__project_info", "mcp__flygo_chat__team_list", "mcp__flygo_chat__team_session_read", "mcp__flygo_chat__team_ask", "mcp__flygo_chat__team_post", "mcp__flygo_chat__remote_agents", "mcp__flygo_chat__remote_agent_send", "mcp__flygo_chat__agent_send", "mcp__flygo_chat__agent_list", "mcp__flygo_chat__file_read"],
     // Cấm hẳn (không hiện thẻ duyệt): xoá đệ quy, đọc khoá/token. ssh/scp/sudo/git push: không cấm, hỏi duyệt từng lần như lệnh khác.
     deny: [
