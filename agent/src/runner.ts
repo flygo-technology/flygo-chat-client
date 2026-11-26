@@ -1207,7 +1207,7 @@ async function teamTool(op: string, a: any): Promise<string> {
       (r, e) => (e ? reject(Object.assign(new Error(e.message), { code: e.code })) : resolve(r))).catch(reject);
   });
   const sid = `team-${crypto.randomUUID().slice(0, 8)}`;
-  const step = (title: string, status: "running" | "done" | "error", detail?: string) => ctx.card.step({ id: sid, kind: "tool", title, label: clip(title, 60), status, detail, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
+  const step = (title: string, status: "running" | "done" | "error", detail?: string) => ctx.card.step({ id: `${sid}-q`, kind: "tool", title, label: clip(title, 60), status, detail, ...(a.agent_link ? { agent_link: a.agent_link } : {}) });
   const call = async (title: string, m: { op: "read" | "ask" | "post"; params?: any }, timeoutMs: number, detail?: string) => {
     step(title, "running", detail);
     if (mate) ctx.waiting.set(mate.bot_id, (ctx.waiting.get(mate.bot_id) ?? 0) + 1);
@@ -1217,7 +1217,10 @@ async function teamTool(op: string, a: any): Promise<string> {
         throw new Error("không gửi được tin tới phiên đó");
       const r = selfTarget ? await selfCall(m) : await a2a!.teamCall({ channel: ctx.channelId, ...(session ? { session } : { bot }), ...m }, { timeoutMs, signal: ctx.signal });
       const text = resultText(r);
-      step(title, "done", detail ? `${detail}\n\n${clip(text, 1500)}` : undefined);
+      step(title, "done", detail);
+      // Câu trả lời là một bước riêng (đuôi "-a", như agent_send): hộp xem hiện tin gửi một lần, trả lời ở khối riêng
+      // (trước đây ghép vào detail nên nội dung gửi đi lặp lại cùng câu trả lời).
+      if (detail && m.op !== "read") ctx.card.step({ id: `${sid}-a`, kind: "message", title: `${String(r?.bot ?? who)} trả lời: ${oneLine(text, 80)}`, status: "done", detail: clip(text, 8000), ...(a.agent_link ? { agent_link: agentLinkOf("reply", "in", a.agent_link.to, a.agent_link.from) } : {}) });
       return { ok: true, text, from: String(r?.bot ?? who) };
     } catch (e: any) {
       const raw = String(e?.message ?? e);
@@ -1532,7 +1535,7 @@ async function bridgeTurn(from: { id: string; username: string; owner_id: string
   }).catch(() => null);
   const post = {
     id: shown?.id ?? crypto.randomUUID(), channel_id: channelId, root_id: threadRoot, user_id: from.owner_id, create_at: Date.now(),
-    message: `(${self ? `${who} của chính bạn (cùng bot, cùng chủ)` : `Agent ${who} của cùng chủ`} nhờ qua A2A. Câu trả lời cuối của bạn được gửi lại cho bên nhờ; trả lời đầy đủ, đúng việc được nhờ.)\n${text}`,
+    message: `(${self ? `${who} của chính bạn (cùng bot, cùng chủ)` : `Agent ${who} của cùng chủ`} nhờ qua A2A. Câu trả lời cuối của bạn được gửi lại cho bên nhờ; trả lời đầy đủ, đúng việc được nhờ. Câu trả lời cuối phải là CHỮ viết cho bên nhờ: xác nhận đã nhận, nói rõ đã làm gì / kết quả (commit, tệp, link), hoặc chưa làm và vì sao; không kết thúc bằng lệnh / tool mà thiếu lời báo.)\n${text}`,
     props: {},
   } as any as Post;
   onWorking?.();
@@ -1542,7 +1545,7 @@ async function bridgeTurn(from: { id: string; username: string; owner_id: string
     link: agentLinkOf("reply", "out", dst, src),
   };
   return new Promise((resolve) => enqueue(key, () => runTurn(post, key, post.message, out).catch((e) => { out.error = String(e?.message ?? e); }).then(() => {
-    if (out.text !== undefined) resolve({ state: "completed", text: out.text || "(không có câu trả lời)" });
+    if (out.text !== undefined) resolve({ state: "completed", text: out.text || "Đã nhận và chạy xong lượt, nhưng phiên được nhờ không viết lời báo kết quả." });
     else resolve({ state: signal.aborted ? "canceled" : "failed", text: out.error || "lượt không chạy (phiên đóng / bot tạm tắt)" });
   })));
 }

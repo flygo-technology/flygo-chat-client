@@ -404,6 +404,7 @@ class AgentTrafficView extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 16, 12),
         child: Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 8, children: [
+          TextButton(key: const ValueKey('agent-traffic-close'), onPressed: () => Navigator.pop(context), child: Text(tr('Đóng'))),
           TextButton.icon(
             onPressed: () {
               final all = [t.message, if (t.replyText != null && t.replyText!.isNotEmpty) '---\n${t.replyText}'].join('\n\n');
