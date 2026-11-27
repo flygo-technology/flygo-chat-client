@@ -8,9 +8,13 @@ import '../i18n/i18n.dart';
 import 'access_api.dart';
 
 class AccessAdminPage extends StatefulWidget {
-  const AccessAdminPage({super.key, this.session, this.initialTab = 0});
+  const AccessAdminPage({super.key, this.session, this.initialTab = 0, this.section});
   final FlygoSession? session;
   final int initialTab;
+
+  /// Mở riêng một mục (ô trong nhóm Quản trị của tab Apps): 'grants', 'market', 'installed', 'keys', 'audit',
+  /// 'billing', 'members', 'departments', 'apps', 'account'. Không có thanh điều hướng.
+  final String? section;
   @override
   State<AccessAdminPage> createState() => _AccessAdminPageState();
 }
@@ -111,14 +115,14 @@ class _AccessAdminPageState extends State<AccessAdminPage> {
     }
     final wide = MediaQuery.sizeOf(context).width >= 760;
     final dests = _dests(_isAdmin);
-    final showBar = !wide && _ready && session.signedIn && _org != null && _error == null;
+    final showBar = widget.section == null && !wide && _ready && session.signedIn && _org != null && _error == null;
     return Container(
       decoration: bg,
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
-          title: Text(tr('Quản trị Flygo')),
+          title: Text(widget.section == null ? tr('Quản trị Flygo') : dests.first.label),
           actions: [
             if (_orgs.length > 1)
               PopupMenuButton<String>(
@@ -192,24 +196,32 @@ class _AccessAdminPageState extends State<AccessAdminPage> {
     );
   }
 
-  List<_Dest> _dests(bool admin) => [
-    _Dest(Icons.apps_rounded, tr('App của tôi'), tr('App'), (a, o) => _MyApps(api: a, org: o)),
+  List<_Dest> _dests(bool admin) {
+    final all = _allDests(admin);
+    if (widget.section == null) return all;
+    final one = all.where((d) => d.id == widget.section).toList();
+    return one.isEmpty ? [_allDests(true).firstWhere((d) => d.id == widget.section)] : one;
+  }
+
+  List<_Dest> _allDests(bool admin) => [
+    _Dest('apps', Icons.apps_rounded, tr('App của tôi'), tr('App'), (a, o) => _MyApps(api: a, org: o)),
     if (admin) ...[
-      _Dest(Icons.groups_rounded, tr('Thành viên'), tr('Thành viên'), (a, o) => _Members(api: a, org: o)),
-      _Dest(Icons.verified_user_rounded, tr('Phân quyền'), tr('Quyền'), (a, o) => _Grants(api: a, org: o)),
-      _Dest(Icons.storefront_rounded, tr('Chợ app'), tr('Chợ app'), (a, o) => _Market(api: a, org: o)),
-      _Dest(Icons.account_tree_rounded, tr('Phòng ban'), tr('Phòng ban'), (a, o) => _Departments(api: a, org: o)),
-      _Dest(Icons.widgets_rounded, tr('App đã cài'), tr('Đã cài'), (a, o) => _Installed(api: a, org: o)),
-      _Dest(Icons.key_rounded, tr('Khoá ký quản trị'), tr('Khoá'), (a, o) => _Keys(api: a, org: o)),
-      _Dest(Icons.history_rounded, tr('Nhật ký'), tr('Nhật ký'), (a, o) => _Audit(api: a, org: o)),
-      _Dest(Icons.receipt_long_rounded, tr('Thanh toán'), tr('Thanh toán'), (a, o) => _Billing(api: a, org: o)),
+      _Dest('members', Icons.groups_rounded, tr('Thành viên'), tr('Thành viên'), (a, o) => _Members(api: a, org: o)),
+      _Dest('grants', Icons.verified_user_rounded, tr('Phân quyền'), tr('Quyền'), (a, o) => _Grants(api: a, org: o)),
+      _Dest('market', Icons.storefront_rounded, tr('Chợ app'), tr('Chợ app'), (a, o) => _Market(api: a, org: o)),
+      _Dest('departments', Icons.account_tree_rounded, tr('Phòng ban'), tr('Phòng ban'), (a, o) => _Departments(api: a, org: o)),
+      _Dest('installed', Icons.widgets_rounded, tr('App đã cài'), tr('Đã cài'), (a, o) => _Installed(api: a, org: o)),
+      _Dest('keys', Icons.key_rounded, tr('Khoá ký quản trị'), tr('Khoá'), (a, o) => _Keys(api: a, org: o)),
+      _Dest('audit', Icons.history_rounded, tr('Nhật ký'), tr('Nhật ký'), (a, o) => _Audit(api: a, org: o)),
+      _Dest('billing', Icons.receipt_long_rounded, tr('Thanh toán'), tr('Thanh toán'), (a, o) => _Billing(api: a, org: o)),
     ],
-    _Dest(Icons.person_rounded, tr('Tài khoản Flygo ID'), tr('Tài khoản'), (a, o) => _Account(session: session)),
+    _Dest('account', Icons.person_rounded, tr('Tài khoản Flygo ID'), tr('Tài khoản'), (a, o) => _Account(session: session)),
   ];
 }
 
 class _Dest {
-  const _Dest(this.icon, this.label, this.short, this.build);
+  const _Dest(this.id, this.icon, this.label, this.short, this.build);
+  final String id;
   final IconData icon;
   final String label, short;
   final Widget Function(AccessApi api, String org) build;

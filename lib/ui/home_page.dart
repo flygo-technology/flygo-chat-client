@@ -1592,8 +1592,18 @@ class _HomePageState extends State<HomePage> {
                 appTile(const Icon(Icons.manage_accounts_rounded, color: Colors.white, size: 32), const Color(0xFF0F766E), tr('Người dùng'), 0,
                     // Máy tính: mở thành tab mới (danh sách + chi tiết hai cột); điện thoại: mở trang.
                     () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => UsersAdminPage(id: KysoApi.flygoId!)))),
-              appTile(const Icon(Icons.hub_rounded, color: Colors.white, size: 32), const Color(0xFF4338CA), tr('Flygo Access'), 0,
-                  () => isDesktop ? onLaunch('access') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessAdminPage()))),
+              // Quản trị Flygo Access: mỗi mục một ô (Sếp, 2026-11-27).
+              if (_usersAdmin)
+                for (final (id, icon, color, label) in [
+                  ('grants', Icons.verified_user_rounded, const Color(0xFF4338CA), tr('Phân quyền')),
+                  ('installed', Icons.widgets_rounded, const Color(0xFF0E7490), tr('App đã cài')),
+                  ('market', Icons.storefront_rounded, const Color(0xFFEA580C), tr('Chợ app')),
+                  ('keys', Icons.key_rounded, const Color(0xFFB45309), tr('Khoá ký')),
+                  ('audit', Icons.history_rounded, const Color(0xFF475569), tr('Nhật ký')),
+                  ('billing', Icons.receipt_long_rounded, const Color(0xFF15803D), tr('Thanh toán')),
+                ])
+                  appTile(Icon(icon, color: Colors.white, size: 32), color, label, 0,
+                      () => isDesktop ? onLaunch('access:$id') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => AccessAdminPage(section: id)))),
               for (final a in _adminApps)
                 appTile(
                     Icon(switch (a['native']) { 'mail-admin' => Icons.mark_email_read_rounded, 'appearance-admin' => Icons.palette_rounded, 'ai-admin' => Icons.smart_toy_rounded, _ => Icons.admin_panel_settings_rounded },
@@ -2228,6 +2238,17 @@ class _HomePageState extends State<HomePage> {
         return DeskTabLabel(ic, _tabTitles[t.id] ?? name);
       case 'app' when t.arg == 'zalo' || t.arg == 'wechat':
         return DeskTabLabel(brandIcon(t.arg!, 16, t.arg == 'zalo' ? const Color(0xFF0068FF) : const Color(0xFF07C160)), t.arg == 'zalo' ? 'Zalo' : 'WeChat');
+      case 'app' when t.arg?.startsWith('access:') == true:
+        final (ic, name) = switch (t.arg!.substring(7)) {
+          'grants' => (Icons.verified_user_rounded, tr('Phân quyền')),
+          'installed' => (Icons.widgets_rounded, tr('App đã cài')),
+          'market' => (Icons.storefront_rounded, tr('Chợ app')),
+          'keys' => (Icons.key_rounded, tr('Khoá ký')),
+          'audit' => (Icons.history_rounded, tr('Nhật ký')),
+          'billing' => (Icons.receipt_long_rounded, tr('Thanh toán')),
+          _ => (Icons.admin_panel_settings_rounded, tr('Quản trị')),
+        };
+        return DeskTabLabel(icon(ic, const Color(0xFF4338CA)), name);
       case 'app':
         final it = _appItems(app, () => null)[t.arg];
         if (it != null) return DeskTabLabel(icon(it.$1, it.$2), it.$3, badge: it.$4);
@@ -2363,6 +2384,7 @@ class _HomePageState extends State<HomePage> {
             kBangTinTab => const BangTinTab(),
       'contacts' => titled(tr('Danh bạ'), DirectoryView(onOpen: _open)),
       'org' => FlowsOrgPage(app: app, api: FlowsApi(app.token)),
+      _ when id.startsWith('access:') => AccessAdminPage(section: id.substring(7)),
       'delegations' => FlowDelegationsPage(app: app),
       'calls' => titled(tr('Lịch sử cuộc gọi'), CallHistoryView(header: const SizedBox.shrink(), onOpen: _open)),
       'meet' => const MeetHomePage(),
@@ -2376,7 +2398,6 @@ class _HomePageState extends State<HomePage> {
       'devices' => const DevicesPage(),
       'passkey' => const PasskeyPage(),
       'browsers' => const MyBrowsersPage(),
-      'access' => const AccessAdminPage(),
       'users' => KysoApi.flygoId == null ? const _Welcome() : UsersAdminPage(id: KysoApi.flygoId!),
       'zalo' || 'wechat' => Scaffold(
           backgroundColor: pal.bg,
