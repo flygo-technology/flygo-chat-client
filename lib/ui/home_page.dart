@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io' show Platform, Process, ProcessStartMode, exit;
 import 'dart:math' as math;
 
-import '../access/access_admin_page.dart';
+import '../access/access_console_page.dart';
 import '../i18n/i18n.dart';
 import '../calls/meet_rooms.dart' show parseMeetCode;
 import 'meet/meet_home.dart';
@@ -1249,7 +1249,7 @@ class _HomePageState extends State<HomePage> {
           () => _push(nav, tr('Danh bạ'), (ctx) => DirectoryView(onOpen: (id) => openChat(ctx, id)))),
       // Phòng ban (trưởng / phó / thành viên): ai cũng xem, quản trị sửa (lib/ui/flows/flows_org.dart).
       'org': (Icons.account_tree_rounded, const Color(0xFF0D9488), tr('Tổ chức'), 0,
-          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessAdminPage(section: 'departments')))),
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessConsolePage(section: 'departments')))),
       // Ủy quyền (trước ở trang Quy trình): ủy quyền đang có, gửi đơn xin ủy quyền.
       'delegations': (Icons.assignment_ind_rounded, const Color(0xFFE08A1E), tr('Ủy quyền'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => FlowDelegationsPage(app: app)))),
@@ -1590,7 +1590,7 @@ class _HomePageState extends State<HomePage> {
               if (_usersAdmin && KysoApi.flygoId != null)
                 appTile(const Icon(Icons.manage_accounts_rounded, color: Colors.white, size: 32), const Color(0xFF0F766E), tr('Người dùng'), 0,
                     // Máy tính: mở thành tab mới (danh sách + chi tiết hai cột); điện thoại: mở trang.
-                    () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessAdminPage(section: 'members')))),
+                    () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessConsolePage(section: 'members')))),
               // Quản trị Flygo Access: mỗi mục một ô (Sếp, 2026-11-27).
               if (_usersAdmin)
                 for (final (id, icon, color, label) in [
@@ -1601,7 +1601,7 @@ class _HomePageState extends State<HomePage> {
                   ('billing', Icons.receipt_long_rounded, const Color(0xFF15803D), tr('Thanh toán')),
                 ])
                   appTile(Icon(icon, color: Colors.white, size: 32), color, label, 0,
-                      () => isDesktop ? onLaunch('access:$id') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => AccessAdminPage(section: id)))),
+                      () => isDesktop ? onLaunch('access:$id') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => AccessConsolePage(section: id)))),
               for (final a in _adminApps)
                 appTile(
                     Icon(switch (a['native']) { 'mail-admin' => Icons.mark_email_read_rounded, 'appearance-admin' => Icons.palette_rounded, 'ai-admin' => Icons.smart_toy_rounded, _ => Icons.admin_panel_settings_rounded },
@@ -2382,8 +2382,8 @@ class _HomePageState extends State<HomePage> {
             kBangTinTab => const BangTinTab(),
       'contacts' => titled(tr('Danh bạ'), DirectoryView(onOpen: _open)),
       // Tổ chức và Người dùng lấy dữ liệu Flygo Access (Sếp, 2026-11-27).
-      'org' => const AccessAdminPage(section: 'departments'),
-      _ when id.startsWith('access:') => AccessAdminPage(section: id.substring(7)),
+      'org' => const AccessConsolePage(section: 'departments'),
+      _ when id.startsWith('access:') => AccessConsolePage(section: id.substring(7)),
       'delegations' => FlowDelegationsPage(app: app),
       'calls' => titled(tr('Lịch sử cuộc gọi'), CallHistoryView(header: const SizedBox.shrink(), onOpen: _open)),
       'meet' => const MeetHomePage(),
@@ -2397,7 +2397,7 @@ class _HomePageState extends State<HomePage> {
       'devices' => const DevicesPage(),
       'passkey' => const PasskeyPage(),
       'browsers' => const MyBrowsersPage(),
-      'users' => const AccessAdminPage(section: 'members'),
+      'users' => const AccessConsolePage(section: 'members'),
       'zalo' || 'wechat' => Scaffold(
           backgroundColor: pal.bg,
           body: Center(
