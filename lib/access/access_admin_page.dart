@@ -817,11 +817,6 @@ class _GrantsState extends State<_Grants> {
                                 ],
                               ),
                             ),
-                            PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert_rounded),
-                              onSelected: (_) => _showPolicy(context, '${g['app']}', '${g['app_name']}'),
-                              itemBuilder: (_) => [PopupMenuItem(value: 'p', child: Text(tr('Xem bản quyền của app')))],
-                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -877,7 +872,8 @@ class _GrantsState extends State<_Grants> {
     child: Chip(avatar: const Icon(Icons.filter_list_rounded, size: 16), label: Text(shown)),
   );
 
-  /// Sửa quyền cần ký bằng khoá P-256 của máy: bản này mới xem bản hiện hành.
+  /// Access đã bỏ policy có chữ ký (2026-11-27): không còn nút mở, chờ chuyển sang trang quản trị web.
+  // ignore: unused_element
   void _showPolicy(BuildContext context, String app, String name) {
     Navigator.of(context).push(
       MaterialPageRoute(

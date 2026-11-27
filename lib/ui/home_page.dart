@@ -1597,7 +1597,6 @@ class _HomePageState extends State<HomePage> {
                   ('grants', Icons.verified_user_rounded, const Color(0xFF4338CA), tr('Phân quyền')),
                   ('installed', Icons.widgets_rounded, const Color(0xFF0E7490), tr('App đã cài')),
                   ('market', Icons.storefront_rounded, const Color(0xFFEA580C), tr('Chợ app')),
-                  ('keys', Icons.key_rounded, const Color(0xFFB45309), tr('Khoá ký')),
                   ('audit', Icons.history_rounded, const Color(0xFF475569), tr('Nhật ký')),
                   ('billing', Icons.receipt_long_rounded, const Color(0xFF15803D), tr('Thanh toán')),
                 ])
