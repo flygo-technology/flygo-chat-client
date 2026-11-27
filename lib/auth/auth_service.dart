@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../access/access_api.dart';
 import '../config.dart';
 
 bool get isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
@@ -101,6 +102,18 @@ class LoginCancelled implements Exception {}
 class AuthService {
   /// Đăng nhập bằng tài khoản + mật khẩu (máy chủ không dùng Google).
   static Future<String> loginWithPassword(String login, String password) async {
+    // Máy chủ có Flygo ID: đăng nhập Flygo ID trong app rồi đổi lấy phiên chat (giữ luôn phiên Flygo ID cho màn
+    // quản trị). Máy chủ chưa bật (404) hoặc tài khoản chưa có ở Flygo ID: quay về đăng nhập mật khẩu của chat.
+    if (Uri.tryParse(kServerUrl)?.host == Uri.parse(kChatIssuer).host) {
+      final id = FlygoSession();
+      try {
+        if (await id.signIn(login, password) == 'two_factor') throw Exception(tr('Tài khoản bật xác minh hai bước: dùng "Đăng nhập bằng Flygo ID".'));
+        return await id.chatToken(kServerUrl);
+      } on AccessException catch (e) {
+        if (e.status != 404 && e.status != 401 && e.status != 400 && e.status != 403) throw Exception(e.message ?? e.code);
+        if (e.status == 403 && e.code != 'not_enabled') throw Exception(e.message ?? tr('Tài khoản bị chặn đăng nhập.'));
+      }
+    }
     final res = await http.post(
       Uri.parse('$kServerUrl/api/v4/users/login'),
       headers: {'Content-Type': 'application/json', 'User-Agent': kUserAgent, 'X-Requested-With': 'XMLHttpRequest'},

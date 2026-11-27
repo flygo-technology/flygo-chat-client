@@ -50,6 +50,8 @@ class _LoginPageState extends State<LoginPage> {
   final _server = TextEditingController();
   /// Người dùng đã tự sửa ô máy chủ: không tự điền theo email nữa.
   bool _serverEdited = false;
+  /// Ô máy chủ ẩn mặc định (app tự dò theo email); chỉ hiện khi người dùng bấm "Đổi máy chủ".
+  bool _showServer = false;
   bool _finding = false;
   /// Máy chủ ở ô máy chủ (đã hỏi được), để hiện link chính sách / điều khoản của máy chủ đó.
   FoundServer? _found;
@@ -203,6 +205,22 @@ class _LoginPageState extends State<LoginPage> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
+                if (!_showServer && !_serverEdited)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: busy ? null : () => setState(() => _showServer = true),
+                      icon: _finding
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(_found != null ? Icons.check_circle_rounded : Icons.dns_outlined, size: 16),
+                      label: Text(
+                          _found != null
+                              ? tr('Máy chủ {0} · Đổi', [Uri.parse(_found!.url).host])
+                              : tr('Đổi máy chủ'),
+                          style: TextStyle(color: pal.sub, fontSize: 13)),
+                    ),
+                  ),
+                if (_showServer || _serverEdited) ...[
                 const SizedBox(height: 12),
                 TextField(
                   controller: _server,
@@ -230,6 +248,7 @@ class _LoginPageState extends State<LoginPage> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
+                ],
                 ...[
                   const SizedBox(height: 12),
                   TextField(

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io' show Platform, Process, ProcessStartMode, exit;
 import 'dart:math' as math;
 
+import '../access/access_admin_page.dart';
 import '../i18n/i18n.dart';
 import '../calls/meet_rooms.dart' show parseMeetCode;
 import 'meet/meet_home.dart';
@@ -1591,6 +1592,8 @@ class _HomePageState extends State<HomePage> {
                 appTile(const Icon(Icons.manage_accounts_rounded, color: Colors.white, size: 32), const Color(0xFF0F766E), tr('Người dùng'), 0,
                     // Máy tính: mở thành tab mới (danh sách + chi tiết hai cột); điện thoại: mở trang.
                     () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => UsersAdminPage(id: KysoApi.flygoId!)))),
+              appTile(const Icon(Icons.hub_rounded, color: Colors.white, size: 32), const Color(0xFF4338CA), tr('Flygo Access'), 0,
+                  () => isDesktop ? onLaunch('access') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessAdminPage()))),
               for (final a in _adminApps)
                 appTile(
                     Icon(switch (a['native']) { 'mail-admin' => Icons.mark_email_read_rounded, 'appearance-admin' => Icons.palette_rounded, 'ai-admin' => Icons.smart_toy_rounded, _ => Icons.admin_panel_settings_rounded },
@@ -2373,6 +2376,7 @@ class _HomePageState extends State<HomePage> {
       'devices' => const DevicesPage(),
       'passkey' => const PasskeyPage(),
       'browsers' => const MyBrowsersPage(),
+      'access' => const AccessAdminPage(),
       'users' => KysoApi.flygoId == null ? const _Welcome() : UsersAdminPage(id: KysoApi.flygoId!),
       'zalo' || 'wechat' => Scaffold(
           backgroundColor: pal.bg,
