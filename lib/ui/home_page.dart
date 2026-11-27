@@ -24,7 +24,6 @@ import 'flows/flows_page.dart' show FlowDelegationsPage, FlowsHome, openFlowsHom
 import 'flows/workflow_page.dart' show WorkflowPage;
 import 'flows/process_list.dart' show openProcess;
 import 'flows/flow_experimental.dart' show FlowExperimentalBadge, flowExperimentalMsg, showFlowExperimental;
-import 'flows/flows_org.dart' show FlowsOrgPage;
 import 'contacts/directory_view.dart';
 import '../api/flows_api.dart' show FlowDefInfo, FlowsApi;
 import 'chat_page.dart';
@@ -1250,7 +1249,7 @@ class _HomePageState extends State<HomePage> {
           () => _push(nav, tr('Danh bạ'), (ctx) => DirectoryView(onOpen: (id) => openChat(ctx, id)))),
       // Phòng ban (trưởng / phó / thành viên): ai cũng xem, quản trị sửa (lib/ui/flows/flows_org.dart).
       'org': (Icons.account_tree_rounded, const Color(0xFF0D9488), tr('Tổ chức'), 0,
-          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => FlowsOrgPage(app: app, api: FlowsApi(app.token))))),
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessAdminPage(section: 'departments')))),
       // Ủy quyền (trước ở trang Quy trình): ủy quyền đang có, gửi đơn xin ủy quyền.
       'delegations': (Icons.assignment_ind_rounded, const Color(0xFFE08A1E), tr('Ủy quyền'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => FlowDelegationsPage(app: app)))),
@@ -1591,7 +1590,7 @@ class _HomePageState extends State<HomePage> {
               if (_usersAdmin && KysoApi.flygoId != null)
                 appTile(const Icon(Icons.manage_accounts_rounded, color: Colors.white, size: 32), const Color(0xFF0F766E), tr('Người dùng'), 0,
                     // Máy tính: mở thành tab mới (danh sách + chi tiết hai cột); điện thoại: mở trang.
-                    () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => UsersAdminPage(id: KysoApi.flygoId!)))),
+                    () => isDesktop ? onLaunch('users') : (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessAdminPage(section: 'members')))),
               // Quản trị Flygo Access: mỗi mục một ô (Sếp, 2026-11-27).
               if (_usersAdmin)
                 for (final (id, icon, color, label) in [
@@ -2383,7 +2382,8 @@ class _HomePageState extends State<HomePage> {
     return switch (id) {
             kBangTinTab => const BangTinTab(),
       'contacts' => titled(tr('Danh bạ'), DirectoryView(onOpen: _open)),
-      'org' => FlowsOrgPage(app: app, api: FlowsApi(app.token)),
+      // Tổ chức và Người dùng lấy dữ liệu Flygo Access (Sếp, 2026-11-27).
+      'org' => const AccessAdminPage(section: 'departments'),
       _ when id.startsWith('access:') => AccessAdminPage(section: id.substring(7)),
       'delegations' => FlowDelegationsPage(app: app),
       'calls' => titled(tr('Lịch sử cuộc gọi'), CallHistoryView(header: const SizedBox.shrink(), onOpen: _open)),
@@ -2398,7 +2398,7 @@ class _HomePageState extends State<HomePage> {
       'devices' => const DevicesPage(),
       'passkey' => const PasskeyPage(),
       'browsers' => const MyBrowsersPage(),
-      'users' => KysoApi.flygoId == null ? const _Welcome() : UsersAdminPage(id: KysoApi.flygoId!),
+      'users' => const AccessAdminPage(section: 'members'),
       'zalo' || 'wechat' => Scaffold(
           backgroundColor: pal.bg,
           body: Center(
