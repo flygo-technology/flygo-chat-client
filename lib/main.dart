@@ -828,6 +828,11 @@ class _RootState extends State<Root> {
   }
 
   /// Nút "Đăng nhập bằng Google": có email / máy chủ thì dò máy chủ trước, không thì dùng máy chủ đang chọn.
+  Future<void> _loginFlygoId() async {
+    if (kServerUrl.isEmpty) await ServerList.add(Uri.parse(kChatIssuer).origin, 'Flygo');
+    await _login(flygoId: true);
+  }
+
   Future<void> _loginGoogle(String email, String server) async {
     if (server.isNotEmpty || ServerList.emailDomain(email).isNotEmpty) {
       final s = await _serverForEmail(email, server);
@@ -845,14 +850,16 @@ class _RootState extends State<Root> {
     await _login(password: (login, password));
   }
 
-  Future<void> _login({(String, String)? password, String? qrToken}) async {
+  Future<void> _login({(String, String)? password, String? qrToken, bool flygoId = false}) async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       final token = qrToken ??
-          (password != null
+          (flygoId
+              ? await AuthService.loginWithFlygoId()
+              : password != null
               ? await _passwordToken(password.$1, password.$2)
               : await AuthService.loginWithGoogle());
       await TokenStore.write(token);
@@ -951,6 +958,7 @@ class _RootState extends State<Root> {
         onEmail: _loginEmail,
         onPasswordLogin: _loginPassword,
         onGoogle: _loginGoogle,
+        onFlygoId: kServerUrl.isEmpty || AuthService.flygoIdRoot ? _loginFlygoId : null,
         // Máy tính: đăng nhập bằng QR quét từ điện thoại cùng mạng LAN.
         onQrLogin: !isDesktop
             ? null

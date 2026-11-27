@@ -2,6 +2,9 @@ import '../i18n/i18n.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -164,6 +167,47 @@ class AuthService {
     }
   }
 
+  /// Một nút "Đăng nhập Flygo ID" (Sếp, 2026-11-27): mở trang Flygo ID trong trình duyệt hệ thống, Flygo ID tự lo
+  /// mật khẩu / Google / passkey / hai bước. /oauth2/token trả id_token + session_token (phiên gốc 30 ngày của app);
+  /// id_token đổi tiếp lấy phiên chat qua session-exchange.
+  static Future<String> loginWithFlygoId() async {
+    String rnd(int n) => base64Url.encode(List.generate(n, (_) => Random.secure().nextInt(256))).replaceAll('=', '');
+    final verifier = rnd(48), nonce = rnd(16), state = rnd(16);
+    final challenge = base64Url.encode(sha256.convert(utf8.encode(verifier)).bytes).replaceAll('=', '');
+    const redirect = '$kMobileScheme://auth/callback';
+    final url = Uri.parse('$kFlygoIdUrl/api/auth/oauth2/authorize').replace(queryParameters: {
+      'client_id': kChatClientId,
+      'response_type': 'code',
+      'scope': 'openid profile email offline_access',
+      'redirect_uri': redirect,
+      'code_challenge': challenge,
+      'code_challenge_method': 'S256',
+      'state': state,
+      'nonce': nonce,
+    }).toString();
+    final cb = isMobile
+        ? Uri.parse(await FlutterWebAuth2.authenticate(url: url, callbackUrlScheme: kMobileScheme))
+        : await _browser(url, (u) => u.queryParameters.containsKey('code') || u.queryParameters.containsKey('error'));
+    final code = cb.queryParameters['code'];
+    if (code == null || cb.queryParameters['state'] != state) {
+      if (cb.queryParameters['error'] == 'access_denied') throw LoginCancelled();
+      throw Exception(cb.queryParameters['error_description'] ?? tr('Không nhận được kết quả đăng nhập Flygo ID.'));
+    }
+    final r = await http.post(
+      Uri.parse('$kFlygoIdUrl/api/auth/oauth2/token'),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {'grant_type': 'authorization_code', 'code': code, 'code_verifier': verifier, 'redirect_uri': redirect, 'client_id': kChatClientId},
+    );
+    Map j = {};
+    try {
+      j = jsonDecode(r.body) as Map;
+    } catch (_) {}
+    if (r.statusCode == 503) throw Exception(tr('Flygo ID đang bận. Bấm đăng nhập lại.'));
+    if (r.statusCode != 200 || j['id_token'] is! String) throw Exception('${j['error_description'] ?? j['error'] ?? tr('Đăng nhập Flygo ID không thành công.')}');
+    if (j['session_token'] is String) await FlygoSession.instance.adopt(j['session_token'] as String);
+    return FlygoSession.instance.exchange(kServerUrl, j['id_token'] as String, nonce);
+  }
+
   static Future<String> loginWithGoogle() async {
     return isMobile ? _mobile() : _desktop();
   }
@@ -179,6 +223,36 @@ class AuthService {
     final token = Uri.parse(result).queryParameters['MMAUTHTOKEN'];
     if (token == null || token.isEmpty) throw Exception(tr('Không nhận được phiên đăng nhập'));
     return token;
+  }
+
+  /// Máy tính: mở [url] trong trình duyệt, chờ liên kết `flygochat://...` quay về app (macOS: kênh flygo/link;
+  /// Windows/Linux: bản app mới mở chuyển qua cổng tạm, xem [relayCallback]). Trả liên kết đó khi [done].
+  static Future<Uri> _browser(String url, bool Function(Uri) done) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final completer = Completer<Uri>();
+    server.listen((req) async {
+      final ok = done(req.uri);
+      req.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType.html
+        ..write(_resultPage(ok));
+      await req.response.close();
+      if (ok && !completer.isCompleted) completer.complete(req.uri);
+    });
+    try {
+      if (Platform.isMacOS) {
+        _linkChannel.setMethodCallHandler((call) async {
+          final u = Uri.tryParse('${call.arguments}');
+          if (call.method == 'open' && u != null && done(u) && !completer.isCompleted) completer.complete(u);
+        });
+      } else {
+        await _portFile().writeAsString('${server.port}', flush: true);
+      }
+      if (!await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)) throw Exception(tr('Không mở được trình duyệt'));
+      return await completer.future.timeout(const Duration(minutes: 5), onTimeout: () => throw LoginCancelled());
+    } finally {
+      await server.close(force: true);
+    }
   }
 
   /// Máy tính: mở trình duyệt, nhận kết quả qua một cổng tạm trên 127.0.0.1.

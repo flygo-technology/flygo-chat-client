@@ -27,6 +27,8 @@ class LoginPage extends StatefulWidget {
   final VoidCallback? onCancel;
   /// Máy tính: đăng nhập bằng QR quét từ điện thoại (null = không có).
   final VoidCallback? onQrLogin;
+  /// Máy chủ dùng Flygo ID: chỉ một nút "Đăng nhập Flygo ID" (Sếp, 2026-11-27). null = form cũ.
+  final VoidCallback? onFlygoId;
   const LoginPage({
     super.key,
     required this.busy,
@@ -38,6 +40,7 @@ class LoginPage extends StatefulWidget {
     this.onGoogle,
     this.onCancel,
     this.onQrLogin,
+    this.onFlygoId,
   });
 
   @override
@@ -52,6 +55,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _serverEdited = false;
   /// Ô máy chủ ẩn mặc định (app tự dò theo email); chỉ hiện khi người dùng bấm "Đổi máy chủ".
   bool _showServer = false;
+  /// Máy chủ khác (tự triển khai, không có Flygo ID): hiện lại form email / mật khẩu.
+  bool _other = false;
   bool _finding = false;
   /// Máy chủ ở ô máy chủ (đã hỏi được), để hiện link chính sách / điều khoản của máy chủ đó.
   FoundServer? _found;
@@ -188,6 +193,28 @@ class _LoginPageState extends State<LoginPage> {
                 Text(tr('Nhắn tin, gọi thoại và video cho doanh nghiệp.\nNhập email công ty (app tự tìm máy chủ) hoặc tên đăng nhập và mật khẩu.'),
                     textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: pal.sub, height: 1.4)),
                 const SizedBox(height: 32),
+                if (widget.onFlygoId != null && !_other) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: pal.accent,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+                      ),
+                      onPressed: busy ? null : widget.onFlygoId,
+                      icon: busy
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.verified_user_rounded),
+                      label: Text(busy ? tr('Đang đăng nhập...') : tr('Đăng nhập Flygo ID'), style: const TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: busy ? null : () => setState(() => _other = true),
+                    child: Text(tr('Dùng máy chủ chat khác'), style: TextStyle(color: pal.sub, fontSize: 13)),
+                  ),
+                ] else ...[
                 TextField(
                   controller: _user,
                   enabled: !busy,
@@ -297,6 +324,7 @@ class _LoginPageState extends State<LoginPage> {
                       label: Text(tr('Đăng nhập bằng Google'), style: const TextStyle(fontSize: 16)),
                     ),
                   ),
+                ],
                 ],
                 if (widget.onQrLogin != null) ...[
                   const SizedBox(height: 12),

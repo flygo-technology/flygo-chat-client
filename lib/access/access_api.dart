@@ -100,6 +100,13 @@ class FlygoSession {
     await _store.write(key: _key, value: s);
   }
 
+  /// Nhận phiên gốc từ /oauth2/token (session_token) của luồng đăng nhập qua trình duyệt.
+  Future<void> adopt(String token) async {
+    _session = token;
+    _jwt = null;
+    await _store.write(key: _key, value: token);
+  }
+
   Future<void> signOut() async {
     if (_session != null) {
       unawaited(_http.post(Uri.parse('$kFlygoIdUrl/api/auth/sign-out'), headers: {..._auth, 'Origin': kFlygoIdUrl}).catchError((_) => http.Response('', 0)));
@@ -167,10 +174,15 @@ class FlygoSession {
     final tj = _json(t);
     if (t.statusCode != 200 || tj['id_token'] is! String)
       throw AccessException(t.statusCode, '${tj['error'] ?? 'token_failed'}', tj['error_description'] as String?);
+    return exchange(server, tj['id_token'] as String, nonce);
+  }
+
+  /// id_token (đúng [nonce]) -> phiên chat của [server].
+  Future<String> exchange(String server, String idToken, String nonce) async {
     final x = await _http.post(
       Uri.parse('$server/plugins/vn.flygo.sso/flygo/session-exchange'),
       headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-      body: jsonEncode({'id_token': tj['id_token'], 'nonce': nonce, 'mobile': true}),
+      body: jsonEncode({'id_token': idToken, 'nonce': nonce, 'mobile': true}),
     );
     final xj = _json(x);
     if (x.statusCode != 200 || xj['token'] is! String) throw AccessException(x.statusCode, '${xj['error'] ?? 'exchange_failed'}', xj['message'] as String?);
