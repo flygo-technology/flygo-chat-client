@@ -204,7 +204,7 @@ void main() {
           key: UniqueKey(),
           debugShowCheckedModeBanner: false,
           theme: buildTheme(b),
-          home: AccessAdminPage(session: s, initialTab: tab),
+          home: AccessAdminPage(session: s, section: const ['apps', 'members', 'grants', 'market', 'departments', 'installed', 'keys', 'audit', 'billing'][tab]),
         ),
       ),
     );

@@ -8,13 +8,13 @@ import '../i18n/i18n.dart';
 import 'access_api.dart';
 
 class AccessAdminPage extends StatefulWidget {
-  const AccessAdminPage({super.key, this.session, this.initialTab = 0, this.section});
+  const AccessAdminPage({super.key, this.session, required this.section});
   final FlygoSession? session;
-  final int initialTab;
 
   /// Mở riêng một mục (ô trong nhóm Quản trị của tab Apps): 'grants', 'market', 'installed', 'keys', 'audit',
   /// 'billing', 'members', 'departments', 'apps', 'account'. Không có thanh điều hướng.
-  final String? section;
+  /// Mỗi mục là một app riêng trong nhóm Quản trị: không sidebar, không thanh dưới (Sếp, 2026-11-27).
+  final String section;
   @override
   State<AccessAdminPage> createState() => _AccessAdminPageState();
 }
@@ -25,7 +25,6 @@ class _AccessAdminPageState extends State<AccessAdminPage> {
   bool _ready = false;
   List<Map> _orgs = const [];
   String? _org;
-  late int _tab = widget.initialTab;
   Object? _error;
 
   @override
@@ -65,7 +64,6 @@ class _AccessAdminPageState extends State<AccessAdminPage> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
     final bg = BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topLeft,
@@ -90,39 +88,16 @@ class _AccessAdminPageState extends State<AccessAdminPage> {
     } else if (_org == null) {
       body = _Problem(text: tr('Tài khoản này chưa thuộc tổ chức nào trên Flygo Access.'), onRetry: _loadOrgs);
     } else {
-      body = LayoutBuilder(
-        builder: (context, c) {
-          final wide = c.maxWidth >= 760;
-          final dests = _dests(_isAdmin);
-          final i = _tab.clamp(0, dests.length - 1);
-          final page = KeyedSubtree(key: ValueKey('$_org/$i'), child: dests[i].build(api, _org!));
-          if (!wide) return page;
-          return Row(
-            children: [
-              NavigationRail(
-                backgroundColor: Colors.transparent,
-                extended: c.maxWidth >= 1100,
-                selectedIndex: i,
-                onDestinationSelected: (v) => setState(() => _tab = v),
-                destinations: [for (final d in dests) NavigationRailDestination(icon: Icon(d.icon), label: Text(d.label))],
-              ),
-              VerticalDivider(width: 1, color: cs.outlineVariant),
-              Expanded(child: page),
-            ],
-          );
-        },
-      );
+      body = KeyedSubtree(key: ValueKey('$_org/${widget.section}'), child: _dests(_isAdmin).first.build(api, _org!));
     }
-    final wide = MediaQuery.sizeOf(context).width >= 760;
     final dests = _dests(_isAdmin);
-    final showBar = widget.section == null && !wide && _ready && session.signedIn && _org != null && _error == null;
     return Container(
       decoration: bg,
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
-          title: Text(widget.section == null ? tr('Quản trị Flygo') : dests.first.label),
+          title: Text(dests.first.label),
           actions: [
             if (_orgs.length > 1)
               PopupMenuButton<String>(
@@ -148,57 +123,12 @@ class _AccessAdminPageState extends State<AccessAdminPage> {
           ],
         ),
         body: SafeArea(top: false, child: body),
-        bottomNavigationBar: showBar
-            ? NavigationBar(
-                selectedIndex: _tab < _mobileMore(dests) ? _tab : _mobileMore(dests),
-                onDestinationSelected: (v) {
-                  if (v == _mobileMore(dests)) {
-                    _openMore(context, dests);
-                  } else {
-                    setState(() => _tab = v);
-                  }
-                },
-                destinations: [
-                  for (final d in dests.take(_mobileMore(dests))) NavigationDestination(icon: Icon(d.icon), label: d.short),
-                  NavigationDestination(icon: const Icon(Icons.more_horiz_rounded), label: tr('Thêm')),
-                ],
-              )
-            : null,
-      ),
-    );
-  }
-
-  /// Điện thoại: 4 mục đầu ở thanh dưới, phần còn lại vào "Thêm".
-  int _mobileMore(List<_Dest> d) => d.length <= 5 ? d.length - 1 : 4;
-
-  void _openMore(BuildContext context, List<_Dest> dests) {
-    final start = _mobileMore(dests);
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (var k = start; k < dests.length; k++)
-              ListTile(
-                leading: Icon(dests[k].icon),
-                title: Text(dests[k].label),
-                selected: _tab == k,
-                onTap: () {
-                  Navigator.pop(context);
-                  setState(() => _tab = k);
-                },
-              ),
-          ],
-        ),
       ),
     );
   }
 
   List<_Dest> _dests(bool admin) {
     final all = _allDests(admin);
-    if (widget.section == null) return all;
     final one = all.where((d) => d.id == widget.section).toList();
     return one.isEmpty ? [_allDests(true).firstWhere((d) => d.id == widget.section)] : one;
   }
