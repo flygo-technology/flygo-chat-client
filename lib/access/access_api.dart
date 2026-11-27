@@ -38,6 +38,9 @@ class FlygoSession {
   final FlutterSecureStorage _store;
   static const _key = 'flygo_id_session';
 
+  /// Phiên GỐC của app (Sếp, 2026-11-27: mọi thứ do Flygo ID/Access quản lý). Phiên chat được đổi ra từ phiên này.
+  static final FlygoSession instance = FlygoSession();
+
   /// Bearer của phiên (plugin bearer của Flygo ID) hoặc chuỗi cookie phiên.
   String? _session;
   String? _jwt;

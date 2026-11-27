@@ -20,7 +20,7 @@ class AccessAdminPage extends StatefulWidget {
 }
 
 class _AccessAdminPageState extends State<AccessAdminPage> {
-  late final FlygoSession session = widget.session ?? FlygoSession();
+  late final FlygoSession session = widget.session ?? FlygoSession.instance;
   late final AccessApi api = AccessApi(session);
   bool _ready = false;
   List<Map> _orgs = const [];

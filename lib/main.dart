@@ -14,6 +14,7 @@ import 'ui/shell_highlight.dart' show registerAiFontLicenses;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'access/access_api.dart';
 import 'auth/auth_service.dart';
 import 'calls/call_service.dart';
 import 'calls/calls_client.dart' show CallsClient;
@@ -410,6 +411,15 @@ class _RootState extends State<Root> {
     if (_restoring) return;
     _restoring = true;
     try {
+      // Bản cũ chỉ có phiên chat: hỏi đăng nhập Flygo ID một lần lúc mở app (không đổi phiên chat thành phiên Flygo ID).
+      if (AuthService.flygoIdRoot && await TokenStore.read() != null && !await FlygoSession.instance.restore()) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _error = tr('Ứng dụng đã chuyển sang tài khoản Flygo ID. Vui lòng đăng nhập lại một lần.');
+        });
+        return;
+      }
       final a = await AppState.restore();
       _restoreFails = 0;
       if (!mounted) return;
@@ -690,7 +700,14 @@ class _RootState extends State<Root> {
     session.value = null;
     setState(() {
       _app = null;
-      _error = tr('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      _loading = true;
+    });
+    _renewChat().then((ok) {
+      if (ok || !mounted) return;
+      setState(() {
+        _loading = false;
+        _error = tr('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      });
     });
   }
 
@@ -836,7 +853,7 @@ class _RootState extends State<Root> {
     try {
       final token = qrToken ??
           (password != null
-              ? await AuthService.loginWithPassword(password.$1, password.$2)
+              ? await _passwordToken(password.$1, password.$2)
               : await AuthService.loginWithGoogle());
       await TokenStore.write(token);
       final a = AppState(token);
@@ -857,9 +874,60 @@ class _RootState extends State<Root> {
     }
   }
 
+  /// Đăng nhập mật khẩu qua Flygo ID; tài khoản bật hai bước thì hỏi mã.
+  Future<String> _passwordToken(String login, String password) async {
+    try {
+      return await AuthService.loginWithPassword(login, password);
+    } on TwoFactorRequired {
+      final ctx = navigatorKey.currentContext;
+      if (ctx == null) throw Exception(tr('Cần mã xác minh hai bước.'));
+      final c = TextEditingController();
+      final code = await showDialog<String>(
+        context: ctx,
+        builder: (d) => AlertDialog(
+          title: Text(tr('Mã xác minh hai bước')),
+          content: TextField(
+            controller: c,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(hintText: tr('Mã 6 số trong ứng dụng xác thực')),
+            onSubmitted: (v) => Navigator.pop(d, v),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Huỷ'))),
+            FilledButton(onPressed: () => Navigator.pop(d, c.text), child: Text(tr('Xác minh'))),
+          ],
+        ),
+      );
+      if (code == null || code.trim().isEmpty) throw LoginCancelled();
+      return AuthService.finishTwoFactor(code);
+    }
+  }
+
+  /// Phiên chat hết hạn: đổi lại từ phiên Flygo ID, không hỏi đăng nhập. Trả false khi không đổi được.
+  Future<bool> _renewChat() async {
+    if (!AuthService.flygoIdRoot || !await FlygoSession.instance.restore()) return false;
+    try {
+      final t = await FlygoSession.instance.chatToken(kServerUrl);
+      await TokenStore.write(t);
+      final a = AppState(t);
+      await a.start(waitForSync: true);
+      if (a.me == null) return false;
+      if (mounted) setState(() => _attach(a));
+      return true;
+    } on AccessException catch (e) {
+      // Chỉ phiên Flygo ID bị từ chối mới đăng xuất; lỗi mạng / 5xx giữ phiên gốc.
+      if (e.status == 401) await FlygoSession.instance.signOut();
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _logout() async {
     final a = _app;
     if (a == null) return;
+    unawaited(FlygoSession.instance.signOut());
     a.removeListener(_onAppChange);
     a.urgentAlert.removeListener(_onUrgent);
     a.importantAlert.removeListener(_onImportant);

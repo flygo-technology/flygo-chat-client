@@ -97,6 +97,11 @@ class TokenStore {
 
 class LoginCancelled implements Exception {}
 
+/// Flygo ID cần mã xác minh hai bước: hỏi mã rồi gọi [AuthService.finishTwoFactor].
+class TwoFactorRequired implements Exception {
+  const TwoFactorRequired();
+}
+
 /// Đăng nhập Google qua luồng mobile_login của máy chủ chat.
 /// Server chuyển về redirect_to kèm MMAUTHTOKEN sau khi Google xác thực xong.
 class AuthService {
@@ -105,13 +110,17 @@ class AuthService {
     // Máy chủ có Flygo ID: đăng nhập Flygo ID trong app rồi đổi lấy phiên chat (giữ luôn phiên Flygo ID cho màn
     // quản trị). Máy chủ chưa bật (404) hoặc tài khoản chưa có ở Flygo ID: quay về đăng nhập mật khẩu của chat.
     if (Uri.tryParse(kServerUrl)?.host == Uri.parse(kChatIssuer).host) {
-      final id = FlygoSession();
+      // Phiên Flygo ID là phiên gốc; chỉ máy chủ chưa bật đổi phiên (404 / not_enabled) mới dùng đăng nhập cũ.
+      final id = FlygoSession.instance;
       try {
-        if (await id.signIn(login, password) == 'two_factor') throw Exception(tr('Tài khoản bật xác minh hai bước: dùng "Đăng nhập bằng Flygo ID".'));
+        if (await id.signIn(login, password) == 'two_factor') throw const TwoFactorRequired();
         return await id.chatToken(kServerUrl);
       } on AccessException catch (e) {
-        if (e.status != 404 && e.status != 401 && e.status != 400 && e.status != 403) throw Exception(e.message ?? e.code);
-        if (e.status == 403 && e.code != 'not_enabled') throw Exception(e.message ?? tr('Tài khoản bị chặn đăng nhập.'));
+        if (e.status != 404 && e.code != 'not_enabled') {
+          if (e.status == 401 || e.status == 400) throw Exception(e.message ?? tr('Sai tài khoản hoặc mật khẩu.'));
+          if (e.status == 403) throw Exception(e.message ?? tr('Tài khoản bị chặn đăng nhập.'));
+          throw Exception(e.message ?? e.code);
+        }
       }
     }
     final res = await http.post(
@@ -129,6 +138,19 @@ class AuthService {
     }
     return token;
   }
+
+  /// Gửi mã hai bước cho phiên Flygo ID đang chờ, rồi đổi lấy phiên chat.
+  static Future<String> finishTwoFactor(String code) async {
+    try {
+      await FlygoSession.instance.verifyTotp(code.trim());
+      return await FlygoSession.instance.chatToken(kServerUrl);
+    } on AccessException catch (e) {
+      throw Exception(e.message ?? tr('Mã xác minh không đúng.'));
+    }
+  }
+
+  /// Máy chủ dùng Flygo ID làm phiên gốc (chat.flygo.vn).
+  static bool get flygoIdRoot => Uri.tryParse(kServerUrl)?.host == Uri.parse(kChatIssuer).host;
 
   /// Kiểm tra một địa chỉ có phải máy chủ chat không.
   static Future<bool> ping(String url) async {
