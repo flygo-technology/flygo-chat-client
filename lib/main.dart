@@ -869,10 +869,15 @@ class _RootState extends State<Root> {
       setState(() => _attach(a));
     } on LoginCancelled {
       _error = tr('Chưa đăng nhập xong. Bấm nút để thử lại.');
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[login] $e\n$st');
       final msg = e.toString();
-      _error = password != null
-          ? msg.replaceFirst('Exception: ', '')
+      _error = password != null || flygoId
+          ? (e is SocketException || e is TimeoutException
+              ? tr('Không kết nối được máy chủ. Kiểm tra mạng và thử lại.')
+              : msg.contains('CANCELED') || msg.contains('cancel')
+                  ? tr('Đã hủy đăng nhập.')
+                  : tr('Đăng nhập không thành công: {0}', [msg.replaceFirst('Exception: ', '')]))
           : msg.contains('CANCELED') || msg.contains('cancel')
               ? tr('Đã hủy đăng nhập.')
               : tr('Đăng nhập không thành công. Kiểm tra kết nối mạng và thử lại.');

@@ -3,11 +3,14 @@
 // Mọi lệnh gọi Access kèm Bearer <token phiên> lấy ở GET /api/auth/token (JWT 5 phút, aud flygo-access).
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
 const kFlygoIdUrl = 'https://id.flygo.vn';
@@ -33,9 +36,39 @@ class FlygoSession {
   FlygoSession({http.Client? client, FlutterSecureStorage? storage, String? preset})
     : _http = client ?? http.Client(),
       _store = storage ?? const FlutterSecureStorage(),
+      _file = storage == null && !kIsWeb && !(Platform.isAndroid || Platform.isIOS),
       _session = preset;
   final http.Client _http;
   final FlutterSecureStorage _store;
+  /// Máy tính: lưu tệp trong Application Support như TokenStore (bản macOS không có quyền Keychain).
+  final bool _file;
+
+  Future<File> _path() async {
+    final dir = await getApplicationSupportDirectory();
+    await dir.create(recursive: true);
+    return File('${dir.path}${Platform.pathSeparator}$_key');
+  }
+
+  Future<String?> _read() async {
+    if (!_file) return _store.read(key: _key);
+    final f = await _path();
+    if (!await f.exists()) return null;
+    final t = (await f.readAsString()).trim();
+    return t.isEmpty ? null : t;
+  }
+
+  Future<void> _write(String v) async {
+    if (!_file) return _store.write(key: _key, value: v);
+    final f = await _path();
+    await f.writeAsString(v, flush: true);
+    if (!Platform.isWindows) await Process.run('chmod', ['600', f.path]);
+  }
+
+  Future<void> _delete() async {
+    if (!_file) return _store.delete(key: _key);
+    final f = await _path();
+    if (await f.exists()) await f.delete();
+  }
   static const _key = 'flygo_id_session';
 
   /// Phiên GỐC của app (Sếp, 2026-11-27: mọi thứ do Flygo ID/Access quản lý). Phiên chat được đổi ra từ phiên này.
@@ -47,7 +80,7 @@ class FlygoSession {
   DateTime _jwtAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<bool> restore() async {
-    _session ??= await _store.read(key: _key);
+    _session ??= await _read();
     return _session != null;
   }
 
@@ -97,14 +130,14 @@ class FlygoSession {
     if (s == null || s == 'cookie:') return;
     _session = s;
     _jwt = null;
-    await _store.write(key: _key, value: s);
+    await _write(s);
   }
 
   /// Nhận phiên gốc từ /oauth2/token (session_token) của luồng đăng nhập qua trình duyệt.
   Future<void> adopt(String token) async {
     _session = token;
     _jwt = null;
-    await _store.write(key: _key, value: token);
+    await _write(token);
   }
 
   Future<void> signOut() async {
@@ -113,7 +146,7 @@ class FlygoSession {
     }
     _session = null;
     _jwt = null;
-    await _store.delete(key: _key);
+    await _delete();
   }
 
   /// Token phiên cho Access, giữ lại 4 phút (sống 5 phút).
