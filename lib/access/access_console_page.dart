@@ -82,10 +82,12 @@ class _AccessConsolePageState extends State<AccessConsolePage> {
             onPageFinished: (_) {
               if (mounted) setState(() => _loading = false);
             },
-            // Liên kết ra ngoài console: mở trình duyệt hệ thống.
+            // Liên kết ra ngoài console và nút Mở app (/open/<tổ chức>/<app>): mở trình duyệt hệ thống.
             onNavigationRequest: (r) {
               final u = Uri.tryParse(r.url);
-              if (u == null || u.origin == Uri.parse(kAccessUrl).origin || u.scheme == 'about') return NavigationDecision.navigate;
+              if (u == null || u.scheme == 'about' || (u.origin == Uri.parse(kAccessUrl).origin && !u.path.startsWith('/open/'))) {
+                return NavigationDecision.navigate;
+              }
               launchUrl(u, mode: LaunchMode.externalApplication);
               return NavigationDecision.prevent;
             },
