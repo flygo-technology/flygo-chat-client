@@ -1249,7 +1249,7 @@ class _HomePageState extends State<HomePage> {
           () => _push(nav, tr('Danh bạ'), (ctx) => DirectoryView(onOpen: (id) => openChat(ctx, id)))),
       // Phòng ban (trưởng / phó / thành viên): ai cũng xem, quản trị sửa (lib/ui/flows/flows_org.dart).
       'org': (Icons.account_tree_rounded, const Color(0xFF0D9488), tr('Tổ chức'), 0,
-          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessConsolePage(section: 'org')))),
+          () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => const AccessConsolePage(section: 'departments')))),
       // Ủy quyền (trước ở trang Quy trình): ủy quyền đang có, gửi đơn xin ủy quyền.
       'delegations': (Icons.assignment_ind_rounded, const Color(0xFFE08A1E), tr('Ủy quyền'), 0,
           () => (nav() ?? Navigator.of(context)).push(AppPageRoute(builder: (_) => FlowDelegationsPage(app: app)))),
@@ -1594,6 +1594,7 @@ class _HomePageState extends State<HomePage> {
               // Quản trị Flygo Access: mỗi mục một ô (Sếp, 2026-11-27).
               if (_usersAdmin)
                 for (final (id, icon, color, label) in [
+                  ('grants', Icons.verified_user_rounded, const Color(0xFF4338CA), tr('Phân quyền')),
                   ('installed', Icons.widgets_rounded, const Color(0xFF0E7490), tr('App đã cài')),
                   ('market', Icons.storefront_rounded, const Color(0xFFEA580C), tr('Chợ app')),
                   ('audit', Icons.history_rounded, const Color(0xFF475569), tr('Nhật ký')),
@@ -2381,7 +2382,7 @@ class _HomePageState extends State<HomePage> {
             kBangTinTab => const BangTinTab(),
       'contacts' => titled(tr('Danh bạ'), DirectoryView(onOpen: _open)),
       // Tổ chức và Người dùng lấy dữ liệu Flygo Access (Sếp, 2026-11-27).
-      'org' => const AccessConsolePage(section: 'org'),
+      'org' => const AccessConsolePage(section: 'departments'),
       _ when id.startsWith('access:') => AccessConsolePage(section: id.substring(7)),
       'delegations' => FlowDelegationsPage(app: app),
       'calls' => titled(tr('Lịch sử cuộc gọi'), CallHistoryView(header: const SizedBox.shrink(), onOpen: _open)),

@@ -13,7 +13,7 @@ import 'access_api.dart';
 class AccessConsolePage extends StatefulWidget {
   const AccessConsolePage({super.key, required this.section, this.session});
 
-  /// Mã mục ở trong app: apps, members, org, installed, market, billing, audit.
+  /// Mã mục ở trong app: apps, members, departments, grants, installed, market, billing, audit.
   final String section;
   final FlygoSession? session;
 
@@ -21,10 +21,8 @@ class AccessConsolePage extends StatefulWidget {
   static const sections = {
     'apps': 'apps',
     'members': 'members',
-    // Phòng ban + Phân quyền gộp một mục (28/11); tên cũ vẫn mở mục này.
-    'org': 'org',
-    'departments': 'org',
-    'grants': 'org',
+    'departments': 'depts',
+    'grants': 'perms',
     'installed': 'installed',
     'market': 'store',
     'billing': 'cost',
@@ -34,7 +32,8 @@ class AccessConsolePage extends StatefulWidget {
   static String title(String section) => switch (section) {
     'apps' => tr('App của tôi'),
     'members' => tr('Người dùng'),
-    'org' || 'departments' || 'grants' => tr('Tổ chức và quyền'),
+    'departments' => tr('Tổ chức'),
+    'grants' => tr('Phân quyền'),
     'installed' => tr('App đã cài'),
     'market' => tr('Chợ app'),
     'billing' => tr('Thanh toán'),
