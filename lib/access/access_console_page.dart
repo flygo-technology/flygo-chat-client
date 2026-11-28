@@ -8,7 +8,7 @@ import '../i18n/i18n.dart';
 import 'access_api.dart';
 
 /// Một mục quản trị của Flygo Access console, nhúng bằng webview (Sếp, 2026-11-27: quản trị làm bằng web).
-/// Hợp đồng nhúng: `console/?embed=1&theme=&org=#<mục>&token=<JWT 5 phút>`; trang đổi JWT lấy cookie rồi xoá khỏi
+/// Hợp đồng nhúng: `id.flygo.vn/console/?embed=1&theme=&org=#<mục>&token=<JWT 5 phút>`; trang đổi JWT lấy cookie rồi xoá khỏi
 /// địa chỉ; báo về qua kênh `FlygoHost` (`page`, `session_expired`).
 class AccessConsolePage extends StatefulWidget {
   const AccessConsolePage({super.key, required this.section, this.session});
@@ -52,6 +52,9 @@ class _AccessConsolePageState extends State<AccessConsolePage> {
   bool _loading = true;
   int _renews = 0;
 
+  /// Console ở id.flygo.vn (Flygo ID + Access gộp, 28/11); địa chỉ access cũ vẫn chuyển hướng về đó.
+  static final _home = {Uri.parse(kFlygoIdUrl).origin, Uri.parse(kAccessUrl).origin};
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -69,7 +72,7 @@ class _AccessConsolePageState extends State<AccessConsolePage> {
       if (!mounted) return;
       final dark = Theme.of(context).brightness == Brightness.dark;
       final page = AccessConsolePage.sections[widget.section] ?? 'apps';
-      final url = Uri.parse('$kAccessUrl/console/').replace(
+      final url = Uri.parse('$kFlygoIdUrl/console/').replace(
         queryParameters: {'embed': '1', 'theme': dark ? 'dark' : 'light'},
         fragment: '$page&token=$jwt',
       );
@@ -85,7 +88,7 @@ class _AccessConsolePageState extends State<AccessConsolePage> {
             // Liên kết ra ngoài console và nút Mở app (/open/<tổ chức>/<app>): mở trình duyệt hệ thống.
             onNavigationRequest: (r) {
               final u = Uri.tryParse(r.url);
-              if (u == null || u.scheme == 'about' || (u.origin == Uri.parse(kAccessUrl).origin && !u.path.startsWith('/open/'))) {
+              if (u == null || u.scheme == 'about' || (_home.contains(u.origin) && !u.path.startsWith('/open/'))) {
                 return NavigationDecision.navigate;
               }
               launchUrl(u, mode: LaunchMode.externalApplication);
