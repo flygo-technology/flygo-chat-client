@@ -42,6 +42,7 @@ import 'agents_view.dart';
 import 'qr_login.dart';
 import 'cast/screens_page.dart' show ScreensPage;
 import 'mini_app_view.dart';
+import 'app_link.dart';
 import 'drive/session.dart' show driveShareToken, kOfficeTabPrefix, officeLinkOf, officeTabInfo, openDriveShare, openOfficeLink, restoreOfficeTab;
 import 'drive/api.dart' show kDriveApp;
 import '../api/mini_apps.dart' show MiniApps;
@@ -727,6 +728,11 @@ class _HomePageState extends State<HomePage> {
     unawaited(BangTinService.instance.start(context.read<AppState>().token));
     // Ẩn / hiện / lưu quy trình ở mục Quy trình: Trang chủ tải lại danh sách quy trình ngay.
     flowsChanged.addListener(_kysoChanged);
+    // Liên kết flygochat://app/<mã> (trang "App của tôi"): mở mini app; cửa sổ riêng của một mục thì không nhận.
+    if (widget.solo == null) {
+      AppLink.pending.addListener(_appLink);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _appLink());
+    }
     unawaited(KysoApi.refresh(context.read<AppState>().token));
     // Thiết bị: báo Flygo ID máy này đang dùng (mỗi 6 giờ).
     unawaited(DevicesPage.heartbeat(context.read<AppState>().token));
@@ -1112,6 +1118,25 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Tab Apps trên điện thoại dùng Trang chủ như máy tính: ô mở tab (máy tính) thì ở đây chuyển tab dưới hoặc mở trang.
+  Future<void> _appLink() async {
+    final id = AppLink.pending.value;
+    if (id == null || !mounted) return;
+    AppLink.pending.value = null;
+    final messenger = ScaffoldMessenger.of(context);
+    var a = MiniApps.cached.where((a) => a.id == id).firstOrNull;
+    if (a == null) {
+      try {
+        a = (await MiniApps.list(context.read<AppState>().token, refresh: true)).where((a) => a.id == id).firstOrNull;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    if (a == null) {
+      messenger.showSnackBar(SnackBar(content: Text(tr('Không mở được app {0}: không có app này hoặc bạn chưa được cấp quyền.', [id]))));
+      return;
+    }
+    await openMiniApp(context, a);
+  }
+
   void _mobileLaunch(String id, AppState app) {
     final nav = Navigator.of(context);
     if (id == 'chat') return _selectTab(0);
@@ -1762,6 +1787,7 @@ class _HomePageState extends State<HomePage> {
     KysoApi.spacesChanged.removeListener(_kysoChanged);
     BangTinService.instance.removeListener(_kysoChanged);
     flowsChanged.removeListener(_kysoChanged);
+    AppLink.pending.removeListener(_appLink);
     HardwareKeyboard.instance.removeHandler(_onKey);
     // Bố cục chưa kịp lưu (vừa đổi xong thì đóng cửa sổ / đổi ngôn ngữ): lưu ngay.
     if (_paneSave?.isActive == true) _app.savePanes(_panes.toJson()).catchError((_) {});

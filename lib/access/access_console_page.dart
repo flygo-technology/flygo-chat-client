@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../i18n/i18n.dart';
+import '../ui/app_link.dart';
 import 'access_api.dart';
 
 /// Một mục quản trị của Flygo Access console, nhúng bằng webview (Sếp, 2026-11-27: quản trị làm bằng web).
@@ -117,6 +118,10 @@ class _AccessConsolePageState extends State<AccessConsolePage> {
       case 'page':
         _renews = 0;
         if (mounted) setState(() => _loading = false);
+      case 'open_app':
+        // Bấm một app ở "App của tôi": mở mini app đó như ô ở Trang chủ.
+        final id = '${m['app'] ?? ''}';
+        if (id.isNotEmpty) AppLink.open(id);
       case 'session_expired':
         // Lấy JWT mới, mở lại; không hỏi người dùng. Hỏng liên tục thì dừng để khỏi lặp.
         if (_renews++ < 2) _open();

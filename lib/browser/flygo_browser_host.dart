@@ -26,6 +26,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../ui/app_link.dart';
 import '../auth/auth_service.dart';
 import '../config.dart';
 import '../data/servers.dart';
@@ -268,11 +269,20 @@ class FlygoBrowserHost {
     if (!Platform.isMacOS) return;
     const MethodChannel('flygo/link').setMethodCallHandler((call) async {
       final u = Uri.tryParse('${call.arguments}');
-      if (call.method != 'open' || u == null || u.host != 'kyso') return;
+      if (call.method != 'open' || u == null) return;
+      if (AppLink.handle(u)) return;
+      if (u.host != 'kyso') return;
       final tax = u.queryParameters['tax'], profile = u.queryParameters['profile'], url = u.queryParameters['url'];
       if ((tax ?? profile ?? '').isEmpty || (url != null && !RegExp(r'^https?://').hasMatch(url))) return;
       onLinkOpen?.call(tax: tax, profile: profile, url: url);
     });
+    // Liên kết mở app lúc app chưa chạy (AppDelegate giữ lại tới khi có người nhận).
+    unawaited(const MethodChannel('flygo/link').invokeListMethod<String>('pending').then((l) {
+      for (final x in l ?? const <String>[]) {
+        final u = Uri.tryParse(x);
+        if (u != null) AppLink.handle(u);
+      }
+    }).catchError((_) => null));
   }
 
   /// Giao diện đặt: mở có màn hình chờ (xem openKysoWithLoading).
